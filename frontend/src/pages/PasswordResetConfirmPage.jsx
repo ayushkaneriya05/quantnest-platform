@@ -20,7 +20,7 @@ function PasswordResetConfirmPage() {
     }
 
     try {
-      await api.post("/auth/password/reset/confirm/", {
+      await api.post("users/auth/password/reset/confirm/", {
         uid,
         token,
         new_password1,
@@ -33,6 +33,7 @@ function PasswordResetConfirmPage() {
         err.response?.data?.detail ||
           "Failed to reset password. The link may be invalid or expired."
       );
+      console.error(err.response.data);
     }
   };
 
@@ -50,7 +51,7 @@ function PasswordResetConfirmPage() {
         <input
           type="password"
           value={new_password2}
-          onChange={(e) => setNewPassword2(e.g.et.value)}
+          onChange={(e) => setNewPassword2(e.target.value)}
           placeholder="Confirm New Password"
           required
         />

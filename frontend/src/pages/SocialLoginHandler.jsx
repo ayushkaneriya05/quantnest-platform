@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import api from "../services/api";
-import { loginSuccess } from "../store/authSlice";
+import { loginSuccess, fetchUserProfile } from "../store/authSlice";
 
 function SocialLoginHandler() {
   const [searchParams] = useSearchParams();
@@ -13,9 +13,10 @@ function SocialLoginHandler() {
     const accessToken = searchParams.get("access_token");
     if (accessToken) {
       api
-        .post("/auth/google/", { access_token: accessToken })
+        .post("users/auth/google/", { access_token: accessToken })
         .then((response) => {
           dispatch(loginSuccess(response.data));
+          dispatch(fetchUserProfile());
           navigate("/dashboard");
         })
         .catch((error) => {

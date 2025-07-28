@@ -1,40 +1,48 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import api from '../services/api';
+import { createSlice, createAsyncThunk } from "redux";
+import api from "../services/api";
 
-// Async thunk for fetching user profile
 export const fetchUserProfile = createAsyncThunk(
-  'auth/fetchUserProfile',
-  async (_, { rejectWithValue }) => {
+  "auth/fetchUserProfile",
+  async (_, { dispatch, rejectWithValue }) => {
     try {
-      const response = await api.get('/users/profile/');
+      const response = await api.get("/users/profile/");
       return response.data;
     } catch (err) {
+      dispatch(logout()); // Log out if token is invalid
       return rejectWithValue(err.response.data);
     }
   }
 );
 
 const initialState = {
-  accessToken: localStorage.getItem('accessToken') || null,
+  accessToken: localStorage.getItem("accessToken") || null,
   user: null,
   isLoading: false,
   error: null,
+  is2FARequired: false,
 };
 
 const authSlice = createSlice({
-  name: 'auth',
+  name: "auth",
   initialState,
   reducers: {
+    setLoading: (state, action) => {
+      state.isLoading = action.payload;
+    },
     loginSuccess: (state, action) => {
-      state.accessToken = action.payload.access;
-      localStorage.setItem('accessToken', action.payload.access);
+      state.accessToken = action.payload.access_token;
+      localStorage.setItem("accessToken", action.payload.access_token);
       state.isLoading = false;
       state.error = null;
+      state.is2FARequired = false;
+    },
+    set2FARequired: (state, action) => {
+      state.is2FARequired = action.payload;
     },
     logout: (state) => {
       state.accessToken = null;
       state.user = null;
-      localStorage.removeItem('accessToken');
+      localStorage.removeItem("accessToken");
     },
   },
   extraReducers: (builder) => {
@@ -46,16 +54,12 @@ const authSlice = createSlice({
         state.isLoading = false;
         state.user = action.payload;
       })
-      .addCase(fetchUserProfile.rejected, (state, action) => {
+      .addCase(fetchUserProfile.rejected, (state) => {
         state.isLoading = false;
-        state.error = action.payload;
-        // If profile fetch fails, the token is likely invalid, so log out
-        state.accessToken = null;
-        state.user = null;
-        localStorage.removeItem('accessToken');
       });
   },
 });
 
-export const { loginSuccess, logout } = authSlice.actions;
+export const { setLoading, loginSuccess, set2FARequired, logout } =
+  authSlice.actions;
 export default authSlice.reducer;

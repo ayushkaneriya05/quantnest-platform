@@ -1,18 +1,16 @@
-import axios from 'axios';
+import axios from "axios";
 
+// Create an Axios instance
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: process.env.REACT_APP_API_URL, // Use the environment variable
 });
 
-// Interceptor to add the auth token to every request if it exists
+// Add a request interceptor to include the token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem("accessToken");
     if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
+      config.headers["Authorization"] = `Bearer ${token}`;
     }
     return config;
   },

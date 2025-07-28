@@ -126,6 +126,11 @@ REST_USE_JWT = True
 JWT_AUTH_COOKIE = "quantnest-auth"  # Name of the cookie
 JWT_AUTH_REFRESH_COOKIE = "quantnest-refresh-token"
 
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+
 # allauth configuration
 ACCOUNT_LOGIN_METHODS = {"username"}  # or {"email"} or {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = [

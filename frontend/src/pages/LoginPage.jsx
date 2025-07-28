@@ -6,7 +6,7 @@ import api from "../services/api";
 import {
   loginSuccess,
   set2FARequired,
-  // fetchUserProfile,
+  fetchUserProfile,
 } from "../store/authSlice";
 
 function LoginPage() {
@@ -27,11 +27,12 @@ function LoginPage() {
         payload.otp_token = otpToken;
       }
 
-      const response = await api.post("/auth/login/", payload);
+      const response = await api.post("/users/auth/login/", payload);
 
       if (response.status === 200 && response.data.access_token) {
         // Full login success
         dispatch(loginSuccess(response.data));
+        dispatch(fetchUserProfile());
         navigate("/dashboard");
       } else if (response.status === 200) {
         // 2FA is required
@@ -39,6 +40,7 @@ function LoginPage() {
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Login failed.");
+      console.error(err.response.data);
     }
   };
 
