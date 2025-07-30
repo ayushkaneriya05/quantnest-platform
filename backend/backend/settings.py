@@ -66,7 +66,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  # CORS - must come before CommonMiddleware
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    # "allauth.account.middleware.AccountMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -77,9 +77,10 @@ MIDDLEWARE = [
 ]
 
 # Add this line. allauth requires it.
-SITE_ID = 1
+SITE_ID = 5
 AUTH_USER_MODEL = "users.User"
-
+# SOCIALACCOUNT_ADAPTER = "dj_rest_auth.registration.adapters.DefaultSocialAccountAdapter"
+# ACCOUNT_ADAPTER = "dj_rest_auth.adapters.DefaultAccountAdapter"
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "SCOPE": [
@@ -110,8 +111,8 @@ SECURE_HSTS_PRELOAD = True
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         # Use session auth for browsable API, and token auth for the frontend
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
-        "dj_rest_auth.jwt_auth.JWTCookieAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -132,16 +133,18 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 # allauth configuration
-ACCOUNT_LOGIN_METHODS = {"username"}  # or {"email"} or {"username", "email"}
-ACCOUNT_SIGNUP_FIELDS = [
-    {"name": "username", "required": True},
-    {"name": "email", "required": True},
-    {"name": "password1", "required": True},
-    {"name": "password2", "required": True},
-]
-ACCOUNT_CONFIRM_EMAIL_ON_GET = True  # confirm by clicking link
+# ACCOUNT_SIGNUP_FIELDS = [
+#     {"name": "username", "required": True},
+#     {"name": "email", "required": True},
+#     {"name": "password1", "required": True},
+#     {"name": "password2", "required": True},
+# ]
+ACCOUNT_LOGIN_METHODS = {"email"}
+
+ACCOUNT_SIGNUP_FIELDS = ["username", "email", "password1", "password2"]
+ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 ACCOUNT_EMAIL_SUBJECT_PREFIX = "[QuantNest] "
-LOGIN_URL = "http://localhost:3000/login"  # URL to redirect to for login
+LOGIN_URL = "http://localhost:5173/login"
 
 # Email backend configuration
 # For development, print emails to the console
@@ -155,9 +158,11 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 # EMAIL_HOST_USER = 'apikey'  # This is the literal string 'apikey'
 # EMAIL_HOST_PASSWORD = config('SENDGRID_API_KEY')
 # DEFAULT_FROM_EMAIL = 'QuantNest <noreply@yourdomain.com>'
+ACCOUNT_ADAPTER = 'allauth.account.adapter.DefaultAccountAdapter'
+SOCIALACCOUNT_ADAPTER = 'allauth.socialaccount.adapter.DefaultSocialAccountAdapter'
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "AUTH_HEADER_TYPES": ("Bearer",),
 }

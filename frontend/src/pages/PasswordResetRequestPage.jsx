@@ -9,7 +9,7 @@ function PasswordResetRequestPage() {
     e.preventDefault();
     setMessage("");
     try {
-      await api.post("/auth/password/reset/", { email });
+      await api.post("users/auth/password/reset/", { email });
       setMessage(
         "If an account with that email exists, a password reset link has been sent."
       );

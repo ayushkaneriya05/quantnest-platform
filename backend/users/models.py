@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.core.validators import MinLengthValidator
 from django.core.exceptions import ValidationError
+from allauth.account.models import EmailAddressManager
 
 
 class User(AbstractUser):

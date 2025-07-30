@@ -1,4 +1,4 @@
-import { createSlice, createAsyncThunk } from "redux";
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../services/api";
 
 export const fetchUserProfile = createAsyncThunk(
@@ -6,9 +6,10 @@ export const fetchUserProfile = createAsyncThunk(
   async (_, { dispatch, rejectWithValue }) => {
     try {
       const response = await api.get("/users/profile/");
+      console.log("fetch user profile : ", response);
       return response.data;
     } catch (err) {
-      dispatch(logout()); // Log out if token is invalid
+      // dispatch(logout()); // Log out if token is invalid
       return rejectWithValue(err.response.data);
     }
   }
@@ -30,8 +31,13 @@ const authSlice = createSlice({
       state.isLoading = action.payload;
     },
     loginSuccess: (state, action) => {
-      state.accessToken = action.payload.access_token;
-      localStorage.setItem("accessToken", action.payload.access_token);
+      console.log("Login successfull :", action.payload);
+      state.accessToken = action.payload.key;
+      localStorage.setItem("accessToken", action.payload.key);
+      console.log(
+        "Access token set in localStorage : ",
+        localStorage.getItem("accessToken")
+      );
       state.isLoading = false;
       state.error = null;
       state.is2FARequired = false;

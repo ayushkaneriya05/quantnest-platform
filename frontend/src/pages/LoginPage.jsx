@@ -10,7 +10,7 @@ import {
 } from "../store/authSlice";
 
 function LoginPage() {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [otpToken, setOtpToken] = useState("");
   const { is2FARequired } = useSelector((state) => state.auth);
@@ -22,17 +22,17 @@ function LoginPage() {
     e.preventDefault();
     setError("");
     try {
-      const payload = { email, password };
+      const payload = { username, password };
       if (is2FARequired && otpToken) {
         payload.otp_token = otpToken;
       }
 
       const response = await api.post("/users/auth/login/", payload);
-
-      if (response.status === 200 && response.data.access_token) {
+      console.log(response);
+      if (response.status === 200 && response.data.key) {
         // Full login success
         dispatch(loginSuccess(response.data));
-        dispatch(fetchUserProfile());
+        // dispatch(fetchUserProfile());
         navigate("/dashboard");
       } else if (response.status === 200) {
         // 2FA is required
@@ -61,10 +61,10 @@ function LoginPage() {
         {!is2FARequired ? (
           <>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="username"
               required
             />
             <input

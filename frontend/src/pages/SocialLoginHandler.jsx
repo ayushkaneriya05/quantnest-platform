@@ -16,7 +16,7 @@ function SocialLoginHandler() {
         .post("users/auth/google/", { access_token: accessToken })
         .then((response) => {
           dispatch(loginSuccess(response.data));
-          dispatch(fetchUserProfile());
+          // dispatch(fetchUserProfile());
           navigate("/dashboard");
         })
         .catch((error) => {

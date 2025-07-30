@@ -14,18 +14,22 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+
 @csrf_exempt
 def health_check(request):
     """Health check endpoint for monitoring."""
-    return JsonResponse({'status': 'healthy', 'message': 'QuantNest API is running'})
+    return JsonResponse({"status": "healthy", "message": "QuantNest API is running"})
+
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/v1/users/', include('users.urls')),
-    path('health/', health_check, name='health_check'),
+    path("admin/", admin.site.urls),
+    path("api/v1/users/", include("users.urls")),
+    path("accounts/", include("allauth.urls")),
+    path("health/", health_check, name="health_check"),
 ]

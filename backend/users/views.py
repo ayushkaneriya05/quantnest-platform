@@ -18,12 +18,30 @@ logger = logging.getLogger(__name__)
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
+from allauth.account.models import EmailAddress
+from django.contrib.auth import get_user_model
+from allauth.socialaccount.models import SocialAccount
+from django.db import transaction
+from rest_framework_simplejwt.tokens import RefreshToken
+
+User = get_user_model()
 
 
 class GoogleLoginView(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
-    callback_url = "http://localhost:3000/google-callback"  # Your frontend callback URL
+    callback_url = "http://localhost:5173/google-callback"
     client_class = OAuth2Client
+
+    def post(self, request, *args, **kwargs):
+        try:
+            # Log the incoming request data for debugging
+            print("Incoming request data:", request.data)
+            return super().post(request, *args, **kwargs)
+        except Exception as e:
+            import traceback
+
+            print("Google login error:", str(e))
+            traceback.print_exc()
 
 
 class TOTPCreateView(APIView):

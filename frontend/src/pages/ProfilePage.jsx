@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
-import QRCode from "qrcode.react";
+// import { QRCode } from "qrcode.react";
 import api from "../services/api";
 import { fetchUserProfile } from "../store/authSlice";
 
@@ -12,7 +12,7 @@ function Enable2FA() {
 
   const handleCreate2FA = async () => {
     try {
-      const response = await api.get("/auth/2fa/create/");
+      const response = await api.get("users/auth/2fa/create/");
       setQrCode(response.data.qr_code);
       setSecretKey(response.data.secret_key);
       setMessage("Scan the QR code with your authenticator app.");
@@ -23,7 +23,7 @@ function Enable2FA() {
 
   const handleVerify2FA = async () => {
     try {
-      await api.post("/auth/2fa/verify/", { token });
+      await api.post("users/auth/2fa/verify/", { token });
       setMessage("2FA has been successfully enabled!");
       setQrCode(""); // Clear setup details
     } catch (error) {
@@ -68,7 +68,7 @@ function ProfilePage() {
   const handleDisable2FA = async () => {
     if (window.confirm("Are you sure you want to disable 2FA?")) {
       try {
-        await api.post("/auth/2fa/disable/");
+        await api.post("users/auth/2fa/disable/");
         setMessage("2FA has been disabled.");
       } catch (error) {
         setMessage("Failed to disable 2FA.");
