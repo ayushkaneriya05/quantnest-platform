@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
-import { logout } from "../store/authSlice";
+import { logout, logoutUser } from "../store/authSlice";
 import api from "../services/api";
 
 function Navbar() {
@@ -11,7 +11,8 @@ function Navbar() {
 
   const handleLogout = async () => {
     try {
-      await api.post("/users/auth/logout/");
+      console.log("handle logout called");
+      dispatch(logoutUser());
     } catch (error) {
       console.error("Logout failed", error);
     } finally {

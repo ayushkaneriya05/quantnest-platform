@@ -14,9 +14,26 @@ export const fetchUserProfile = createAsyncThunk(
     }
   }
 );
-
+export const logoutUser = createAsyncThunk(
+  "auth/logout",
+  async (_, { getState, rejectWithValue }) => {
+    const { refreshToken } = getState().auth;
+    try {
+      // Tell the backend to blacklist the refresh token
+      console.log("Logging out with refresh token:", refreshToken);
+      await api.post("users/auth/logout/", { refresh: refreshToken });
+    } catch (error) {
+      console.error(
+        "Server-side logout failed, proceeding with client-side logout.",
+        error
+      );
+    }
+    return;
+  }
+);
 const initialState = {
   accessToken: localStorage.getItem("accessToken") || null,
+  refreshToken: localStorage.getItem("refreshToken") || null,
   user: null,
   isLoading: false,
   error: null,
@@ -32,23 +49,27 @@ const authSlice = createSlice({
     },
     loginSuccess: (state, action) => {
       console.log("Login successfull :", action.payload);
-      state.accessToken = action.payload.key;
-      localStorage.setItem("accessToken", action.payload.key);
-      console.log(
-        "Access token set in localStorage : ",
-        localStorage.getItem("accessToken")
-      );
+      state.accessToken = action.payload.access;
+      state.refreshToken = action.payload.refresh;
+      localStorage.setItem("accessToken", action.payload.access);
+      localStorage.setItem("refreshToken", action.payload.refresh);
       state.isLoading = false;
       state.error = null;
       state.is2FARequired = false;
+    },
+    tokenRefreshed: (state, action) => {
+      state.accessToken = action.payload.access;
+      localStorage.setItem('accessToken', action.payload.access);
     },
     set2FARequired: (state, action) => {
       state.is2FARequired = action.payload;
     },
     logout: (state) => {
+      console.log("Logging out user");
       state.accessToken = null;
       state.user = null;
       localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
     },
   },
   extraReducers: (builder) => {
@@ -66,6 +87,6 @@ const authSlice = createSlice({
   },
 });
 
-export const { setLoading, loginSuccess, set2FARequired, logout } =
+export const { setLoading, loginSuccess,tokenRefreshed, set2FARequired, logout } =
   authSlice.actions;
 export default authSlice.reducer;

@@ -29,7 +29,11 @@ function LoginPage() {
 
       const response = await api.post("/users/auth/login/", payload);
       console.log(response);
-      if (response.status === 200 && response.data.key) {
+      if (
+        response.status === 200 &&
+        response.data.access &&
+        response.data.refresh
+      ) {
         // Full login success
         dispatch(loginSuccess(response.data));
         // dispatch(fetchUserProfile());

@@ -9,36 +9,59 @@ function Enable2FA() {
   const [secretKey, setSecretKey] = useState("");
   const [token, setToken] = useState("");
   const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false); // Add loading state
+  const [error, setError] = useState(""); // Add error state
 
   const handleCreate2FA = async () => {
+    setIsLoading(true); // Set loading to true
+    setError("");
+    setMessage("");
     try {
-      const response = await api.get("users/auth/2fa/create/");
-      setQrCode(response.data.qr_code);
+      const response = await api.get("users/2fa/create/");
+      // Convert the SVG string to a Base64 Data URI
+      const svgBase64 = btoa(response.data.qr_code);
+      setQrCode(`data:image/svg+xml;base64,${svgBase64}`);
       setSecretKey(response.data.secret_key);
       setMessage("Scan the QR code with your authenticator app.");
-    } catch (error) {
-      setMessage("Error creating 2FA setup.");
+    } catch (err) {
+      setError("Error creating 2FA setup. Please try again.");
+      console.error(err);
+    } finally {
+      setIsLoading(false); // Set loading to false
     }
   };
 
   const handleVerify2FA = async () => {
+    setIsLoading(true);
+    setError("");
     try {
-      await api.post("users/auth/2fa/verify/", { token });
+      await api.post("users/2fa/verify/", { token });
       setMessage("2FA has been successfully enabled!");
-      setQrCode(""); // Clear setup details
-    } catch (error) {
-      setMessage("Verification failed. Invalid token.");
+      setQrCode(""); // Clear setup details on success
+      setSecretKey("");
+      setToken("");
+    } catch (err) {
+      setError("Verification failed. The token may be invalid.");
+      console.error("Verification failed:", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div>
       <h4>Enable Two-Factor Authentication</h4>
-      <button onClick={handleCreate2FA}>Start 2FA Setup</button>
+      <button onClick={handleCreate2FA} disabled={isLoading}>
+        {isLoading ? "Generating..." : "Start 2FA Setup"}
+      </button>
+
+      {error && <p style={{ color: "red" }}>{error}</p>}
+
       {qrCode && (
         <div>
           <p>{message}</p>
-          <div dangerouslySetInnerHTML={{ __html: qrCode }} />
+          {/* Use a standard <img> tag with the Data URI */}
+          <img src={qrCode} alt="2FA QR Code" />
           <p>
             Or manually enter this key: <strong>{secretKey}</strong>
           </p>
@@ -47,8 +70,11 @@ function Enable2FA() {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="Enter 6-digit code"
+            maxLength="6"
           />
-          <button onClick={handleVerify2FA}>Verify & Enable</button>
+          <button onClick={handleVerify2FA} disabled={isLoading}>
+            {isLoading ? "Verifying..." : "Verify & Enable"}
+          </button>
         </div>
       )}
     </div>
@@ -68,7 +94,7 @@ function ProfilePage() {
   const handleDisable2FA = async () => {
     if (window.confirm("Are you sure you want to disable 2FA?")) {
       try {
-        await api.post("users/auth/2fa/disable/");
+        await api.post("users/2fa/disable/");
         setMessage("2FA has been disabled.");
       } catch (error) {
         setMessage("Failed to disable 2FA.");

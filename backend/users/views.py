@@ -52,14 +52,15 @@ class TOTPCreateView(APIView):
     def get(self, request, *args, **kwargs):
         user = request.user
         # Get all existing devices for the user
-        devices = devices_for_user(user)
-        # If a device already exists, delete it
-        for device in devices:
-            device.delete()
+        device = user.totpdevice_set.filter(confirmed=False).first()
 
-        # Create a new device
-        device = user.totpdevice_set.create(confirmed=False)
-
+        # If no unconfirmed device exists, create a new one.
+        if not device:
+            # Before creating a new one, delete any old devices to ensure a clean state.
+            for old_device in devices_for_user(user):
+                old_device.delete()
+            device = user.totpdevice_set.create(confirmed=False)
+        print(f"Created new TOTP device for user {user.username} with key {device.key}")
         # Generate a QR code for the user to scan
         qr_code_url = device.config_url
         image_factory = qrcode.image.svg.SvgImage
@@ -98,9 +99,11 @@ class TOTPVerifyView(APIView):
             )
 
         # Verify the token
+        print(f"Verifying token {token} for device {device.key}")
         if device.verify_token(token):
             device.confirmed = True
             device.save()
+            print("Token verified and device confirmed.")
             return Response(
                 {"success": "2FA has been enabled."}, status=status.HTTP_200_OK
             )
