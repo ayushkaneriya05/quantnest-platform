@@ -4,6 +4,7 @@ import { store } from "../store/index";
 // Create an Axios instance
 const api = axios.create({
   baseURL: import.meta.env.VITE_REACT_APP_API_URL,
+  withCredentials: true,
 });
 
 // Add a request interceptor to include the token

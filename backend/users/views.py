@@ -3,10 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 import logging
-from .models import User
 from .serializers import UserProfileSerializer
-from django_otp import devices_for_user
-from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework.views import APIView
 from rest_framework import status
 import qrcode
@@ -18,13 +15,73 @@ logger = logging.getLogger(__name__)
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
-from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
-from allauth.socialaccount.models import SocialAccount
-from django.db import transaction
-from rest_framework_simplejwt.tokens import RefreshToken
 
 User = get_user_model()
+
+from dj_rest_auth.views import LoginView
+from django_otp import devices_for_user
+from django_otp.plugins.otp_totp.models import TOTPDevice
+
+
+class TwoStepLoginView(LoginView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+
+        user = self.user
+
+        # If user has OTP device confirmed
+        otp_devices = [device for device in devices_for_user(user) if device.confirmed]
+
+        if otp_devices:
+            # Logout user and ask for OTP code
+            from django.contrib.auth import logout
+
+            logout(request)
+
+            # Instead of returning token, say 2FA is required
+            return Response(
+                {
+                    "is_2fa_required": True,
+                    "detail": "Two-factor authentication is required.",
+                    "user_id": user.id,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # If no 2FA → allow login
+        return response
+
+
+class TwoFactorVerifyView(APIView):
+    def post(self, request):
+        user_id = request.data.get("user_id")
+        otp_token = request.data.get("otp_token")
+        print(f"Verifying OTP for user {user_id} with token {otp_token}")
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid user"}, status=400)
+
+        device = TOTPDevice.objects.filter(user=user, confirmed=True).first()
+        if device and device.verify_token(otp_token):
+            # Token is correct → return login tokens
+            from rest_framework_simplejwt.tokens import RefreshToken
+
+            refresh = RefreshToken.for_user(user)
+            return Response(
+                {
+                    "access_token": str(refresh.access_token),
+                    "refresh_token": str(refresh),
+                    "user": {"email": user.email, "username": user.username},
+                }
+            )
+
+        return Response({"error": "Invalid OTP token"}, status=400)
 
 
 class GoogleLoginView(SocialLoginView):

@@ -9,7 +9,6 @@ export const fetchUserProfile = createAsyncThunk(
       console.log("fetch user profile : ", response);
       return response.data;
     } catch (err) {
-      // dispatch(logout()); // Log out if token is invalid
       return rejectWithValue(err.response.data);
     }
   }

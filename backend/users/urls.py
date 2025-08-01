@@ -1,17 +1,21 @@
 from django.contrib import admin
 from django.urls import path, include, re_path
 from allauth.account.views import confirm_email
-from users.views import (
+from .views import (
     UserProfileView,
     TOTPCreateView,
     TOTPVerifyView,
     TOTPDisableView,
     GoogleLoginView,
+    TwoStepLoginView,
+    TwoFactorVerifyView,
 )
 
 urlpatterns = [
     # --- Authentication & Registration provided by dj-rest-auth ---
     # Includes endpoints for: login, logout, password change/reset, etc.
+    path("auth/login/", TwoStepLoginView.as_view(), name="login"),
+    path("auth/verify-2fa/", TwoFactorVerifyView.as_view(), name="otp-verify"),
     path("auth/", include("dj_rest_auth.urls")),
     path("auth/registration/", include("dj_rest_auth.registration.urls")),
     path("2fa/create/", TOTPCreateView.as_view(), name="2fa-create"),

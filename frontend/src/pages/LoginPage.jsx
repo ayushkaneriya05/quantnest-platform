@@ -12,6 +12,7 @@ import {
 function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [userId, setUserId] = useState("");
   const [otpToken, setOtpToken] = useState("");
   const { is2FARequired } = useSelector((state) => state.auth);
   const [error, setError] = useState("");
@@ -22,24 +23,28 @@ function LoginPage() {
     e.preventDefault();
     setError("");
     try {
+      let response = "";
       const payload = { username, password };
       if (is2FARequired && otpToken) {
         payload.otp_token = otpToken;
+        payload.user_id = userId;
+        console.log(payload);
+        response = await api.post("/users/auth/verify-2fa/", payload);
+      } else {
+        response = await api.post("/users/auth/login/", payload);
       }
 
-      const response = await api.post("/users/auth/login/", payload);
       console.log(response);
       if (
         response.status === 200 &&
         response.data.access &&
         response.data.refresh
       ) {
-        // Full login success
         dispatch(loginSuccess(response.data));
         // dispatch(fetchUserProfile());
         navigate("/dashboard");
-      } else if (response.status === 200) {
-        // 2FA is required
+      } else if (response.status === 200 && response.data.is_2fa_required) {
+        setUserId(response.data.user_id);
         dispatch(set2FARequired(true));
       }
     } catch (err) {

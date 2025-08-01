@@ -110,6 +110,7 @@ SECURE_HSTS_PRELOAD = True
 # DRF & Simple JWT Settings
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework.authentication.SessionAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": [
@@ -118,9 +119,12 @@ REST_FRAMEWORK = {
 }
 # Tell dj-rest-auth that we have a 2FA adapter
 REST_AUTH = {
-    "OTP_AUTH_ENABLED": True,
+    "SESSION_LOGIN": False,
     "USE_JWT": True,
     "JWT_AUTH_HTTPONLY": False,
+    "OTP_AUTH_ENABLED": True,
+    "LOGIN_SERIALIZER": "dj_rest_auth.serializers.LoginSerializer",
+    "TOKEN_SERIALIZER": "dj_rest_auth.serializers.TokenSerializer",
 }
 
 AUTHENTICATION_BACKENDS = [
@@ -218,6 +222,7 @@ CLOUDINARY_STORAGE = {"CLOUDINARY_URL": config("CLOUDINARY_URL")}
 
 DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 
+CORS_ALLOW_CREDENTIALS = True
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
