@@ -19,7 +19,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("id", "username", "email", "bio", "avatar")
+        fields = ("id", "username", "email", "bio", "avatar", "is_2fa_enabled")
         read_only_fields = (
             "id",
             "email",

@@ -9,6 +9,7 @@ from .views import (
     GoogleLoginView,
     TwoStepLoginView,
     TwoFactorVerifyView,
+    Update2FAStatusView,
 )
 
 urlpatterns = [
@@ -22,6 +23,11 @@ urlpatterns = [
     path("2fa/verify/", TOTPVerifyView.as_view(), name="2fa-verify"),
     path("2fa/disable/", TOTPDisableView.as_view(), name="2fa-disable"),
     path("auth/google/", GoogleLoginView.as_view(), name="google_login"),
+    # path(
+    #     "auth/update-2fa-status/",
+    #     Update2FAStatusView.as_view(),
+    #     name="update-2fa-status",
+    # ),
     # This URL is used by django-allauth for email verification
     re_path(
         r"^account-confirm-email/(?P<key>[-:\w]+)/$",

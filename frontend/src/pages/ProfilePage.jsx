@@ -11,6 +11,7 @@ function Enable2FA() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false); // Add loading state
   const [error, setError] = useState(""); // Add error state
+  const dispatch = useDispatch();
 
   const handleCreate2FA = async () => {
     setIsLoading(true); // Set loading to true
@@ -37,6 +38,7 @@ function Enable2FA() {
     try {
       await api.post("users/2fa/verify/", { token });
       setMessage("2FA has been successfully enabled!");
+      dispatch(fetchUserProfile());
       setQrCode(""); // Clear setup details on success
       setSecretKey("");
       setToken("");
@@ -96,8 +98,9 @@ function ProfilePage() {
       try {
         await api.post("users/2fa/disable/");
         setMessage("2FA has been disabled.");
+        dispatch(fetchUserProfile());
       } catch (error) {
-        setMessage("Failed to disable 2FA.");
+        setMessage("Failed to disable 2FA.", error);
       }
     }
   };
@@ -117,11 +120,18 @@ function ProfilePage() {
       <p>
         <strong>Bio:</strong> {user.bio || "Not set"}
       </p>
-      <hr />
-      <Enable2FA />
-      <hr />
-      <h4>Disable Two-Factor Authentication</h4>
-      <button onClick={handleDisable2FA}>Disable 2FA</button>
+      {!user.is_2fa_enabled ? (
+        <>
+          <hr />
+          <Enable2FA />
+        </>
+      ) : (
+        <>
+          <hr />
+          <h4>Disable Two-Factor Authentication</h4>
+          <button onClick={handleDisable2FA}>Disable 2FA</button>
+        </>
+      )}
       {message && <p>{message}</p>}
     </div>
   );

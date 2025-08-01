@@ -24,10 +24,20 @@ from django_otp import devices_for_user
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 
+class Update2FAStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        status = request.data.get("is_2fa_enabled")
+        request.user.is_2fa_enabled = status
+        request.user.save()
+        return Response({"is_2fa_enabled": request.user.is_2fa_enabled})
+
+
 class TwoStepLoginView(LoginView):
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-
+        print(response)
         user = self.user
 
         # If user has OTP device confirmed
@@ -53,7 +63,12 @@ class TwoStepLoginView(LoginView):
         return response
 
 
+from rest_framework.permissions import AllowAny
+
+
 class TwoFactorVerifyView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         user_id = request.data.get("user_id")
         otp_token = request.data.get("otp_token")
@@ -75,8 +90,8 @@ class TwoFactorVerifyView(APIView):
             refresh = RefreshToken.for_user(user)
             return Response(
                 {
-                    "access_token": str(refresh.access_token),
-                    "refresh_token": str(refresh),
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
                     "user": {"email": user.email, "username": user.username},
                 }
             )
@@ -160,6 +175,8 @@ class TOTPVerifyView(APIView):
         if device.verify_token(token):
             device.confirmed = True
             device.save()
+            user.is_2fa_enabled = True
+            user.save()
             print("Token verified and device confirmed.")
             return Response(
                 {"success": "2FA has been enabled."}, status=status.HTTP_200_OK
@@ -178,6 +195,8 @@ class TOTPDisableView(APIView):
         devices = devices_for_user(user)
         for device in devices:
             device.delete()
+            user.is_2fa_enabled = False
+            user.save()
         return Response(
             {"success": "2FA has been disabled."}, status=status.HTTP_200_OK
         )

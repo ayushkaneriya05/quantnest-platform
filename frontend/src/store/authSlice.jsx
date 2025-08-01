@@ -58,7 +58,7 @@ const authSlice = createSlice({
     },
     tokenRefreshed: (state, action) => {
       state.accessToken = action.payload.access;
-      localStorage.setItem('accessToken', action.payload.access);
+      localStorage.setItem("accessToken", action.payload.access);
     },
     set2FARequired: (state, action) => {
       state.is2FARequired = action.payload;
@@ -86,6 +86,11 @@ const authSlice = createSlice({
   },
 });
 
-export const { setLoading, loginSuccess,tokenRefreshed, set2FARequired, logout } =
-  authSlice.actions;
+export const {
+  setLoading,
+  loginSuccess,
+  tokenRefreshed,
+  set2FARequired,
+  logout,
+} = authSlice.actions;
 export default authSlice.reducer;

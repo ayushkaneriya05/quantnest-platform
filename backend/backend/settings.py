@@ -142,22 +142,23 @@ AUTHENTICATION_BACKENDS = [
 # ACCOUNT_LOGIN_METHODS = {"username"}
 ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_SIGNUP_FIELDS = ["username", "email", "password1", "password2"]
+# ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 ACCOUNT_EMAIL_SUBJECT_PREFIX = "[QuantNest] "
 LOGIN_URL = config("FRONTEND_URL") + "/login"
 
 # Email backend configuration
 # For development, print emails to the console
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # For production, you would use a real email service like SendGrid
-# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-# EMAIL_HOST = 'smtp.sendgrid.net'
-# EMAIL_PORT = 587
-# EMAIL_USE_TLS = True
-# EMAIL_HOST_USER = 'apikey'  # This is the literal string 'apikey'
-# EMAIL_HOST_PASSWORD = config('SENDGRID_API_KEY')
-# DEFAULT_FROM_EMAIL = 'QuantNest <noreply@yourdomain.com>'
+EMAIL_BACKEND = config("EMAIL_BACKEND")
+EMAIL_HOST = config("EMAIL_HOST")
+EMAIL_PORT = config("EMAIL_PORT", cast=int)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", cast=bool)
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 
 
 REST_AUTH_SERIALIZERS = {

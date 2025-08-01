@@ -21,6 +21,7 @@ class User(AbstractUser):
         validators=[MinLengthValidator(10, "Bio must be at least 10 characters long.")],
     )
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
+    is_2fa_enabled = models.BooleanField(default=False)
     REQUIRED_FIELDS = ["email"]
 
     def clean(self):
