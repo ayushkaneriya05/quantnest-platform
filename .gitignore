@@ -1,0 +1,93 @@
+# === Python / Django ===
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+db.sqlite3
+*.log
+*.pot
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.manifest
+*.spec
+*.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.mo
+*.env
+.env
+.env.*
+.envrc
+.vscode/
+.idea/
+.mypy_cache/
+.pytest_cache/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.pyre/
+.pytype/
+.DS_Store
+# Django static/media
+staticfiles/
+media/
+# Django migrations
+**/migrations/
+!**/migrations/__init__.py
+
+# === Node.js / React / Vite ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+.cache/
+.vite/
+*.tsbuildinfo
+*.eslintcache
+*.env.local
+*.env.development.local
+*.env.test.local
+*.env.production.local
+coverage/
+# Vite/React static assets
+public/vite.svg
+src/assets/react.svg
+
+# === General ===
+*.swp
+*.swo
+*.bak
+*.tmp
+*.orig
+*.rej
+Thumbs.db
+.DS_Store
+*.iml
+
+# === Docker ===
+*.pid
+*.seed
+*.pid.lock
+
+# === OS generated files ===
+ehthumbs.db
+Icon?
+Desktop.ini
+
+# === Logs ===
+*.log
+
+# === Others ===
+# Ignore local settings
+local_settings.py
