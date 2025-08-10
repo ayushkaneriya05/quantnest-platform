@@ -6,6 +6,8 @@ from allauth.account.models import EmailAddressManager
 
 
 class User(AbstractUser):
+    first_name = models.CharField(max_length=30, blank=True)
+    last_name = models.CharField(max_length=30, blank=True)
     email = models.EmailField(
         unique=True,
     )
@@ -20,7 +22,7 @@ class User(AbstractUser):
         max_length=500,
         validators=[MinLengthValidator(10, "Bio must be at least 10 characters long.")],
     )
-    avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
+    avatar = models.URLField(blank=True, null=True)
     is_2fa_enabled = models.BooleanField(default=False)
     REQUIRED_FIELDS = ["email"]
 

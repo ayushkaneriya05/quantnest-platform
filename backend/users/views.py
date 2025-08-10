@@ -23,21 +23,26 @@ from dj_rest_auth.views import LoginView
 from django_otp import devices_for_user
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from dj_rest_auth.registration.views import RegisterView
+from users.serializers import CustomRegisterSerializer
+from .serializers import UserProfileSerializer
 
-class Update2FAStatusView(APIView):
+import cloudinary.uploader
+from .utils import get_cloudinary_public_id
+
+class CustomRegisterView(RegisterView):
+    serializer_class = CustomRegisterSerializer
+
+class Get2FAStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        status = request.data.get("is_2fa_enabled")
-        request.user.is_2fa_enabled = status
-        request.user.save()
+    def get(self, request):
         return Response({"is_2fa_enabled": request.user.is_2fa_enabled})
 
 
 class TwoStepLoginView(LoginView):
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
-        print(response)
         user = self.user
 
         # If user has OTP device confirmed
@@ -76,11 +81,13 @@ class TwoFactorVerifyView(APIView):
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
-
+    
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response({"error": "Invalid user"}, status=400)
+        
+        serialized_user = UserProfileSerializer(user).data
 
         device = TOTPDevice.objects.filter(user=user, confirmed=True).first()
         if device and device.verify_token(otp_token):
@@ -92,7 +99,7 @@ class TwoFactorVerifyView(APIView):
                 {
                     "access": str(refresh.access_token),
                     "refresh": str(refresh),
-                    "user": {"email": user.email, "username": user.username},
+                    "user": serialized_user,
                 }
             )
 
@@ -218,7 +225,23 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
     def update(self, request, *args, **kwargs):
         try:
-            return super().update(request, *args, **kwargs)
+            user = self.get_object()
+            old_avatar_url = user.avatar
+            
+            # Get new avatar URL from request (handle both multipart and JSON)
+            new_avatar_url = request.data.get("avatar") or request.data.get("avatar_url")
+            response = super().update(request, *args, **kwargs)
+            print("old avatar ",old_avatar_url)
+            print("new avatar :", new_avatar_url)
+            # If avatar changed and old avatar exists, delete old image from Cloudinary
+            if new_avatar_url and old_avatar_url and new_avatar_url != old_avatar_url:
+                try:
+                    public_id = get_cloudinary_public_id(old_avatar_url)
+                    print(f"Deleting old avatar with public ID: {public_id}")
+                    cloudinary.uploader.destroy(public_id)
+                except Exception as e:
+                    logger.warning(f"Failed to delete old avatar from Cloudinary: {e}")
+            return response
         except ValidationError as e:
             logger.warning(f"Validation error in profile update: {e}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -228,3 +251,23 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
                 {"error": "An unexpected error occurred"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class DeleteAvatarView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        avatar_url = user.avatar
+        print(f"Attempting to delete avatar for user {user.username}: {avatar_url}")
+        if not avatar_url:
+            return Response({"detail": "No avatar to delete."}, status=status.HTTP_400_BAD_REQUEST)
+
+        public_id = get_cloudinary_public_id(avatar_url)
+        try:
+            cloudinary.uploader.destroy(public_id)
+            user.avatar = None
+            user.save()
+            return Response({"detail": "Avatar deleted."}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

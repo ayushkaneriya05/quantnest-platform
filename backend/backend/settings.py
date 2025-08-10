@@ -10,12 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-import os
 from pathlib import Path
 from decouple import config, Csv
-import dj_database_url
 import cloudinary
 from datetime import timedelta
+import cloudinary
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -56,6 +55,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework.authtoken",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "cloudinary",
     "cloudinary_storage",
@@ -77,7 +77,7 @@ MIDDLEWARE = [
 ]
 
 # Add this line. allauth requires it.
-SITE_ID = 5
+SITE_ID = 4
 AUTH_USER_MODEL = "users.User"
 
 SOCIALACCOUNT_PROVIDERS = {
@@ -93,8 +93,13 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
+
 # CORS Settings
 CORS_ALLOWED_ORIGINS = [
+    config("FRONTEND_URL"),
+]
+
+CSRF_TRUSTED_ORIGINS = [
     config("FRONTEND_URL"),
 ]
 
@@ -117,41 +122,47 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
 }
+
 # Tell dj-rest-auth that we have a 2FA adapter
 REST_AUTH = {
     "SESSION_LOGIN": False,
     "USE_JWT": True,
     "JWT_AUTH_HTTPONLY": False,
     "OTP_AUTH_ENABLED": True,
+    "PASSWORD_RESET_CONFIRM_URL": "password/confirm/{uid}/{token}",
     "LOGIN_SERIALIZER": "dj_rest_auth.serializers.LoginSerializer",
     "TOKEN_SERIALIZER": "dj_rest_auth.serializers.TokenSerializer",
 }
-
+REST_AUTH_REGISTER_SERIALIZERS = {
+    "REGISTER_SERIALIZER": "users.serializers.CustomRegisterSerializer",
+}  
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
 # allauth configuration
-# ACCOUNT_SIGNUP_FIELDS = [
-#     {"name": "username", "required": True},
-#     {"name": "email", "required": True},
-#     {"name": "password1", "required": True},
-#     {"name": "password2", "required": True},
-# ]
-# ACCOUNT_LOGIN_METHODS = {"username"}
+# ACCOUNT_EMAIL_REQUIRED = True
+# ACCOUNT_USERNAME_REQUIRED = True
+# ACCOUNT_AUTHENTICATION_METHOD = "username_email"'
 ACCOUNT_LOGIN_METHODS = {"username", "email"}
-ACCOUNT_SIGNUP_FIELDS = ["username", "email", "password1", "password2"]
-# ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+ACCOUNT_SIGNUP_FIELDS = {
+    "first_name": {"required": True},
+    "last_name": {"required": True},
+    "username": {"required": True,},
+    "email*": {"required": True,},
+    "password1": {"required": True},
+    "password2": {"required": True},
+}
+ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
-ACCOUNT_EMAIL_SUBJECT_PREFIX = "[QuantNest] "
+# ACCOUNT_EMAIL_SUBJECT_PREFIX = "[QuantNest] "
+ACCOUNT_EMAIL_BODY_HTML = True
 LOGIN_URL = config("FRONTEND_URL") + "/login"
 
-# Email backend configuration
-# For development, print emails to the console
+
 # EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
-# For production, you would use a real email service like SendGrid
 EMAIL_BACKEND = config("EMAIL_BACKEND")
 EMAIL_HOST = config("EMAIL_HOST")
 EMAIL_PORT = config("EMAIL_PORT", cast=int)
@@ -161,12 +172,7 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS", cast=bool)
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
 
 
-REST_AUTH_SERIALIZERS = {
-    "LOGIN_SERIALIZER": "dj_rest_auth.serializers.LoginSerializer",
-    "TOKEN_SERIALIZER": "dj_rest_auth.serializers.TokenSerializer",
-}
 ACCOUNT_ADAPTER = "allauth.account.adapter.DefaultAccountAdapter"
-# ACCOUNT_ADAPTER = 'users.adapter.CustomAccountAdapter'
 SOCIALACCOUNT_ADAPTER = "allauth.socialaccount.adapter.DefaultSocialAccountAdapter"
 
 SIMPLE_JWT = {
@@ -219,6 +225,12 @@ else:
         }
     }
 
+
+cloudinary.config(
+    cloud_name=config("CLOUDINARY_CLOUD_NAME"),
+    api_key=config("CLOUDINARY_API_KEY"),
+    api_secret=config("CLOUDINARY_API_SECRET"),
+)
 CLOUDINARY_STORAGE = {"CLOUDINARY_URL": config("CLOUDINARY_URL")}
 
 DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
