@@ -317,7 +317,7 @@ const TradeJournal = () => {
   );
 
   return (
-    <div className="h-[calc(100vh-80px)] bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white">
       {/* Header */}
       <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl flex-shrink-0">
         <div className="p-4">
