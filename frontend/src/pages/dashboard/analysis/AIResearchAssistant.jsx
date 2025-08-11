@@ -196,20 +196,20 @@ const AIResearchAssistant = () => {
     const isUser = msg.type === "user";
     
     return (
-      <div className={`flex gap-4 mb-6 ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={`flex gap-2 sm:gap-4 mb-4 sm:mb-6 ${isUser ? "justify-end" : "justify-start"}`}>
         {!isUser && (
-          <Avatar className="w-10 h-10 bg-gradient-to-br from-qn-light-cyan to-blue-500 flex items-center justify-center shadow-lg flex-shrink-0">
-            <Brain className="h-5 w-5 text-white" />
+          <Avatar className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-qn-light-cyan to-blue-500 flex items-center justify-center shadow-lg flex-shrink-0">
+            <Brain className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
           </Avatar>
         )}
-        
-        <div className={`max-w-[75%] ${isUser ? "order-first" : ""}`}>
-          <div className={`rounded-3xl px-5 py-3 ${
+
+        <div className={`max-w-[85%] sm:max-w-[75%] ${isUser ? "order-first" : ""}`}>
+          <div className={`rounded-3xl px-3 py-2 sm:px-5 sm:py-3 ${
             isUser 
               ? "bg-gradient-to-r from-qn-light-cyan to-blue-500 text-white ml-auto shadow-lg" 
               : "bg-gray-800/50 text-white border border-gray-700/50 backdrop-blur-xl shadow-xl"
           }`}>
-            <p className="text-sm leading-relaxed">{msg.content}</p>
+            <p className="text-xs sm:text-sm leading-relaxed">{msg.content}</p>
             
             {msg.insights && (
               <div className="mt-4 space-y-3">
@@ -245,7 +245,7 @@ const AIResearchAssistant = () => {
             )}
 
             {msg.suggestions && (
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-3 sm:mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {msg.suggestions.map((suggestion, index) => {
                   const IconComponent = suggestion.icon;
                   return (
@@ -254,7 +254,7 @@ const AIResearchAssistant = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => setMessage(suggestion.text)}
-                      className="justify-start text-left border-gray-600/50 text-gray-200 hover:bg-gray-700/50 h-auto py-2 backdrop-blur-sm"
+                      className="justify-start text-left border-gray-600/50 text-gray-200 hover:bg-gray-700/50 h-auto py-1.5 sm:py-2 backdrop-blur-sm text-xs sm:text-sm"
                     >
                       <IconComponent className="h-3 w-3 mr-2 text-qn-light-cyan" />
                       <span className="text-xs">{suggestion.text}</span>
@@ -284,8 +284,8 @@ const AIResearchAssistant = () => {
         </div>
 
         {isUser && (
-          <Avatar className="w-10 h-10 bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center shadow-lg flex-shrink-0">
-            <User className="h-5 w-5 text-white" />
+          <Avatar className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center shadow-lg flex-shrink-0">
+            <User className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
           </Avatar>
         )}
       </div>
@@ -293,39 +293,40 @@ const AIResearchAssistant = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-80px)] bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 flex flex-col overflow-hidden">
+    <div className="h-screen w-full bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl flex-shrink-0">
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-12 h-12 bg-gradient-to-br from-qn-light-cyan to-blue-500 rounded-2xl flex items-center justify-center shadow-xl">
-                  <Brain className="h-6 w-6 text-white" />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative flex-shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-qn-light-cyan to-blue-500 rounded-2xl flex items-center justify-center shadow-xl">
+                  <Brain className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
-                  <Circle className="h-2 w-2 fill-current text-white" />
+                <div className="absolute -bottom-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
+                  <Circle className="h-1 w-1 sm:h-2 sm:w-2 fill-current text-white" />
                 </div>
               </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent truncate">
                   QuantNest AI
                 </h1>
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-sm text-green-400 font-medium">Online</span>
-                  <span className="text-xs text-gray-400">• GPT-4 Powered</span>
+                  <span className="text-xs text-gray-400 hidden sm:inline">• GPT-4 Powered</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Badge className="bg-qn-light-cyan/20 text-qn-light-cyan border-qn-light-cyan/30 shadow-lg">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Badge className="bg-qn-light-cyan/20 text-qn-light-cyan border-qn-light-cyan/30 shadow-lg text-xs">
               <Zap className="h-3 w-3 mr-1" />
-              AI Active
+              <span className="hidden sm:inline">AI Active</span>
+              <span className="sm:hidden">AI</span>
             </Badge>
-            <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50">
+            <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 h-8 w-8 p-0 sm:h-auto sm:w-auto sm:px-3 sm:py-2">
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -335,8 +336,8 @@ const AIResearchAssistant = () => {
       {/* Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
-          <div className="max-w-4xl mx-auto space-y-4">
+        <div className="flex-1 overflow-y-auto px-2 sm:px-4 py-4">
+          <div className="max-w-full sm:max-w-4xl mx-auto space-y-4">
             {chatHistory.map((msg) => (
               <MessageBubble key={msg.id} msg={msg} />
             ))}
@@ -364,11 +365,11 @@ const AIResearchAssistant = () => {
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-gray-800/50 bg-gray-900/30 backdrop-blur-xl p-4 flex-shrink-0">
-          <div className="max-w-4xl mx-auto">
+        <div className="border-t border-gray-800/50 bg-gray-900/30 backdrop-blur-xl p-2 sm:p-4 flex-shrink-0">
+          <div className="max-w-full sm:max-w-4xl mx-auto">
             {/* Quick Actions */}
-            <div className="mb-4">
-              <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="mb-3 sm:mb-4">
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                 {quickActions.map((action, index) => {
                   const IconComponent = action.icon;
                   return (
@@ -376,7 +377,7 @@ const AIResearchAssistant = () => {
                       key={index}
                       variant="outline"
                       size="sm"
-                      className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 whitespace-nowrap backdrop-blur-sm"
+                      className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 whitespace-nowrap backdrop-blur-sm text-xs sm:text-sm"
                     >
                       <div className={`h-4 w-4 mr-2 bg-gradient-to-r ${action.color} rounded p-0.5`}>
                         <IconComponent className="h-full w-full text-white" />
@@ -390,7 +391,7 @@ const AIResearchAssistant = () => {
 
             {/* Message Input */}
             <div className="relative">
-              <div className="flex items-end gap-3">
+              <div className="flex items-end gap-2 sm:gap-3">
                 <div className="flex-1 relative">
                   <textarea
                     ref={inputRef}
@@ -398,22 +399,22 @@ const AIResearchAssistant = () => {
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Ask me anything about markets, stocks, trading strategies..."
-                    className="w-full max-h-24 p-4 pr-16 bg-gray-800/50 border border-gray-700/50 rounded-3xl text-white placeholder-gray-400 resize-none focus:border-qn-light-cyan focus:ring-2 focus:ring-qn-light-cyan/20 transition-all duration-200 backdrop-blur-xl"
+                    className="w-full max-h-24 p-3 sm:p-4 pr-12 sm:pr-16 bg-gray-800/50 border border-gray-700/50 rounded-3xl text-white placeholder-gray-400 resize-none focus:border-qn-light-cyan focus:ring-2 focus:ring-qn-light-cyan/20 transition-all duration-200 backdrop-blur-xl text-sm"
                     rows="1"
-                    style={{ minHeight: '52px' }}
+                    style={{ minHeight: '44px' }}
                   />
                   
-                  <div className="absolute right-3 bottom-3 flex items-center gap-2">
+                  <div className="absolute right-2 sm:right-3 bottom-2 sm:bottom-3 flex items-center gap-1 sm:gap-2">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={handleVoiceToggle}
-                      className={`h-8 w-8 p-0 ${isRecording ? 'text-red-400 bg-red-400/20' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                      className={`h-6 w-6 sm:h-8 sm:w-8 p-0 ${isRecording ? 'text-red-400 bg-red-400/20' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
                     >
-                      {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {isRecording ? <MicOff className="h-3 w-3 sm:h-4 sm:w-4" /> : <Mic className="h-3 w-3 sm:h-4 sm:w-4" />}
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-white hover:bg-gray-700/50">
-                      <Paperclip className="h-4 w-4" />
+                    <Button variant="ghost" size="sm" className="h-6 w-6 sm:h-8 sm:w-8 p-0 text-gray-400 hover:text-white hover:bg-gray-700/50 hidden sm:flex">
+                      <Paperclip className="h-3 w-3 sm:h-4 sm:w-4" />
                     </Button>
                   </div>
                 </div>
@@ -421,27 +422,27 @@ const AIResearchAssistant = () => {
                 <Button
                   onClick={handleSendMessage}
                   disabled={!message.trim() || isLoading}
-                  className="h-[52px] w-[52px] bg-gradient-to-r from-qn-light-cyan to-blue-500 hover:from-qn-light-cyan/80 hover:to-blue-500/80 text-white rounded-3xl p-0 shadow-xl"
+                  className="h-[44px] w-[44px] sm:h-[52px] sm:w-[52px] bg-gradient-to-r from-qn-light-cyan to-blue-500 hover:from-qn-light-cyan/80 hover:to-blue-500/80 text-white rounded-3xl p-0 shadow-xl"
                 >
                   {isLoading ? (
-                    <RefreshCw className="h-5 w-5 animate-spin" />
+                    <RefreshCw className="h-4 w-4 sm:h-5 sm:w-5 animate-spin" />
                   ) : (
-                    <Send className="h-5 w-5" />
+                    <Send className="h-4 w-4 sm:h-5 sm:w-5" />
                   )}
                 </Button>
               </div>
             </div>
 
             {/* Suggested Queries */}
-            <div className="mt-3">
-              <div className="flex gap-2 overflow-x-auto">
+            <div className="mt-2 sm:mt-3">
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide">
                 {suggestedQueries.map((query, index) => (
                   <Button
                     key={index}
                     variant="ghost"
                     size="sm"
                     onClick={() => setMessage(query)}
-                    className="text-xs text-gray-400 hover:text-white hover:bg-gray-800/50 whitespace-nowrap"
+                    className="text-xs text-gray-400 hover:text-white hover:bg-gray-800/50 whitespace-nowrap px-2 py-1"
                   >
                     <MessageSquare className="h-3 w-3 mr-2" />
                     {query}
