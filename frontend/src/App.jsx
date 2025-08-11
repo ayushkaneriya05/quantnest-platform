@@ -8,7 +8,6 @@ import {
   NotificationContainer,
   useNotifications,
 } from "@/components/ui/notification";
-import ProtectedRoute from "@/components/ProtectedRoute";
 
 // Pages
 import LandingPage from "@/pages/LandingPage";
@@ -101,9 +100,8 @@ function AppContent() {
             />
             <Route path="/google-callback" element={<SocialLoginHandler />} />
 
-            {/* Protected Dashboard routes */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/dashboard" element={<DashboardLayout />}>
+           
+            <Route path="/dashboard" element={<DashboardLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="search" element={<Search />} />
               <Route path="profile-settings" element={<ProfileSettings />} />
@@ -175,7 +173,6 @@ function AppContent() {
                 path="trading/trade-terminal"
                 element={<TradeTerminal />}
               />
-            </Route>
             </Route>
             {/* Catch all route - redirect to landing page */}
             <Route path="*" element={<LandingPage />} />
