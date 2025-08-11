@@ -125,6 +125,7 @@ const PaperTrading = () => {
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("all");
 
   const [watchlist] = useState([
     { 
