@@ -676,11 +676,19 @@ const PaperTrading = () => {
                   positions.map((position, index) => (
                     <div key={index} className="p-3 border-b border-gray-800/30 last:border-b-0 hover:bg-gray-800/20 transition-colors">
                       <div className="flex justify-between items-start mb-2">
-                        <div>
+                        <div className="cursor-pointer" onClick={() => handlePositionClick(position)}>
                           <span className="font-medium text-sm text-white">{position.symbol}</span>
-                          <div className="text-xs text-gray-400">Qty: {position.qty}</div>
+                          <div className="text-xs text-gray-400">Qty: {position.qty} • {position.side}</div>
                         </div>
-                        <Button variant="ghost" size="sm" className="text-red-400 hover:bg-red-600/10 h-6 w-6 p-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-400 hover:bg-red-600/10 h-6 w-6 p-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSquareOffPosition(position.symbol);
+                          }}
+                        >
                           <X className="h-3 w-3" />
                         </Button>
                       </div>
@@ -815,7 +823,7 @@ const PaperTrading = () => {
               </div>
               <div>
                 <p className="text-xs text-blue-300">Available Balance</p>
-                <p className="text-lg font-bold text-white">��{accountInfo.availableBalance.toLocaleString()}</p>
+                <p className="text-lg font-bold text-white">₹{accountInfo.availableBalance.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
