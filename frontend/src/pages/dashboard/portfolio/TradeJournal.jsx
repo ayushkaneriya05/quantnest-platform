@@ -485,8 +485,8 @@ const TradeJournal = () => {
             </div>
           </CardHeader>
           
-          <CardContent className="h-full overflow-hidden">
-            <div className="h-full overflow-y-auto">
+          <CardContent className="overflow-hidden">
+            <div className="max-h-[600px] overflow-y-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-700/50">
