@@ -43,7 +43,13 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Plus,
-  X
+  X,
+  Calendar,
+  Flame,
+  Eye,
+  Globe,
+  PieChart,
+  LineChart
 } from "lucide-react";
 import { usePageTitle } from "@/hooks/use-page-title";
 
@@ -54,7 +60,6 @@ const AIResearchAssistant = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("chat");
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -85,7 +90,7 @@ const AIResearchAssistant = () => {
       insights: [
         {
           type: "BULLISH SIGNAL",
-          color: "from-green-500 to-emerald-400",
+          color: "from-emerald-500 to-green-400",
           title: "Strong Q3 Earnings Momentum",
           content: "Major private banks like HDFC Bank and ICICI Bank have shown robust earnings growth with improved asset quality.",
           confidence: 85,
@@ -112,12 +117,12 @@ const AIResearchAssistant = () => {
   ]);
 
   const quickActions = [
-    { icon: TrendingUp, label: "Market Analysis", color: "from-green-400 to-emerald-300" },
-    { icon: BarChart3, label: "Stock Research", color: "from-blue-400 to-cyan-300" },
-    { icon: Target, label: "Portfolio Review", color: "from-purple-400 to-pink-300" },
-    { icon: AlertTriangle, label: "Risk Assessment", color: "from-orange-400 to-red-300" },
-    { icon: Lightbulb, label: "Trading Ideas", color: "from-yellow-400 to-orange-300" },
-    { icon: DollarSign, label: "Earnings Calendar", color: "from-teal-400 to-green-300" }
+    { icon: TrendingUp, label: "Market Analysis", color: "from-emerald-500 to-teal-400" },
+    { icon: BarChart3, label: "Stock Research", color: "from-blue-500 to-cyan-400" },
+    { icon: Target, label: "Portfolio Review", color: "from-purple-500 to-pink-400" },
+    { icon: AlertTriangle, label: "Risk Assessment", color: "from-orange-500 to-red-400" },
+    { icon: Lightbulb, label: "Trading Ideas", color: "from-yellow-500 to-orange-400" },
+    { icon: DollarSign, label: "Earnings Calendar", color: "from-teal-500 to-green-400" }
   ];
 
   const suggestedQueries = [
@@ -168,7 +173,6 @@ const AIResearchAssistant = () => {
   };
 
   const generateAIResponse = (query) => {
-    // This would typically call your AI API
     return `I've analyzed your query about "${query}". Here's what I found based on current market data and trends. This analysis considers technical indicators, fundamental metrics, and market sentiment.`;
   };
 
@@ -195,44 +199,44 @@ const AIResearchAssistant = () => {
     const isUser = msg.type === "user";
     
     return (
-      <div className={`flex gap-3 mb-6 ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={`flex gap-4 mb-8 ${isUser ? "justify-end" : "justify-start"}`}>
         {!isUser && (
-          <Avatar className="w-10 h-10 bg-gradient-to-br from-qn-light-cyan to-blue-400 flex items-center justify-center">
-            <Brain className="h-5 w-5 text-black" />
+          <Avatar className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center shadow-lg">
+            <Brain className="h-6 w-6 text-white" />
           </Avatar>
         )}
         
-        <div className={`max-w-[70%] ${isUser ? "order-first" : ""}`}>
-          <div className={`rounded-2xl px-4 py-3 ${
+        <div className={`max-w-[75%] ${isUser ? "order-first" : ""}`}>
+          <div className={`rounded-3xl px-6 py-4 ${
             isUser 
-              ? "bg-gradient-to-r from-qn-light-cyan to-blue-400 text-black ml-auto" 
-              : "bg-gray-800/50 text-white border border-gray-700/50 backdrop-blur-sm"
+              ? "bg-gradient-to-r from-cyan-500 to-blue-500 text-white ml-auto shadow-lg" 
+              : "bg-white/5 text-white border border-white/10 backdrop-blur-xl shadow-xl"
           }`}>
             <p className="text-sm leading-relaxed">{msg.content}</p>
             
             {msg.insights && (
-              <div className="mt-4 space-y-3">
+              <div className="mt-6 space-y-4">
                 {msg.insights.map((insight, index) => (
-                  <Card key={index} className="bg-gray-900/50 border-gray-600/30">
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Badge className={`bg-gradient-to-r ${insight.color} text-white px-2 py-1 text-xs`}>
+                  <Card key={index} className="bg-black/20 border-white/10 backdrop-blur-sm">
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-4">
+                        <Badge className={`bg-gradient-to-r ${insight.color} text-white px-3 py-1 text-xs font-medium shadow-md`}>
                           {insight.type}
                         </Badge>
                         <div className="flex-1">
-                          <h4 className="font-medium text-white mb-2">{insight.title}</h4>
-                          <p className="text-sm text-gray-300 mb-3">{insight.content}</p>
+                          <h4 className="font-semibold text-white mb-3 text-base">{insight.title}</h4>
+                          <p className="text-sm text-gray-200 mb-4 leading-relaxed">{insight.content}</p>
                           <div className="flex items-center justify-between">
                             <div className="flex gap-2">
                               {insight.symbols.map(symbol => (
-                                <Badge key={symbol} variant="outline" className="text-xs border-qn-light-cyan/30 text-qn-light-cyan">
+                                <Badge key={symbol} variant="outline" className="text-xs border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 transition-colors">
                                   {symbol}
                                 </Badge>
                               ))}
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-gray-400">Confidence:</span>
-                              <span className="text-xs font-medium text-qn-light-cyan">{insight.confidence}%</span>
+                              <span className="text-xs font-semibold text-cyan-300">{insight.confidence}%</span>
                             </div>
                           </div>
                         </div>
@@ -244,7 +248,7 @@ const AIResearchAssistant = () => {
             )}
 
             {msg.suggestions && (
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-6 grid grid-cols-2 gap-3">
                 {msg.suggestions.map((suggestion, index) => {
                   const IconComponent = suggestion.icon;
                   return (
@@ -253,9 +257,9 @@ const AIResearchAssistant = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => setMessage(suggestion.text)}
-                      className="justify-start text-left border-gray-600/50 text-gray-300 hover:bg-gray-700/50 h-auto py-2"
+                      className="justify-start text-left border-white/20 text-gray-200 hover:bg-white/10 h-auto py-3 backdrop-blur-sm"
                     >
-                      <IconComponent className="h-3 w-3 mr-2 text-qn-light-cyan" />
+                      <IconComponent className="h-4 w-4 mr-3 text-cyan-400" />
                       <span className="text-xs">{suggestion.text}</span>
                     </Button>
                   );
@@ -264,17 +268,17 @@ const AIResearchAssistant = () => {
             )}
           </div>
           
-          <div className={`flex items-center gap-2 mt-2 text-xs text-gray-400 ${isUser ? "justify-end" : ""}`}>
+          <div className={`flex items-center gap-3 mt-3 text-xs text-gray-400 ${isUser ? "justify-end" : ""}`}>
             <span>{formatTime(msg.timestamp)}</span>
             {!isUser && (
               <>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-700/50">
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-white/10">
                   <Copy className="h-3 w-3" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-700/50">
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-white/10">
                   <ThumbsUp className="h-3 w-3" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-700/50">
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-white/10">
                   <ThumbsDown className="h-3 w-3" />
                 </Button>
               </>
@@ -283,8 +287,8 @@ const AIResearchAssistant = () => {
         </div>
 
         {isUser && (
-          <Avatar className="w-10 h-10 bg-gradient-to-br from-gray-700 to-gray-600 flex items-center justify-center">
-            <User className="h-5 w-5 text-white" />
+          <Avatar className="w-12 h-12 bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center shadow-lg">
+            <User className="h-6 w-6 text-white" />
           </Avatar>
         )}
       </div>
@@ -292,66 +296,67 @@ const AIResearchAssistant = () => {
   };
 
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 flex flex-col">
-      {/* Header */}
-      <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl">
-        <div className="flex items-center justify-between p-4">
+    <div className="h-screen bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 flex flex-col overflow-hidden">
+      {/* Premium Header */}
+      <div className="border-b border-white/10 bg-black/20 backdrop-blur-xl">
+        <div className="flex items-center justify-between p-6">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <div className="relative">
-                <div className="w-12 h-12 bg-gradient-to-br from-qn-light-cyan to-blue-400 rounded-xl flex items-center justify-center">
-                  <Brain className="h-6 w-6 text-black" />
+                <div className="w-14 h-14 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-2xl flex items-center justify-center shadow-xl">
+                  <Brain className="h-7 w-7 text-white" />
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
+                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-3 border-gray-900 flex items-center justify-center">
                   <Circle className="h-2 w-2 fill-current text-white" />
                 </div>
               </div>
               <div>
-                <h1 className="text-xl font-bold text-white">QuantNest AI</h1>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                  QuantNest AI
+                </h1>
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-green-400">Online</span>
-                  <span className="text-xs text-gray-400">• Powered by GPT-4</span>
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                  <span className="text-sm text-emerald-400 font-medium">Online</span>
+                  <span className="text-xs text-gray-400">• GPT-4 Powered</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Badge className="bg-qn-light-cyan/20 text-qn-light-cyan border-qn-light-cyan/30">
+          <div className="flex items-center gap-3">
+            <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 shadow-lg">
               <Zap className="h-3 w-3 mr-1" />
-              AI Mode
+              AI Active
             </Badge>
-            <Button variant="outline" size="sm" className="border-gray-600 text-gray-300">
+            <Button variant="outline" size="sm" className="border-white/20 text-gray-300 hover:bg-white/10">
               <Settings className="h-4 w-4" />
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Chat Area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Main Chat */}
-        <div className="flex-1 flex flex-col">
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      {/* Chat Area - Single Column */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="max-w-4xl mx-auto space-y-6">
             {chatHistory.map((msg) => (
               <MessageBubble key={msg.id} msg={msg} />
             ))}
             
             {isTyping && (
-              <div className="flex gap-3 mb-6">
-                <Avatar className="w-10 h-10 bg-gradient-to-br from-qn-light-cyan to-blue-400 flex items-center justify-center">
-                  <Brain className="h-5 w-5 text-black" />
+              <div className="flex gap-4 mb-8">
+                <Avatar className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center shadow-lg">
+                  <Brain className="h-6 w-6 text-white" />
                 </Avatar>
-                <div className="bg-gray-800/50 border border-gray-700/50 backdrop-blur-sm rounded-2xl px-4 py-3">
-                  <div className="flex items-center gap-2">
+                <div className="bg-white/5 border border-white/10 backdrop-blur-xl rounded-3xl px-6 py-4 shadow-xl">
+                  <div className="flex items-center gap-3">
                     <div className="flex gap-1">
-                      <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                      <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                      <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                      <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
                     </div>
-                    <span className="text-sm text-gray-400">AI is thinking...</span>
+                    <span className="text-sm text-gray-300">AI is thinking...</span>
                   </div>
                 </div>
               </div>
@@ -359,12 +364,14 @@ const AIResearchAssistant = () => {
             
             <div ref={messagesEndRef} />
           </div>
+        </div>
 
-          {/* Input Area */}
-          <div className="border-t border-gray-800/50 bg-gray-900/30 backdrop-blur-xl p-4">
+        {/* Input Area */}
+        <div className="border-t border-white/10 bg-black/20 backdrop-blur-xl p-6">
+          <div className="max-w-4xl mx-auto">
             {/* Quick Actions */}
-            <div className="mb-4">
-              <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="mb-6">
+              <div className="flex gap-3 overflow-x-auto pb-2">
                 {quickActions.map((action, index) => {
                   const IconComponent = action.icon;
                   return (
@@ -372,9 +379,11 @@ const AIResearchAssistant = () => {
                       key={index}
                       variant="outline"
                       size="sm"
-                      className="border-gray-600/50 text-gray-300 hover:bg-gray-700/50 whitespace-nowrap"
+                      className="border-white/20 text-gray-300 hover:bg-white/10 whitespace-nowrap backdrop-blur-sm"
                     >
-                      <IconComponent className={`h-4 w-4 mr-2 bg-gradient-to-r ${action.color} bg-clip-text text-transparent`} />
+                      <div className={`h-4 w-4 mr-2 bg-gradient-to-r ${action.color} rounded p-0.5`}>
+                        <IconComponent className="h-full w-full text-white" />
+                      </div>
                       {action.label}
                     </Button>
                   );
@@ -384,7 +393,7 @@ const AIResearchAssistant = () => {
 
             {/* Message Input */}
             <div className="relative">
-              <div className="flex items-end gap-3">
+              <div className="flex items-end gap-4">
                 <div className="flex-1 relative">
                   <textarea
                     ref={inputRef}
@@ -392,21 +401,21 @@ const AIResearchAssistant = () => {
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Ask me anything about markets, stocks, trading strategies..."
-                    className="w-full max-h-32 p-4 pr-12 bg-gray-800/50 border border-gray-600/50 rounded-2xl text-white placeholder-gray-400 resize-none focus:border-qn-light-cyan focus:ring-1 focus:ring-qn-light-cyan transition-all duration-200"
+                    className="w-full max-h-32 p-5 pr-20 bg-white/5 border border-white/20 rounded-3xl text-white placeholder-gray-400 resize-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 transition-all duration-200 backdrop-blur-xl"
                     rows="1"
-                    style={{ minHeight: '52px' }}
+                    style={{ minHeight: '60px' }}
                   />
                   
-                  <div className="absolute right-3 bottom-3 flex items-center gap-2">
+                  <div className="absolute right-4 bottom-4 flex items-center gap-2">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={handleVoiceToggle}
-                      className={`h-8 w-8 p-0 ${isRecording ? 'text-red-400 bg-red-400/20' : 'text-gray-400 hover:text-white'}`}
+                      className={`h-8 w-8 p-0 ${isRecording ? 'text-red-400 bg-red-400/20' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
                     >
                       {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-white">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-white hover:bg-white/10">
                       <Paperclip className="h-4 w-4" />
                     </Button>
                   </div>
@@ -415,19 +424,19 @@ const AIResearchAssistant = () => {
                 <Button
                   onClick={handleSendMessage}
                   disabled={!message.trim() || isLoading}
-                  className="h-[52px] w-[52px] bg-gradient-to-r from-qn-light-cyan to-blue-400 hover:from-qn-light-cyan/80 hover:to-blue-400/80 text-black rounded-2xl p-0"
+                  className="h-[60px] w-[60px] bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white rounded-3xl p-0 shadow-xl"
                 >
                   {isLoading ? (
-                    <RefreshCw className="h-5 w-5 animate-spin" />
+                    <RefreshCw className="h-6 w-6 animate-spin" />
                   ) : (
-                    <Send className="h-5 w-5" />
+                    <Send className="h-6 w-6" />
                   )}
                 </Button>
               </div>
             </div>
 
             {/* Suggested Queries */}
-            <div className="mt-3">
+            <div className="mt-4">
               <div className="flex gap-2 overflow-x-auto">
                 {suggestedQueries.slice(0, 3).map((query, index) => (
                   <Button
@@ -435,72 +444,12 @@ const AIResearchAssistant = () => {
                     variant="ghost"
                     size="sm"
                     onClick={() => setMessage(query)}
-                    className="text-xs text-gray-400 hover:text-white hover:bg-gray-700/50 whitespace-nowrap"
+                    className="text-xs text-gray-400 hover:text-white hover:bg-white/10 whitespace-nowrap"
                   >
                     <MessageSquare className="h-3 w-3 mr-2" />
                     {query}
                   </Button>
                 ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="w-80 border-l border-gray-800/50 bg-gray-900/20 backdrop-blur-xl">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-medium text-white">Market Pulse</h3>
-              <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Live Market Data */}
-              <Card className="bg-gray-800/30 border-gray-700/30">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium text-white">NIFTY 50</span>
-                    <Badge className="bg-green-600/20 text-green-400">+0.8%</Badge>
-                  </div>
-                  <div className="text-lg font-bold text-white mb-1">19,847.30</div>
-                  <div className="text-sm text-green-400">+156.20 points</div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gray-800/30 border-gray-700/30">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium text-white">BANK NIFTY</span>
-                    <Badge className="bg-red-600/20 text-red-400">-0.3%</Badge>
-                  </div>
-                  <div className="text-lg font-bold text-white mb-1">47,234.85</div>
-                  <div className="text-sm text-red-400">-142.15 points</div>
-                </CardContent>
-              </Card>
-
-              {/* Recent Insights */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-400 mb-3">Recent Insights</h4>
-                <div className="space-y-3">
-                  {[
-                    { title: "IT Sector Outperforming", time: "2m ago", type: "BULLISH" },
-                    { title: "Banking Stocks Under Pressure", time: "5m ago", type: "BEARISH" },
-                    { title: "FII Buying in Auto Sector", time: "8m ago", type: "NEUTRAL" }
-                  ].map((insight, index) => (
-                    <div key={index} className="flex items-start gap-3 p-3 bg-gray-800/20 rounded-lg hover:bg-gray-800/30 transition-colors cursor-pointer">
-                      <div className={`w-2 h-2 rounded-full mt-2 ${
-                        insight.type === 'BULLISH' ? 'bg-green-400' : 
-                        insight.type === 'BEARISH' ? 'bg-red-400' : 'bg-gray-400'
-                      }`}></div>
-                      <div className="flex-1">
-                        <p className="text-sm text-white">{insight.title}</p>
-                        <p className="text-xs text-gray-400">{insight.time}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
           </div>
