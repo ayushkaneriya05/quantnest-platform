@@ -496,8 +496,63 @@ const PaperTrading = () => {
             </div>
           )}
 
+          {/* Advanced Options Toggle */}
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+              className="w-full border-gray-600 text-gray-300 hover:bg-gray-800 justify-between"
+            >
+              Advanced Options
+              <ChevronDown className={`h-4 w-4 transition-transform ${showAdvancedOptions ? 'rotate-180' : ''}`} />
+            </Button>
+
+            {showAdvancedOptions && (
+              <div className="space-y-3 animate-in slide-in-from-top-1 duration-200">
+                {/* Stop Loss */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Stop Loss</Label>
+                  <Input
+                    type="number"
+                    value={stopLoss}
+                    onChange={(e) => setStopLoss(e.target.value)}
+                    placeholder="Stop loss price"
+                    className="bg-gray-800 border-gray-600 text-white"
+                    step="0.05"
+                  />
+                </div>
+
+                {/* Take Profit */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Take Profit</Label>
+                  <Input
+                    type="number"
+                    value={takeProfit}
+                    onChange={(e) => setTakeProfit(e.target.value)}
+                    placeholder="Take profit price"
+                    className="bg-gray-800 border-gray-600 text-white"
+                    step="0.05"
+                  />
+                </div>
+
+                {/* Alert Price */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Price Alert</Label>
+                  <Input
+                    type="number"
+                    value={alertPrice}
+                    onChange={(e) => setAlertPrice(e.target.value)}
+                    placeholder="Alert price"
+                    className="bg-gray-800 border-gray-600 text-white"
+                    step="0.05"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Place Order Button */}
-          <Button 
+          <Button
             onClick={() => setIsOrderModalOpen(false)}
             className="w-full bg-gradient-to-r from-qn-light-cyan to-blue-400 text-black hover:from-qn-light-cyan/80 hover:to-blue-400/80 font-semibold py-3"
           >
