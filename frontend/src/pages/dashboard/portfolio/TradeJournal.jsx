@@ -320,7 +320,7 @@ const TradeJournal = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white">
 
       {/* Content */}
-      <div className="p-4 space-y-4 overflow-y-auto">
+      <div className="p-2 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
         {/* KPI Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
@@ -366,7 +366,7 @@ const TradeJournal = () => {
             { icon: TrendingDown, label: "Avg Loss", value: `₹${kpiData.avgLosingTrade.toLocaleString()}`, color: "text-red-400" },
             { icon: AlertTriangle, label: "Max Drawdown", value: `-₹${kpiData.maxDrawdown.toLocaleString()}`, color: "text-orange-400" },
             { icon: Timer, label: "Avg Hold", value: `${kpiData.avgHoldingPeriod}d`, color: "text-blue-400" },
-            { icon: Flame, label: "Best Trade", value: `+���${kpiData.largestWin.toLocaleString()}`, color: "text-green-400" },
+            { icon: Flame, label: "Best Trade", value: `+₹${kpiData.largestWin.toLocaleString()}`, color: "text-green-400" },
             { icon: Calculator, label: "Total Trades", value: kpiData.totalTrades, color: "text-qn-light-cyan" }
           ].map((metric, index) => (
             <Card key={index} className="bg-gray-900/80 border-gray-700/50 backdrop-blur-xl hover:bg-gray-800/60 transition-all duration-200">
