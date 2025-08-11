@@ -408,7 +408,7 @@ const TradeJournal = () => {
             title="Sharpe Ratio"
             value={kpiData.sharpeRatio}
             color={{ bg: "bg-yellow-500/20", border: "border-yellow-500/30", text: "text-yellow-400" }}
-            bgGradient="bg-gradient-to-br from-yellow-900/20 to-orange-800/10"
+            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-yellow-500/30"
           />
         </div>
 
