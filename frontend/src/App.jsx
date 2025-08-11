@@ -101,6 +101,7 @@ function AppContent() {
             <Route path="/google-callback" element={<SocialLoginHandler />} />
 
            
+            {/* Dashboard routes - unprotected for development */}
             <Route path="/dashboard" element={<DashboardLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="search" element={<Search />} />
