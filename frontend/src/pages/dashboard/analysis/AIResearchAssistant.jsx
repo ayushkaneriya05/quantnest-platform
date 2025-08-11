@@ -20,6 +20,7 @@ import {
   Zap,
   Globe,
   MessageSquare,
+  Calendar,
   ThumbsUp,
   ThumbsDown,
   Copy,
