@@ -39,7 +39,6 @@ import StrategyBuilder from "@/pages/dashboard/strategy/StrategyBuilder";
 import StrategyMarketplace from "@/pages/dashboard/strategy/StrategyMarketplace";
 import BrokerConnections from "@/pages/dashboard/trading/BrokerConnections";
 import PaperTrading from "@/pages/dashboard/trading/PaperTrading";
-import PositionsOrders from "@/pages/dashboard/trading/PositionsOrders";
 import TradeTerminal from "@/pages/dashboard/trading/TradeTerminal";
 
 // Create notification context
