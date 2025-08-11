@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -345,7 +345,7 @@ const TradeJournal = () => {
                 </thead>
                 <tbody>
                   {sortedTrades.map((trade) => (
-                    <>
+                    <React.Fragment key={trade.id}>
                       <tr
                         key={trade.id}
                         className="border-b border-gray-800/50 hover:bg-gray-800/30 cursor-pointer"
@@ -441,7 +441,7 @@ const TradeJournal = () => {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
