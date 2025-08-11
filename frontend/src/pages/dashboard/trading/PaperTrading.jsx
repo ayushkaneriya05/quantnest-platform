@@ -612,210 +612,588 @@ const PaperTrading = () => {
         </Card>
       </div>
 
-      {/* Main Trading Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Watchlist */}
-        <div className="lg:col-span-1">
-          <Card className="bg-gray-900/80 border-gray-800/50 backdrop-blur-xl">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-qn-light-cyan text-lg">Market Watch</CardTitle>
-                <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white h-8 w-8 p-0">
-                  <RefreshCw className="h-4 w-4" />
+      {/* Main Trading Content with Tabs */}
+      <Card className="bg-gray-900/80 border-gray-800/50 backdrop-blur-xl">
+        <CardContent className="p-4 sm:p-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-4 bg-gray-900/50 border border-gray-800/50 mb-6">
+              <TabsTrigger
+                value="trading"
+                className="data-[state=active]:bg-qn-light-cyan/20 data-[state=active]:text-qn-light-cyan text-xs sm:text-sm"
+              >
+                <Monitor className="h-4 w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Trading</span>
+                <span className="sm:hidden">Trade</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="positions"
+                className="data-[state=active]:bg-qn-light-cyan/20 data-[state=active]:text-qn-light-cyan text-xs sm:text-sm"
+              >
+                <Target className="h-4 w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Positions</span>
+                <span className="sm:hidden">Pos</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="orders"
+                className="data-[state=active]:bg-qn-light-cyan/20 data-[state=active]:text-qn-light-cyan text-xs sm:text-sm"
+              >
+                <Clock className="h-4 w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Orders</span>
+                <span className="sm:hidden">Orders</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="account"
+                className="data-[state=active]:bg-qn-light-cyan/20 data-[state=active]:text-qn-light-cyan text-xs sm:text-sm"
+              >
+                <Wallet className="h-4 w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Account</span>
+                <span className="sm:hidden">Acc</span>
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="trading" className="space-y-4">
+              {/* Trading Interface */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+                {/* Watchlist */}
+                <div className="lg:col-span-1">
+                  <Card className="bg-gray-800/50 border-gray-700/50">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-qn-light-cyan text-lg">Market Watch</CardTitle>
+                        <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white h-8 w-8 p-0">
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                          placeholder="Search symbols..."
+                          className="pl-10 bg-gray-800/50 border-gray-700/50 text-white text-sm"
+                        />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="space-y-1 max-h-80 overflow-y-auto">
+                        {watchlist.map((item) => (
+                          <div
+                            key={item.symbol}
+                            onClick={() => handleWatchlistClick(item.symbol)}
+                            className={`p-3 cursor-pointer hover:bg-gray-800/30 transition-all ${
+                              selectedSymbol === item.symbol ? "bg-qn-light-cyan/10 border-l-2 border-l-qn-light-cyan" : ""
+                            }`}
+                          >
+                            <div className="flex justify-between items-center mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-white text-sm">{item.symbol}</span>
+                                <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
+                                  {item.sector}
+                                </Badge>
+                              </div>
+                              <Badge
+                                variant={item.change >= 0 ? "default" : "destructive"}
+                                className={`text-xs ${item.change >= 0 ? "bg-green-600/20 text-green-400" : "bg-red-600/20 text-red-400"}`}
+                              >
+                                {item.changePercent}
+                              </Badge>
+                            </div>
+
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-base font-bold text-white">₹{item.ltp.toLocaleString()}</span>
+                              <span className={`text-sm ${item.change >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {item.change >= 0 ? "+" : ""}₹{item.change}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-xs text-gray-400">
+                              <div>
+                                <span className="block">High</span>
+                                <span className="text-white font-medium">₹{item.dayHigh}</span>
+                              </div>
+                              <div>
+                                <span className="block">Low</span>
+                                <span className="text-white font-medium">₹{item.dayLow}</span>
+                              </div>
+                              <div>
+                                <span className="block">Vol</span>
+                                <span className="text-white font-medium">{item.volume}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Chart Area */}
+                <div className="lg:col-span-2">
+                  <Card className="bg-gray-800/50 border-gray-700/50">
+                    <CardHeader className="pb-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl font-bold text-white">{selectedSymbol}</span>
+                          <Badge className="bg-green-600/20 text-green-400 border-green-600/30">
+                            ₹{currentPrice?.toLocaleString()}
+                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-green-400">Live</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-1 flex-wrap">
+                          {["1M", "5M", "15M", "1H", "1D", "1W"].map((tf) => (
+                            <Button
+                              key={tf}
+                              variant={selectedTimeframe === tf ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setSelectedTimeframe(tf)}
+                              className={`text-xs h-8 ${selectedTimeframe === tf
+                                ? "bg-qn-light-cyan text-black"
+                                : "border-gray-700/50 text-gray-300"}`}
+                            >
+                              {tf}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-4">
+                      <div className="h-80 sm:h-96 bg-gray-800/30 rounded-lg flex flex-col items-center justify-center relative">
+                        {/* Chart Placeholder */}
+                        <div className="text-center mb-6">
+                          <Monitor className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-gray-500" />
+                          <p className="text-lg sm:text-xl font-bold text-gray-300 mb-2">TradingView Chart</p>
+                          <p className="text-sm text-gray-400 mb-6">Professional charting interface</p>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 bg-gray-900/50 p-4 sm:p-6 rounded-xl max-w-md sm:max-w-lg">
+                            {[
+                              { label: "Open", value: currentSymbolData?.dayLow, color: "text-blue-400" },
+                              { label: "High", value: currentSymbolData?.dayHigh, color: "text-green-400" },
+                              { label: "Low", value: currentSymbolData?.dayLow, color: "text-red-400" },
+                              { label: "Volume", value: currentSymbolData?.volume, color: "text-purple-400" }
+                            ].map((stat, index) => (
+                              <div key={index} className="text-center">
+                                <p className="text-xs text-gray-400 mb-1">{stat.label}</p>
+                                <p className={`text-sm font-semibold ${stat.color}`}>
+                                  {stat.label === "Volume" ? stat.value : `₹${stat.value}`}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Buy/Sell Buttons */}
+                        <div className="absolute bottom-4 right-4 flex gap-3">
+                          <Button
+                            onClick={() => handlePlaceOrder("buy")}
+                            className="bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2"
+                          >
+                            <ArrowUpRight className="h-4 w-4 mr-2" />
+                            BUY
+                          </Button>
+                          <Button
+                            onClick={() => handlePlaceOrder("sell")}
+                            className="bg-red-600 hover:bg-red-700 text-white px-4 sm:px-6 py-2"
+                          >
+                            <ArrowDownRight className="h-4 w-4 mr-2" />
+                            SELL
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* Positions Tab */}
+            <TabsContent value="positions" className="space-y-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+                <Card className="bg-gradient-to-br from-green-900/20 to-emerald-800/10 border-green-700/30">
+                  <CardContent className="p-4 text-center">
+                    <TrendingUp className="h-6 w-6 mx-auto mb-2 text-green-400" />
+                    <p className="text-xs text-green-300 mb-1">Total P&L</p>
+                    <p className="text-lg font-bold text-green-400">+₹4,332</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-to-br from-blue-900/20 to-cyan-800/10 border-blue-700/30">
+                  <CardContent className="p-4 text-center">
+                    <Activity className="h-6 w-6 mx-auto mb-2 text-blue-400" />
+                    <p className="text-xs text-blue-300 mb-1">Day P&L</p>
+                    <p className="text-lg font-bold text-blue-400">+₹2,196</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-to-br from-purple-900/20 to-pink-800/10 border-purple-700/30">
+                  <CardContent className="p-4 text-center">
+                    <Wallet className="h-6 w-6 mx-auto mb-2 text-purple-400" />
+                    <p className="text-xs text-purple-300 mb-1">Market Value</p>
+                    <p className="text-lg font-bold text-white">₹4,95,347</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-to-br from-yellow-900/20 to-orange-800/10 border-yellow-700/30">
+                  <CardContent className="p-4 text-center">
+                    <Target className="h-6 w-6 mx-auto mb-2 text-yellow-400" />
+                    <p className="text-xs text-yellow-300 mb-1">Positions</p>
+                    <p className="text-lg font-bold text-white">{positions.length}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-3">
+                {positions.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <Target className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                    <p className="text-lg font-medium mb-2">No positions</p>
+                    <p className="text-sm">Start trading to see your positions here</p>
+                  </div>
+                ) : (
+                  positions.map((position, index) => (
+                    <Card
+                      key={index}
+                      className="bg-gray-800/60 border-gray-700/50 hover:bg-gray-800/80 transition-all duration-200 cursor-pointer"
+                      onClick={() => handlePositionClick(position)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="flex-shrink-0">
+                              <Badge
+                                variant="outline"
+                                className={`${position.side === "BUY"
+                                  ? "border-green-500/30 text-green-400 bg-green-500/10"
+                                  : "border-red-500/30 text-red-400 bg-red-500/10"} font-medium`}
+                              >
+                                {position.side === "BUY" ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
+                                {position.side}
+                              </Badge>
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-semibold text-white">{position.symbol}</span>
+                                <Badge variant="outline" className="text-xs border-gray-600/50 text-gray-400">
+                                  {position.product}
+                                </Badge>
+                              </div>
+                              <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+                                <span>Qty: {position.qty}</span>
+                                <span>•</span>
+                                <span>Avg: ₹{position.avgPrice}</span>
+                                <span>•</span>
+                                <span>LTP: ₹{position.ltp}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-3">
+                            <div className="text-right">
+                              <div className={`text-base font-bold ${position.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {position.pnl >= 0 ? "+" : ""}₹{position.pnl.toLocaleString()}
+                              </div>
+                              <div className={`text-xs ${position.pnl >= 0 ? "text-green-400/70" : "text-red-400/70"}`}>
+                                {position.pnlPercent}
+                              </div>
+                            </div>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-400 hover:bg-red-600/20 h-8 w-8 p-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSquareOffPosition(position.symbol);
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+
+            {/* Orders Tab */}
+            <TabsContent value="orders" className="space-y-4">
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="w-32 bg-gray-800/50 border-gray-700/50 text-white">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-900 border-gray-700">
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="executed">Executed</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
                 </Button>
               </div>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search symbols..."
-                  className="pl-10 bg-gray-800/50 border-gray-700/50 text-white text-sm"
-                />
+
+              <div className="space-y-3">
+                {orders.filter(order => filterStatus === "all" || order.status.toLowerCase() === filterStatus).length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <Clock className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                    <p className="text-lg font-medium mb-2">No orders found</p>
+                    <p className="text-sm">Your orders will appear here</p>
+                  </div>
+                ) : (
+                  orders.filter(order => filterStatus === "all" || order.status.toLowerCase() === filterStatus).map((order, index) => (
+                    <Card
+                      key={index}
+                      className="bg-gray-800/60 border-gray-700/50 hover:bg-gray-800/80 transition-all duration-200"
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="flex-shrink-0">
+                              <Badge
+                                variant="outline"
+                                className={`${order.side === "BUY" ? "border-green-600/30 text-green-400" : "border-red-600/30 text-red-400"}`}
+                              >
+                                {order.side}
+                              </Badge>
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-semibold text-white">{order.symbol}</span>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs ${
+                                    order.status === "EXECUTED" ? "border-green-600/30 text-green-400" :
+                                    order.status === "PENDING" ? "border-yellow-600/30 text-yellow-400" :
+                                    "border-red-600/30 text-red-400"
+                                  }`}
+                                >
+                                  {order.status}
+                                </Badge>
+                              </div>
+                              <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+                                <span>Qty: {order.qty}</span>
+                                <span>•</span>
+                                <span>Type: {order.orderType}</span>
+                                <span>•</span>
+                                <span>Price: ₹{order.price}</span>
+                                <span>•</span>
+                                <span>Time: {order.timestamp}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {order.status === "PENDING" && (
+                              <>
+                                <Button variant="outline" size="sm" className="border-gray-600 text-gray-300 hover:bg-gray-800 text-xs">
+                                  <Edit className="h-3 w-3 mr-1" />
+                                  Modify
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="border-red-600 text-red-400 hover:bg-red-600/10 text-xs"
+                                  onClick={() => handleCancelOrder(order.id)}
+                                >
+                                  <X className="h-3 w-3 mr-1" />
+                                  Cancel
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {order.filledQty > 0 && order.filledQty < order.qty && (
+                          <div className="mt-3 pt-3 border-t border-gray-700/50">
+                            <div className="flex justify-between text-xs text-gray-400 mb-2">
+                              <span>Filled: {order.filledQty}/{order.qty}</span>
+                              <span>Avg: ₹{order.avgFillPrice}</span>
+                            </div>
+                            <div className="w-full bg-gray-700 rounded-full h-1.5">
+                              <div
+                                className="bg-qn-light-cyan h-1.5 rounded-full transition-all"
+                                style={{ width: `${(order.filledQty / order.qty) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
               </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="space-y-1 max-h-80 overflow-y-auto">
-                {watchlist.map((item) => (
-                  <div
-                    key={item.symbol}
-                    onClick={() => handleWatchlistClick(item.symbol)}
-                    className={`p-3 cursor-pointer hover:bg-gray-800/30 transition-all ${
-                      selectedSymbol === item.symbol ? "bg-qn-light-cyan/10 border-l-2 border-l-qn-light-cyan" : ""
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-white text-sm">{item.symbol}</span>
-                        <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
-                          {item.sector}
+            </TabsContent>
+
+            {/* Account Tab */}
+            <TabsContent value="account" className="space-y-4">
+              {/* Account Overview */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+                <Card className="bg-gradient-to-br from-green-900/20 to-emerald-800/10 border-green-700/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-green-600/20 rounded-lg">
+                        <Wallet className="h-5 w-5 text-green-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-green-300">Total Capital</p>
+                        <p className="text-lg font-bold text-white">₹{accountInfo.totalCapital.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-blue-900/20 to-cyan-800/10 border-blue-700/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-600/20 rounded-lg">
+                        <DollarSign className="h-5 w-5 text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-blue-300">Available Balance</p>
+                        <p className="text-lg font-bold text-white">₹{accountInfo.availableBalance.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-purple-900/20 to-pink-800/10 border-purple-700/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-purple-600/20 rounded-lg">
+                        <TrendingUp className="h-5 w-5 text-purple-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-purple-300">Total P&L</p>
+                        <p className="text-lg font-bold text-green-400">+₹{accountInfo.totalPnL.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-orange-900/20 to-red-800/10 border-orange-700/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-orange-600/20 rounded-lg">
+                        <Activity className="h-5 w-5 text-orange-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-orange-300">Day P&L</p>
+                        <p className="text-lg font-bold text-green-400">+₹{accountInfo.dayPnL.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Account Details & Holdings */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Account Information */}
+                <Card className="bg-gray-800/50 border-gray-700/50">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-qn-light-cyan text-sm">Account Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-gray-400 text-xs">Account ID</Label>
+                        <p className="text-white font-mono text-sm">{accountInfo.accountId}</p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-400 text-xs">Account Type</Label>
+                        <p className="text-white text-sm">{accountInfo.accountType}</p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-400 text-xs">Status</Label>
+                        <Badge className="bg-green-600/20 text-green-400">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          {accountInfo.status}
                         </Badge>
                       </div>
-                      <Badge
-                        variant={item.change >= 0 ? "default" : "destructive"}
-                        className={`text-xs ${item.change >= 0 ? "bg-green-600/20 text-green-400" : "bg-red-600/20 text-red-400"}`}
-                      >
-                        {item.changePercent}
-                      </Badge>
+                      <div>
+                        <Label className="text-gray-400 text-xs">Opening Date</Label>
+                        <p className="text-white text-sm">{accountInfo.openingDate}</p>
+                      </div>
                     </div>
 
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-base font-bold text-white">₹{item.ltp.toLocaleString()}</span>
-                      <span className={`text-sm ${item.change >= 0 ? "text-green-400" : "text-red-400"}`}>
-                        {item.change >= 0 ? "+" : ""}₹{item.change}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 text-xs text-gray-400">
-                      <div>
-                        <span className="block">High</span>
-                        <span className="text-white font-medium">₹{item.dayHigh}</span>
-                      </div>
-                      <div>
-                        <span className="block">Low</span>
-                        <span className="text-white font-medium">₹{item.dayLow}</span>
-                      </div>
-                      <div>
-                        <span className="block">Vol</span>
-                        <span className="text-white font-medium">{item.volume}</span>
+                    <div className="border-t border-gray-700/50 pt-3">
+                      <h4 className="text-white font-semibold mb-2 text-sm">Trading Limits</h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-400 text-xs">Exposure Limit</span>
+                          <span className="text-white text-xs">₹{accountInfo.exposureLimit.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400 text-xs">Day Trading Power</span>
+                          <span className="text-white text-xs">₹{accountInfo.dayTradingBuyingPower.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400 text-xs">Overnight Power</span>
+                          <span className="text-white text-xs">₹{accountInfo.overnightBuyingPower.toLocaleString()}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                  </CardContent>
+                </Card>
 
-        {/* Chart Area - 2 columns */}
-        <div className="lg:col-span-2">
-          <Card className="bg-gray-900/80 border-gray-800/50 backdrop-blur-xl">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl font-bold text-white">{selectedSymbol}</span>
-                  <Badge className="bg-green-600/20 text-green-400 border-green-600/30">
-                    ₹{currentPrice?.toLocaleString()}
-                  </Badge>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                    <span className="text-xs text-green-400">Live</span>
-                  </div>
-                </div>
-                <div className="flex gap-1 flex-wrap">
-                  {["1M", "5M", "15M", "1H", "1D", "1W"].map((tf) => (
-                    <Button
-                      key={tf}
-                      variant={selectedTimeframe === tf ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedTimeframe(tf)}
-                      className={`text-xs h-8 ${selectedTimeframe === tf
-                        ? "bg-qn-light-cyan text-black"
-                        : "border-gray-700/50 text-gray-300"}`}
-                    >
-                      {tf}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4">
-              <div className="h-80 sm:h-96 bg-gray-800/30 rounded-lg flex flex-col items-center justify-center relative">
-                {/* Chart Placeholder */}
-                <div className="text-center mb-6">
-                  <Monitor className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-gray-500" />
-                  <p className="text-lg sm:text-xl font-bold text-gray-300 mb-2">TradingView Chart</p>
-                  <p className="text-sm text-gray-400 mb-6">Professional charting interface</p>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 bg-gray-900/50 p-4 sm:p-6 rounded-xl max-w-md sm:max-w-lg">
-                    {[
-                      { label: "Open", value: currentSymbolData?.dayLow, color: "text-blue-400" },
-                      { label: "High", value: currentSymbolData?.dayHigh, color: "text-green-400" },
-                      { label: "Low", value: currentSymbolData?.dayLow, color: "text-red-400" },
-                      { label: "Volume", value: currentSymbolData?.volume, color: "text-purple-400" }
-                    ].map((stat, index) => (
-                      <div key={index} className="text-center">
-                        <p className="text-xs text-gray-400 mb-1">{stat.label}</p>
-                        <p className={`text-sm font-semibold ${stat.color}`}>
-                          {stat.label === "Volume" ? stat.value : `₹${stat.value}`}
-                        </p>
+                {/* P&L Breakdown */}
+                <Card className="bg-gray-800/50 border-gray-700/50">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-qn-light-cyan text-sm">P&L Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400 text-xs">Realized P&L</span>
+                        <span className="text-green-400 font-semibold text-sm">+₹{accountInfo.realizedPnL.toLocaleString()}</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400 text-xs">Unrealized P&L</span>
+                        <span className="text-green-400 font-semibold text-sm">+₹{accountInfo.unrealizedPnL.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400 text-xs">Brokerage</span>
+                        <span className="text-red-400 text-sm">-₹{accountInfo.brokerage.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400 text-xs">Taxes & Charges</span>
+                        <span className="text-red-400 text-sm">-₹{accountInfo.taxes.toLocaleString()}</span>
+                      </div>
+                      <div className="border-t border-gray-700/50 pt-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-white font-semibold text-sm">Net P&L</span>
+                          <span className="text-green-400 font-bold text-lg">+₹{accountInfo.netPnL.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
 
-                {/* Buy/Sell Buttons */}
-                <div className="absolute bottom-4 right-4 flex gap-3">
-                  <Button
-                    onClick={() => handlePlaceOrder("buy")}
-                    className="bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2"
-                  >
-                    <ArrowUpRight className="h-4 w-4 mr-2" />
-                    BUY
-                  </Button>
-                  <Button
-                    onClick={() => handlePlaceOrder("sell")}
-                    className="bg-red-600 hover:bg-red-700 text-white px-4 sm:px-6 py-2"
-                  >
-                    <ArrowDownRight className="h-4 w-4 mr-2" />
-                    SELL
-                  </Button>
-                </div>
+                    <div className="bg-gradient-to-r from-green-900/20 to-emerald-800/10 p-3 rounded-lg border border-green-700/30">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Award className="h-4 w-4 text-green-400" />
+                        <span className="text-green-400 font-medium text-sm">Performance Metrics</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-gray-400">Return: </span>
+                          <span className="text-green-400 font-semibold">+4.19%</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Max Profit: </span>
+                          <span className="text-green-400">₹8,450</span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
-        <Button
-          variant="outline"
-          className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan/20 p-4 h-auto flex flex-col items-center gap-2"
-          onClick={() => window.open('/dashboard/trading/positions-orders', '_blank')}
-        >
-          <Target className="h-5 w-5" />
-          <span className="text-xs">Positions & Orders</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 p-4 h-auto flex flex-col items-center gap-2"
-        >
-          <BarChart3 className="h-5 w-5" />
-          <span className="text-xs">Analytics</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 p-4 h-auto flex flex-col items-center gap-2"
-        >
-          <Bell className="h-5 w-5" />
-          <span className="text-xs">Alerts</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 p-4 h-auto flex flex-col items-center gap-2"
-        >
-          <Calculator className="h-5 w-5" />
-          <span className="text-xs">Calculator</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 p-4 h-auto flex flex-col items-center gap-2"
-        >
-          <Settings className="h-5 w-5" />
-          <span className="text-xs">Settings</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 p-4 h-auto flex flex-col items-center gap-2"
-        >
-          <Download className="h-5 w-5" />
-          <span className="text-xs">Reports</span>
-        </Button>
-      </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
 
