@@ -595,7 +595,7 @@ const TradeJournal = () => {
                               <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
                                 {/* Trade Chart Placeholder */}
                                 <div className="lg:col-span-1">
-                                  <Card className="bg-gray-900/50 border-gray-700/50 h-48">
+                                  <Card className="bg-gray-900/80 border-gray-700/50 h-48">
                                     <CardContent className="p-4 h-full flex flex-col items-center justify-center">
                                       <BarChart3 className="h-12 w-12 text-gray-400 opacity-50 mb-3" />
                                       <p className="text-sm font-medium text-gray-300 mb-3">Trade Performance Chart</p>
