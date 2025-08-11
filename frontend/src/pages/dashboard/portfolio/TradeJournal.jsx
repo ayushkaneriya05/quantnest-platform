@@ -400,7 +400,7 @@ const TradeJournal = () => {
             value={kpiData.profitFactor}
             trend={kpiData.profitFactorTrend}
             color={{ bg: "bg-purple-500/20", border: "border-purple-500/30", text: "text-purple-400" }}
-            bgGradient="bg-gradient-to-br from-purple-900/20 to-indigo-800/10"
+            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-purple-500/30"
           />
           
           <StatCard
