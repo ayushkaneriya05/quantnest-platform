@@ -222,7 +222,7 @@ const PaperTrading = () => {
     },
   ]);
 
-  const [orders] = useState([
+  const [orders, setOrders] = useState([
     {
       id: "ORD001",
       symbol: "INFY",
