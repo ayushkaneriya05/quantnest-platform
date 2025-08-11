@@ -1038,36 +1038,6 @@ const PaperTrading = () => {
 
   return (
     <div className="h-[calc(100vh-80px)] bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl flex-shrink-0">
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-gradient-to-br from-qn-light-cyan to-blue-500 rounded-lg flex items-center justify-center">
-              <CandlestickChart className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent">
-                Paper Trading Terminal
-              </h1>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                <span className="text-sm text-green-400 font-medium">Market {marketStatus}</span>
-                <span className="text-xs text-gray-400">• {formatTime(lastUpdate)}</span>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Badge className="bg-green-600/20 text-green-400 border-green-600/30">
-              <Activity className="h-3 w-3 mr-1" />
-              Live Data
-            </Badge>
-            <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50">
-              <Settings className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
 
       {/* Main Content */}
       <div className="flex-1 p-4 overflow-hidden">
