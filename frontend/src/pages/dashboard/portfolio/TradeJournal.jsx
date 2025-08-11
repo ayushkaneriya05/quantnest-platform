@@ -322,7 +322,7 @@ const TradeJournal = () => {
       {/* Content */}
       <div className="p-2 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
         {/* KPI Dashboard */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <StatCard
             icon={DollarSign}
             title="Total P&L"
