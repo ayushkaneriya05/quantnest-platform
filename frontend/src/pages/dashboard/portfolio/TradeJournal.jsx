@@ -83,7 +83,6 @@ import {
   ExternalLink,
   Maximize2,
   BarChart4,
-  PulseDots,
   Signal
 } from "lucide-react";
 import { usePageTitle } from "@/hooks/use-page-title";
