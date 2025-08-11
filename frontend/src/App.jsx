@@ -8,7 +8,6 @@ import {
   NotificationContainer,
   useNotifications,
 } from "@/components/ui/notification";
-import ProtectedRoute from "@/components/ProtectedRoute";
 
 // Pages
 import LandingPage from "@/pages/LandingPage";
@@ -102,82 +101,79 @@ function AppContent() {
             <Route path="/google-callback" element={<SocialLoginHandler />} />
 
             {/* Protected Dashboard routes */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/dashboard" element={<DashboardLayout />}>
-                <Route index element={<Dashboard />} />
-                <Route path="search" element={<Search />} />
-                <Route path="profile-settings" element={<ProfileSettings />} />
+            <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="search" element={<Search />} />
+              <Route path="profile-settings" element={<ProfileSettings />} />
 
-                {/* Analysis routes */}
-                <Route
-                  path="analysis/ai-research-assistant"
-                  element={<AIResearchAssistant />}
-                />
-                <Route
-                  path="analysis/alternative-data-hub"
-                  element={<AlternativeDataHub />}
-                />
-                <Route
-                  path="analysis/market-screener"
-                  element={<MarketScreener />}
-                />
+              {/* Analysis routes */}
+              <Route
+                path="analysis/ai-research-assistant"
+                element={<AIResearchAssistant />}
+              />
+              <Route
+                path="analysis/alternative-data-hub"
+                element={<AlternativeDataHub />}
+              />
+              <Route
+                path="analysis/market-screener"
+                element={<MarketScreener />}
+              />
 
-                {/* Community routes */}
-                <Route
-                  path="community/leaderboards"
-                  element={<Leaderboards />}
-                />
-                <Route
-                  path="community/learning-center"
-                  element={<LearningCenter />}
-                />
-                <Route path="community/social-hub" element={<SocialHub />} />
+              {/* Community routes */}
+              <Route
+                path="community/leaderboards"
+                element={<Leaderboards />}
+              />
+              <Route
+                path="community/learning-center"
+                element={<LearningCenter />}
+              />
+              <Route path="community/social-hub" element={<SocialHub />} />
 
-                {/* Portfolio routes */}
-                <Route
-                  path="portfolio/advanced-risk-hub"
-                  element={<AdvancedRiskHub />}
-                />
-                <Route path="portfolio/tax-center" element={<TaxCenter />} />
-                <Route
-                  path="portfolio/trade-journal"
-                  element={<TradeJournal />}
-                />
+              {/* Portfolio routes */}
+              <Route
+                path="portfolio/advanced-risk-hub"
+                element={<AdvancedRiskHub />}
+              />
+              <Route path="portfolio/tax-center" element={<TaxCenter />} />
+              <Route
+                path="portfolio/trade-journal"
+                element={<TradeJournal />}
+              />
 
-                {/* Strategy routes */}
-                <Route
-                  path="strategy/backtesting-hub"
-                  element={<BacktestingHub />}
-                />
-                <Route
-                  path="strategy/my-live-algos"
-                  element={<MyLiveAlgos />}
-                />
-                <Route
-                  path="strategy/strategy-builder"
-                  element={<StrategyBuilder />}
-                />
-                <Route
-                  path="strategy/strategy-marketplace"
-                  element={<StrategyMarketplace />}
-                />
+              {/* Strategy routes */}
+              <Route
+                path="strategy/backtesting-hub"
+                element={<BacktestingHub />}
+              />
+              <Route
+                path="strategy/my-live-algos"
+                element={<MyLiveAlgos />}
+              />
+              <Route
+                path="strategy/strategy-builder"
+                element={<StrategyBuilder />}
+              />
+              <Route
+                path="strategy/strategy-marketplace"
+                element={<StrategyMarketplace />}
+              />
 
-                {/* Trading routes */}
-                <Route
-                  path="trading/broker-connections"
-                  element={<BrokerConnections />}
-                />
-                <Route
-                  path="trading/paper-trading"
-                  element={<PaperTrading />}
-                />
-                <Route
-                  path="trading/trade-terminal"
-                  element={<TradeTerminal />}
-                />
-              </Route>
+              {/* Trading routes */}
+              <Route
+                path="trading/broker-connections"
+                element={<BrokerConnections />}
+              />
+              <Route
+                path="trading/paper-trading"
+                element={<PaperTrading />}
+              />
+              <Route
+                path="trading/trade-terminal"
+                element={<TradeTerminal />}
+              />
             </Route>
-
             {/* Catch all route - redirect to landing page */}
             <Route path="*" element={<LandingPage />} />
           </Routes>
