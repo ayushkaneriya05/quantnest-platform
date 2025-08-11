@@ -294,44 +294,6 @@ const AIResearchAssistant = () => {
 
   return (
     <div className="h-screen w-full bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl flex-shrink-0">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="relative flex-shrink-0">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-qn-light-cyan to-blue-500 rounded-2xl flex items-center justify-center shadow-xl">
-                  <Brain className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div className="absolute -bottom-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
-                  <Circle className="h-1 w-1 sm:h-2 sm:w-2 fill-current text-white" />
-                </div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent truncate">
-                  QuantNest AI
-                </h1>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-green-400 font-medium">Online</span>
-                  <span className="text-xs text-gray-400 hidden sm:inline">• GPT-4 Powered</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Badge className="bg-qn-light-cyan/20 text-qn-light-cyan border-qn-light-cyan/30 shadow-lg text-xs">
-              <Zap className="h-3 w-3 mr-1" />
-              <span className="hidden sm:inline">AI Active</span>
-              <span className="sm:hidden">AI</span>
-            </Badge>
-            <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 h-8 w-8 p-0 sm:h-auto sm:w-auto sm:px-3 sm:py-2">
-              <Settings className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
 
       {/* Chat Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
