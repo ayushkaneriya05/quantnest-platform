@@ -288,7 +288,7 @@ const TradeJournal = () => {
   };
 
   const StatCard = ({ icon: Icon, title, value, trend, trendValue, color, bgGradient }) => (
-    <Card className={`${bgGradient} border-gray-700/50 backdrop-blur-xl hover:scale-105 transition-transform duration-200 shadow-xl`}>
+    <Card className={`${bgGradient} border backdrop-blur-xl hover:scale-105 transition-transform duration-200 shadow-xl`}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className={`p-2 rounded-lg ${color.bg} ${color.border} border backdrop-blur-sm`}>
