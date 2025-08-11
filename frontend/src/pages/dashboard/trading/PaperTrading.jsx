@@ -119,6 +119,12 @@ const PaperTrading = () => {
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [selectedTimeframe, setSelectedTimeframe] = useState("1D");
   const [activeTab, setActiveTab] = useState("trading");
+  const [selectedPosition, setSelectedPosition] = useState(null);
+  const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
+  const [alertPrice, setAlertPrice] = useState("");
+  const [stopLoss, setStopLoss] = useState("");
+  const [takeProfit, setTakeProfit] = useState("");
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
 
   const [watchlist] = useState([
     { 
