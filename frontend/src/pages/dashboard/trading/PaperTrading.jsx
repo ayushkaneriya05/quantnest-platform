@@ -1100,6 +1100,86 @@ const PaperTrading = () => {
       </div>
 
       <OrderModal />
+
+      {/* Position Details Modal */}
+      <Dialog open={isPositionModalOpen} onOpenChange={setIsPositionModalOpen}>
+        <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-qn-light-cyan">
+              <Target className="h-5 w-5" />
+              Position Details - {selectedPosition?.symbol}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedPosition && (
+            <div className="space-y-4">
+              {/* Position Summary */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-800/50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-400 mb-1">Quantity</p>
+                  <p className="text-lg font-bold text-white">{selectedPosition.qty}</p>
+                  <p className="text-xs text-gray-400">{selectedPosition.side}</p>
+                </div>
+                <div className="bg-gray-800/50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-400 mb-1">Current P&L</p>
+                  <p className={`text-lg font-bold ${selectedPosition.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {selectedPosition.pnl >= 0 ? '+' : ''}₹{selectedPosition.pnl.toLocaleString()}
+                  </p>
+                  <p className={`text-xs ${selectedPosition.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {selectedPosition.pnlPercent}
+                  </p>
+                </div>
+              </div>
+
+              {/* Price Details */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Average Price:</span>
+                  <span className="text-white font-medium">₹{selectedPosition.avgPrice}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Current Price:</span>
+                  <span className="text-white font-medium">₹{selectedPosition.ltp}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Market Value:</span>
+                  <span className="text-white font-medium">₹{selectedPosition.marketValue.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Product Type:</span>
+                  <span className="text-white font-medium">{selectedPosition.product}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan/20"
+                  onClick={() => {
+                    setIsPositionModalOpen(false);
+                    handlePlaceOrder(selectedPosition.side === 'BUY' ? 'sell' : 'buy');
+                  }}
+                >
+                  <ArrowUpRight className="h-4 w-4 mr-2" />
+                  Exit Position
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-red-600/30 text-red-400 hover:bg-red-600/20"
+                  onClick={() => {
+                    handleSquareOffPosition(selectedPosition.symbol);
+                    setIsPositionModalOpen(false);
+                  }}
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Square Off
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
