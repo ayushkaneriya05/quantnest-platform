@@ -40,6 +40,7 @@ import {
   Brain,
   PieChart,
   LineChart,
+  Lightbulb,
   Download,
   Share,
   RefreshCw,
