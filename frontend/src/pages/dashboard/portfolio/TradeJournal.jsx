@@ -382,7 +382,7 @@ const TradeJournal = () => {
             value={`${kpiData.totalPnL >= 0 ? "+" : ""}₹${kpiData.totalPnL.toLocaleString()}`}
             trend={kpiData.totalPnLTrend}
             color={{ bg: "bg-green-500/20", border: "border-green-500/30", text: "text-green-400" }}
-            bgGradient="bg-gradient-to-br from-green-900/20 to-emerald-800/10"
+            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-green-500/30"
           />
           
           <StatCard
