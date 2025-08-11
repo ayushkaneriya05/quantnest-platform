@@ -786,7 +786,7 @@ const TradeJournal = () => {
                 </ul>
               </div>
               
-              <div className="bg-orange-500/10 p-4 rounded-lg border border-orange-500/30">
+              <div className="bg-gray-900/80 p-4 rounded-lg border border-orange-500/30">
                 <h5 className="font-medium text-orange-400 mb-2">Areas to Improve</h5>
                 <ul className="text-sm text-gray-300 space-y-1">
                   <li>• Hold winning positions longer</li>
