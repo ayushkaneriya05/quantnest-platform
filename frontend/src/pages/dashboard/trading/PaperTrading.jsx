@@ -226,6 +226,18 @@ const PaperTrading = () => {
       marketValue: 61407.50,
       product: "MIS"
     },
+    {
+      symbol: "INFY",
+      qty: 60,
+      side: "SELL",
+      avgPrice: 1465.20,
+      ltp: 1456.75,
+      pnl: 507.00,
+      pnlPercent: "+0.57%",
+      dayPnl: 280.15,
+      marketValue: 87405.00,
+      product: "MIS"
+    },
   ]);
 
   const [orders, setOrders] = useState([
