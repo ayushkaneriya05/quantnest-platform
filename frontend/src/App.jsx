@@ -176,7 +176,7 @@ function AppContent() {
                   element={<TradeTerminal />}
                 />
               </Route>
-            // </Route>
+            </Route>
 
             {/* Catch all route - redirect to landing page */}
             <Route path="*" element={<LandingPage />} />
