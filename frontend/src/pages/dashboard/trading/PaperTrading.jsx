@@ -311,6 +311,19 @@ const PaperTrading = () => {
     setIsOrderModalOpen(true);
   };
 
+  const handlePositionClick = (position) => {
+    setSelectedPosition(position);
+    setIsPositionModalOpen(true);
+  };
+
+  const handleCancelOrder = (orderId) => {
+    setOrders(prev => prev.filter(order => order.id !== orderId));
+  };
+
+  const handleSquareOffPosition = (symbol) => {
+    setPositions(prev => prev.filter(pos => pos.symbol !== symbol));
+  };
+
   const formatTime = (date) => {
     return date.toLocaleTimeString('en-US', { 
       hour12: false, 
