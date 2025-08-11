@@ -251,10 +251,13 @@ const PaperTrading = () => {
       status: "PENDING",
       product: "MIS",
       timestamp: "09:32:45",
-      validity: "DAY"
+      validity: "DAY",
+      avgFillPrice: 0,
+      filledQty: 0,
+      pendingQty: 75
     },
     {
-      id: "ORD002", 
+      id: "ORD002",
       symbol: "WIPRO",
       side: "SELL",
       qty: 100,
@@ -263,7 +266,40 @@ const PaperTrading = () => {
       status: "EXECUTED",
       product: "CNC",
       timestamp: "09:28:12",
-      validity: "DAY"
+      validity: "DAY",
+      avgFillPrice: 445.85,
+      filledQty: 100,
+      pendingQty: 0
+    },
+    {
+      id: "ORD003",
+      symbol: "HDFCBANK",
+      side: "BUY",
+      qty: 50,
+      orderType: "SL",
+      price: 1495.00,
+      status: "TRIGGERED",
+      product: "CNC",
+      timestamp: "10:15:28",
+      validity: "DAY",
+      avgFillPrice: 1496.25,
+      filledQty: 50,
+      pendingQty: 0
+    },
+    {
+      id: "ORD004",
+      symbol: "TCS",
+      side: "SELL",
+      qty: 25,
+      orderType: "BRACKET",
+      price: 3900.00,
+      status: "PENDING",
+      product: "BO",
+      timestamp: "11:45:16",
+      validity: "DAY",
+      avgFillPrice: 0,
+      filledQty: 0,
+      pendingQty: 25
     },
   ]);
 
@@ -779,7 +815,7 @@ const PaperTrading = () => {
               </div>
               <div>
                 <p className="text-xs text-blue-300">Available Balance</p>
-                <p className="text-lg font-bold text-white">₹{accountInfo.availableBalance.toLocaleString()}</p>
+                <p className="text-lg font-bold text-white">��{accountInfo.availableBalance.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
