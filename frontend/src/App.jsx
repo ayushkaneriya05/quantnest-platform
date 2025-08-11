@@ -172,6 +172,10 @@ function AppContent() {
                 element={<PaperTrading />}
               />
               <Route
+                path="trading/positions-orders"
+                element={<PositionsOrders />}
+              />
+              <Route
                 path="trading/trade-terminal"
                 element={<TradeTerminal />}
               />
