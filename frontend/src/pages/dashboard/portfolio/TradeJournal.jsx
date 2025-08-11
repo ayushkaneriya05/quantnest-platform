@@ -631,7 +631,7 @@ const TradeJournal = () => {
                                       { label: "Quantity", value: trade.quantity, color: "text-qn-light-cyan" },
                                       { label: "Market Cap", value: trade.marketCap, color: "text-blue-400" }
                                     ].map((metric, index) => (
-                                      <div key={index} className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50">
+                                      <div key={index} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/50">
                                         <p className="text-xs text-gray-400 mb-1">{metric.label}</p>
                                         <p className={`text-sm font-medium ${metric.color}`}>{metric.value}</p>
                                       </div>
