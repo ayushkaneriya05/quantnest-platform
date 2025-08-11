@@ -318,59 +318,6 @@ const TradeJournal = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white">
-      {/* Header */}
-      <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl flex-shrink-0">
-        <div className="p-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-br from-qn-light-cyan/20 to-blue-500/20 rounded-xl border border-qn-light-cyan/30 backdrop-blur-sm">
-                  <BarChart4 className="h-6 w-6 text-qn-light-cyan" />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent">
-                    Trade Journal
-                  </h1>
-                  <p className="text-sm text-gray-400">Professional performance analytics</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="flex gap-1">
-                {["7D", "1M", "3M", "6M", "1Y", "ALL"].map((range) => (
-                  <Button
-                    key={range}
-                    variant={selectedTimeRange === range ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedTimeRange(range)}
-                    className={`text-xs h-8 ${selectedTimeRange === range 
-                      ? "bg-qn-light-cyan text-black hover:bg-qn-light-cyan/80 font-semibold" 
-                      : "border-gray-700/50 text-gray-300 hover:bg-gray-800/50 hover:text-white"}`}
-                  >
-                    {range}
-                  </Button>
-                ))}
-              </div>
-              
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan/20 hover:text-qn-light-cyan"
-                onClick={() => setIsAnalyticsOpen(true)}
-              >
-                <Brain className="h-4 w-4 mr-2" />
-                AI Insights
-              </Button>
-              
-              <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 hover:text-white">
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Content */}
       <div className="p-4 space-y-4 overflow-y-auto">
@@ -419,7 +366,7 @@ const TradeJournal = () => {
             { icon: TrendingDown, label: "Avg Loss", value: `₹${kpiData.avgLosingTrade.toLocaleString()}`, color: "text-red-400" },
             { icon: AlertTriangle, label: "Max Drawdown", value: `-₹${kpiData.maxDrawdown.toLocaleString()}`, color: "text-orange-400" },
             { icon: Timer, label: "Avg Hold", value: `${kpiData.avgHoldingPeriod}d`, color: "text-blue-400" },
-            { icon: Flame, label: "Best Trade", value: `+₹${kpiData.largestWin.toLocaleString()}`, color: "text-green-400" },
+            { icon: Flame, label: "Best Trade", value: `+���${kpiData.largestWin.toLocaleString()}`, color: "text-green-400" },
             { icon: Calculator, label: "Total Trades", value: kpiData.totalTrades, color: "text-qn-light-cyan" }
           ].map((metric, index) => (
             <Card key={index} className="bg-gray-900/80 border-gray-700/50 backdrop-blur-xl hover:bg-gray-800/60 transition-all duration-200">
