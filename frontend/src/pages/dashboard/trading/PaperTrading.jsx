@@ -189,7 +189,7 @@ const PaperTrading = () => {
     },
   ]);
   
-  const [positions] = useState([
+  const [positions, setPositions] = useState([
     { 
       symbol: "TCS", 
       qty: 50, 
