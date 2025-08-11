@@ -391,7 +391,7 @@ const TradeJournal = () => {
             value={`${kpiData.winRate}%`}
             trend={kpiData.winRateTrend}
             color={{ bg: "bg-qn-light-cyan/20", border: "border-qn-light-cyan/30", text: "text-qn-light-cyan" }}
-            bgGradient="bg-gradient-to-br from-cyan-900/20 to-blue-800/10"
+            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-qn-light-cyan/30"
           />
           
           <StatCard
