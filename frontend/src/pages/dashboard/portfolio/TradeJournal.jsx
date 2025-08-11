@@ -591,7 +591,7 @@ const TradeJournal = () => {
                       {expandedRow === trade.id && (
                         <tr>
                           <td colSpan="8" className="p-0">
-                            <div className="bg-gray-800/30 backdrop-blur-sm border-t border-gray-700/50">
+                            <div className="bg-gray-800/60 backdrop-blur-sm border-t border-gray-700/50">
                               <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
                                 {/* Trade Chart Placeholder */}
                                 <div className="lg:col-span-1">
