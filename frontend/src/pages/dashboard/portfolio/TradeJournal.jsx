@@ -12,6 +12,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { 
   TrendingUp, 
   TrendingDown,
@@ -51,7 +58,34 @@ import {
   Settings,
   Calculator,
   FileText,
-  Search
+  Search,
+  Plus,
+  MoreHorizontal,
+  TrendingUpIcon,
+  Minus,
+  Equals,
+  X,
+  PlayCircle,
+  StopCircle,
+  Hash,
+  Calendar as CalendarIcon,
+  Timer,
+  MapPin,
+  Layers,
+  Grid,
+  Users,
+  Briefcase,
+  ThumbsUp,
+  ThumbsDown,
+  MessageSquare,
+  BookOpen,
+  RotateCcw,
+  Copy,
+  ExternalLink,
+  Maximize2,
+  BarChart4,
+  PulseDots,
+  Signal
 } from "lucide-react";
 import { usePageTitle } from "@/hooks/use-page-title";
 
@@ -65,9 +99,11 @@ const TradeJournal = () => {
   const [sortField, setSortField] = useState("entryDate");
   const [sortDirection, setSortDirection] = useState("desc");
   const [selectedTimeRange, setSelectedTimeRange] = useState("1M");
-  const [viewMode, setViewMode] = useState("table");
+  const [viewMode, setViewMode] = useState("overview");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
-  // Enhanced KPI Data with trends
+  // Enhanced KPI Data with better contrast colors
   const kpiData = {
     totalPnL: 45650,
     totalPnLTrend: 12.5,
@@ -88,16 +124,22 @@ const TradeJournal = () => {
     largestWin: 4200,
     largestLoss: -2800,
     consecutiveWins: 5,
-    consecutiveLosses: 2
+    consecutiveLosses: 2,
+    returnOnCapital: 18.5,
+    calmarRatio: 2.1,
+    maxConsecutiveWins: 7,
+    maxConsecutiveLosses: 3
   };
 
-  // Enhanced trade data with more fields
+  // Enhanced trade data
   const trades = [
     {
       id: 1,
       symbol: "TCS",
       entryDate: "2024-01-15",
-      exitDate: "2024-01-18",
+      exitDate: "2024-01-18", 
+      entryTime: "09:32:45",
+      exitTime: "15:24:12",
       quantity: 50,
       direction: "Long",
       entryPrice: 3842.30,
@@ -108,21 +150,26 @@ const TradeJournal = () => {
       setupRating: 4,
       executionRating: 5,
       emotion: "Confident",
-      notes: "Clean breakout above resistance with good volume. Entry was perfect at the breakout level. Exit could have been better - sold too early due to profit booking mindset.",
+      notes: "Clean breakout above resistance with good volume. Entry was perfect at the breakout level. Exit could have been better - sold too early due to profit booking mindset. Need to work on holding winning positions longer.",
       commission: 25.50,
       slippage: 1.20,
       marketCap: "Large",
-      sector: "IT",
+      sector: "Technology",
       holdingPeriod: 3,
       riskReward: 1.8,
       maxFavorable: 3.2,
-      maxAdverse: -0.8
+      maxAdverse: -0.8,
+      tags: ["Momentum", "Volume Breakout", "Tech Rally"],
+      learnings: "Trust the setup when all confirmations align",
+      improvements: "Hold longer on strong momentum"
     },
     {
       id: 2,
       symbol: "RELIANCE",
       entryDate: "2024-01-12",
       exitDate: "2024-01-16",
+      entryTime: "10:15:30",
+      exitTime: "14:45:22",
       quantity: 25,
       direction: "Long",
       entryPrice: 2471.50,
@@ -133,7 +180,7 @@ const TradeJournal = () => {
       setupRating: 3,
       executionRating: 2,
       emotion: "Fearful",
-      notes: "Support level held initially but weak follow-through. Should have waited for stronger confirmation. Exit was premature due to fear of larger losses.",
+      notes: "Support level held initially but weak follow-through. Should have waited for stronger confirmation signals. Exit was premature due to fear of larger losses. Risk management needs improvement.",
       commission: 18.75,
       slippage: 2.10,
       marketCap: "Large",
@@ -141,13 +188,18 @@ const TradeJournal = () => {
       holdingPeriod: 4,
       riskReward: 0.9,
       maxFavorable: 0.8,
-      maxAdverse: -1.2
+      maxAdverse: -1.2,
+      tags: ["Support Trade", "Weak Follow-through", "Energy Sector"],
+      learnings: "Wait for stronger confirmation on support bounces",
+      improvements: "Better risk management and stop loss placement"
     },
     {
       id: 3,
       symbol: "HDFCBANK",
-      entryDate: "2024-01-10",
+      entryDate: "2024-01-10", 
       exitDate: "2024-01-14",
+      entryTime: "09:45:15",
+      exitTime: "15:10:30",
       quantity: 100,
       direction: "Long",
       entryPrice: 1497.05,
@@ -158,7 +210,7 @@ const TradeJournal = () => {
       setupRating: 5,
       executionRating: 4,
       emotion: "Confident",
-      notes: "Perfect setup with 50 EMA crossing above 200 EMA. Strong momentum and volume confirmation. Held position well despite intraday volatility.",
+      notes: "Perfect setup with 50 EMA crossing above 200 EMA. Strong momentum and volume confirmation. Held position well despite intraday volatility. Good example of following the system.",
       commission: 35.20,
       slippage: 0.80,
       marketCap: "Large",
@@ -166,64 +218,21 @@ const TradeJournal = () => {
       holdingPeriod: 4,
       riskReward: 2.1,
       maxFavorable: 2.8,
-      maxAdverse: -0.5
-    },
-    {
-      id: 4,
-      symbol: "INFY",
-      entryDate: "2024-01-08",
-      exitDate: "2024-01-09",
-      quantity: 75,
-      direction: "Short",
-      entryPrice: 1465.65,
-      exitPrice: 1456.75,
-      pnl: 667.50,
-      pnlPercent: 0.61,
-      strategy: "Gap Down",
-      setupRating: 3,
-      executionRating: 3,
-      emotion: "Neutral",
-      notes: "Quick gap down trade. Entry was okay but could have been more patient. Exit was well-timed before any reversal.",
-      commission: 22.40,
-      slippage: 1.50,
-      marketCap: "Large",
-      sector: "IT",
-      holdingPeriod: 1,
-      riskReward: 1.2,
-      maxFavorable: 1.1,
-      maxAdverse: -0.3
-    },
-    {
-      id: 5,
-      symbol: "ICICIBANK",
-      entryDate: "2024-01-05",
-      exitDate: "2024-01-08",
-      quantity: 150,
-      direction: "Long",
-      entryPrice: 776.50,
-      exitPrice: 789.30,
-      pnl: 1920.00,
-      pnlPercent: 1.65,
-      strategy: "Earnings Play",
-      setupRating: 4,
-      executionRating: 4,
-      emotion: "Optimistic",
-      notes: "Good earnings expectations setup. Results were better than expected. Could have held longer for more gains but took profits at resistance.",
-      commission: 28.80,
-      slippage: 1.20,
-      marketCap: "Large",
-      sector: "Banking",
-      holdingPeriod: 3,
-      riskReward: 1.6,
-      maxFavorable: 2.1,
-      maxAdverse: -0.7
+      maxAdverse: -0.5,
+      tags: ["EMA Crossover", "Banking Strength", "System Trade"],
+      learnings: "EMA crossovers work well in trending markets",
+      improvements: "Consider pyramiding on strong trends"
     }
   ];
 
   const filteredTrades = trades.filter(trade => {
-    if (symbolFilter !== "all" && trade.symbol !== symbolFilter) return false;
-    if (strategyFilter !== "all" && trade.strategy !== strategyFilter) return false;
-    return true;
+    const matchesSearch = trade.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         trade.strategy.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         trade.notes.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSymbol = symbolFilter === "all" || trade.symbol === symbolFilter;
+    const matchesStrategy = strategyFilter === "all" || trade.strategy === strategyFilter;
+    
+    return matchesSearch && matchesSymbol && matchesStrategy;
   });
 
   const sortedTrades = [...filteredTrades].sort((a, b) => {
@@ -246,15 +255,15 @@ const TradeJournal = () => {
     }
   };
 
-  const getEmotionColor = (emotion) => {
-    switch (emotion.toLowerCase()) {
-      case "confident": return "from-green-600 to-emerald-500";
-      case "fearful": return "from-red-600 to-pink-500";
-      case "greedy": return "from-orange-600 to-yellow-500";
-      case "optimistic": return "from-blue-600 to-cyan-500";
-      case "neutral": return "from-gray-600 to-slate-500";
-      default: return "from-gray-600 to-slate-500";
-    }
+  const getEmotionData = (emotion) => {
+    const emotionMap = {
+      confident: { color: "from-emerald-500 to-green-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", text: "text-emerald-400" },
+      fearful: { color: "from-red-500 to-pink-400", bg: "bg-red-500/10", border: "border-red-500/20", text: "text-red-400" },
+      greedy: { color: "from-orange-500 to-yellow-400", bg: "bg-orange-500/10", border: "border-orange-500/20", text: "text-orange-400" },
+      optimistic: { color: "from-blue-500 to-cyan-400", bg: "bg-blue-500/10", border: "border-blue-500/20", text: "text-blue-400" },
+      neutral: { color: "from-gray-500 to-slate-400", bg: "bg-gray-500/10", border: "border-gray-500/20", text: "text-gray-400" }
+    };
+    return emotionMap[emotion.toLowerCase()] || emotionMap.neutral;
   };
 
   const renderStars = (rating) => {
@@ -269,476 +278,527 @@ const TradeJournal = () => {
   };
 
   const getTrendIcon = (trend) => {
-    if (trend > 0) return <TrendingUp className="h-4 w-4 text-green-400" />;
+    if (trend > 0) return <TrendingUp className="h-4 w-4 text-emerald-400" />;
     if (trend < 0) return <TrendingDown className="h-4 w-4 text-red-400" />;
     return <Activity className="h-4 w-4 text-gray-400" />;
   };
 
   const getTrendColor = (trend) => {
-    if (trend > 0) return "text-green-400";
+    if (trend > 0) return "text-emerald-400";
     if (trend < 0) return "text-red-400";
     return "text-gray-400";
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-900 text-white p-4 lg:p-6">
-      {/* Enhanced Header */}
-      <div className="mb-8">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-qn-light-cyan/20 to-blue-500/20 rounded-xl border border-qn-light-cyan/30">
-                <FileText className="h-8 w-8 text-qn-light-cyan" />
-              </div>
-              <div>
-                <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent">
-                  Trade Journal
-                </h1>
-                <p className="text-sm text-gray-400">Advanced trading performance analytics</p>
-              </div>
-            </div>
+  const StatCard = ({ icon: Icon, title, value, trend, trendValue, color, bgGradient }) => (
+    <Card className={`${bgGradient} border-gray-700/50 backdrop-blur-xl hover:scale-105 transition-transform duration-200`}>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className={`p-3 rounded-xl ${color.bg} ${color.border} border`}>
+            <Icon className={`h-6 w-6 ${color.text}`} />
           </div>
-          
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              {["1W", "1M", "3M", "6M", "1Y"].map((range) => (
-                <Button
-                  key={range}
-                  variant={selectedTimeRange === range ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedTimeRange(range)}
-                  className={`text-xs ${selectedTimeRange === range 
-                    ? "bg-qn-light-cyan text-black" 
-                    : "border-gray-600 text-gray-300"}`}
-                >
-                  {range}
-                </Button>
-              ))}
+          {trend !== undefined && (
+            <div className="flex items-center gap-1">
+              {getTrendIcon(trend)}
+              <span className={`text-sm font-medium ${getTrendColor(trend)}`}>
+                {trend >= 0 ? "+" : ""}{trend}%
+              </span>
             </div>
-            <Button variant="outline" size="sm" className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan hover:text-black">
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
+          )}
+        </div>
+        <div>
+          <p className="text-sm text-gray-400 mb-1">{title}</p>
+          <p className={`text-2xl font-bold ${color.text}`}>{value}</p>
+          {trendValue && (
+            <p className={`text-sm ${getTrendColor(trendValue)}`}>
+              {trendValue >= 0 ? "+" : ""}{trendValue}% from last month
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white">
+      {/* Enhanced Header */}
+      <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl">
+        <div className="p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-br from-qn-light-cyan/20 to-blue-500/20 rounded-xl border border-qn-light-cyan/30">
+                  <BarChart4 className="h-8 w-8 text-qn-light-cyan" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent">
+                    Trade Journal
+                  </h1>
+                  <p className="text-gray-400">Advanced performance analytics & insights</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1">
+                {["7D", "1M", "3M", "6M", "1Y", "ALL"].map((range) => (
+                  <Button
+                    key={range}
+                    variant={selectedTimeRange === range ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedTimeRange(range)}
+                    className={`text-xs h-9 ${selectedTimeRange === range 
+                      ? "bg-qn-light-cyan text-black hover:bg-qn-light-cyan/80" 
+                      : "border-gray-600/50 text-gray-300 hover:bg-gray-800/50"}`}
+                  >
+                    {range}
+                  </Button>
+                ))}
+              </div>
+              
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan hover:text-black"
+                onClick={() => setIsAnalyticsOpen(true)}
+              >
+                <Brain className="h-4 w-4 mr-2" />
+                AI Insights
+              </Button>
+              
+              <Button variant="outline" size="sm" className="border-gray-600/50 text-gray-300 hover:bg-gray-800/50">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Enhanced KPI Dashboard */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 xl:grid-cols-6 gap-4 mb-8">
-        {/* Total P&L */}
-        <Card className="col-span-2 bg-gradient-to-br from-green-900/20 to-emerald-800/10 border-green-700/30 backdrop-blur-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-full bg-green-600/20">
-                  <DollarSign className="h-6 w-6 text-green-400" />
+      <div className="p-6 space-y-6">
+        {/* Enhanced KPI Dashboard */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard
+            icon={DollarSign}
+            title="Total P&L"
+            value={`${kpiData.totalPnL >= 0 ? "+" : ""}₹${kpiData.totalPnL.toLocaleString()}`}
+            trend={kpiData.totalPnLTrend}
+            color={{ bg: "bg-emerald-500/10", border: "border-emerald-500/20", text: "text-emerald-400" }}
+            bgGradient="bg-gradient-to-br from-emerald-900/20 to-green-800/10"
+          />
+          
+          <StatCard
+            icon={Target}
+            title="Win Rate"
+            value={`${kpiData.winRate}%`}
+            trend={kpiData.winRateTrend}
+            color={{ bg: "bg-cyan-500/10", border: "border-cyan-500/20", text: "text-cyan-400" }}
+            bgGradient="bg-gradient-to-br from-cyan-900/20 to-blue-800/10"
+          />
+          
+          <StatCard
+            icon={Gauge}
+            title="Profit Factor"
+            value={kpiData.profitFactor}
+            trend={kpiData.profitFactorTrend}
+            color={{ bg: "bg-purple-500/10", border: "border-purple-500/20", text: "text-purple-400" }}
+            bgGradient="bg-gradient-to-br from-purple-900/20 to-indigo-800/10"
+          />
+          
+          <StatCard
+            icon={Trophy}
+            title="Sharpe Ratio"
+            value={kpiData.sharpeRatio}
+            color={{ bg: "bg-yellow-500/10", border: "border-yellow-500/20", text: "text-yellow-400" }}
+            bgGradient="bg-gradient-to-br from-yellow-900/20 to-orange-800/10"
+          />
+        </div>
+
+        {/* Secondary Metrics */}
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+          {[
+            { icon: TrendingUp, label: "Avg Win", value: `+₹${kpiData.avgWinningTrade.toLocaleString()}`, color: "text-emerald-400" },
+            { icon: TrendingDown, label: "Avg Loss", value: `₹${kpiData.avgLosingTrade.toLocaleString()}`, color: "text-red-400" },
+            { icon: AlertTriangle, label: "Max Drawdown", value: `-₹${kpiData.maxDrawdown.toLocaleString()}`, color: "text-orange-400" },
+            { icon: Timer, label: "Avg Hold", value: `${kpiData.avgHoldingPeriod}d`, color: "text-blue-400" },
+            { icon: Flame, label: "Best Trade", value: `+₹${kpiData.largestWin.toLocaleString()}`, color: "text-green-400" },
+            { icon: Calculator, label: "Total Trades", value: kpiData.totalTrades, color: "text-qn-light-cyan" }
+          ].map((metric, index) => (
+            <Card key={index} className="bg-gray-900/40 border-gray-700/50 backdrop-blur-xl hover:bg-gray-800/40 transition-all duration-200">
+              <CardContent className="p-4 text-center">
+                <metric.icon className={`h-6 w-6 mx-auto mb-2 ${metric.color}`} />
+                <p className="text-xs text-gray-400 mb-1">{metric.label}</p>
+                <p className={`text-lg font-bold ${metric.color}`}>{metric.value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Enhanced Trade History */}
+        <Card className="bg-gradient-to-br from-gray-900/50 to-gray-800/30 border-gray-700/50 backdrop-blur-xl shadow-2xl">
+          <CardHeader className="pb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <CardTitle className="flex items-center gap-2 text-qn-light-cyan">
+                <BookOpen className="h-5 w-5" />
+                Trade History & Analysis
+              </CardTitle>
+              
+              <div className="flex flex-wrap gap-3">
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input 
+                    placeholder="Search trades, strategies, notes..." 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10 w-64 bg-gray-800/50 border-gray-600/50 text-white text-sm focus:border-qn-light-cyan"
+                  />
                 </div>
-                <div>
-                  <p className="text-sm text-green-300">Total P&L</p>
-                  <p className="text-2xl font-bold text-green-400">
-                    {kpiData.totalPnL >= 0 ? "+" : ""}₹{kpiData.totalPnL.toLocaleString()}
-                  </p>
-                  <div className="flex items-center gap-1 mt-1">
-                    {getTrendIcon(kpiData.totalPnLTrend)}
-                    <span className={`text-xs ${getTrendColor(kpiData.totalPnLTrend)}`}>
-                      {kpiData.totalPnLTrend >= 0 ? "+" : ""}{kpiData.totalPnLTrend}%
-                    </span>
-                  </div>
-                </div>
+
+                {/* Filters */}
+                <Select value={symbolFilter} onValueChange={setSymbolFilter}>
+                  <SelectTrigger className="w-32 bg-gray-800/50 border-gray-600/50 text-white">
+                    <SelectValue placeholder="Symbol" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectItem value="all">All Symbols</SelectItem>
+                    <SelectItem value="TCS">TCS</SelectItem>
+                    <SelectItem value="RELIANCE">RELIANCE</SelectItem>
+                    <SelectItem value="HDFCBANK">HDFCBANK</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={strategyFilter} onValueChange={setStrategyFilter}>
+                  <SelectTrigger className="w-40 bg-gray-800/50 border-gray-600/50 text-white">
+                    <SelectValue placeholder="Strategy" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-700">
+                    <SelectItem value="all">All Strategies</SelectItem>
+                    <SelectItem value="Breakout">Breakout</SelectItem>
+                    <SelectItem value="Support Bounce">Support Bounce</SelectItem>
+                    <SelectItem value="Moving Average Crossover">MA Crossover</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Button variant="outline" size="sm" className="border-gray-600/50 text-gray-300 hover:bg-gray-800/50">
+                  <Settings className="h-4 w-4" />
+                </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Win Rate */}
-        <Card className="bg-gradient-to-br from-cyan-900/20 to-blue-800/10 border-cyan-700/30 backdrop-blur-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-full bg-cyan-600/20">
-                <Target className="h-6 w-6 text-cyan-400" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm text-cyan-300">Win Rate</p>
-                <div className="flex items-center gap-2 mb-1">
-                  <Progress value={kpiData.winRate} className="flex-1 h-2" />
-                  <span className="text-lg font-bold text-cyan-400">{kpiData.winRate}%</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  {getTrendIcon(kpiData.winRateTrend)}
-                  <span className={`text-xs ${getTrendColor(kpiData.winRateTrend)}`}>
-                    {kpiData.winRateTrend >= 0 ? "+" : ""}{kpiData.winRateTrend}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Profit Factor */}
-        <Card className="bg-gradient-to-br from-purple-900/20 to-indigo-800/10 border-purple-700/30 backdrop-blur-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-full bg-purple-600/20">
-                <Gauge className="h-6 w-6 text-purple-400" />
-              </div>
-              <div>
-                <p className="text-sm text-purple-300">Profit Factor</p>
-                <p className="text-2xl font-bold text-purple-400">{kpiData.profitFactor}</p>
-                <div className="flex items-center gap-1 mt-1">
-                  {getTrendIcon(kpiData.profitFactorTrend)}
-                  <span className={`text-xs ${getTrendColor(kpiData.profitFactorTrend)}`}>
-                    {kpiData.profitFactorTrend >= 0 ? "+" : ""}{kpiData.profitFactorTrend}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Avg Winning Trade */}
-        <Card className="bg-gradient-to-br from-emerald-900/20 to-green-800/10 border-emerald-700/30 backdrop-blur-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-full bg-emerald-600/20">
-                <TrendingUp className="h-6 w-6 text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-sm text-emerald-300">Avg Win</p>
-                <p className="text-xl font-bold text-emerald-400">+₹{kpiData.avgWinningTrade.toLocaleString()}</p>
-                <div className="flex items-center gap-1 mt-1">
-                  {getTrendIcon(kpiData.avgWinningTradeTrend)}
-                  <span className={`text-xs ${getTrendColor(kpiData.avgWinningTradeTrend)}`}>
-                    {kpiData.avgWinningTradeTrend >= 0 ? "+" : ""}{kpiData.avgWinningTradeTrend}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Avg Losing Trade */}
-        <Card className="bg-gradient-to-br from-red-900/20 to-pink-800/10 border-red-700/30 backdrop-blur-xl">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-full bg-red-600/20">
-                <TrendingDown className="h-6 w-6 text-red-400" />
-              </div>
-              <div>
-                <p className="text-sm text-red-300">Avg Loss</p>
-                <p className="text-xl font-bold text-red-400">₹{kpiData.avgLosingTrade.toLocaleString()}</p>
-                <div className="flex items-center gap-1 mt-1">
-                  {getTrendIcon(-kpiData.avgLosingTradeTrend)}
-                  <span className={`text-xs ${getTrendColor(-kpiData.avgLosingTradeTrend)}`}>
-                    {kpiData.avgLosingTradeTrend >= 0 ? "+" : ""}{kpiData.avgLosingTradeTrend}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
-        <Card className="bg-gray-900/40 border-gray-700/50 backdrop-blur-xl">
-          <CardContent className="p-4 text-center">
-            <Trophy className="h-6 w-6 text-yellow-400 mx-auto mb-2" />
-            <p className="text-xs text-gray-400 mb-1">Sharpe Ratio</p>
-            <p className="text-lg font-bold text-white">{kpiData.sharpeRatio}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gray-900/40 border-gray-700/50 backdrop-blur-xl">
-          <CardContent className="p-4 text-center">
-            <AlertTriangle className="h-6 w-6 text-orange-400 mx-auto mb-2" />
-            <p className="text-xs text-gray-400 mb-1">Max Drawdown</p>
-            <p className="text-lg font-bold text-orange-400">-₹{kpiData.maxDrawdown.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gray-900/40 border-gray-700/50 backdrop-blur-xl">
-          <CardContent className="p-4 text-center">
-            <Clock className="h-6 w-6 text-blue-400 mx-auto mb-2" />
-            <p className="text-xs text-gray-400 mb-1">Avg Hold Period</p>
-            <p className="text-lg font-bold text-blue-400">{kpiData.avgHoldingPeriod}d</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gray-900/40 border-gray-700/50 backdrop-blur-xl">
-          <CardContent className="p-4 text-center">
-            <Flame className="h-6 w-6 text-green-400 mx-auto mb-2" />
-            <p className="text-xs text-gray-400 mb-1">Largest Win</p>
-            <p className="text-lg font-bold text-green-400">+₹{kpiData.largestWin.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gray-900/40 border-gray-700/50 backdrop-blur-xl">
-          <CardContent className="p-4 text-center">
-            <CheckCircle className="h-6 w-6 text-cyan-400 mx-auto mb-2" />
-            <p className="text-xs text-gray-400 mb-1">Win Streak</p>
-            <p className="text-lg font-bold text-cyan-400">{kpiData.consecutiveWins}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gray-900/40 border-gray-700/50 backdrop-blur-xl">
-          <CardContent className="p-4 text-center">
-            <Calculator className="h-6 w-6 text-qn-light-cyan mx-auto mb-2" />
-            <p className="text-xs text-gray-400 mb-1">Total Trades</p>
-            <p className="text-lg font-bold text-qn-light-cyan">{kpiData.totalTrades}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Enhanced Trade History Table */}
-      <Card className="bg-gradient-to-br from-gray-900/50 to-gray-800/30 border-gray-700/50 backdrop-blur-xl shadow-2xl">
-        <CardHeader className="pb-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <CardTitle className="flex items-center gap-2 text-qn-light-cyan">
-              <BarChart3 className="h-5 w-5" />
-              Trade History & Analytics
-            </CardTitle>
-            <div className="flex flex-wrap gap-3">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input 
-                  placeholder="Search trades..." 
-                  className="pl-10 w-48 bg-gray-800/50 border-gray-600 text-white text-sm"
-                />
-              </div>
-
-              {/* Filters */}
-              <Select value={symbolFilter} onValueChange={setSymbolFilter}>
-                <SelectTrigger className="w-32 bg-gray-800/50 border-gray-600 text-white">
-                  <SelectValue placeholder="Symbol" />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
-                  <SelectItem value="all">All Symbols</SelectItem>
-                  <SelectItem value="TCS">TCS</SelectItem>
-                  <SelectItem value="RELIANCE">RELIANCE</SelectItem>
-                  <SelectItem value="HDFCBANK">HDFCBANK</SelectItem>
-                  <SelectItem value="INFY">INFY</SelectItem>
-                  <SelectItem value="ICICIBANK">ICICIBANK</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={strategyFilter} onValueChange={setStrategyFilter}>
-                <SelectTrigger className="w-40 bg-gray-800/50 border-gray-600 text-white">
-                  <SelectValue placeholder="Strategy" />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-800 border-gray-700">
-                  <SelectItem value="all">All Strategies</SelectItem>
-                  <SelectItem value="Breakout">Breakout</SelectItem>
-                  <SelectItem value="Support Bounce">Support Bounce</SelectItem>
-                  <SelectItem value="Moving Average Crossover">MA Crossover</SelectItem>
-                  <SelectItem value="Gap Down">Gap Down</SelectItem>
-                  <SelectItem value="Earnings Play">Earnings Play</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button variant="outline" size="sm" className="border-gray-600 text-gray-300">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left p-3 text-gray-400">
-                    <Button variant="ghost" onClick={() => handleSort("symbol")} className="text-gray-400 hover:text-white p-0 font-medium">
-                      Symbol
-                      {sortField === "symbol" && (sortDirection === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />)}
-                    </Button>
-                  </th>
-                  <th className="text-left p-3 text-gray-400">
-                    <Button variant="ghost" onClick={() => handleSort("entryDate")} className="text-gray-400 hover:text-white p-0 font-medium">
-                      Entry Date
-                      {sortField === "entryDate" && (sortDirection === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />)}
-                    </Button>
-                  </th>
-                  <th className="text-left p-3 text-gray-400">Direction</th>
-                  <th className="text-left p-3 text-gray-400">Strategy</th>
-                  <th className="text-left p-3 text-gray-400">
-                    <Button variant="ghost" onClick={() => handleSort("pnl")} className="text-gray-400 hover:text-white p-0 font-medium">
-                      P&L (₹)
-                      {sortField === "pnl" && (sortDirection === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />)}
-                    </Button>
-                  </th>
-                  <th className="text-left p-3 text-gray-400">R:R</th>
-                  <th className="text-left p-3 text-gray-400">Hold</th>
-                  <th className="text-center p-3 text-gray-400">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedTrades.map((trade) => (
-                  <React.Fragment key={trade.id}>
-                    <tr
-                      className="border-b border-gray-800/50 hover:bg-gray-800/30 cursor-pointer transition-all duration-200"
-                      onClick={() => setExpandedRow(expandedRow === trade.id ? null : trade.id)}
-                    >
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{trade.symbol}</span>
-                          <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
-                            {trade.sector}
+          </CardHeader>
+          
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-700/50">
+                    {[
+                      { key: "symbol", label: "Symbol" },
+                      { key: "entryDate", label: "Date" },
+                      { key: "direction", label: "Side" },
+                      { key: "strategy", label: "Strategy" },
+                      { key: "pnl", label: "P&L (₹)" },
+                      { key: "riskReward", label: "R:R" },
+                      { key: "holdingPeriod", label: "Hold" },
+                      { key: "actions", label: "Actions" }
+                    ].map((header) => (
+                      <th key={header.key} className="text-left p-4 text-gray-400 font-medium">
+                        {header.key !== "actions" ? (
+                          <Button 
+                            variant="ghost" 
+                            onClick={() => handleSort(header.key)} 
+                            className="text-gray-400 hover:text-white p-0 font-medium"
+                          >
+                            {header.label}
+                            {sortField === header.key && (
+                              sortDirection === "asc" ? 
+                              <ChevronUp className="h-4 w-4 ml-1" /> : 
+                              <ChevronDown className="h-4 w-4 ml-1" />
+                            )}
+                          </Button>
+                        ) : (
+                          header.label
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTrades.map((trade) => (
+                    <React.Fragment key={trade.id}>
+                      <tr
+                        className="border-b border-gray-800/30 hover:bg-gray-800/20 cursor-pointer transition-all duration-200"
+                        onClick={() => setExpandedRow(expandedRow === trade.id ? null : trade.id)}
+                      >
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <span className="font-medium text-white">{trade.symbol}</span>
+                            <Badge variant="outline" className="text-xs border-gray-600/50 text-gray-400">
+                              {trade.sector}
+                            </Badge>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="text-sm">
+                            <div className="text-white font-medium">{trade.entryDate}</div>
+                            <div className="text-gray-400 text-xs">{trade.entryTime}</div>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Badge 
+                            variant="outline"
+                            className={`${trade.direction === "Long" 
+                              ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10" 
+                              : "border-red-500/30 text-red-400 bg-red-500/10"}`}
+                          >
+                            {trade.direction === "Long" ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
+                            {trade.direction}
                           </Badge>
-                        </div>
-                      </td>
-                      <td className="p-3 text-gray-300 text-sm">{trade.entryDate}</td>
-                      <td className="p-3">
-                        <Badge 
-                          variant={trade.direction === "Long" ? "default" : "destructive"} 
-                          className={`text-xs ${trade.direction === "Long" ? "bg-green-600" : "bg-red-600"}`}
-                        >
-                          {trade.direction === "Long" ? (
-                            <ArrowUpRight className="h-3 w-3 mr-1" />
-                          ) : (
-                            <ArrowDownRight className="h-3 w-3 mr-1" />
-                          )}
-                          {trade.direction}
-                        </Badge>
-                      </td>
-                      <td className="p-3 text-gray-300 text-sm">{trade.strategy}</td>
-                      <td className="p-3">
-                        <div className="flex flex-col">
-                          <span className={`font-medium ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                            {trade.pnl >= 0 ? "+" : ""}₹{trade.pnl.toLocaleString()}
-                          </span>
-                          <span className={`text-xs ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                            {trade.pnl >= 0 ? "+" : ""}{trade.pnlPercent}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <Badge 
-                          variant="outline" 
-                          className={`text-xs ${trade.riskReward >= 1.5 ? "border-green-600 text-green-400" : trade.riskReward >= 1 ? "border-yellow-600 text-yellow-400" : "border-red-600 text-red-400"}`}
-                        >
-                          1:{trade.riskReward}
-                        </Badge>
-                      </td>
-                      <td className="p-3 text-gray-300 text-sm">{trade.holdingPeriod}d</td>
-                      <td className="p-3 text-center">
-                        <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
-                          {expandedRow === trade.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        </Button>
-                      </td>
-                    </tr>
-                    {expandedRow === trade.id && (
-                      <tr>
-                        <td colSpan="8" className="p-0">
-                          <div className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 p-6 border-t border-gray-600/30 backdrop-blur-sm">
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                              {/* Chart Placeholder */}
-                              <div className="lg:col-span-1">
-                                <Card className="bg-gray-700/30 border-gray-600/30 h-48">
-                                  <CardContent className="p-4 h-full flex flex-col items-center justify-center">
-                                    <BarChart3 className="h-12 w-12 text-gray-400 opacity-50 mb-3" />
-                                    <p className="text-sm font-medium text-gray-300 mb-2">Trade Analysis</p>
-                                    <div className="text-xs text-gray-400 space-y-1 text-center">
-                                      <p>Entry: ₹{trade.entryPrice}</p>
-                                      <p>Exit: ₹{trade.exitPrice}</p>
-                                      <p>Max Favorable: +{trade.maxFavorable}%</p>
-                                      <p>Max Adverse: {trade.maxAdverse}%</p>
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              </div>
-
-                              {/* Trade Details */}
-                              <div className="lg:col-span-2 space-y-6">
-                                {/* Performance Metrics */}
-                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                  <div className="bg-gray-800/30 p-3 rounded-lg border border-gray-600/30">
-                                    <p className="text-xs text-gray-400 mb-1">Commission</p>
-                                    <p className="text-sm font-medium text-red-400">₹{trade.commission}</p>
-                                  </div>
-                                  <div className="bg-gray-800/30 p-3 rounded-lg border border-gray-600/30">
-                                    <p className="text-xs text-gray-400 mb-1">Slippage</p>
-                                    <p className="text-sm font-medium text-orange-400">₹{trade.slippage}</p>
-                                  </div>
-                                  <div className="bg-gray-800/30 p-3 rounded-lg border border-gray-600/30">
-                                    <p className="text-xs text-gray-400 mb-1">Market Cap</p>
-                                    <p className="text-sm font-medium text-blue-400">{trade.marketCap}</p>
-                                  </div>
-                                  <div className="bg-gray-800/30 p-3 rounded-lg border border-gray-600/30">
-                                    <p className="text-xs text-gray-400 mb-1">Quantity</p>
-                                    <p className="text-sm font-medium text-cyan-400">{trade.quantity}</p>
-                                  </div>
+                        </td>
+                        <td className="p-4 text-gray-300 text-sm">{trade.strategy}</td>
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className={`font-bold ${trade.pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                              {trade.pnl >= 0 ? "+" : ""}₹{trade.pnl.toLocaleString()}
+                            </span>
+                            <span className={`text-xs ${trade.pnl >= 0 ? "text-emerald-400/70" : "text-red-400/70"}`}>
+                              {trade.pnl >= 0 ? "+" : ""}{trade.pnlPercent}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Badge 
+                            variant="outline" 
+                            className={`text-xs ${
+                              trade.riskReward >= 2 ? "border-emerald-500/30 text-emerald-400" : 
+                              trade.riskReward >= 1.5 ? "border-yellow-500/30 text-yellow-400" : 
+                              "border-red-500/30 text-red-400"
+                            }`}
+                          >
+                            1:{trade.riskReward}
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-gray-300 text-sm">{trade.holdingPeriod}d</td>
+                        <td className="p-4 text-center">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-gray-400 hover:text-white h-8 w-8 p-0"
+                          >
+                            {expandedRow === trade.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </Button>
+                        </td>
+                      </tr>
+                      
+                      {expandedRow === trade.id && (
+                        <tr>
+                          <td colSpan="8" className="p-0">
+                            <div className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 backdrop-blur-sm border-t border-gray-600/30">
+                              <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* Trade Chart Placeholder */}
+                                <div className="lg:col-span-1">
+                                  <Card className="bg-gray-700/30 border-gray-600/30 h-56">
+                                    <CardContent className="p-4 h-full flex flex-col items-center justify-center">
+                                      <BarChart3 className="h-16 w-16 text-gray-400 opacity-50 mb-3" />
+                                      <p className="text-sm font-medium text-gray-300 mb-3">Trade Performance Chart</p>
+                                      <div className="text-xs text-gray-400 space-y-2 text-center w-full">
+                                        <div className="flex justify-between">
+                                          <span>Entry:</span>
+                                          <span className="text-white">₹{trade.entryPrice}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span>Exit:</span>
+                                          <span className="text-white">₹{trade.exitPrice}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span>Max Favorable:</span>
+                                          <span className="text-emerald-400">+{trade.maxFavorable}%</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span>Max Adverse:</span>
+                                          <span className="text-red-400">{trade.maxAdverse}%</span>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
                                 </div>
 
-                                {/* Ratings */}
-                                <div className="grid grid-cols-2 gap-6">
+                                {/* Trade Details */}
+                                <div className="lg:col-span-2 space-y-6">
+                                  {/* Performance Metrics Grid */}
+                                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {[
+                                      { label: "Commission", value: `₹${trade.commission}`, color: "text-red-400" },
+                                      { label: "Slippage", value: `₹${trade.slippage}`, color: "text-orange-400" },
+                                      { label: "Quantity", value: trade.quantity, color: "text-cyan-400" },
+                                      { label: "Market Cap", value: trade.marketCap, color: "text-blue-400" }
+                                    ].map((metric, index) => (
+                                      <div key={index} className="bg-gray-800/40 p-3 rounded-lg border border-gray-600/30">
+                                        <p className="text-xs text-gray-400 mb-1">{metric.label}</p>
+                                        <p className={`text-sm font-medium ${metric.color}`}>{metric.value}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {/* Trade Tags */}
                                   <div>
-                                    <Label className="text-sm text-gray-400 mb-2 block">Setup Rating</Label>
-                                    <div className="flex gap-1">
-                                      {renderStars(trade.setupRating)}
+                                    <Label className="text-sm text-gray-400 mb-2 block">Trade Tags</Label>
+                                    <div className="flex flex-wrap gap-2">
+                                      {trade.tags.map((tag, index) => (
+                                        <Badge key={index} variant="outline" className="text-xs border-qn-light-cyan/30 text-qn-light-cyan bg-qn-light-cyan/10">
+                                          <Hash className="h-3 w-3 mr-1" />
+                                          {tag}
+                                        </Badge>
+                                      ))}
                                     </div>
                                   </div>
+
+                                  {/* Ratings */}
+                                  <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                      <Label className="text-sm text-gray-400 mb-2 block">Setup Quality</Label>
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex gap-1">
+                                          {renderStars(trade.setupRating)}
+                                        </div>
+                                        <span className="text-sm text-gray-300">({trade.setupRating}/5)</span>
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <Label className="text-sm text-gray-400 mb-2 block">Execution Quality</Label>
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex gap-1">
+                                          {renderStars(trade.executionRating)}
+                                        </div>
+                                        <span className="text-sm text-gray-300">({trade.executionRating}/5)</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Emotion & Psychology */}
                                   <div>
-                                    <Label className="text-sm text-gray-400 mb-2 block">Execution Rating</Label>
-                                    <div className="flex gap-1">
-                                      {renderStars(trade.executionRating)}
+                                    <Label className="text-sm text-gray-400 mb-2 block">Emotional State</Label>
+                                    <div className="flex items-center gap-3">
+                                      <Badge 
+                                        className={`bg-gradient-to-r ${getEmotionData(trade.emotion).color} text-white px-3 py-1 shadow-lg`}
+                                      >
+                                        <Circle className="h-3 w-3 mr-2 fill-current" />
+                                        {trade.emotion}
+                                      </Badge>
                                     </div>
                                   </div>
-                                </div>
 
-                                {/* Emotion Tag */}
-                                <div>
-                                  <Label className="text-sm text-gray-400 mb-2 block">Emotional State</Label>
-                                  <Badge className={`bg-gradient-to-r ${getEmotionColor(trade.emotion)} text-white px-3 py-1`}>
-                                    <Circle className="h-3 w-3 mr-2 fill-current" />
-                                    {trade.emotion}
-                                  </Badge>
-                                </div>
-
-                                {/* Notes */}
-                                <div>
-                                  <Label className="text-sm text-gray-400 mb-2 block">Trade Notes</Label>
-                                  <div className="bg-gradient-to-br from-gray-700/40 to-gray-600/30 rounded-lg p-4 border border-gray-600/30 backdrop-blur-sm">
-                                    <p className="text-sm text-gray-300 leading-relaxed">{trade.notes}</p>
+                                  {/* Trade Notes */}
+                                  <div>
+                                    <Label className="text-sm text-gray-400 mb-2 block">Trade Notes</Label>
+                                    <div className="bg-gradient-to-br from-gray-700/40 to-gray-600/30 rounded-lg p-4 border border-gray-600/30">
+                                      <p className="text-sm text-gray-300 leading-relaxed mb-3">{trade.notes}</p>
+                                      
+                                      {/* Key Learnings */}
+                                      <div className="space-y-2">
+                                        <div className="flex items-start gap-2">
+                                          <Lightbulb className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                                          <div>
+                                            <span className="text-xs text-yellow-400 font-medium">Key Learning: </span>
+                                            <span className="text-xs text-gray-300">{trade.learnings}</span>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                          <Target className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                                          <div>
+                                            <span className="text-xs text-blue-400 font-medium">Improvement: </span>
+                                            <span className="text-xs text-gray-300">{trade.improvements}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
 
-                                {/* Action Buttons */}
-                                <div className="flex gap-3 pt-2">
-                                  <Button variant="outline" className="border-qn-light-cyan text-qn-light-cyan hover:bg-qn-light-cyan hover:text-black">
-                                    <Edit className="h-4 w-4 mr-2" />
-                                    Edit Journal
-                                  </Button>
-                                  <Button variant="outline" className="border-gray-600 text-gray-300 hover:bg-gray-800/50">
-                                    <Bookmark className="h-4 w-4 mr-2" />
-                                    Bookmark
-                                  </Button>
-                                  <Button variant="outline" className="border-gray-600 text-gray-300 hover:bg-gray-800/50">
-                                    <Share className="h-4 w-4 mr-2" />
-                                    Share
-                                  </Button>
+                                  {/* Action Buttons */}
+                                  <div className="flex gap-3 pt-2">
+                                    <Button 
+                                      variant="outline" 
+                                      className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan hover:text-black"
+                                    >
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Edit Journal
+                                    </Button>
+                                    <Button variant="outline" className="border-gray-600/50 text-gray-300 hover:bg-gray-800/50">
+                                      <Copy className="h-4 w-4 mr-2" />
+                                      Duplicate
+                                    </Button>
+                                    <Button variant="outline" className="border-gray-600/50 text-gray-300 hover:bg-gray-800/50">
+                                      <Share className="h-4 w-4 mr-2" />
+                                      Share
+                                    </Button>
+                                    <Button variant="outline" className="border-gray-600/50 text-gray-300 hover:bg-gray-800/50">
+                                      <Bookmark className="h-4 w-4 mr-2" />
+                                      Bookmark
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
 
-            {sortedTrades.length === 0 && (
-              <div className="text-center text-gray-400 py-12">
-                <Target className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                <p className="text-xl font-medium mb-2">No trades found</p>
-                <p className="text-sm">Try adjusting your filters to see more results</p>
+              {sortedTrades.length === 0 && (
+                <div className="text-center text-gray-400 py-16">
+                  <BookOpen className="h-20 w-20 mx-auto mb-4 opacity-30" />
+                  <p className="text-xl font-medium mb-2">No trades found</p>
+                  <p className="text-sm">Try adjusting your search criteria or filters</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* AI Insights Modal */}
+      <Dialog open={isAnalyticsOpen} onOpenChange={setIsAnalyticsOpen}>
+        <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-qn-light-cyan">
+              <Brain className="h-5 w-5" />
+              AI Performance Insights
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-gradient-to-br from-qn-light-cyan/10 to-blue-500/10 p-4 rounded-lg border border-qn-light-cyan/30">
+              <h4 className="font-medium text-qn-light-cyan mb-2">Performance Summary</h4>
+              <p className="text-sm text-gray-300">
+                Your trading performance shows strong momentum with a {kpiData.winRate}% win rate and {kpiData.profitFactor} profit factor. 
+                Focus on extending holding periods for winning trades to maximize gains.
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-emerald-500/10 p-4 rounded-lg border border-emerald-500/20">
+                <h5 className="font-medium text-emerald-400 mb-2">Strengths</h5>
+                <ul className="text-sm text-gray-300 space-y-1">
+                  <li>• Excellent setup identification</li>
+                  <li>• Strong risk management</li>
+                  <li>• Consistent execution</li>
+                </ul>
               </div>
-            )}
+              
+              <div className="bg-orange-500/10 p-4 rounded-lg border border-orange-500/20">
+                <h5 className="font-medium text-orange-400 mb-2">Areas to Improve</h5>
+                <ul className="text-sm text-gray-300 space-y-1">
+                  <li>• Hold winning positions longer</li>
+                  <li>• Reduce emotional trading</li>
+                  <li>• Better position sizing</li>
+                </ul>
+              </div>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
