@@ -689,7 +689,7 @@ const TradeJournal = () => {
                                   {/* Trade Notes */}
                                   <div>
                                     <Label className="text-sm text-gray-400 mb-2 block">Trade Notes</Label>
-                                    <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                                    <div className="bg-gray-800/80 rounded-lg p-3 border border-gray-700/50">
                                       <p className="text-sm text-gray-300 leading-relaxed mb-3">{trade.notes}</p>
                                       
                                       {/* Key Learnings */}
