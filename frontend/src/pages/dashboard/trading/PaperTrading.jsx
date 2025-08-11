@@ -1037,36 +1037,10 @@ const PaperTrading = () => {
   );
 
   return (
-    <div className="h-[calc(100vh-80px)] bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white flex flex-col overflow-hidden">
-
-      {/* Main Content */}
-      <div className="flex-1 p-4 overflow-hidden">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className="grid w-full grid-cols-2 bg-gray-900/50 border border-gray-800/50 flex-shrink-0">
-            <TabsTrigger 
-              value="trading" 
-              className="data-[state=active]:bg-qn-light-cyan/20 data-[state=active]:text-qn-light-cyan"
-            >
-              <CandlestickChart className="h-4 w-4 mr-2" />
-              Trading Interface
-            </TabsTrigger>
-            <TabsTrigger 
-              value="account" 
-              className="data-[state=active]:bg-qn-light-cyan/20 data-[state=active]:text-qn-light-cyan"
-            >
-              <Briefcase className="h-4 w-4 mr-2" />
-              Account Dashboard
-            </TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="trading" className="flex-1 mt-4 overflow-hidden">
-            <TradingInterface />
-          </TabsContent>
-          
-          <TabsContent value="account" className="flex-1 mt-4 overflow-hidden">
-            <AccountDashboard />
-          </TabsContent>
-        </Tabs>
+    <div className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white">
+      {/* Main Trading Interface - Single Page */}
+      <div className="p-2 sm:p-4 lg:p-6">
+        <TradingInterface />
       </div>
 
       <OrderModal />
