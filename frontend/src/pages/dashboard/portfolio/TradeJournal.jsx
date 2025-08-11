@@ -759,7 +759,7 @@ const TradeJournal = () => {
 
       {/* AI Insights Modal */}
       <Dialog open={isAnalyticsOpen} onOpenChange={setIsAnalyticsOpen}>
-        <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-2xl">
+        <DialogContent className="bg-gray-900/95 border-gray-700 text-white max-w-2xl backdrop-blur-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-qn-light-cyan">
               <Brain className="h-5 w-5" />
