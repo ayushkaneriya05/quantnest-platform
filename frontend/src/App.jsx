@@ -8,7 +8,6 @@ import {
   NotificationContainer,
   useNotifications,
 } from "@/components/ui/notification";
-import ProtectedRoute from "@/components/ProtectedRoute";
 
 // Pages
 import LandingPage from "@/pages/LandingPage";
