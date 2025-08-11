@@ -768,7 +768,7 @@ const TradeJournal = () => {
           </DialogHeader>
           
           <div className="space-y-4">
-            <div className="bg-gradient-to-br from-qn-light-cyan/10 to-blue-500/10 p-4 rounded-lg border border-qn-light-cyan/30">
+            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 p-4 rounded-lg border border-qn-light-cyan/30">
               <h4 className="font-medium text-qn-light-cyan mb-2">Performance Summary</h4>
               <p className="text-sm text-gray-300">
                 Your trading performance shows strong momentum with a {kpiData.winRate}% win rate and {kpiData.profitFactor} profit factor. 
