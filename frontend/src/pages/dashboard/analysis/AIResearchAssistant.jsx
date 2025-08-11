@@ -1,586 +1,509 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Avatar } from "@/components/ui/avatar";
 import { 
-  Search, 
-  Bookmark, 
-  Share, 
-  TrendingUp, 
+  Send, 
+  Mic,
+  MicOff,
+  Paperclip,
+  MoreVertical,
+  Brain,
+  User,
+  Sparkles,
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
+  Clock,
+  CheckCircle,
+  Copy,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  Zap,
+  Bot,
+  MessageSquare,
+  Activity,
+  DollarSign,
   AlertTriangle,
   Lightbulb,
   Target,
-  Clock,
-  Star,
-  ExternalLink,
+  Search,
   Filter,
-  Brain,
-  Zap,
-  Globe,
-  MessageSquare,
-  Calendar,
-  ThumbsUp,
-  ThumbsDown,
-  Copy,
+  Settings,
+  Star,
+  Bookmark,
+  Share,
   Download,
-  Sparkles,
-  Activity,
-  TrendingDown,
-  BarChart3,
-  DollarSign,
-  Users,
-  Flame,
-  Eye,
-  ArrowRight,
   ChevronRight,
-  Bot,
-  Mic,
-  Send,
-  RefreshCw
+  Circle,
+  Dot,
+  ArrowUpRight,
+  ArrowDownRight,
+  Plus,
+  X
 } from "lucide-react";
 import { usePageTitle } from "@/hooks/use-page-title";
 
 const AIResearchAssistant = () => {
   usePageTitle("AI Research Assistant");
 
-  const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
-  const [bookmarkedItems, setBookmarkedItems] = useState(new Set([1, 3]));
+  const [message, setMessage] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [likedInsights, setLikedInsights] = useState(new Set());
-  const [searchHistory] = useState([
-    "Market outlook for next week",
-    "NIFTY technical analysis", 
-    "Best performing sectors",
-    "Portfolio rebalancing advice"
-  ]);
+  const [activeTab, setActiveTab] = useState("chat");
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
-  const categories = [
-    { id: "all", label: "All Insights", count: 24, icon: Globe, color: "text-blue-400" },
-    { id: "market", label: "Market Analysis", count: 8, icon: TrendingUp, color: "text-green-400" },
-    { id: "stocks", label: "Stock Insights", count: 12, icon: BarChart3, color: "text-purple-400" },
-    { id: "portfolio", label: "Portfolio Alerts", count: 3, icon: Target, color: "text-orange-400" },
-    { id: "bookmarks", label: "Bookmarked", count: bookmarkedItems.size, icon: Bookmark, color: "text-yellow-400" },
-  ];
-
-  const quickSuggestions = [
-    { text: "Analyze NIFTY 50 trend", icon: TrendingUp, category: "Technical Analysis" },
-    { text: "Top gainers today", icon: Flame, category: "Market Movers" },
-    { text: "Sector rotation opportunities", icon: Activity, category: "Sector Analysis" },
-    { text: "Risk assessment for my portfolio", icon: AlertTriangle, category: "Risk Management" },
-    { text: "Earnings calendar this week", icon: Calendar, category: "Fundamental Analysis" },
-    { text: "Options strategy suggestions", icon: Target, category: "Options Trading" }
-  ];
-
-  const insights = [
+  const [chatHistory, setChatHistory] = useState([
     {
       id: 1,
-      type: "MARKET MOVER",
-      typeColor: "from-green-600 to-emerald-500",
-      title: "NIFTY 50 breaks above key resistance at 19,800",
-      summary: "Strong buying interest in banking and IT sectors pushes the index to new highs. Technical indicators suggest further upside momentum with next target at 20,200. Volume confirmation supports the breakout pattern.",
-      relatedSymbols: ["NIFTY50", "HDFCBANK", "TCS", "INFY"],
-      confidence: 92,
-      source: "QuantNest AI",
-      timestamp: "15 minutes ago",
-      category: "market",
-      views: 1247,
-      likes: 89,
-      aiInsight: "High probability breakout with strong momentum indicators",
-      tags: ["Bullish", "Breakout", "High Volume"],
-      riskLevel: "Medium"
+      type: "assistant",
+      content: "Hello! I'm QuantNest AI, your personal trading research assistant. I can help you with market analysis, stock insights, portfolio recommendations, and trading strategies. What would you like to explore today?",
+      timestamp: new Date(Date.now() - 60000),
+      suggestions: [
+        { text: "Analyze NIFTY 50 trend", icon: TrendingUp },
+        { text: "Top gainers today", icon: Activity },
+        { text: "Portfolio risk assessment", icon: AlertTriangle },
+        { text: "Sector opportunities", icon: Target }
+      ]
     },
     {
       id: 2,
-      type: "STOCK ALERT",
-      typeColor: "from-blue-600 to-cyan-500",
-      title: "RELIANCE shows strong reversal pattern",
-      summary: "After testing support at ₹2,400, RELIANCE has formed a bullish engulfing pattern with high volume. RSI oversold conditions present a good buying opportunity with target at ₹2,550.",
-      relatedSymbols: ["RELIANCE"],
-      confidence: 87,
-      source: "Technical Analysis Engine",
-      timestamp: "32 minutes ago",
-      category: "stocks",
-      views: 892,
-      likes: 64,
-      aiInsight: "Strong reversal pattern with volume confirmation",
-      tags: ["Reversal", "Support", "RSI Oversold"],
-      riskLevel: "Low"
+      type: "user",
+      content: "What's the market outlook for banking stocks this week?",
+      timestamp: new Date(Date.now() - 45000)
     },
     {
       id: 3,
-      type: "EARNINGS INSIGHT",
-      typeColor: "from-purple-600 to-pink-500",
-      title: "TCS Q3 results exceed expectations",
-      summary: "Revenue growth of 13.2% YoY and improved margin guidance boost investor confidence. Strong dollar revenue and deal wins in BFSI segment highlight robust fundamentals. Stock price target revised upward.",
-      relatedSymbols: ["TCS", "INFY", "WIPRO"],
-      confidence: 95,
-      source: "Earnings Analysis",
-      timestamp: "1 hour ago",
-      category: "stocks",
-      views: 2156,
-      likes: 143,
-      aiInsight: "Exceptional earnings beat with strong forward guidance",
-      tags: ["Earnings Beat", "Revenue Growth", "IT Sector"],
-      riskLevel: "Low"
-    },
-    {
-      id: 4,
-      type: "PORTFOLIO ALERT",
-      typeColor: "from-orange-600 to-red-500",
-      title: "Portfolio concentration risk increasing",
-      summary: "Banking sector exposure has reached 35% of your portfolio. Consider rebalancing to reduce sector-specific risks and improve diversification across different market segments.",
-      relatedSymbols: ["HDFCBANK", "ICICIBANK", "AXISBANK"],
-      confidence: 88,
-      source: "Portfolio Analyzer",
-      timestamp: "2 hours ago",
-      category: "portfolio",
-      views: 445,
-      likes: 23,
-      aiInsight: "Immediate attention required for risk management",
-      tags: ["Risk Alert", "Diversification", "Banking"],
-      riskLevel: "High"
-    },
-    {
-      id: 5,
-      type: "SECTOR ROTATION",
-      typeColor: "from-cyan-600 to-blue-500",
-      title: "IT sector gaining momentum over pharma",
-      summary: "Relative strength rotation favors IT stocks as global tech spending recovers. Pharma sector showing signs of fatigue after recent outperformance. Consider rotating positions strategically.",
-      relatedSymbols: ["TCS", "INFY", "HCLTECH", "DRREDDY", "SUNPHARMA"],
-      confidence: 84,
-      source: "Sector Analysis",
-      timestamp: "3 hours ago",
-      category: "market",
-      views: 1078,
-      likes: 67,
-      aiInsight: "Strong sector rotation signals detected",
-      tags: ["Sector Rotation", "IT Outperformance", "Strategy"],
-      riskLevel: "Medium"
-    },
-    {
-      id: 6,
-      type: "MOMENTUM PLAY",
-      typeColor: "from-red-600 to-pink-500",
-      title: "HDFC Bank showing weakness below ₹1,500",
-      summary: "Failed breakout attempt and increasing selling pressure suggest further downside. Key support at ₹1,450 crucial for preventing deeper correction. Consider defensive strategies.",
-      relatedSymbols: ["HDFCBANK"],
-      confidence: 78,
-      source: "Momentum Scanner",
-      timestamp: "4 hours ago",
-      category: "stocks",
-      views: 734,
-      likes: 31,
-      aiInsight: "Bearish momentum with key support test ahead",
-      tags: ["Bearish", "Support Test", "Banking"],
-      riskLevel: "High"
+      type: "assistant",
+      content: "Based on my analysis of banking sector trends, here's the outlook for this week:",
+      timestamp: new Date(Date.now() - 40000),
+      insights: [
+        {
+          type: "BULLISH SIGNAL",
+          color: "from-green-500 to-emerald-400",
+          title: "Strong Q3 Earnings Momentum",
+          content: "Major private banks like HDFC Bank and ICICI Bank have shown robust earnings growth with improved asset quality.",
+          confidence: 85,
+          symbols: ["HDFCBANK", "ICICIBANK", "AXISBANK"]
+        },
+        {
+          type: "TECHNICAL ANALYSIS",
+          color: "from-blue-500 to-cyan-400",
+          title: "Bank Nifty Breaking Resistance",
+          content: "Bank Nifty has broken above 47,500 resistance with strong volume. Next target at 48,200-48,500 range.",
+          confidence: 78,
+          symbols: ["BANKNIFTY"]
+        },
+        {
+          type: "RISK FACTOR",
+          color: "from-orange-500 to-red-400",
+          title: "RBI Policy Meeting",
+          content: "Upcoming RBI monetary policy meeting could impact banking stocks. Watch for any changes in repo rates or liquidity measures.",
+          confidence: 72,
+          symbols: ["BANKNIFTY"]
+        }
+      ]
     }
+  ]);
+
+  const quickActions = [
+    { icon: TrendingUp, label: "Market Analysis", color: "from-green-400 to-emerald-300" },
+    { icon: BarChart3, label: "Stock Research", color: "from-blue-400 to-cyan-300" },
+    { icon: Target, label: "Portfolio Review", color: "from-purple-400 to-pink-300" },
+    { icon: AlertTriangle, label: "Risk Assessment", color: "from-orange-400 to-red-300" },
+    { icon: Lightbulb, label: "Trading Ideas", color: "from-yellow-400 to-orange-300" },
+    { icon: DollarSign, label: "Earnings Calendar", color: "from-teal-400 to-green-300" }
   ];
 
-  const filteredInsights = insights.filter(insight => {
-    if (activeCategory === "all") return true;
-    if (activeCategory === "bookmarks") return bookmarkedItems.has(insight.id);
-    return insight.category === activeCategory;
-  });
+  const suggestedQueries = [
+    "What are the top performing sectors this month?",
+    "Show me oversold stocks with good fundamentals",
+    "Analyze RELIANCE technical chart",
+    "Best dividend paying stocks under ₹500",
+    "Options strategies for current market conditions",
+    "FII and DII flow analysis for this week"
+  ];
 
-  const handleBookmark = (insightId) => {
-    const newBookmarks = new Set(bookmarkedItems);
-    if (newBookmarks.has(insightId)) {
-      newBookmarks.delete(insightId);
-    } else {
-      newBookmarks.add(insightId);
-    }
-    setBookmarkedItems(newBookmarks);
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatHistory]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const handleLike = (insightId) => {
-    const newLikes = new Set(likedInsights);
-    if (newLikes.has(insightId)) {
-      newLikes.delete(insightId);
-    } else {
-      newLikes.add(insightId);
-    }
-    setLikedInsights(newLikes);
+  const handleSendMessage = async () => {
+    if (!message.trim()) return;
+
+    const userMessage = {
+      id: chatHistory.length + 1,
+      type: "user",
+      content: message,
+      timestamp: new Date()
+    };
+
+    setChatHistory(prev => [...prev, userMessage]);
+    setMessage("");
+    setIsTyping(true);
+    setIsLoading(true);
+
+    // Simulate AI response
+    setTimeout(() => {
+      const aiResponse = {
+        id: chatHistory.length + 2,
+        type: "assistant",
+        content: generateAIResponse(message),
+        timestamp: new Date(),
+        confidence: 92
+      };
+      setChatHistory(prev => [...prev, aiResponse]);
+      setIsTyping(false);
+      setIsLoading(false);
+    }, 2000);
   };
 
-  const handleSearch = () => {
-    if (query.trim()) {
-      setIsLoading(true);
-      setTimeout(() => {
-        setIsLoading(false);
-        console.log("Searching for:", query);
-      }, 2000);
-    }
+  const generateAIResponse = (query) => {
+    // This would typically call your AI API
+    return `I've analyzed your query about "${query}". Here's what I found based on current market data and trends. This analysis considers technical indicators, fundamental metrics, and market sentiment.`;
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === "Enter") {
-      handleSearch();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
     }
   };
 
-  const getRiskColor = (risk) => {
-    switch (risk) {
-      case "Low": return "text-green-400 bg-green-900/20 border-green-700/30";
-      case "Medium": return "text-yellow-400 bg-yellow-900/20 border-yellow-700/30";
-      case "High": return "text-red-400 bg-red-900/20 border-red-700/30";
-      default: return "text-gray-400 bg-gray-900/20 border-gray-700/30";
-    }
+  const handleVoiceToggle = () => {
+    setIsRecording(!isRecording);
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-black to-gray-900 text-white p-4 lg:p-6">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-qn-light-cyan/20 to-blue-500/20 rounded-xl border border-qn-light-cyan/30">
-                <Brain className="h-8 w-8 text-qn-light-cyan" />
-              </div>
-              <div>
-                <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-qn-light-cyan to-blue-400 bg-clip-text text-transparent">
-                  AI Research Assistant
-                </h1>
-                <p className="text-sm text-gray-400">Powered by advanced market intelligence</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Badge className="bg-green-600/20 text-green-400 border-green-600/30">
-              <Bot className="h-3 w-3 mr-1" />
-              AI Online
-            </Badge>
-            <Button variant="outline" size="sm" className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan hover:text-black">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
-          </div>
-        </div>
-      </div>
+  const formatTime = (date) => {
+    return date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column - Control Panel */}
-        <div className="lg:col-span-4 space-y-6">
-          {/* AI Query Input */}
-          <Card className="bg-gradient-to-br from-gray-900/50 to-gray-800/30 border-gray-700/50 backdrop-blur-xl shadow-2xl">
-            <CardHeader className="pb-4">
-              <CardTitle className="flex items-center gap-2 text-qn-light-cyan">
-                <MessageSquare className="h-5 w-5" />
-                Ask AI Assistant
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  className="pl-12 pr-12 py-4 bg-gray-800/50 border-gray-600 text-white text-lg placeholder:text-gray-400 focus:border-qn-light-cyan transition-all duration-200"
-                  placeholder="Ask anything about markets, stocks, or your portfolio..."
-                />
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex gap-2">
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-white">
-                    <Mic className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              
-              <Button 
-                onClick={handleSearch}
-                disabled={isLoading}
-                className="w-full bg-gradient-to-r from-qn-light-cyan to-blue-400 text-black hover:from-qn-light-cyan/80 hover:to-blue-400/80 font-semibold py-3 relative overflow-hidden group"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-                {isLoading ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Ask AI Assistant
-                  </>
-                )}
-              </Button>
-
-              {isLoading && (
-                <div className="bg-gray-800/30 p-4 rounded-lg border border-qn-light-cyan/30 animate-pulse">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-pulse"></div>
-                    <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-pulse" style={{animationDelay: '0.1s'}}></div>
-                    <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
-                    <span className="text-sm text-qn-light-cyan">AI is thinking...</span>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Quick Suggestions */}
-          <Card className="bg-gradient-to-br from-purple-900/20 to-indigo-800/10 border-purple-700/30 backdrop-blur-xl">
-            <CardHeader className="pb-4">
-              <CardTitle className="flex items-center gap-2 text-purple-400 text-sm">
-                <Lightbulb className="h-4 w-4" />
-                Quick Suggestions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {quickSuggestions.map((suggestion, index) => (
-                <Button
-                  key={index}
-                  variant="outline"
-                  onClick={() => setQuery(suggestion.text)}
-                  className="w-full justify-start text-left border-purple-700/30 text-gray-300 hover:bg-purple-800/20 hover:border-purple-600/50 transition-all duration-200 group"
-                >
-                  <suggestion.icon className="h-4 w-4 mr-3 text-purple-400 group-hover:text-purple-300" />
-                  <div className="flex-1">
-                    <div className="text-sm">{suggestion.text}</div>
-                    <div className="text-xs text-gray-500">{suggestion.category}</div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-purple-400" />
-                </Button>
-              ))}
-            </CardContent>
-          </Card>
-
-          {/* Categories */}
-          <Card className="bg-gradient-to-br from-gray-900/50 to-gray-800/30 border-gray-700/50 backdrop-blur-xl">
-            <CardHeader className="pb-4">
-              <CardTitle className="flex items-center gap-2 text-qn-light-cyan">
-                <Filter className="h-5 w-5" />
-                Categories
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {categories.map((category) => {
-                const IconComponent = category.icon;
-                return (
-                  <Button
-                    key={category.id}
-                    variant={activeCategory === category.id ? "default" : "outline"}
-                    onClick={() => setActiveCategory(category.id)}
-                    className={`w-full justify-between group transition-all duration-200 ${
-                      activeCategory === category.id
-                        ? "bg-gradient-to-r from-qn-light-cyan to-blue-400 text-black hover:from-qn-light-cyan/80 hover:to-blue-400/80"
-                        : "border-gray-700/50 text-gray-300 hover:bg-gray-800/50 hover:border-gray-600"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <IconComponent className={`h-4 w-4 ${activeCategory === category.id ? "text-black" : category.color}`} />
-                      <span>{category.label}</span>
-                    </div>
-                    <Badge 
-                      variant="secondary" 
-                      className={`${activeCategory === category.id ? "bg-black/20 text-black" : "bg-gray-700 text-gray-300"}`}
-                    >
-                      {category.count}
-                    </Badge>
-                  </Button>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          {/* Search History */}
-          <Card className="bg-gradient-to-br from-gray-900/30 to-gray-800/20 border-gray-700/30 backdrop-blur-xl">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-gray-400 text-sm">
-                <Clock className="h-4 w-4" />
-                Recent Searches
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {searchHistory.map((search, index) => (
-                <button
-                  key={index}
-                  onClick={() => setQuery(search)}
-                  className="w-full text-left text-xs text-gray-500 hover:text-gray-300 py-1 px-2 rounded hover:bg-gray-800/30 transition-colors"
-                >
-                  {search}
-                </button>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column - Insights Feed */}
-        <div className="lg:col-span-8">
-          <Card className="bg-gradient-to-br from-gray-900/50 to-gray-800/30 border-gray-700/50 backdrop-blur-xl h-[calc(100vh-12rem)] shadow-2xl">
-            <CardHeader className="pb-4">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <CardTitle className="flex items-center gap-2 text-qn-light-cyan">
-                  <Sparkles className="h-5 w-5" />
-                  AI Insights Feed
-                </CardTitle>
-                <div className="flex items-center gap-3">
-                  <Badge variant="secondary" className="bg-gray-700 text-gray-300">
-                    {filteredInsights.length} insights
-                  </Badge>
-                  <Button variant="outline" size="sm" className="border-gray-600 text-gray-300">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="h-full overflow-hidden">
-              <div className="h-full overflow-y-auto space-y-6 pr-2">
-                {filteredInsights.map((insight) => (
-                  <Card key={insight.id} className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 border-gray-600/50 hover:border-gray-500/50 transition-all duration-300 hover:shadow-xl group">
-                    <CardContent className="p-6">
-                      {/* Header */}
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center gap-3">
-                          <Badge className={`bg-gradient-to-r ${insight.typeColor} text-white text-xs px-3 py-1 shadow-lg`}>
-                            {insight.type}
-                          </Badge>
-                          <Badge variant="outline" className={`text-xs px-2 py-1 ${getRiskColor(insight.riskLevel)}`}>
-                            {insight.riskLevel} Risk
-                          </Badge>
-                          <span className="text-xs text-gray-400 flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {insight.timestamp}
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleBookmark(insight.id)}
-                            className={`h-8 w-8 p-0 transition-colors ${
-                              bookmarkedItems.has(insight.id) 
-                                ? "text-yellow-400 hover:text-yellow-300" 
-                                : "text-gray-400 hover:text-gray-300"
-                            }`}
-                          >
-                            <Bookmark className={`h-4 w-4 ${bookmarkedItems.has(insight.id) ? "fill-current" : ""}`} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-gray-400 hover:text-gray-300"
-                          >
-                            <Share className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Title */}
-                      <h3 className="text-xl font-semibold text-white mb-3 group-hover:text-qn-light-cyan transition-colors">
-                        {insight.title}
-                      </h3>
-
-                      {/* AI Insight Badge */}
-                      <div className="mb-3">
-                        <Badge className="bg-gradient-to-r from-qn-light-cyan/20 to-blue-500/20 text-qn-light-cyan border-qn-light-cyan/30">
-                          <Bot className="h-3 w-3 mr-1" />
-                          {insight.aiInsight}
+  const MessageBubble = ({ msg }) => {
+    const isUser = msg.type === "user";
+    
+    return (
+      <div className={`flex gap-3 mb-6 ${isUser ? "justify-end" : "justify-start"}`}>
+        {!isUser && (
+          <Avatar className="w-10 h-10 bg-gradient-to-br from-qn-light-cyan to-blue-400 flex items-center justify-center">
+            <Brain className="h-5 w-5 text-black" />
+          </Avatar>
+        )}
+        
+        <div className={`max-w-[70%] ${isUser ? "order-first" : ""}`}>
+          <div className={`rounded-2xl px-4 py-3 ${
+            isUser 
+              ? "bg-gradient-to-r from-qn-light-cyan to-blue-400 text-black ml-auto" 
+              : "bg-gray-800/50 text-white border border-gray-700/50 backdrop-blur-sm"
+          }`}>
+            <p className="text-sm leading-relaxed">{msg.content}</p>
+            
+            {msg.insights && (
+              <div className="mt-4 space-y-3">
+                {msg.insights.map((insight, index) => (
+                  <Card key={index} className="bg-gray-900/50 border-gray-600/30">
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <Badge className={`bg-gradient-to-r ${insight.color} text-white px-2 py-1 text-xs`}>
+                          {insight.type}
                         </Badge>
-                      </div>
-
-                      {/* Content */}
-                      <p className="text-gray-300 mb-4 leading-relaxed">{insight.summary}</p>
-
-                      {/* Tags */}
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {insight.tags.map((tag, index) => (
-                          <Badge key={index} variant="outline" className="text-xs border-gray-600 text-gray-400">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-
-                      {/* Data Fields */}
-                      <div className="space-y-4">
-                        {/* Related Symbols */}
-                        <div>
-                          <span className="text-sm text-gray-400 block mb-2">Related Symbols:</span>
-                          <div className="flex flex-wrap gap-2">
-                            {insight.relatedSymbols.map((symbol) => (
-                              <Badge
-                                key={symbol}
-                                variant="outline"
-                                className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan hover:text-black cursor-pointer transition-all duration-200 group"
-                              >
-                                {symbol}
-                                <ExternalLink className="h-3 w-3 ml-1 group-hover:scale-110 transition-transform" />
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Bottom Row */}
-                        <div className="flex items-center justify-between pt-3 border-t border-gray-600/30">
-                          <div className="flex items-center gap-4">
-                            {/* Confidence Score */}
+                        <div className="flex-1">
+                          <h4 className="font-medium text-white mb-2">{insight.title}</h4>
+                          <p className="text-sm text-gray-300 mb-3">{insight.content}</p>
+                          <div className="flex items-center justify-between">
+                            <div className="flex gap-2">
+                              {insight.symbols.map(symbol => (
+                                <Badge key={symbol} variant="outline" className="text-xs border-qn-light-cyan/30 text-qn-light-cyan">
+                                  {symbol}
+                                </Badge>
+                              ))}
+                            </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-sm text-gray-400">Confidence:</span>
-                              <div className="flex items-center gap-2">
-                                <Progress value={insight.confidence} className="w-16 h-2" />
-                                <span className="text-sm font-medium text-qn-light-cyan">{insight.confidence}%</span>
-                              </div>
-                            </div>
-                            
-                            {/* Engagement */}
-                            <div className="flex items-center gap-3 text-sm text-gray-400">
-                              <div className="flex items-center gap-1">
-                                <Eye className="h-3 w-3" />
-                                <span>{insight.views}</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <ThumbsUp className="h-3 w-3" />
-                                <span>{insight.likes}</span>
-                              </div>
+                              <span className="text-xs text-gray-400">Confidence:</span>
+                              <span className="text-xs font-medium text-qn-light-cyan">{insight.confidence}%</span>
                             </div>
                           </div>
-                          
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-400">Source:</span>
-                            <span className="text-sm text-gray-300 font-medium">{insight.source}</span>
-                          </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="flex gap-2 pt-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleLike(insight.id)}
-                            className={`flex-1 ${likedInsights.has(insight.id) ? "border-green-600 text-green-400" : "border-gray-600 text-gray-400"} hover:bg-gray-800/50`}
-                          >
-                            <ThumbsUp className="h-3 w-3 mr-2" />
-                            {likedInsights.has(insight.id) ? "Liked" : "Like"}
-                          </Button>
-                          <Button variant="outline" size="sm" className="border-gray-600 text-gray-400 hover:bg-gray-800/50">
-                            <Copy className="h-3 w-3 mr-2" />
-                            Copy
-                          </Button>
-                          <Button variant="outline" size="sm" className="border-gray-600 text-gray-400 hover:bg-gray-800/50">
-                            <ArrowRight className="h-3 w-3 mr-2" />
-                            Details
-                          </Button>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
-
-                {filteredInsights.length === 0 && (
-                  <div className="text-center text-gray-400 py-12">
-                    <Target className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                    <p className="text-xl font-medium mb-2">No insights found</p>
-                    <p className="text-sm">Try adjusting your filters or search for specific topics</p>
-                  </div>
-                )}
               </div>
-            </CardContent>
-          </Card>
+            )}
+
+            {msg.suggestions && (
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {msg.suggestions.map((suggestion, index) => {
+                  const IconComponent = suggestion.icon;
+                  return (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMessage(suggestion.text)}
+                      className="justify-start text-left border-gray-600/50 text-gray-300 hover:bg-gray-700/50 h-auto py-2"
+                    >
+                      <IconComponent className="h-3 w-3 mr-2 text-qn-light-cyan" />
+                      <span className="text-xs">{suggestion.text}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          
+          <div className={`flex items-center gap-2 mt-2 text-xs text-gray-400 ${isUser ? "justify-end" : ""}`}>
+            <span>{formatTime(msg.timestamp)}</span>
+            {!isUser && (
+              <>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-700/50">
+                  <Copy className="h-3 w-3" />
+                </Button>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-700/50">
+                  <ThumbsUp className="h-3 w-3" />
+                </Button>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-700/50">
+                  <ThumbsDown className="h-3 w-3" />
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {isUser && (
+          <Avatar className="w-10 h-10 bg-gradient-to-br from-gray-700 to-gray-600 flex items-center justify-center">
+            <User className="h-5 w-5 text-white" />
+          </Avatar>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="h-screen bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 flex flex-col">
+      {/* Header */}
+      <div className="border-b border-gray-800/50 bg-gray-900/30 backdrop-blur-xl">
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="w-12 h-12 bg-gradient-to-br from-qn-light-cyan to-blue-400 rounded-xl flex items-center justify-center">
+                  <Brain className="h-6 w-6 text-black" />
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900 flex items-center justify-center">
+                  <Circle className="h-2 w-2 fill-current text-white" />
+                </div>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-white">QuantNest AI</h1>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-sm text-green-400">Online</span>
+                  <span className="text-xs text-gray-400">• Powered by GPT-4</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Badge className="bg-qn-light-cyan/20 text-qn-light-cyan border-qn-light-cyan/30">
+              <Zap className="h-3 w-3 mr-1" />
+              AI Mode
+            </Badge>
+            <Button variant="outline" size="sm" className="border-gray-600 text-gray-300">
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Chat Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Main Chat */}
+        <div className="flex-1 flex flex-col">
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            {chatHistory.map((msg) => (
+              <MessageBubble key={msg.id} msg={msg} />
+            ))}
+            
+            {isTyping && (
+              <div className="flex gap-3 mb-6">
+                <Avatar className="w-10 h-10 bg-gradient-to-br from-qn-light-cyan to-blue-400 flex items-center justify-center">
+                  <Brain className="h-5 w-5 text-black" />
+                </Avatar>
+                <div className="bg-gray-800/50 border border-gray-700/50 backdrop-blur-sm rounded-2xl px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                      <div className="w-2 h-2 bg-qn-light-cyan rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    </div>
+                    <span className="text-sm text-gray-400">AI is thinking...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Area */}
+          <div className="border-t border-gray-800/50 bg-gray-900/30 backdrop-blur-xl p-4">
+            {/* Quick Actions */}
+            <div className="mb-4">
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {quickActions.map((action, index) => {
+                  const IconComponent = action.icon;
+                  return (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      size="sm"
+                      className="border-gray-600/50 text-gray-300 hover:bg-gray-700/50 whitespace-nowrap"
+                    >
+                      <IconComponent className={`h-4 w-4 mr-2 bg-gradient-to-r ${action.color} bg-clip-text text-transparent`} />
+                      {action.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Message Input */}
+            <div className="relative">
+              <div className="flex items-end gap-3">
+                <div className="flex-1 relative">
+                  <textarea
+                    ref={inputRef}
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Ask me anything about markets, stocks, trading strategies..."
+                    className="w-full max-h-32 p-4 pr-12 bg-gray-800/50 border border-gray-600/50 rounded-2xl text-white placeholder-gray-400 resize-none focus:border-qn-light-cyan focus:ring-1 focus:ring-qn-light-cyan transition-all duration-200"
+                    rows="1"
+                    style={{ minHeight: '52px' }}
+                  />
+                  
+                  <div className="absolute right-3 bottom-3 flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleVoiceToggle}
+                      className={`h-8 w-8 p-0 ${isRecording ? 'text-red-400 bg-red-400/20' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-gray-400 hover:text-white">
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!message.trim() || isLoading}
+                  className="h-[52px] w-[52px] bg-gradient-to-r from-qn-light-cyan to-blue-400 hover:from-qn-light-cyan/80 hover:to-blue-400/80 text-black rounded-2xl p-0"
+                >
+                  {isLoading ? (
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Send className="h-5 w-5" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* Suggested Queries */}
+            <div className="mt-3">
+              <div className="flex gap-2 overflow-x-auto">
+                {suggestedQueries.slice(0, 3).map((query, index) => (
+                  <Button
+                    key={index}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMessage(query)}
+                    className="text-xs text-gray-400 hover:text-white hover:bg-gray-700/50 whitespace-nowrap"
+                  >
+                    <MessageSquare className="h-3 w-3 mr-2" />
+                    {query}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar */}
+        <div className="w-80 border-l border-gray-800/50 bg-gray-900/20 backdrop-blur-xl">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-medium text-white">Market Pulse</h3>
+              <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Live Market Data */}
+              <Card className="bg-gray-800/30 border-gray-700/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-white">NIFTY 50</span>
+                    <Badge className="bg-green-600/20 text-green-400">+0.8%</Badge>
+                  </div>
+                  <div className="text-lg font-bold text-white mb-1">19,847.30</div>
+                  <div className="text-sm text-green-400">+156.20 points</div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gray-800/30 border-gray-700/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-white">BANK NIFTY</span>
+                    <Badge className="bg-red-600/20 text-red-400">-0.3%</Badge>
+                  </div>
+                  <div className="text-lg font-bold text-white mb-1">47,234.85</div>
+                  <div className="text-sm text-red-400">-142.15 points</div>
+                </CardContent>
+              </Card>
+
+              {/* Recent Insights */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-400 mb-3">Recent Insights</h4>
+                <div className="space-y-3">
+                  {[
+                    { title: "IT Sector Outperforming", time: "2m ago", type: "BULLISH" },
+                    { title: "Banking Stocks Under Pressure", time: "5m ago", type: "BEARISH" },
+                    { title: "FII Buying in Auto Sector", time: "8m ago", type: "NEUTRAL" }
+                  ].map((insight, index) => (
+                    <div key={index} className="flex items-start gap-3 p-3 bg-gray-800/20 rounded-lg hover:bg-gray-800/30 transition-colors cursor-pointer">
+                      <div className={`w-2 h-2 rounded-full mt-2 ${
+                        insight.type === 'BULLISH' ? 'bg-green-400' : 
+                        insight.type === 'BEARISH' ? 'bg-red-400' : 'bg-gray-400'
+                      }`}></div>
+                      <div className="flex-1">
+                        <p className="text-sm text-white">{insight.title}</p>
+                        <p className="text-xs text-gray-400">{insight.time}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
