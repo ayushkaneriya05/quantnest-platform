@@ -777,7 +777,7 @@ const TradeJournal = () => {
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-green-500/10 p-4 rounded-lg border border-green-500/30">
+              <div className="bg-gray-900/80 p-4 rounded-lg border border-green-500/30">
                 <h5 className="font-medium text-green-400 mb-2">Strengths</h5>
                 <ul className="text-sm text-gray-300 space-y-1">
                   <li>• Excellent setup identification</li>
