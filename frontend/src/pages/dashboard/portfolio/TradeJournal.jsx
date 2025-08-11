@@ -63,7 +63,6 @@ import {
   MoreHorizontal,
   TrendingUpIcon,
   Minus,
-  Equals,
   X,
   PlayCircle,
   StopCircle,
