@@ -781,9 +781,29 @@ const PaperTrading = () => {
                           <Button variant="outline" size="sm" className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-800 text-xs">
                             Modify
                           </Button>
-                          <Button variant="outline" size="sm" className="flex-1 border-red-600 text-red-400 hover:bg-red-600/10 text-xs">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 border-red-600 text-red-400 hover:bg-red-600/10 text-xs"
+                            onClick={() => handleCancelOrder(order.id)}
+                          >
                             Cancel
                           </Button>
+                        </div>
+                      )}
+
+                      {order.filledQty > 0 && order.filledQty < order.qty && (
+                        <div className="mt-2 text-xs">
+                          <div className="flex justify-between text-gray-400">
+                            <span>Filled: {order.filledQty}/{order.qty}</span>
+                            <span>Avg: ₹{order.avgFillPrice}</span>
+                          </div>
+                          <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
+                            <div
+                              className="bg-qn-light-cyan h-1.5 rounded-full transition-all"
+                              style={{ width: `${(order.filledQty / order.qty) * 100}%` }}
+                            ></div>
+                          </div>
                         </div>
                       )}
                     </div>
