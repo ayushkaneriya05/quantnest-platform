@@ -667,33 +667,16 @@ const PaperTrading = () => {
 
                 {/* Chart Area */}
                 <div className="lg:col-span-2">
-                  <Card className="bg-gray-800/50 border-gray-700/50">
+                  <Card className="bg-slate-800/60 border-qn-light-cyan/30 backdrop-blur-sm h-full">
                     <CardHeader className="pb-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl font-bold text-white">{selectedSymbol}</span>
-                          <Badge className="bg-green-600/20 text-green-400 border-green-600/30">
-                            ₹{currentPrice?.toLocaleString()}
-                          </Badge>
-                          <div className="flex items-center gap-1">
-                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                            <span className="text-xs text-green-400">Live</span>
-                          </div>
-                        </div>
-                        <div className="flex gap-1 flex-wrap">
-                          {["1M", "5M", "15M", "1H", "1D", "1W"].map((tf) => (
-                            <Button
-                              key={tf}
-                              variant={selectedTimeframe === tf ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => setSelectedTimeframe(tf)}
-                              className={`text-xs h-8 ${selectedTimeframe === tf
-                                ? "bg-qn-light-cyan text-black"
-                                : "border-gray-700/50 text-gray-300"}`}
-                            >
-                              {tf}
-                            </Button>
-                          ))}
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl font-bold text-white">{selectedSymbol}</span>
+                        <Badge className="bg-green-500/20 text-green-400 border-green-400/40 px-3 py-1">
+                          ₹{currentPrice?.toLocaleString()}
+                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                          <span className="text-sm text-green-400 font-medium">Live</span>
                         </div>
                       </div>
                     </CardHeader>
