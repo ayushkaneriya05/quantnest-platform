@@ -506,10 +506,10 @@ const PaperTrading = () => {
             <Button
               variant="outline"
               onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-              className="w-full border-slate-600 text-slate-300 hover:bg-slate-800/50 hover:text-white justify-between"
+              className="w-full border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white justify-between"
             >
               Advanced Options
-              <ChevronDown className={`h-4 w-4 transition-transform ${showAdvancedOptions ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-4 w-4 ${showAdvancedOptions ? 'rotate-180' : ''}`} />
             </Button>
 
             {showAdvancedOptions && (
