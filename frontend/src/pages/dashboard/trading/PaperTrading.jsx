@@ -143,7 +143,7 @@ const OrderModal = ({
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-400">Current Price</span>
             <div className="text-right">
-              <div className="text-lg font-bold text-white">₹{currentPrice.toLocaleString()}</div>
+              <div className="text-lg font-bold text-white">₹{currentPrice?.toLocaleString() || '0'}</div>
               <div className={`text-sm ${currentSymbolData?.change >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {currentSymbolData?.changePercent}
               </div>
