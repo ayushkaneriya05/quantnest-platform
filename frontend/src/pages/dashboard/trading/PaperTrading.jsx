@@ -368,7 +368,12 @@ const PaperTrading = () => {
   const OrderModal = () => (
     <Dialog
       open={isOrderModalOpen}
-      onOpenChange={setIsOrderModalOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          setIsOrderModalOpen(false);
+        }
+      }}
+      modal={true}
     >
       <DialogContent className="bg-slate-950 border-emerald-400/30 text-white max-w-md">
         <DialogHeader>
@@ -552,7 +557,12 @@ const PaperTrading = () => {
 
           {/* Place Order Button */}
           <Button
-            onClick={() => setIsOrderModalOpen(false)}
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsOrderModalOpen(false);
+            }}
             className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 hover:from-emerald-600 hover:to-cyan-600 font-semibold py-3"
           >
             <Sparkles className="h-4 w-4 mr-2" />
@@ -850,7 +860,11 @@ const PaperTrading = () => {
                   <SelectTrigger className="w-32 bg-slate-800 border-emerald-400/30 text-white focus:border-emerald-400 data-[state=open]:border-emerald-400">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-emerald-400/30 text-white z-50">
+                  <SelectContent
+                    className="bg-slate-900 border-emerald-400/30 text-white shadow-lg"
+                    position="popper"
+                    sideOffset={4}
+                  >
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="executed">Executed</SelectItem>
