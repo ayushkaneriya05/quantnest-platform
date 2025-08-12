@@ -1083,7 +1083,31 @@ const PaperTrading = () => {
         <TradingInterface />
       </div>
 
-      <OrderModal />
+      <OrderModal
+        isOpen={isOrderModalOpen}
+        onOpenChange={setIsOrderModalOpen}
+        selectedSymbol={selectedSymbol}
+        currentPrice={currentPrice}
+        currentSymbolData={currentSymbolData}
+        orderType={orderType}
+        setOrderType={setOrderType}
+        quantity={quantity}
+        setQuantity={setQuantity}
+        productType={productType}
+        setProductType={setProductType}
+        executionType={executionType}
+        setExecutionType={setExecutionType}
+        limitPrice={limitPrice}
+        setLimitPrice={setLimitPrice}
+        stopLoss={stopLoss}
+        setStopLoss={setStopLoss}
+        takeProfit={takeProfit}
+        setTakeProfit={setTakeProfit}
+        alertPrice={alertPrice}
+        setAlertPrice={setAlertPrice}
+        showAdvancedOptions={showAdvancedOptions}
+        setShowAdvancedOptions={setShowAdvancedOptions}
+      />
 
       {/* Position Details Modal */}
       <Dialog open={isPositionModalOpen} onOpenChange={setIsPositionModalOpen}>
