@@ -372,7 +372,7 @@ const TradeJournal = () => {
             <Card key={index} className="bg-slate-800/80 border-qn-light-cyan/30 backdrop-blur-xl hover:bg-slate-800/90 hover:border-qn-light-cyan/50 transition-all duration-200">
               <CardContent className="p-3 text-center">
                 <metric.icon className={`h-5 w-5 mx-auto mb-2 ${metric.color}`} />
-                <p className="text-xs text-gray-400 mb-1">{metric.label}</p>
+                <p className="text-xs text-gray-200 mb-1">{metric.label}</p>
                 <p className={`text-sm font-bold ${metric.color}`}>{metric.value}</p>
               </CardContent>
             </Card>
