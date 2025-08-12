@@ -380,7 +380,7 @@ const TradeJournal = () => {
         </div>
 
         {/* Trade History */}
-        <Card className="bg-gray-900/80 border-gray-700/50 backdrop-blur-xl shadow-2xl">
+        <Card className="bg-slate-900/90 border-qn-light-cyan/30 backdrop-blur-xl shadow-2xl">
           <CardHeader className="pb-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <CardTitle className="flex items-center gap-2 text-qn-light-cyan">
