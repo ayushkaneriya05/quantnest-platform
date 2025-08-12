@@ -372,8 +372,10 @@ const PaperTrading = () => {
 
   const OrderModal = () => (
     <Dialog
+      key="order-modal"
       open={isOrderModalOpen}
       onOpenChange={(open) => {
+        console.log('Dialog onOpenChange:', open);
         if (!open) {
           setIsOrderModalOpen(false);
         }
