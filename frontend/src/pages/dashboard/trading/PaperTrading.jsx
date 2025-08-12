@@ -571,7 +571,7 @@ const PaperTrading = () => {
       <Card className="bg-gradient-to-br from-slate-900/95 to-gray-900/95 border-qn-light-cyan/20 backdrop-blur-xl shadow-2xl">
         <CardContent className="p-4 sm:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-4 bg-gray-900/50 border border-gray-800/50 mb-6">
+            <TabsList className="grid w-full grid-cols-4 bg-slate-800/60 border border-qn-light-cyan/30 mb-6 backdrop-blur-sm">
               <TabsTrigger
                 value="trading"
                 className="data-[state=active]:bg-qn-light-cyan/20 data-[state=active]:text-qn-light-cyan text-xs sm:text-sm"
