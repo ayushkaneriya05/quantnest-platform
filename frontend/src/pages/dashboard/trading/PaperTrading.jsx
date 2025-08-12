@@ -903,7 +903,7 @@ const PaperTrading = () => {
                                 <span>Qty: {order.qty}</span>
                                 <span>•</span>
                                 <span>Type: {order.orderType}</span>
-                                <span>•</span>
+                                <span>��</span>
                                 <span>Price: ₹{order.price}</span>
                                 <span>•</span>
                                 <span>Time: {order.timestamp}</span>
@@ -1196,7 +1196,7 @@ const PaperTrading = () => {
                 </Button>
                 <Button
                   variant="outline"
-                  className="border-red-600/30 text-red-400 hover:bg-red-600/20 hover:text-red-300 transition-colors duration-200"
+                  className="border-red-600/30 text-red-400 hover:bg-red-600/20 hover:text-red-300"
                   onClick={() => {
                     handleSquareOffPosition(selectedPosition.symbol);
                     setIsPositionModalOpen(false);
