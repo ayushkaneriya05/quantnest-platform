@@ -126,9 +126,14 @@ const OrderModal = ({
   alertPrice,
   setAlertPrice,
   showAdvancedOptions,
-  setShowAdvancedOptions,
+  setShowAdvancedOptions
 }) => (
-  <Dialog key="order-modal" open={isOpen} onOpenChange={onOpenChange} modal={true}>
+  <Dialog
+    key="order-modal"
+    open={isOpen}
+    onOpenChange={onOpenChange}
+    modal={true}
+  >
     <DialogContent className="bg-slate-950 border-emerald-400/30 text-white max-w-md">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2 text-emerald-400">
@@ -143,7 +148,7 @@ const OrderModal = ({
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-400">Current Price</span>
             <div className="text-right">
-              <div className="text-lg font-bold text-white">₹{currentPrice?.toLocaleString() || '0'}</div>
+              <div className="text-lg font-bold text-white">₹{currentPrice.toLocaleString()}</div>
               <div className={`text-sm ${currentSymbolData?.change >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {currentSymbolData?.changePercent}
               </div>
@@ -151,14 +156,16 @@ const OrderModal = ({
           </div>
         </div>
 
-        {/* Transaction Type */}
+        {/* Order Type */}
         <div className="space-y-2">
           <Label className="text-sm font-medium">Transaction Type</Label>
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant={orderType === "buy" ? "default" : "outline"}
               onClick={() => setOrderType("buy")}
-              className={`${orderType === "buy" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300"}`}
+              className={`${orderType === "buy"
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  : "bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300"}`}
             >
               <ArrowUpRight className="h-4 w-4 mr-2" />
               BUY
@@ -166,7 +173,9 @@ const OrderModal = ({
             <Button
               variant={orderType === "sell" ? "default" : "outline"}
               onClick={() => setOrderType("sell")}
-              className={`${orderType === "sell" ? "bg-red-600 hover:bg-red-700 text-white" : "bg-slate-800 border-red-400/40 text-red-400 hover:bg-red-400/20 hover:text-red-300"}`}
+              className={`${orderType === "sell"
+                  ? "bg-red-600 hover:bg-red-700 text-white"
+                  : "bg-slate-800 border-red-400/40 text-red-400 hover:bg-red-400/20 hover:text-red-300"}`}
             >
               <ArrowDownRight className="h-4 w-4 mr-2" />
               SELL
@@ -178,50 +187,111 @@ const OrderModal = ({
         <div className="space-y-2">
           <Label className="text-sm font-medium">Quantity</Label>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setQuantity(Math.max(1, quantity - 1))}
+              className="bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0"
+            >
               <Minus className="h-4 w-4" />
             </Button>
-            <Input type="number" value={quantity} onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))} className="text-center bg-slate-800 border-slate-600 text-white h-10" min="1" />
-            <Button variant="outline" size="sm" onClick={() => setQuantity(quantity + 1)} className="bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0">
+            <Input
+              type="number"
+              value={quantity}
+              onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+              className="text-center bg-slate-800 border-slate-600 text-white h-10"
+              min="1"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setQuantity(quantity + 1)}
+              className="bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0"
+            >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
-        {/* Product & Order Type Selects */}
+        {/* Product Type */}
         <div className="space-y-2">
           <Label className="text-sm font-medium">Product</Label>
           <Select value={productType} onValueChange={setProductType}>
-            <SelectTrigger className="bg-slate-800 border-slate-600 text-white"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
               <SelectItem value="intraday">Intraday (MIS)</SelectItem>
               <SelectItem value="delivery">Delivery (CNC)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">Order Type</Label>
-          <Select value={executionType} onValueChange={setExecutionType}>
-            <SelectTrigger className="bg-slate-800 border-slate-600 text-white"><SelectValue /></SelectTrigger>
-            <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
-              <SelectItem value="market">Market</SelectItem>
-              <SelectItem value="limit">Limit</SelectItem>
+              <SelectItem value="cover">Cover Order (CO)</SelectItem>
+              <SelectItem value="bracket">Bracket Order (BO)</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        {/* Limit Price Input */}
+        {/* Order Type */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Order Type</Label>
+          <Select value={executionType} onValueChange={setExecutionType}>
+            <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
+              <SelectItem value="market">Market</SelectItem>
+              <SelectItem value="limit">Limit</SelectItem>
+              <SelectItem value="sl">Stop Loss</SelectItem>
+              <SelectItem value="sl-m">Stop Loss Market</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Price Fields */}
         {executionType === "limit" && (
           <div className="space-y-2">
             <Label className="text-sm font-medium">Limit Price</Label>
-            <Input type="number" value={limitPrice} onChange={(e) => setLimitPrice(parseFloat(e.target.value) || 0)} className="bg-slate-800 border-slate-600 text-white" step="0.05" />
+            <Input
+              type="number"
+              value={limitPrice}
+              onChange={(e) => setLimitPrice(parseFloat(e.target.value) || 0)}
+              className="bg-slate-800 border-slate-600 text-white"
+              step="0.05"
+            />
           </div>
         )}
+
+        {/* Advanced Options Toggle */}
+        <div className="space-y-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+            className="w-full bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white justify-between"
+          >
+            Advanced Options
+            <ChevronDown className={`h-4 w-4 ${showAdvancedOptions ? 'rotate-180' : ''}`} />
+          </Button>
+
+          {showAdvancedOptions && (
+            <div className="space-y-3 pt-2">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Stop Loss</Label>
+                <Input type="number" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="Stop loss price" className="bg-slate-800 border-slate-600 text-white" step="0.05" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Take Profit</Label>
+                <Input type="number" value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} placeholder="Take profit price" className="bg-slate-800 border-slate-600 text-white" step="0.05" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Price Alert</Label>
+                <Input type="number" value={alertPrice} onChange={(e) => setAlertPrice(e.target.value)} placeholder="Alert price" className="bg-slate-800 border-slate-600 text-white" step="0.05" />
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Place Order Button */}
         <Button
           type="button"
-          onClick={() => onOpenChange(false)} // This now closes the modal
+          onClick={() => onOpenChange(false)}
           className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-900 hover:from-emerald-600 hover:to-cyan-600 font-semibold py-3"
         >
           <Sparkles className="h-4 w-4 mr-2" />
