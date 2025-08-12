@@ -405,7 +405,7 @@ const TradeJournal = () => {
                   <SelectTrigger className="w-28 bg-slate-800/50 border-slate-700/50 text-white">
                     <SelectValue placeholder="Symbol" />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-950 border-slate-700">
+                  <SelectContent className="bg-slate-950 border-emerald-400/30 text-white">
                     <SelectItem value="all">All Symbols</SelectItem>
                     <SelectItem value="TCS">TCS</SelectItem>
                     <SelectItem value="RELIANCE">RELIANCE</SelectItem>
@@ -417,7 +417,7 @@ const TradeJournal = () => {
                   <SelectTrigger className="w-32 bg-slate-800/50 border-slate-700/50 text-white">
                     <SelectValue placeholder="Strategy" />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-950 border-slate-700">
+                  <SelectContent className="bg-slate-950 border-emerald-400/30 text-white">
                     <SelectItem value="all">All Strategies</SelectItem>
                     <SelectItem value="Breakout">Breakout</SelectItem>
                     <SelectItem value="Support Bounce">Support Bounce</SelectItem>
@@ -425,7 +425,7 @@ const TradeJournal = () => {
                   </SelectContent>
                 </Select>
 
-                <Button variant="outline" size="sm" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-emerald-400/50">
+                <Button variant="outline" size="sm" className="bg-slate-800/60 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:border-emerald-400 hover:text-emerald-300 transition-colors duration-200">
                   <Settings className="h-4 w-4" />
                 </Button>
               </div>
@@ -452,7 +452,7 @@ const TradeJournal = () => {
                           <Button 
                             variant="ghost" 
                             onClick={() => handleSort(header.key)} 
-                            className="text-slate-400 hover:text-white hover:bg-slate-800/50 p-0 font-semibold"
+                            className="text-slate-400 hover:text-emerald-400 hover:bg-slate-800/50 p-0 font-semibold transition-colors duration-200"
                           >
                             {header.label}
                             {sortField === header.key && (
@@ -472,7 +472,7 @@ const TradeJournal = () => {
                   {sortedTrades.map((trade) => (
                     <React.Fragment key={trade.id}>
                       <tr
-                        className="border-b border-slate-800/30 hover:bg-slate-800/50 cursor-pointer transition-all duration-300"
+                        className="border-b border-slate-800/30 hover:bg-slate-800/50 cursor-pointer transition-colors duration-200"
                         onClick={() => setExpandedRow(expandedRow === trade.id ? null : trade.id)}
                       >
                         <td className="p-3">
@@ -528,7 +528,7 @@ const TradeJournal = () => {
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="text-slate-400 hover:text-white hover:bg-slate-800/50 h-8 w-8 p-0"
+                            className="text-slate-400 hover:text-emerald-400 hover:bg-slate-800/50 h-8 w-8 p-0 transition-colors duration-200"
                           >
                             {expandedRow === trade.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                           </Button>
@@ -663,7 +663,7 @@ const TradeJournal = () => {
                                   <div className="flex gap-2 pt-2">
                                     <Button 
                                       variant="outline" 
-                                      className="border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 hover:border-emerald-400/50"
+                                      className="border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 hover:border-emerald-400/50 transition-colors duration-200"
                                     >
                                       <Edit className="h-4 w-4 mr-2" />
                                       Edit Journal
