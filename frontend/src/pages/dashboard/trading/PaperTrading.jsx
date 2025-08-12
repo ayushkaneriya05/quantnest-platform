@@ -374,7 +374,7 @@ const PaperTrading = () => {
 
   const OrderModal = () => (
     <Dialog open={isOrderModalOpen} onOpenChange={setIsOrderModalOpen}>
-      <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-md">
+      <DialogContent className="bg-slate-900/95 border-qn-light-cyan/30 text-white max-w-md backdrop-blur-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-qn-light-cyan">
             <Zap className="h-5 w-5" />
