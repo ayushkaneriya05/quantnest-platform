@@ -710,14 +710,22 @@ const PaperTrading = () => {
                         {/* Buy/Sell Buttons */}
                         <div className="absolute bottom-6 right-6 flex gap-4">
                           <Button
-                            onClick={() => handlePlaceOrder("buy")}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handlePlaceOrder("buy");
+                            }}
                             className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-6 py-3 font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
                           >
                             <ArrowUpRight className="h-4 w-4 mr-2" />
                             BUY
                           </Button>
                           <Button
-                            onClick={() => handlePlaceOrder("sell")}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handlePlaceOrder("sell");
+                            }}
                             className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-6 py-3 font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
                           >
                             <ArrowDownRight className="h-4 w-4 mr-2" />
