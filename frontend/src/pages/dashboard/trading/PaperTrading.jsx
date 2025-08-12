@@ -566,55 +566,9 @@ const PaperTrading = () => {
   );
 
   const TradingInterface = () => (
-    <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
-      {/* Top Market Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        <Card className="bg-gray-900/80 border-green-500/30 backdrop-blur-xl hover:scale-105 transition-transform duration-200">
-          <CardContent className="p-3 text-center">
-            <div className="text-xs text-green-300 mb-1">NIFTY 50</div>
-            <div className="text-sm sm:text-base font-bold text-white">19,674.25</div>
-            <div className="text-xs text-green-400">+0.45%</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gray-900/80 border-blue-500/30 backdrop-blur-xl hover:scale-105 transition-transform duration-200">
-          <CardContent className="p-3 text-center">
-            <div className="text-xs text-blue-300 mb-1">BANK NIFTY</div>
-            <div className="text-sm sm:text-base font-bold text-white">45,234.80</div>
-            <div className="text-xs text-red-400">-0.23%</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gray-900/80 border-purple-500/30 backdrop-blur-xl hover:scale-105 transition-transform duration-200">
-          <CardContent className="p-3 text-center">
-            <div className="text-xs text-purple-300 mb-1">SENSEX</div>
-            <div className="text-sm sm:text-base font-bold text-white">65,432.10</div>
-            <div className="text-xs text-green-400">+0.32%</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gray-900/80 border-yellow-500/30 backdrop-blur-xl hover:scale-105 transition-transform duration-200">
-          <CardContent className="p-3 text-center">
-            <div className="text-xs text-yellow-300 mb-1">MARKET CAP</div>
-            <div className="text-sm sm:text-base font-bold text-white">₹3.2L Cr</div>
-            <div className="text-xs text-gray-400">Total</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gray-900/80 border-qn-light-cyan/30 backdrop-blur-xl hover:scale-105 transition-transform duration-200">
-          <CardContent className="p-3 text-center">
-            <div className="text-xs text-qn-light-cyan mb-1">VOLUME</div>
-            <div className="text-sm sm:text-base font-bold text-white">234.5M</div>
-            <div className="text-xs text-gray-400">Shares</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gray-900/80 border-orange-500/30 backdrop-blur-xl hover:scale-105 transition-transform duration-200">
-          <CardContent className="p-3 text-center">
-            <div className="text-xs text-orange-300 mb-1">VIX</div>
-            <div className="text-sm sm:text-base font-bold text-white">18.25</div>
-            <div className="text-xs text-orange-400">Volatility</div>
-          </CardContent>
-        </Card>
-      </div>
-
+    <div className="max-w-7xl mx-auto">
       {/* Main Trading Content with Tabs */}
-      <Card className="bg-gray-900/80 border-gray-800/50 backdrop-blur-xl">
+      <Card className="bg-gradient-to-br from-slate-900/95 to-gray-900/95 border-qn-light-cyan/20 backdrop-blur-xl shadow-2xl">
         <CardContent className="p-4 sm:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-4 bg-gray-900/50 border border-gray-800/50 mb-6">
