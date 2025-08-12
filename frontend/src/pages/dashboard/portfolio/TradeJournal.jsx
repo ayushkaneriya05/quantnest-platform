@@ -668,15 +668,15 @@ const TradeJournal = () => {
                                       <Edit className="h-4 w-4 mr-2" />
                                       Edit Journal
                                     </Button>
-                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600">
+                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600 transition-colors duration-200">
                                       <Copy className="h-4 w-4 mr-2" />
                                       Duplicate
                                     </Button>
-                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600">
+                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600 transition-colors duration-200">
                                       <Share className="h-4 w-4 mr-2" />
                                       Share
                                     </Button>
-                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600">
+                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600 transition-colors duration-200">
                                       <Bookmark className="h-4 w-4 mr-2" />
                                       Bookmark
                                     </Button>
