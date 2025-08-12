@@ -134,7 +134,7 @@ const OrderModal = ({
     onOpenChange={onOpenChange}
     modal={true}
   >
-    <DialogContent className="bg-slate-950 border-emerald-400/30 text-white max-w-md">
+    <DialogContent className="bg-slate-950 border-emerald-400/30 text-white max-w-md max-h-[90vh] overflow-hidden flex flex-col">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2 text-emerald-400">
           <Zap className="h-5 w-5" />
