@@ -344,6 +344,8 @@ const PaperTrading = () => {
   };
 
   const handlePlaceOrder = (side) => {
+    // Prevent any default behavior that might cause page refresh
+    event?.preventDefault?.();
     setOrderType(side);
     setIsOrderModalOpen(true);
   };
