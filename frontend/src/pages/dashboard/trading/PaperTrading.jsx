@@ -376,7 +376,7 @@ const PaperTrading = () => {
         setIsOrderModalOpen(open);
       }}
     >
-      <DialogContent className="bg-slate-950/98 border-emerald-400/30 text-white max-w-md backdrop-blur-xl">
+      <DialogContent className="bg-slate-950 border-emerald-400/30 text-white max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-emerald-400">
             <Zap className="h-5 w-5" />
@@ -386,7 +386,7 @@ const PaperTrading = () => {
         
         <div className="space-y-4">
           {/* Current Price Display */}
-          <div className="bg-slate-900/80 p-3 rounded-lg border border-emerald-400/30 backdrop-blur-sm">
+          <div className="bg-slate-900 p-3 rounded-lg border border-emerald-400/30">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-400">Current Price</span>
               <div className="text-right">
@@ -407,7 +407,7 @@ const PaperTrading = () => {
                 onClick={() => setOrderType("buy")}
                 className={`${orderType === "buy"
                   ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                  : "border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"}`}
+                  : "border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300"}`}
               >
                 <ArrowUpRight className="h-4 w-4 mr-2" />
                 BUY
@@ -417,7 +417,7 @@ const PaperTrading = () => {
                 onClick={() => setOrderType("sell")}
                 className={`${orderType === "sell"
                   ? "bg-red-600 hover:bg-red-700 text-white"
-                  : "border-red-400/40 text-red-400 hover:bg-red-400/10 hover:text-red-300"}`}
+                  : "border-red-400/40 text-red-400 hover:bg-red-400/20 hover:text-red-300"}`}
               >
                 <ArrowDownRight className="h-4 w-4 mr-2" />
                 SELL
