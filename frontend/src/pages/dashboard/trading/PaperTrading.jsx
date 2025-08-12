@@ -591,10 +591,10 @@ const PaperTrading = () => {
       <Card className="bg-gradient-to-br from-slate-950/95 to-slate-900/95 border-emerald-400/20 backdrop-blur-xl shadow-2xl h-full">
         <CardContent className="p-3 sm:p-4 h-full">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
-            <TabsList className="grid w-full grid-cols-4 bg-slate-900/80 border border-emerald-400/30 mb-2 backdrop-blur-sm h-14">
+            <TabsList className="grid w-full grid-cols-4 bg-slate-900/80 border border-emerald-400/30 mb-2 backdrop-blur-sm h-12">
               <TabsTrigger
                 value="trading"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-10 px-3"
               >
                 <Monitor className="h-4 w-4 mr-2" />
                 <span className="hidden sm:inline">Trading</span>
@@ -602,7 +602,7 @@ const PaperTrading = () => {
               </TabsTrigger>
               <TabsTrigger
                 value="positions"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-10 px-3"
               >
                 <Target className="h-4 w-4 mr-2" />
                 <span className="hidden sm:inline">Positions</span>
@@ -610,7 +610,7 @@ const PaperTrading = () => {
               </TabsTrigger>
               <TabsTrigger
                 value="orders"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-10 px-3"
               >
                 <Clock className="h-4 w-4 mr-2" />
                 <span className="hidden sm:inline">Orders</span>
@@ -618,7 +618,7 @@ const PaperTrading = () => {
               </TabsTrigger>
               <TabsTrigger
                 value="account"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-10 px-3"
               >
                 <Wallet className="h-4 w-4 mr-2" />
                 <span className="hidden sm:inline">Account</span>
@@ -628,7 +628,7 @@ const PaperTrading = () => {
 
             <TabsContent value="trading" className="flex-1 space-y-3">
               {/* Trading Interface */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 h-full">
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 h-full">
                 {/* Watchlist */}
                 <div className="lg:col-span-1">
                   <Card className="bg-slate-900/80 border-emerald-400/30 backdrop-blur-sm h-full">
@@ -683,7 +683,7 @@ const PaperTrading = () => {
                 </div>
 
                 {/* Chart Area */}
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-4">
                   <Card className="bg-slate-900/80 border-emerald-400/30 backdrop-blur-sm h-full">
                     <CardHeader className="pb-2">
                       <div className="flex items-center gap-3">
@@ -942,7 +942,7 @@ const PaperTrading = () => {
                                 <span>Qty: {order.qty}</span>
                                 <span>•</span>
                                 <span>Type: {order.orderType}</span>
-                                <span>��</span>
+                                <span>•</span>
                                 <span>Price: ₹{order.price}</span>
                                 <span>•</span>
                                 <span>Time: {order.timestamp}</span>
