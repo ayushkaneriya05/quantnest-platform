@@ -680,23 +680,23 @@ const PaperTrading = () => {
                         </div>
                       </div>
                     </CardHeader>
-                    <CardContent className="p-4">
-                      <div className="h-80 sm:h-96 bg-gray-800/30 rounded-lg flex flex-col items-center justify-center relative">
+                    <CardContent className="p-6">
+                      <div className="h-80 sm:h-96 bg-gradient-to-br from-slate-700/40 to-gray-800/40 rounded-xl flex flex-col items-center justify-center relative border border-qn-light-cyan/20">
                         {/* Chart Placeholder */}
                         <div className="text-center mb-6">
-                          <Monitor className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 text-gray-500" />
-                          <p className="text-lg sm:text-xl font-bold text-gray-300 mb-2">TradingView Chart</p>
-                          <p className="text-sm text-gray-400 mb-6">Professional charting interface</p>
+                          <Monitor className="h-16 w-16 mx-auto mb-4 text-qn-light-cyan/60" />
+                          <p className="text-xl font-bold text-white mb-2">TradingView Chart</p>
+                          <p className="text-sm text-qn-light-cyan/80 mb-6">Professional charting interface</p>
 
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 bg-gray-900/50 p-4 sm:p-6 rounded-xl max-w-md sm:max-w-lg">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-900/70 p-6 rounded-xl max-w-lg border border-qn-light-cyan/20">
                             {[
                               { label: "Open", value: currentSymbolData?.dayLow, color: "text-blue-400" },
                               { label: "High", value: currentSymbolData?.dayHigh, color: "text-green-400" },
                               { label: "Low", value: currentSymbolData?.dayLow, color: "text-red-400" },
-                              { label: "Volume", value: currentSymbolData?.volume, color: "text-purple-400" }
+                              { label: "Volume", value: currentSymbolData?.volume, color: "text-qn-light-cyan" }
                             ].map((stat, index) => (
                               <div key={index} className="text-center">
-                                <p className="text-xs text-gray-400 mb-1">{stat.label}</p>
+                                <p className="text-xs text-gray-300 mb-1">{stat.label}</p>
                                 <p className={`text-sm font-semibold ${stat.color}`}>
                                   {stat.label === "Volume" ? stat.value : `₹${stat.value}`}
                                 </p>
@@ -706,17 +706,17 @@ const PaperTrading = () => {
                         </div>
 
                         {/* Buy/Sell Buttons */}
-                        <div className="absolute bottom-4 right-4 flex gap-3">
+                        <div className="absolute bottom-6 right-6 flex gap-4">
                           <Button
                             onClick={() => handlePlaceOrder("buy")}
-                            className="bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2"
+                            className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-6 py-3 font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
                           >
                             <ArrowUpRight className="h-4 w-4 mr-2" />
                             BUY
                           </Button>
                           <Button
                             onClick={() => handlePlaceOrder("sell")}
-                            className="bg-red-600 hover:bg-red-700 text-white px-4 sm:px-6 py-2"
+                            className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-6 py-3 font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
                           >
                             <ArrowDownRight className="h-4 w-4 mr-2" />
                             SELL
