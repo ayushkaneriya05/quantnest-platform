@@ -446,7 +446,7 @@ const PaperTrading = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setQuantity(quantity + 1)}
-                className="border-gray-600 text-gray-300 hover:bg-gray-800 h-10 w-10 p-0"
+                className="border-qn-light-cyan/40 text-qn-light-cyan hover:bg-qn-light-cyan/20 h-10 w-10 p-0"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -655,7 +655,7 @@ const PaperTrading = () => {
                             </div>
 
                             <div className="flex justify-between items-center">
-                              <span className="text-lg font-bold text-white">₹{item.ltp.toLocaleString()}</span>
+                              <span className="text-lg font-bold text-white">���{item.ltp.toLocaleString()}</span>
                               <span className={`text-sm font-medium ${item.change >= 0 ? "text-green-400" : "text-red-400"}`}>
                                 {item.change >= 0 ? "+" : ""}₹{item.change}
                               </span>
