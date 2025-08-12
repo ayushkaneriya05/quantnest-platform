@@ -433,7 +433,7 @@ const PaperTrading = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                className="border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0"
+                className="bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0"
               >
                 <Minus className="h-4 w-4" />
               </Button>
@@ -1081,7 +1081,7 @@ const PaperTrading = () => {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-slate-400 text-xs">Brokerage</span>
-                        <span className="text-red-400 text-sm">-₹{accountInfo.brokerage.toLocaleString()}</span>
+                        <span className="text-red-400 text-sm">-���{accountInfo.brokerage.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-slate-400 text-xs">Taxes & Charges</span>
