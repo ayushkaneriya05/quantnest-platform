@@ -343,9 +343,7 @@ const PaperTrading = () => {
     if (isOrderModalOpen) return;
 
     setOrderType(side);
-    setTimeout(() => {
-      setIsOrderModalOpen(true);
-    }, 50);
+    setIsOrderModalOpen(true);
   };
 
   const handlePositionClick = (position) => {
