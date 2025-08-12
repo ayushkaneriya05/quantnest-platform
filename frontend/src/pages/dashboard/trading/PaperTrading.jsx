@@ -339,10 +339,6 @@ const PaperTrading = () => {
   };
 
   const handlePlaceOrder = (side) => {
-    if (typeof side === 'object' && side.preventDefault) {
-      side.preventDefault();
-      side = side.target.dataset.side || orderType;
-    }
     setOrderType(side);
     setIsOrderModalOpen(true);
   };
@@ -370,11 +366,9 @@ const PaperTrading = () => {
   };
 
   const OrderModal = () => (
-    <Dialog 
-      open={isOrderModalOpen} 
-      onOpenChange={(open) => {
-        setIsOrderModalOpen(open);
-      }}
+    <Dialog
+      open={isOrderModalOpen}
+      onOpenChange={setIsOrderModalOpen}
     >
       <DialogContent className="bg-slate-950 border-emerald-400/30 text-white max-w-md">
         <DialogHeader>
@@ -843,10 +837,10 @@ const PaperTrading = () => {
             <TabsContent value="orders" className="flex-1 space-y-3">
               <div className="flex flex-wrap gap-2 mb-4">
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="w-32 bg-slate-800 border-emerald-400/30 text-white focus:border-emerald-400">
+                  <SelectTrigger className="w-32 bg-slate-800 border-emerald-400/30 text-white focus:border-emerald-400 data-[state=open]:border-emerald-400">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
+                  <SelectContent className="bg-slate-900 border-emerald-400/30 text-white z-50">
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="executed">Executed</SelectItem>
