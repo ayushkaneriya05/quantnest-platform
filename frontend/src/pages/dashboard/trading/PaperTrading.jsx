@@ -843,7 +843,7 @@ const PaperTrading = () => {
             <TabsContent value="orders" className="flex-1 space-y-3">
               <div className="flex flex-wrap gap-2 mb-4">
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="w-32 bg-slate-800/60 border-emerald-400/30 text-white focus:border-emerald-400">
+                  <SelectTrigger className="w-32 bg-slate-800 border-emerald-400/30 text-white focus:border-emerald-400">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
@@ -903,7 +903,7 @@ const PaperTrading = () => {
                                 <span>Qty: {order.qty}</span>
                                 <span>•</span>
                                 <span>Type: {order.orderType}</span>
-                                <span>����</span>
+                                <span>��</span>
                                 <span>Price: ₹{order.price}</span>
                                 <span>•</span>
                                 <span>Time: {order.timestamp}</span>
