@@ -255,7 +255,7 @@ const TradeJournal = () => {
 
   const getEmotionData = (emotion) => {
     const emotionMap = {
-      confident: { color: "from-green-500 to-emerald-400", bg: "bg-green-500/20", border: "border-green-500/30", text: "text-green-400" },
+      confident: { color: "from-emerald-500 to-cyan-400", bg: "bg-emerald-500/20", border: "border-emerald-500/30", text: "text-emerald-400" },
       fearful: { color: "from-red-500 to-pink-400", bg: "bg-red-500/20", border: "border-red-500/30", text: "text-red-400" },
       greedy: { color: "from-orange-500 to-yellow-400", bg: "bg-orange-500/20", border: "border-orange-500/30", text: "text-orange-400" },
       optimistic: { color: "from-blue-500 to-cyan-400", bg: "bg-blue-500/20", border: "border-blue-500/30", text: "text-blue-400" },
@@ -269,29 +269,29 @@ const TradeJournal = () => {
       <Star
         key={i}
         className={`h-4 w-4 ${
-          i < rating ? "text-yellow-400 fill-current" : "text-gray-600"
+          i < rating ? "text-amber-400 fill-current" : "text-slate-600"
         }`}
       />
     ));
   };
 
   const getTrendIcon = (trend) => {
-    if (trend > 0) return <TrendingUp className="h-4 w-4 text-green-400" />;
+    if (trend > 0) return <TrendingUp className="h-4 w-4 text-emerald-400" />;
     if (trend < 0) return <TrendingDown className="h-4 w-4 text-red-400" />;
-    return <Activity className="h-4 w-4 text-gray-400" />;
+    return <Activity className="h-4 w-4 text-slate-400" />;
   };
 
   const getTrendColor = (trend) => {
-    if (trend > 0) return "text-green-400";
+    if (trend > 0) return "text-emerald-400";
     if (trend < 0) return "text-red-400";
-    return "text-gray-400";
+    return "text-slate-400";
   };
 
   const StatCard = ({ icon: Icon, title, value, trend, trendValue, color, bgGradient }) => (
-    <Card className={`${bgGradient} border backdrop-blur-xl hover:scale-105 transition-transform duration-200 shadow-xl`}>
+    <Card className={`${bgGradient} border backdrop-blur-xl hover:scale-105 transition-transform duration-300 shadow-xl group`}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className={`p-2 rounded-lg ${color.bg} ${color.border} border backdrop-blur-sm`}>
+          <div className={`p-2 rounded-lg ${color.bg} ${color.border} border backdrop-blur-sm group-hover:scale-110 transition-transform duration-200`}>
             <Icon className={`h-5 w-5 ${color.text}`} />
           </div>
           {trend !== undefined && (
@@ -304,7 +304,7 @@ const TradeJournal = () => {
           )}
         </div>
         <div>
-          <p className="text-xs text-gray-400 mb-1">{title}</p>
+          <p className="text-xs text-slate-400 mb-1">{title}</p>
           <p className={`text-lg font-bold ${color.text}`}>{value}</p>
           {trendValue && (
             <p className={`text-xs ${getTrendColor(trendValue)}`}>
@@ -317,10 +317,10 @@ const TradeJournal = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-gray-950 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white">
 
       {/* Content */}
-      <div className="p-2 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
+      <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
         {/* KPI Dashboard */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <StatCard
@@ -328,8 +328,8 @@ const TradeJournal = () => {
             title="Total P&L"
             value={`${kpiData.totalPnL >= 0 ? "+" : ""}₹${kpiData.totalPnL.toLocaleString()}`}
             trend={kpiData.totalPnLTrend}
-            color={{ bg: "bg-green-500/20", border: "border-green-500/30", text: "text-green-400" }}
-            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-green-400/30"
+            color={{ bg: "bg-emerald-500/20", border: "border-emerald-500/30", text: "text-emerald-400" }}
+            bgGradient="bg-gradient-to-br from-slate-900/90 to-slate-950/90 border-emerald-400/30"
           />
 
           <StatCard
@@ -337,8 +337,8 @@ const TradeJournal = () => {
             title="Win Rate"
             value={`${kpiData.winRate}%`}
             trend={kpiData.winRateTrend}
-            color={{ bg: "bg-qn-light-cyan/20", border: "border-qn-light-cyan/30", text: "text-qn-light-cyan" }}
-            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-qn-light-cyan/30"
+            color={{ bg: "bg-cyan-500/20", border: "border-cyan-500/30", text: "text-cyan-400" }}
+            bgGradient="bg-gradient-to-br from-slate-900/90 to-slate-950/90 border-cyan-400/30"
           />
 
           <StatCard
@@ -347,32 +347,32 @@ const TradeJournal = () => {
             value={kpiData.profitFactor}
             trend={kpiData.profitFactorTrend}
             color={{ bg: "bg-purple-500/20", border: "border-purple-500/30", text: "text-purple-400" }}
-            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-purple-400/30"
+            bgGradient="bg-gradient-to-br from-slate-900/90 to-slate-950/90 border-purple-400/30"
           />
 
           <StatCard
             icon={Trophy}
             title="Sharpe Ratio"
             value={kpiData.sharpeRatio}
-            color={{ bg: "bg-yellow-500/20", border: "border-yellow-500/30", text: "text-yellow-400" }}
-            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-orange-400/30"
+            color={{ bg: "bg-amber-500/20", border: "border-amber-500/30", text: "text-amber-400" }}
+            bgGradient="bg-gradient-to-br from-slate-900/90 to-slate-950/90 border-amber-400/30"
           />
         </div>
 
         {/* Secondary Metrics */}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
           {[
-            { icon: TrendingUp, label: "Avg Win", value: `+₹${kpiData.avgWinningTrade.toLocaleString()}`, color: "text-green-400" },
+            { icon: TrendingUp, label: "Avg Win", value: `+₹${kpiData.avgWinningTrade.toLocaleString()}`, color: "text-emerald-400" },
             { icon: TrendingDown, label: "Avg Loss", value: `₹${kpiData.avgLosingTrade.toLocaleString()}`, color: "text-red-400" },
             { icon: AlertTriangle, label: "Max Drawdown", value: `-₹${kpiData.maxDrawdown.toLocaleString()}`, color: "text-orange-400" },
-            { icon: Timer, label: "Avg Hold", value: `${kpiData.avgHoldingPeriod}d`, color: "text-blue-400" },
-            { icon: Flame, label: "Best Trade", value: `+₹${kpiData.largestWin.toLocaleString()}`, color: "text-green-400" },
-            { icon: Calculator, label: "Total Trades", value: kpiData.totalTrades, color: "text-qn-light-cyan" }
+            { icon: Timer, label: "Avg Hold", value: `${kpiData.avgHoldingPeriod}d`, color: "text-cyan-400" },
+            { icon: Flame, label: "Best Trade", value: `+₹${kpiData.largestWin.toLocaleString()}`, color: "text-emerald-400" },
+            { icon: Calculator, label: "Total Trades", value: kpiData.totalTrades, color: "text-blue-400" }
           ].map((metric, index) => (
-            <Card key={index} className="bg-slate-800/80 border-qn-light-cyan/30 backdrop-blur-xl hover:bg-slate-800/90 hover:border-qn-light-cyan/50 transition-all duration-200">
+            <Card key={index} className="bg-slate-900/80 border-emerald-400/30 backdrop-blur-xl hover:bg-slate-900/90 hover:border-emerald-400/50 hover:scale-105 transition-all duration-300 group">
               <CardContent className="p-3 text-center">
-                <metric.icon className={`h-5 w-5 mx-auto mb-2 ${metric.color}`} />
-                <p className="text-xs text-gray-200 mb-1">{metric.label}</p>
+                <metric.icon className={`h-5 w-5 mx-auto mb-2 ${metric.color} group-hover:scale-110 transition-transform duration-200`} />
+                <p className="text-xs text-slate-300 mb-1">{metric.label}</p>
                 <p className={`text-sm font-bold ${metric.color}`}>{metric.value}</p>
               </CardContent>
             </Card>
@@ -380,10 +380,10 @@ const TradeJournal = () => {
         </div>
 
         {/* Trade History */}
-        <Card className="bg-slate-900/90 border-qn-light-cyan/30 backdrop-blur-xl shadow-2xl">
+        <Card className="bg-slate-950/90 border-emerald-400/30 backdrop-blur-xl shadow-2xl">
           <CardHeader className="pb-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-              <CardTitle className="flex items-center gap-2 text-qn-light-cyan">
+              <CardTitle className="flex items-center gap-2 text-emerald-400">
                 <BookOpen className="h-5 w-5" />
                 Trade History & Analysis
               </CardTitle>
@@ -391,21 +391,21 @@ const TradeJournal = () => {
               <div className="flex flex-wrap gap-2">
                 {/* Search */}
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <Input 
                     placeholder="Search trades..." 
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 w-48 bg-gray-800/50 border-gray-700/50 text-white placeholder-gray-400 focus:border-qn-light-cyan"
+                    className="pl-10 w-48 bg-slate-800/50 border-slate-700/50 text-white placeholder-slate-400 focus:border-emerald-400"
                   />
                 </div>
 
                 {/* Filters */}
                 <Select value={symbolFilter} onValueChange={setSymbolFilter}>
-                  <SelectTrigger className="w-28 bg-gray-800/50 border-gray-700/50 text-white">
+                  <SelectTrigger className="w-28 bg-slate-800/50 border-slate-700/50 text-white">
                     <SelectValue placeholder="Symbol" />
                   </SelectTrigger>
-                  <SelectContent className="bg-gray-900 border-gray-700">
+                  <SelectContent className="bg-slate-950 border-slate-700">
                     <SelectItem value="all">All Symbols</SelectItem>
                     <SelectItem value="TCS">TCS</SelectItem>
                     <SelectItem value="RELIANCE">RELIANCE</SelectItem>
@@ -414,10 +414,10 @@ const TradeJournal = () => {
                 </Select>
 
                 <Select value={strategyFilter} onValueChange={setStrategyFilter}>
-                  <SelectTrigger className="w-32 bg-gray-800/50 border-gray-700/50 text-white">
+                  <SelectTrigger className="w-32 bg-slate-800/50 border-slate-700/50 text-white">
                     <SelectValue placeholder="Strategy" />
                   </SelectTrigger>
-                  <SelectContent className="bg-gray-900 border-gray-700">
+                  <SelectContent className="bg-slate-950 border-slate-700">
                     <SelectItem value="all">All Strategies</SelectItem>
                     <SelectItem value="Breakout">Breakout</SelectItem>
                     <SelectItem value="Support Bounce">Support Bounce</SelectItem>
@@ -425,7 +425,7 @@ const TradeJournal = () => {
                   </SelectContent>
                 </Select>
 
-                <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50">
+                <Button variant="outline" size="sm" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-emerald-400/50">
                   <Settings className="h-4 w-4" />
                 </Button>
               </div>
@@ -436,7 +436,7 @@ const TradeJournal = () => {
             <div className="max-h-[600px] overflow-y-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-gray-700/50">
+                  <tr className="border-b border-slate-700/50">
                     {[
                       { key: "symbol", label: "Symbol" },
                       { key: "entryDate", label: "Date" },
@@ -447,12 +447,12 @@ const TradeJournal = () => {
                       { key: "holdingPeriod", label: "Hold" },
                       { key: "actions", label: "Actions" }
                     ].map((header) => (
-                      <th key={header.key} className="text-left p-3 text-gray-400 font-semibold">
+                      <th key={header.key} className="text-left p-3 text-slate-400 font-semibold">
                         {header.key !== "actions" ? (
                           <Button 
                             variant="ghost" 
                             onClick={() => handleSort(header.key)} 
-                            className="text-gray-400 hover:text-white p-0 font-semibold"
+                            className="text-slate-400 hover:text-white hover:bg-slate-800/50 p-0 font-semibold"
                           >
                             {header.label}
                             {sortField === header.key && (
@@ -472,13 +472,13 @@ const TradeJournal = () => {
                   {sortedTrades.map((trade) => (
                     <React.Fragment key={trade.id}>
                       <tr
-                        className="border-b border-gray-800/30 hover:bg-gray-800/30 cursor-pointer transition-all duration-200"
+                        className="border-b border-slate-800/30 hover:bg-slate-800/50 cursor-pointer transition-all duration-300"
                         onClick={() => setExpandedRow(expandedRow === trade.id ? null : trade.id)}
                       >
                         <td className="p-3">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-white">{trade.symbol}</span>
-                            <Badge variant="outline" className="text-xs border-gray-600/50 text-gray-400">
+                            <Badge variant="outline" className="text-xs border-slate-600/50 text-slate-400">
                               {trade.sector}
                             </Badge>
                           </div>
@@ -486,27 +486,27 @@ const TradeJournal = () => {
                         <td className="p-3">
                           <div className="text-sm">
                             <div className="text-white font-medium">{trade.entryDate}</div>
-                            <div className="text-gray-400 text-xs">{trade.entryTime}</div>
+                            <div className="text-slate-400 text-xs">{trade.entryTime}</div>
                           </div>
                         </td>
                         <td className="p-3">
                           <Badge 
                             variant="outline"
                             className={`${trade.direction === "Long" 
-                              ? "border-green-500/30 text-green-400 bg-green-500/10" 
+                              ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10" 
                               : "border-red-500/30 text-red-400 bg-red-500/10"} font-medium`}
                           >
                             {trade.direction === "Long" ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
                             {trade.direction}
                           </Badge>
                         </td>
-                        <td className="p-3 text-gray-300 text-sm font-medium">{trade.strategy}</td>
+                        <td className="p-3 text-slate-300 text-sm font-medium">{trade.strategy}</td>
                         <td className="p-3">
                           <div className="flex flex-col">
-                            <span className={`font-bold ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            <span className={`font-bold ${trade.pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                               {trade.pnl >= 0 ? "+" : ""}₹{trade.pnl.toLocaleString()}
                             </span>
-                            <span className={`text-xs ${trade.pnl >= 0 ? "text-green-400/70" : "text-red-400/70"}`}>
+                            <span className={`text-xs ${trade.pnl >= 0 ? "text-emerald-400/70" : "text-red-400/70"}`}>
                               {trade.pnl >= 0 ? "+" : ""}{trade.pnlPercent}%
                             </span>
                           </div>
@@ -515,20 +515,20 @@ const TradeJournal = () => {
                           <Badge 
                             variant="outline" 
                             className={`text-xs font-medium ${
-                              trade.riskReward >= 2 ? "border-green-500/30 text-green-400" : 
-                              trade.riskReward >= 1.5 ? "border-yellow-500/30 text-yellow-400" : 
+                              trade.riskReward >= 2 ? "border-emerald-500/30 text-emerald-400" : 
+                              trade.riskReward >= 1.5 ? "border-amber-500/30 text-amber-400" : 
                               "border-red-500/30 text-red-400"
                             }`}
                           >
                             1:{trade.riskReward}
                           </Badge>
                         </td>
-                        <td className="p-3 text-gray-300 text-sm font-medium">{trade.holdingPeriod}d</td>
+                        <td className="p-3 text-slate-300 text-sm font-medium">{trade.holdingPeriod}d</td>
                         <td className="p-3 text-center">
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="text-gray-400 hover:text-white h-8 w-8 p-0"
+                            className="text-slate-400 hover:text-white hover:bg-slate-800/50 h-8 w-8 p-0"
                           >
                             {expandedRow === trade.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                           </Button>
@@ -538,15 +538,15 @@ const TradeJournal = () => {
                       {expandedRow === trade.id && (
                         <tr>
                           <td colSpan="8" className="p-0">
-                            <div className="bg-gray-800/60 backdrop-blur-sm border-t border-gray-700/50">
+                            <div className="bg-slate-900/80 backdrop-blur-sm border-t border-slate-700/50">
                               <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
                                 {/* Trade Chart Placeholder */}
                                 <div className="lg:col-span-1">
-                                  <Card className="bg-gray-900/80 border-gray-700/50 h-48">
+                                  <Card className="bg-slate-950/80 border-slate-700/50 h-48">
                                     <CardContent className="p-4 h-full flex flex-col items-center justify-center">
-                                      <BarChart3 className="h-12 w-12 text-gray-400 opacity-50 mb-3" />
-                                      <p className="text-sm font-medium text-gray-300 mb-3">Trade Performance Chart</p>
-                                      <div className="text-xs text-gray-400 space-y-1 text-center w-full">
+                                      <BarChart3 className="h-12 w-12 text-slate-400 opacity-50 mb-3" />
+                                      <p className="text-sm font-medium text-slate-300 mb-3">Trade Performance Chart</p>
+                                      <div className="text-xs text-slate-400 space-y-1 text-center w-full">
                                         <div className="flex justify-between">
                                           <span>Entry:</span>
                                           <span className="text-white font-medium">₹{trade.entryPrice}</span>
@@ -557,7 +557,7 @@ const TradeJournal = () => {
                                         </div>
                                         <div className="flex justify-between">
                                           <span>Max Favorable:</span>
-                                          <span className="text-green-400 font-medium">+{trade.maxFavorable}%</span>
+                                          <span className="text-emerald-400 font-medium">+{trade.maxFavorable}%</span>
                                         </div>
                                         <div className="flex justify-between">
                                           <span>Max Adverse:</span>
@@ -575,11 +575,11 @@ const TradeJournal = () => {
                                     {[
                                       { label: "Commission", value: `₹${trade.commission}`, color: "text-red-400" },
                                       { label: "Slippage", value: `₹${trade.slippage}`, color: "text-orange-400" },
-                                      { label: "Quantity", value: trade.quantity, color: "text-qn-light-cyan" },
+                                      { label: "Quantity", value: trade.quantity, color: "text-cyan-400" },
                                       { label: "Market Cap", value: trade.marketCap, color: "text-blue-400" }
                                     ].map((metric, index) => (
-                                      <div key={index} className="bg-gray-800/80 p-3 rounded-lg border border-gray-700/50">
-                                        <p className="text-xs text-gray-400 mb-1">{metric.label}</p>
+                                      <div key={index} className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/50">
+                                        <p className="text-xs text-slate-400 mb-1">{metric.label}</p>
                                         <p className={`text-sm font-medium ${metric.color}`}>{metric.value}</p>
                                       </div>
                                     ))}
@@ -587,10 +587,10 @@ const TradeJournal = () => {
 
                                   {/* Trade Tags */}
                                   <div>
-                                    <Label className="text-sm text-gray-400 mb-2 block">Trade Tags</Label>
+                                    <Label className="text-sm text-slate-400 mb-2 block">Trade Tags</Label>
                                     <div className="flex flex-wrap gap-2">
                                       {trade.tags.map((tag, index) => (
-                                        <Badge key={index} variant="outline" className="text-xs border-qn-light-cyan/30 text-qn-light-cyan bg-qn-light-cyan/10">
+                                        <Badge key={index} variant="outline" className="text-xs border-emerald-400/30 text-emerald-400 bg-emerald-400/10">
                                           <Hash className="h-3 w-3 mr-1" />
                                           {tag}
                                         </Badge>
@@ -601,28 +601,28 @@ const TradeJournal = () => {
                                   {/* Ratings */}
                                   <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                      <Label className="text-sm text-gray-400 mb-2 block">Setup Quality</Label>
+                                      <Label className="text-sm text-slate-400 mb-2 block">Setup Quality</Label>
                                       <div className="flex items-center gap-2">
                                         <div className="flex gap-1">
                                           {renderStars(trade.setupRating)}
                                         </div>
-                                        <span className="text-sm text-gray-300">({trade.setupRating}/5)</span>
+                                        <span className="text-sm text-slate-300">({trade.setupRating}/5)</span>
                                       </div>
                                     </div>
                                     <div>
-                                      <Label className="text-sm text-gray-400 mb-2 block">Execution Quality</Label>
+                                      <Label className="text-sm text-slate-400 mb-2 block">Execution Quality</Label>
                                       <div className="flex items-center gap-2">
                                         <div className="flex gap-1">
                                           {renderStars(trade.executionRating)}
                                         </div>
-                                        <span className="text-sm text-gray-300">({trade.executionRating}/5)</span>
+                                        <span className="text-sm text-slate-300">({trade.executionRating}/5)</span>
                                       </div>
                                     </div>
                                   </div>
 
                                   {/* Emotion & Psychology */}
                                   <div>
-                                    <Label className="text-sm text-gray-400 mb-2 block">Emotional State</Label>
+                                    <Label className="text-sm text-slate-400 mb-2 block">Emotional State</Label>
                                     <div className="flex items-center gap-3">
                                       <Badge 
                                         className={`bg-gradient-to-r ${getEmotionData(trade.emotion).color} text-white px-3 py-1 shadow-lg font-medium`}
@@ -635,24 +635,24 @@ const TradeJournal = () => {
 
                                   {/* Trade Notes */}
                                   <div>
-                                    <Label className="text-sm text-gray-400 mb-2 block">Trade Notes</Label>
-                                    <div className="bg-gray-800/80 rounded-lg p-3 border border-gray-700/50">
-                                      <p className="text-sm text-gray-300 leading-relaxed mb-3">{trade.notes}</p>
+                                    <Label className="text-sm text-slate-400 mb-2 block">Trade Notes</Label>
+                                    <div className="bg-slate-800/80 rounded-lg p-3 border border-slate-700/50">
+                                      <p className="text-sm text-slate-300 leading-relaxed mb-3">{trade.notes}</p>
                                       
                                       {/* Key Learnings */}
                                       <div className="space-y-2">
                                         <div className="flex items-start gap-2">
-                                          <Lightbulb className="h-4 w-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                                          <Lightbulb className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
                                           <div>
-                                            <span className="text-xs text-yellow-400 font-medium">Key Learning: </span>
-                                            <span className="text-xs text-gray-300">{trade.learnings}</span>
+                                            <span className="text-xs text-amber-400 font-medium">Key Learning: </span>
+                                            <span className="text-xs text-slate-300">{trade.learnings}</span>
                                           </div>
                                         </div>
                                         <div className="flex items-start gap-2">
-                                          <Target className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                                          <Target className="h-4 w-4 text-cyan-400 mt-0.5 flex-shrink-0" />
                                           <div>
-                                            <span className="text-xs text-blue-400 font-medium">Improvement: </span>
-                                            <span className="text-xs text-gray-300">{trade.improvements}</span>
+                                            <span className="text-xs text-cyan-400 font-medium">Improvement: </span>
+                                            <span className="text-xs text-slate-300">{trade.improvements}</span>
                                           </div>
                                         </div>
                                       </div>
@@ -663,20 +663,20 @@ const TradeJournal = () => {
                                   <div className="flex gap-2 pt-2">
                                     <Button 
                                       variant="outline" 
-                                      className="border-qn-light-cyan/30 text-qn-light-cyan hover:bg-qn-light-cyan/20 hover:text-qn-light-cyan"
+                                      className="border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 hover:border-emerald-400/50"
                                     >
                                       <Edit className="h-4 w-4 mr-2" />
                                       Edit Journal
                                     </Button>
-                                    <Button variant="outline" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 hover:text-white">
+                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600">
                                       <Copy className="h-4 w-4 mr-2" />
                                       Duplicate
                                     </Button>
-                                    <Button variant="outline" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 hover:text-white">
+                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600">
                                       <Share className="h-4 w-4 mr-2" />
                                       Share
                                     </Button>
-                                    <Button variant="outline" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50 hover:text-white">
+                                    <Button variant="outline" className="border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:text-white hover:border-slate-600">
                                       <Bookmark className="h-4 w-4 mr-2" />
                                       Bookmark
                                     </Button>
@@ -693,7 +693,7 @@ const TradeJournal = () => {
               </table>
 
               {sortedTrades.length === 0 && (
-                <div className="text-center text-gray-400 py-12">
+                <div className="text-center text-slate-400 py-12">
                   <BookOpen className="h-16 w-16 mx-auto mb-4 opacity-30" />
                   <p className="text-lg font-medium mb-2">No trades found</p>
                   <p className="text-sm">Try adjusting your search criteria or filters</p>
@@ -706,36 +706,36 @@ const TradeJournal = () => {
 
       {/* AI Insights Modal */}
       <Dialog open={isAnalyticsOpen} onOpenChange={setIsAnalyticsOpen}>
-        <DialogContent className="bg-gray-900/95 border-gray-700 text-white max-w-2xl backdrop-blur-xl">
+        <DialogContent className="bg-slate-950/95 border-slate-700 text-white max-w-2xl backdrop-blur-xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-qn-light-cyan">
+            <DialogTitle className="flex items-center gap-2 text-emerald-400">
               <Brain className="h-5 w-5" />
               AI Performance Insights
             </DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4">
-            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 p-4 rounded-lg border border-qn-light-cyan/30">
-              <h4 className="font-medium text-qn-light-cyan mb-2">Performance Summary</h4>
-              <p className="text-sm text-gray-300">
+            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/60 p-4 rounded-lg border border-emerald-400/30">
+              <h4 className="font-medium text-emerald-400 mb-2">Performance Summary</h4>
+              <p className="text-sm text-slate-300">
                 Your trading performance shows strong momentum with a {kpiData.winRate}% win rate and {kpiData.profitFactor} profit factor. 
                 Focus on extending holding periods for winning trades to maximize gains.
               </p>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-900/80 p-4 rounded-lg border border-green-500/30">
-                <h5 className="font-medium text-green-400 mb-2">Strengths</h5>
-                <ul className="text-sm text-gray-300 space-y-1">
+              <div className="bg-slate-900/80 p-4 rounded-lg border border-emerald-500/30">
+                <h5 className="font-medium text-emerald-400 mb-2">Strengths</h5>
+                <ul className="text-sm text-slate-300 space-y-1">
                   <li>• Excellent setup identification</li>
                   <li>• Strong risk management</li>
                   <li>• Consistent execution</li>
                 </ul>
               </div>
               
-              <div className="bg-gray-900/80 p-4 rounded-lg border border-orange-500/30">
+              <div className="bg-slate-900/80 p-4 rounded-lg border border-orange-500/30">
                 <h5 className="font-medium text-orange-400 mb-2">Areas to Improve</h5>
-                <ul className="text-sm text-gray-300 space-y-1">
+                <ul className="text-sm text-slate-300 space-y-1">
                   <li>• Hold winning positions longer</li>
                   <li>• Reduce emotional trading</li>
                   <li>• Better position sizing</li>
