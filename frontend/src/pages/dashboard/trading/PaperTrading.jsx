@@ -384,7 +384,7 @@ const PaperTrading = () => {
         
         <div className="space-y-4">
           {/* Current Price Display */}
-          <div className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50">
+          <div className="bg-slate-800/60 p-3 rounded-lg border border-qn-light-cyan/30 backdrop-blur-sm">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-400">Current Price</span>
               <div className="text-right">
