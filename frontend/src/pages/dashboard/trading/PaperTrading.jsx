@@ -513,7 +513,7 @@ const PaperTrading = () => {
             </Button>
 
             {showAdvancedOptions && (
-              <div className="space-y-3 animate-in slide-in-from-top-1 duration-200">
+              <div className="space-y-3">
                 {/* Stop Loss */}
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Stop Loss</Label>
@@ -619,7 +619,7 @@ const PaperTrading = () => {
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-emerald-400 text-lg">Market Watch</CardTitle>
-                        <Button variant="ghost" size="sm" className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors duration-200 h-8 w-8 p-0">
+                        <Button variant="ghost" size="sm" className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 h-8 w-8 p-0">
                           <RefreshCw className="h-4 w-4" />
                         </Button>
                       </div>
@@ -637,7 +637,7 @@ const PaperTrading = () => {
                           <div
                             key={item.symbol}
                             onClick={() => handleWatchlistClick(item.symbol)}
-                            className={`p-3 cursor-pointer hover:bg-emerald-400/10 transition-colors duration-200 ${
+                            className={`p-3 cursor-pointer hover:bg-emerald-400/10 ${
                               selectedSymbol === item.symbol ? "bg-emerald-400/15 border-l-3 border-l-emerald-400" : ""
                             }`}
                           >
@@ -676,7 +676,7 @@ const PaperTrading = () => {
                           ₹{currentPrice?.toLocaleString()}
                         </Badge>
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                          <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
                           <span className="text-sm text-emerald-400 font-medium">Live</span>
                         </div>
                       </div>
@@ -774,7 +774,7 @@ const PaperTrading = () => {
                   positions.map((position, index) => (
                     <Card
                       key={index}
-                      className="bg-slate-900/70 border-emerald-400/30 hover:bg-slate-900/90 hover:border-emerald-400/50 transition-colors duration-200 cursor-pointer backdrop-blur-sm"
+                      className="bg-slate-900/70 border-emerald-400/30 hover:bg-slate-900/90 hover:border-emerald-400/50 cursor-pointer backdrop-blur-sm"
                       onClick={() => handlePositionClick(position)}
                     >
                       <CardContent className="p-3">
@@ -822,7 +822,7 @@ const PaperTrading = () => {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="text-red-400 hover:bg-red-600/20 hover:text-red-300 transition-colors duration-200 h-8 w-8 p-0"
+                              className="text-red-400 hover:bg-red-600/20 hover:text-red-300 h-8 w-8 p-0"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleSquareOffPosition(position.symbol);
@@ -846,7 +846,7 @@ const PaperTrading = () => {
                   <SelectTrigger className="w-32 bg-slate-800/60 border-emerald-400/30 text-white focus:border-emerald-400">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-950/95 border-emerald-400/30 backdrop-blur-xl">
+                  <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="executed">Executed</SelectItem>
@@ -854,7 +854,7 @@ const PaperTrading = () => {
                   </SelectContent>
                 </Select>
 
-                <Button variant="outline" size="sm" className="bg-slate-800/60 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:border-emerald-400 hover:text-emerald-300 transition-colors duration-200">
+                <Button variant="outline" size="sm" className="bg-slate-800/60 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:border-emerald-400 hover:text-emerald-300">
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
                 </Button>
@@ -871,7 +871,7 @@ const PaperTrading = () => {
                   orders.filter(order => filterStatus === "all" || order.status.toLowerCase() === filterStatus).map((order, index) => (
                     <Card
                       key={index}
-                      className="bg-slate-900/70 border-emerald-400/30 hover:bg-slate-900/90 hover:border-emerald-400/50 transition-colors duration-200 backdrop-blur-sm"
+                      className="bg-slate-900/70 border-emerald-400/30 hover:bg-slate-900/90 hover:border-emerald-400/50 backdrop-blur-sm"
                     >
                       <CardContent className="p-3">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -914,14 +914,14 @@ const PaperTrading = () => {
                           <div className="flex items-center gap-2">
                             {order.status === "PENDING" && (
                               <>
-                                <Button variant="outline" size="sm" className="bg-slate-800/60 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:border-emerald-400 hover:text-emerald-300 text-xs transition-colors duration-200">
+                                <Button variant="outline" size="sm" className="bg-slate-800/60 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:border-emerald-400 hover:text-emerald-300 text-xs">
                                   <Edit className="h-3 w-3 mr-1" />
                                   Modify
                                 </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="bg-slate-800/60 border-red-400/40 text-red-400 hover:bg-red-500/20 hover:border-red-400 hover:text-red-300 text-xs transition-colors duration-200"
+                                  className="bg-slate-800/60 border-red-400/40 text-red-400 hover:bg-red-500/20 hover:border-red-400 hover:text-red-300 text-xs"
                                   onClick={() => handleCancelOrder(order.id)}
                                 >
                                   <X className="h-3 w-3 mr-1" />
