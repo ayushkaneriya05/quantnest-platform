@@ -433,7 +433,7 @@ const PaperTrading = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                className="border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 h-10 w-10 p-0"
+                className="border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0"
               >
                 <Minus className="h-4 w-4" />
               </Button>
@@ -448,7 +448,7 @@ const PaperTrading = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setQuantity(quantity + 1)}
-                className="border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 h-10 w-10 p-0"
+                className="border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300 h-10 w-10 p-0"
               >
                 <Plus className="h-4 w-4" />
               </Button>
