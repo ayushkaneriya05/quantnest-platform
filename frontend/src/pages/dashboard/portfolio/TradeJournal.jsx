@@ -329,33 +329,33 @@ const TradeJournal = () => {
             value={`${kpiData.totalPnL >= 0 ? "+" : ""}₹${kpiData.totalPnL.toLocaleString()}`}
             trend={kpiData.totalPnLTrend}
             color={{ bg: "bg-green-500/20", border: "border-green-500/30", text: "text-green-400" }}
-            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-green-500/30"
+            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-green-400/30"
           />
-          
+
           <StatCard
             icon={Target}
             title="Win Rate"
             value={`${kpiData.winRate}%`}
             trend={kpiData.winRateTrend}
             color={{ bg: "bg-qn-light-cyan/20", border: "border-qn-light-cyan/30", text: "text-qn-light-cyan" }}
-            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-qn-light-cyan/30"
+            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-qn-light-cyan/30"
           />
-          
+
           <StatCard
             icon={Gauge}
             title="Profit Factor"
             value={kpiData.profitFactor}
             trend={kpiData.profitFactorTrend}
             color={{ bg: "bg-purple-500/20", border: "border-purple-500/30", text: "text-purple-400" }}
-            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-purple-500/30"
+            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-purple-400/30"
           />
-          
+
           <StatCard
             icon={Trophy}
             title="Sharpe Ratio"
             value={kpiData.sharpeRatio}
             color={{ bg: "bg-yellow-500/20", border: "border-yellow-500/30", text: "text-yellow-400" }}
-            bgGradient="bg-gradient-to-br from-gray-900/80 to-gray-800/60 border-yellow-500/30"
+            bgGradient="bg-gradient-to-br from-slate-800/90 to-slate-900/90 border-orange-400/30"
           />
         </div>
 
