@@ -956,10 +956,10 @@ const PaperTrading = () => {
             <TabsContent value="account" className="space-y-4">
               {/* Account Overview */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-                <Card className="bg-gradient-to-br from-green-900/20 to-emerald-800/10 border-green-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-green-400/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-green-600/20 rounded-lg">
+                      <div className="p-2 bg-green-500/20 rounded-lg">
                         <Wallet className="h-5 w-5 text-green-400" />
                       </div>
                       <div>
@@ -970,24 +970,24 @@ const PaperTrading = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-blue-900/20 to-cyan-800/10 border-blue-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-qn-light-cyan/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-blue-600/20 rounded-lg">
-                        <DollarSign className="h-5 w-5 text-blue-400" />
+                      <div className="p-2 bg-qn-light-cyan/20 rounded-lg">
+                        <DollarSign className="h-5 w-5 text-qn-light-cyan" />
                       </div>
                       <div>
-                        <p className="text-xs text-blue-300">Available Balance</p>
+                        <p className="text-xs text-qn-light-cyan">Available Balance</p>
                         <p className="text-lg font-bold text-white">₹{accountInfo.availableBalance.toLocaleString()}</p>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-purple-900/20 to-pink-800/10 border-purple-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-purple-400/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-purple-600/20 rounded-lg">
+                      <div className="p-2 bg-purple-500/20 rounded-lg">
                         <TrendingUp className="h-5 w-5 text-purple-400" />
                       </div>
                       <div>
@@ -998,10 +998,10 @@ const PaperTrading = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-orange-900/20 to-red-800/10 border-orange-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-orange-400/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-orange-600/20 rounded-lg">
+                      <div className="p-2 bg-orange-500/20 rounded-lg">
                         <Activity className="h-5 w-5 text-orange-400" />
                       </div>
                       <div>
