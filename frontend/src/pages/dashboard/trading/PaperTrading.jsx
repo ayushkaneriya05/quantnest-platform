@@ -339,8 +339,13 @@ const PaperTrading = () => {
   };
 
   const handlePlaceOrder = (side) => {
+    // Defensive check to prevent multiple rapid calls
+    if (isOrderModalOpen) return;
+
     setOrderType(side);
-    setIsOrderModalOpen(true);
+    setTimeout(() => {
+      setIsOrderModalOpen(true);
+    }, 50);
   };
 
   const handlePositionClick = (position) => {
@@ -997,7 +1002,7 @@ const PaperTrading = () => {
                       </div>
                       <div>
                         <p className="text-xs text-cyan-300">Available Balance</p>
-                        <p className="text-lg font-bold text-white">₹{accountInfo.availableBalance.toLocaleString()}</p>
+                        <p className="text-lg font-bold text-white">��{accountInfo.availableBalance.toLocaleString()}</p>
                       </div>
                     </div>
                   </CardContent>
