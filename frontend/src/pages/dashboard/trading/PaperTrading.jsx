@@ -591,38 +591,38 @@ const PaperTrading = () => {
       <Card className="bg-gradient-to-br from-slate-950/95 to-slate-900/95 border-emerald-400/20 backdrop-blur-xl shadow-2xl h-full">
         <CardContent className="p-3 sm:p-4 h-full">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full h-full flex flex-col">
-            <TabsList className="grid w-full grid-cols-4 bg-slate-900/80 border border-emerald-400/30 mb-4 backdrop-blur-sm h-10">
+            <TabsList className="grid w-full grid-cols-4 bg-slate-900/80 border border-emerald-400/30 mb-2 backdrop-blur-sm h-14">
               <TabsTrigger
                 value="trading"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-xs sm:text-sm text-slate-300 hover:text-white h-8 px-2"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
               >
-                <Monitor className="h-3 w-3 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline text-xs">Trading</span>
-                <span className="sm:hidden text-xs">Trade</span>
+                <Monitor className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Trading</span>
+                <span className="sm:hidden">Trade</span>
               </TabsTrigger>
               <TabsTrigger
                 value="positions"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-xs sm:text-sm text-slate-300 hover:text-white h-8 px-2"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
               >
-                <Target className="h-3 w-3 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline text-xs">Positions</span>
-                <span className="sm:hidden text-xs">Pos</span>
+                <Target className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Positions</span>
+                <span className="sm:hidden">Pos</span>
               </TabsTrigger>
               <TabsTrigger
                 value="orders"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-xs sm:text-sm text-slate-300 hover:text-white h-8 px-2"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
               >
-                <Clock className="h-3 w-3 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline text-xs">Orders</span>
-                <span className="sm:hidden text-xs">Orders</span>
+                <Clock className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Orders</span>
+                <span className="sm:hidden">Orders</span>
               </TabsTrigger>
               <TabsTrigger
                 value="account"
-                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-xs sm:text-sm text-slate-300 hover:text-white h-8 px-2"
+                className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-400 text-sm sm:text-base text-slate-300 hover:text-white h-12 px-4"
               >
-                <Wallet className="h-3 w-3 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline text-xs">Account</span>
-                <span className="sm:hidden text-xs">Acc</span>
+                <Wallet className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Account</span>
+                <span className="sm:hidden">Acc</span>
               </TabsTrigger>
             </TabsList>
 
@@ -698,47 +698,27 @@ const PaperTrading = () => {
                       </div>
                     </CardHeader>
                     <CardContent className="p-4 flex-1">
-                      <div className="h-full min-h-[400px] bg-gradient-to-br from-slate-800/40 to-slate-900/40 rounded-xl flex flex-col relative border border-emerald-400/20">
-                        {/* Chart Section */}
-                        <div className="flex-1 flex flex-col items-center justify-center p-6">
-                          <div className="text-center mb-6">
-                            <Monitor className="h-16 w-16 mx-auto mb-4 text-emerald-400/60" />
-                            <p className="text-xl font-bold text-white mb-2">TradingView Chart</p>
-                            <p className="text-sm text-emerald-400/80 mb-6">Professional charting interface</p>
+                      <div className="h-full min-h-[400px] bg-gradient-to-br from-slate-800/40 to-slate-900/40 rounded-xl flex flex-col items-center justify-center relative border border-emerald-400/20">
+                        {/* Chart Section - Full Length */}
+                        <div className="text-center mb-6">
+                          <Monitor className="h-16 w-16 mx-auto mb-4 text-emerald-400/60" />
+                          <p className="text-xl font-bold text-white mb-2">TradingView Chart</p>
+                          <p className="text-sm text-emerald-400/80 mb-6">Professional charting interface</p>
 
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-950/70 p-6 rounded-xl max-w-lg border border-emerald-400/20">
-                              {[
-                                { label: "Open", value: currentSymbolData?.dayLow, color: "text-cyan-400" },
-                                { label: "High", value: currentSymbolData?.dayHigh, color: "text-emerald-400" },
-                                { label: "Low", value: currentSymbolData?.dayLow, color: "text-red-400" },
-                                { label: "Volume", value: currentSymbolData?.volume, color: "text-emerald-400" }
-                              ].map((stat, index) => (
-                                <div key={index} className="text-center">
-                                  <p className="text-xs text-slate-300 mb-1">{stat.label}</p>
-                                  <p className={`text-sm font-semibold ${stat.color}`}>
-                                    {stat.label === "Volume" ? stat.value : `₹${stat.value}`}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Utilise space under chart with quick stats */}
-                        <div className="border-t border-emerald-400/20 p-4 bg-slate-950/50">
-                          <div className="grid grid-cols-3 gap-4">
-                            <div className="text-center">
-                              <p className="text-xs text-slate-400 mb-1">Market Cap</p>
-                              <p className="text-sm font-semibold text-emerald-400">{currentSymbolData?.marketCap}</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-xs text-slate-400 mb-1">P/E Ratio</p>
-                              <p className="text-sm font-semibold text-cyan-400">{currentSymbolData?.pe}</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-xs text-slate-400 mb-1">Day Range</p>
-                              <p className="text-sm font-semibold text-white">₹{currentSymbolData?.dayLow} - ₹{currentSymbolData?.dayHigh}</p>
-                            </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-950/70 p-6 rounded-xl max-w-lg border border-emerald-400/20">
+                            {[
+                              { label: "Open", value: currentSymbolData?.dayLow, color: "text-cyan-400" },
+                              { label: "High", value: currentSymbolData?.dayHigh, color: "text-emerald-400" },
+                              { label: "Low", value: currentSymbolData?.dayLow, color: "text-red-400" },
+                              { label: "Volume", value: currentSymbolData?.volume, color: "text-emerald-400" }
+                            ].map((stat, index) => (
+                              <div key={index} className="text-center">
+                                <p className="text-xs text-slate-300 mb-1">{stat.label}</p>
+                                <p className={`text-sm font-semibold ${stat.color}`}>
+                                  {stat.label === "Volume" ? stat.value : `₹${stat.value}`}
+                                </p>
+                              </div>
+                            ))}
                           </div>
                         </div>
 
@@ -900,7 +880,11 @@ const PaperTrading = () => {
                   </SelectTrigger>
                   <SelectContent
                     className="bg-slate-900 border-emerald-400/30 text-white shadow-lg z-[100]"
+                    side="bottom"
+                    align="start"
                     onCloseAutoFocus={(e) => e.preventDefault()}
+                    onEscapeKeyDown={(e) => e.preventDefault()}
+                    onPointerDownOutside={(e) => e.preventDefault()}
                   >
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
