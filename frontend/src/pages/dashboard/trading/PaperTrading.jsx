@@ -403,9 +403,9 @@ const PaperTrading = () => {
               <Button
                 variant={orderType === "buy" ? "default" : "outline"}
                 onClick={() => setOrderType("buy")}
-                className={`${orderType === "buy" 
-                  ? "bg-green-600 hover:bg-green-700 text-white" 
-                  : "border-gray-600 text-gray-300 hover:bg-gray-800"}`}
+                className={`${orderType === "buy"
+                  ? "bg-green-600 hover:bg-green-700 text-white"
+                  : "border-qn-light-cyan/40 text-qn-light-cyan hover:bg-qn-light-cyan/20"}`}
               >
                 <ArrowUpRight className="h-4 w-4 mr-2" />
                 BUY
