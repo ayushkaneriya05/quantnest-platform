@@ -870,7 +870,7 @@ const PaperTrading = () => {
                   orders.filter(order => filterStatus === "all" || order.status.toLowerCase() === filterStatus).map((order, index) => (
                     <Card
                       key={index}
-                      className="bg-gray-800/60 border-gray-700/50 hover:bg-gray-800/80 transition-all duration-200"
+                      className="bg-slate-800/70 border-qn-light-cyan/30 hover:bg-slate-800/90 hover:border-qn-light-cyan/50 transition-all duration-200 backdrop-blur-sm"
                     >
                       <CardContent className="p-4">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
