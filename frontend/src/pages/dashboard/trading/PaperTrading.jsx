@@ -863,14 +863,23 @@ const PaperTrading = () => {
             {/* Orders Tab */}
             <TabsContent value="orders" className="flex-1 space-y-3">
               <div className="flex flex-wrap gap-2 mb-4">
-                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <Select
+                  value={filterStatus}
+                  onValueChange={(value) => {
+                    console.log('Select value changed:', value);
+                    setFilterStatus(value);
+                  }}
+                  open={undefined}
+                >
                   <SelectTrigger className="w-32 bg-slate-800 border-emerald-400/30 text-white focus:border-emerald-400 data-[state=open]:border-emerald-400">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent
-                    className="bg-slate-900 border-emerald-400/30 text-white shadow-lg"
+                    className="bg-slate-900 border-emerald-400/30 text-white shadow-lg z-[100]"
                     position="popper"
                     sideOffset={4}
+                    avoidCollisions={true}
+                    sticky="always"
                   >
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
