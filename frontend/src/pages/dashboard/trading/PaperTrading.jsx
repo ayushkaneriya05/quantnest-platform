@@ -913,14 +913,14 @@ const PaperTrading = () => {
                           <div className="flex items-center gap-2">
                             {order.status === "PENDING" && (
                               <>
-                                <Button variant="outline" size="sm" className="border-gray-600 text-gray-300 hover:bg-gray-800 text-xs">
+                                <Button variant="outline" size="sm" className="border-qn-light-cyan/40 text-qn-light-cyan hover:bg-qn-light-cyan/20 hover:border-qn-light-cyan text-xs">
                                   <Edit className="h-3 w-3 mr-1" />
                                   Modify
                                 </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="border-red-600 text-red-400 hover:bg-red-600/10 text-xs"
+                                  className="border-red-400/40 text-red-400 hover:bg-red-500/20 hover:border-red-400 text-xs"
                                   onClick={() => handleCancelOrder(order.id)}
                                 >
                                   <X className="h-3 w-3 mr-1" />
