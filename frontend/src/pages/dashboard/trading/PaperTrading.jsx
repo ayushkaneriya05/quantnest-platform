@@ -506,7 +506,7 @@ const PaperTrading = () => {
             <Button
               variant="outline"
               onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-              className="w-full border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white justify-between"
+              className="w-full bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white justify-between"
             >
               Advanced Options
               <ChevronDown className={`h-4 w-4 ${showAdvancedOptions ? 'rotate-180' : ''}`} />
@@ -903,7 +903,7 @@ const PaperTrading = () => {
                                 <span>Qty: {order.qty}</span>
                                 <span>•</span>
                                 <span>Type: {order.orderType}</span>
-                                <span>��</span>
+                                <span>����</span>
                                 <span>Price: ₹{order.price}</span>
                                 <span>•</span>
                                 <span>Time: {order.timestamp}</span>
@@ -1057,7 +1057,7 @@ const PaperTrading = () => {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-400 text-xs">Overnight Power</span>
-                          <span className="text-white text-xs">��{accountInfo.overnightBuyingPower.toLocaleString()}</span>
+                          <span className="text-white text-xs">₹{accountInfo.overnightBuyingPower.toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
