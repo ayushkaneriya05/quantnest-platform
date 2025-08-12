@@ -1064,7 +1064,7 @@ const PaperTrading = () => {
                 </Card>
 
                 {/* P&L Breakdown */}
-                <Card className="bg-gray-800/50 border-gray-700/50">
+                <Card className="bg-slate-800/60 border-qn-light-cyan/30 backdrop-blur-sm">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-qn-light-cyan text-sm">P&L Breakdown</CardTitle>
                   </CardHeader>
