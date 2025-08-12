@@ -1016,7 +1016,7 @@ const PaperTrading = () => {
               {/* Account Details & Holdings */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Account Information */}
-                <Card className="bg-gray-800/50 border-gray-700/50">
+                <Card className="bg-slate-800/60 border-qn-light-cyan/30 backdrop-blur-sm">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-qn-light-cyan text-sm">Account Information</CardTitle>
                   </CardHeader>
