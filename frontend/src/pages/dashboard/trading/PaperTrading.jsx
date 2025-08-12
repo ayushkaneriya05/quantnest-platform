@@ -1185,7 +1185,7 @@ const PaperTrading = () => {
               <div className="grid grid-cols-2 gap-3 pt-4">
                 <Button
                   variant="outline"
-                  className="border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300 transition-colors duration-200"
+                  className="border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/10 hover:text-emerald-300"
                   onClick={() => {
                     setIsPositionModalOpen(false);
                     handlePlaceOrder(selectedPosition.side === 'BUY' ? 'sell' : 'buy');
