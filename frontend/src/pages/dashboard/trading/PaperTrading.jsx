@@ -611,11 +611,11 @@ const PaperTrading = () => {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
                 {/* Watchlist */}
                 <div className="lg:col-span-1">
-                  <Card className="bg-gray-800/50 border-gray-700/50">
+                  <Card className="bg-slate-800/60 border-qn-light-cyan/30 backdrop-blur-sm h-full">
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-qn-light-cyan text-lg">Market Watch</CardTitle>
-                        <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white h-8 w-8 p-0">
+                        <Button variant="ghost" size="sm" className="text-qn-light-cyan hover:text-white hover:bg-qn-light-cyan/20 h-8 w-8 p-0">
                           <RefreshCw className="h-4 w-4" />
                         </Button>
                       </div>
@@ -623,55 +623,40 @@ const PaperTrading = () => {
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                         <Input
                           placeholder="Search symbols..."
-                          className="pl-10 bg-gray-800/50 border-gray-700/50 text-white text-sm"
+                          className="pl-10 bg-slate-700/50 border-qn-light-cyan/30 text-white text-sm focus:border-qn-light-cyan focus:ring-qn-light-cyan/20"
                         />
                       </div>
                     </CardHeader>
                     <CardContent className="p-0">
-                      <div className="space-y-1 max-h-80 overflow-y-auto">
+                      <div className="space-y-1 max-h-96 overflow-y-auto">
                         {watchlist.map((item) => (
                           <div
                             key={item.symbol}
                             onClick={() => handleWatchlistClick(item.symbol)}
-                            className={`p-3 cursor-pointer hover:bg-gray-800/30 transition-all ${
-                              selectedSymbol === item.symbol ? "bg-qn-light-cyan/10 border-l-2 border-l-qn-light-cyan" : ""
+                            className={`p-4 cursor-pointer hover:bg-qn-light-cyan/10 transition-all duration-200 ${
+                              selectedSymbol === item.symbol ? "bg-qn-light-cyan/15 border-l-3 border-l-qn-light-cyan" : ""
                             }`}
                           >
                             <div className="flex justify-between items-center mb-2">
                               <div className="flex items-center gap-2">
-                                <span className="font-semibold text-white text-sm">{item.symbol}</span>
-                                <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
+                                <span className="font-semibold text-white text-base">{item.symbol}</span>
+                                <Badge variant="outline" className="text-xs border-qn-light-cyan/40 text-qn-light-cyan">
                                   {item.sector}
                                 </Badge>
                               </div>
                               <Badge
                                 variant={item.change >= 0 ? "default" : "destructive"}
-                                className={`text-xs ${item.change >= 0 ? "bg-green-600/20 text-green-400" : "bg-red-600/20 text-red-400"}`}
+                                className={`text-xs ${item.change >= 0 ? "bg-green-500/20 text-green-400 border-green-400/30" : "bg-red-500/20 text-red-400 border-red-400/30"}`}
                               >
                                 {item.changePercent}
                               </Badge>
                             </div>
 
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="text-base font-bold text-white">₹{item.ltp.toLocaleString()}</span>
-                              <span className={`text-sm ${item.change >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            <div className="flex justify-between items-center">
+                              <span className="text-lg font-bold text-white">₹{item.ltp.toLocaleString()}</span>
+                              <span className={`text-sm font-medium ${item.change >= 0 ? "text-green-400" : "text-red-400"}`}>
                                 {item.change >= 0 ? "+" : ""}₹{item.change}
                               </span>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-2 text-xs text-gray-400">
-                              <div>
-                                <span className="block">High</span>
-                                <span className="text-white font-medium">₹{item.dayHigh}</span>
-                              </div>
-                              <div>
-                                <span className="block">Low</span>
-                                <span className="text-white font-medium">₹{item.dayLow}</span>
-                              </div>
-                              <div>
-                                <span className="block">Vol</span>
-                                <span className="text-white font-medium">{item.volume}</span>
-                              </div>
                             </div>
                           </div>
                         ))}
