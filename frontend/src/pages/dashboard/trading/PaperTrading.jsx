@@ -431,7 +431,7 @@ const PaperTrading = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                className="border-gray-600 text-gray-300 hover:bg-gray-800 h-10 w-10 p-0"
+                className="border-qn-light-cyan/40 text-qn-light-cyan hover:bg-qn-light-cyan/20 h-10 w-10 p-0"
               >
                 <Minus className="h-4 w-4" />
               </Button>
