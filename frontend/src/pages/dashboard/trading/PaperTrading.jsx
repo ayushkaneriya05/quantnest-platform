@@ -732,31 +732,31 @@ const PaperTrading = () => {
             {/* Positions Tab */}
             <TabsContent value="positions" className="space-y-4">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-                <Card className="bg-gradient-to-br from-green-900/20 to-emerald-800/10 border-green-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-green-400/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4 text-center">
                     <TrendingUp className="h-6 w-6 mx-auto mb-2 text-green-400" />
                     <p className="text-xs text-green-300 mb-1">Total P&L</p>
                     <p className="text-lg font-bold text-green-400">+₹4,332</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-gradient-to-br from-blue-900/20 to-cyan-800/10 border-blue-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-qn-light-cyan/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4 text-center">
-                    <Activity className="h-6 w-6 mx-auto mb-2 text-blue-400" />
-                    <p className="text-xs text-blue-300 mb-1">Day P&L</p>
-                    <p className="text-lg font-bold text-blue-400">+₹2,196</p>
+                    <Activity className="h-6 w-6 mx-auto mb-2 text-qn-light-cyan" />
+                    <p className="text-xs text-qn-light-cyan mb-1">Day P&L</p>
+                    <p className="text-lg font-bold text-qn-light-cyan">+₹2,196</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-gradient-to-br from-purple-900/20 to-pink-800/10 border-purple-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-purple-400/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4 text-center">
                     <Wallet className="h-6 w-6 mx-auto mb-2 text-purple-400" />
                     <p className="text-xs text-purple-300 mb-1">Market Value</p>
                     <p className="text-lg font-bold text-white">₹4,95,347</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-gradient-to-br from-yellow-900/20 to-orange-800/10 border-yellow-700/30">
+                <Card className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-orange-400/30 backdrop-blur-sm hover:scale-105 transition-all duration-200">
                   <CardContent className="p-4 text-center">
-                    <Target className="h-6 w-6 mx-auto mb-2 text-yellow-400" />
-                    <p className="text-xs text-yellow-300 mb-1">Positions</p>
+                    <Target className="h-6 w-6 mx-auto mb-2 text-orange-400" />
+                    <p className="text-xs text-orange-300 mb-1">Positions</p>
                     <p className="text-lg font-bold text-white">{positions.length}</p>
                   </CardContent>
                 </Card>
