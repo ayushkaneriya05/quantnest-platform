@@ -369,7 +369,7 @@ const TradeJournal = () => {
             { icon: Flame, label: "Best Trade", value: `+₹${kpiData.largestWin.toLocaleString()}`, color: "text-green-400" },
             { icon: Calculator, label: "Total Trades", value: kpiData.totalTrades, color: "text-qn-light-cyan" }
           ].map((metric, index) => (
-            <Card key={index} className="bg-gray-900/80 border-gray-700/50 backdrop-blur-xl hover:bg-gray-800/60 transition-all duration-200">
+            <Card key={index} className="bg-slate-800/80 border-qn-light-cyan/30 backdrop-blur-xl hover:bg-slate-800/90 hover:border-qn-light-cyan/50 transition-all duration-200">
               <CardContent className="p-3 text-center">
                 <metric.icon className={`h-5 w-5 mx-auto mb-2 ${metric.color}`} />
                 <p className="text-xs text-gray-400 mb-1">{metric.label}</p>
