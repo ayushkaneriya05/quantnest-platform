@@ -655,7 +655,7 @@ const PaperTrading = () => {
                             </div>
 
                             <div className="flex justify-between items-center">
-                              <span className="text-lg font-bold text-white">���{item.ltp.toLocaleString()}</span>
+                              <span className="text-lg font-bold text-white">₹{item.ltp.toLocaleString()}</span>
                               <span className={`text-sm font-medium ${item.change >= 0 ? "text-green-400" : "text-red-400"}`}>
                                 {item.change >= 0 ? "+" : ""}₹{item.change}
                               </span>
@@ -1132,7 +1132,7 @@ const PaperTrading = () => {
 
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-gray-950 to-slate-900 text-white">
+    <div className="min-h-screen w-full bg-gradient-to-br from-slate-950 via-slate-900 to-gray-950 text-white">
       {/* Main Trading Interface - Single Page */}
       <div className="p-2 sm:p-4 lg:p-6">
         <TradingInterface />
