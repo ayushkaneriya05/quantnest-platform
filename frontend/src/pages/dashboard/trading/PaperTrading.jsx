@@ -1094,7 +1094,7 @@ const PaperTrading = () => {
                       </div>
                     </div>
 
-                    <div className="bg-gradient-to-r from-green-900/20 to-emerald-800/10 p-3 rounded-lg border border-green-700/30">
+                    <div className="bg-gradient-to-r from-slate-700/60 to-slate-800/60 p-3 rounded-lg border border-green-400/30 backdrop-blur-sm">
                       <div className="flex items-center gap-2 mb-2">
                         <Award className="h-4 w-4 text-green-400" />
                         <span className="text-green-400 font-medium text-sm">Performance Metrics</span>
