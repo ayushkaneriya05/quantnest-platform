@@ -633,7 +633,7 @@ const PaperTrading = () => {
                       </div>
                     </CardHeader>
                     <CardContent className="p-0 flex-1">
-                      <div className="space-y-1 max-h-80 overflow-y-auto">
+                      <div className="space-y-1 h-full overflow-y-auto">
                         {watchlist.map((item) => (
                           <div
                             key={item.symbol}
@@ -1217,7 +1217,7 @@ const PaperTrading = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Current Price:</span>
-                  <span className="text-white font-medium">₹{selectedPosition.ltp}</span>
+                  <span className="text-white font-medium">���{selectedPosition.ltp}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Market Value:</span>
