@@ -387,8 +387,8 @@ const PaperTrading = () => {
             Place Order - {selectedSymbol}
           </DialogTitle>
         </DialogHeader>
-        
-        <div className="space-y-4">
+
+        <div className="space-y-4" onMouseDown={(e) => e.stopPropagation()}>
           {/* Current Price Display */}
           <div className="bg-slate-900 p-3 rounded-lg border border-emerald-400/30">
             <div className="flex justify-between items-center">
