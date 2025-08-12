@@ -407,7 +407,7 @@ const PaperTrading = () => {
                 onClick={() => setOrderType("buy")}
                 className={`${orderType === "buy"
                   ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                  : "border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300"}`}
+                  : "bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:text-emerald-300"}`}
               >
                 <ArrowUpRight className="h-4 w-4 mr-2" />
                 BUY
