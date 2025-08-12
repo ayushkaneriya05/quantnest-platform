@@ -462,7 +462,7 @@ const PaperTrading = () => {
               <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
                 <SelectItem value="intraday">Intraday (MIS)</SelectItem>
                 <SelectItem value="delivery">Delivery (CNC)</SelectItem>
                 <SelectItem value="cover">Cover Order (CO)</SelectItem>
@@ -478,7 +478,7 @@ const PaperTrading = () => {
               <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectContent className="bg-slate-900 border-emerald-400/30 text-white">
                 <SelectItem value="market">Market</SelectItem>
                 <SelectItem value="limit">Limit</SelectItem>
                 <SelectItem value="sl">Stop Loss</SelectItem>
