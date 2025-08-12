@@ -842,10 +842,10 @@ const PaperTrading = () => {
             <TabsContent value="orders" className="space-y-4">
               <div className="flex flex-wrap gap-2 mb-4">
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="w-32 bg-gray-800/50 border-gray-700/50 text-white">
+                  <SelectTrigger className="w-32 bg-slate-700/60 border-qn-light-cyan/30 text-white focus:border-qn-light-cyan">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
-                  <SelectContent className="bg-gray-900 border-gray-700">
+                  <SelectContent className="bg-slate-900/95 border-qn-light-cyan/30 backdrop-blur-xl">
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="executed">Executed</SelectItem>
@@ -853,7 +853,7 @@ const PaperTrading = () => {
                   </SelectContent>
                 </Select>
 
-                <Button variant="outline" size="sm" className="border-gray-700/50 text-gray-300 hover:bg-gray-800/50">
+                <Button variant="outline" size="sm" className="border-qn-light-cyan/40 text-qn-light-cyan hover:bg-qn-light-cyan/20 hover:border-qn-light-cyan">
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
                 </Button>
