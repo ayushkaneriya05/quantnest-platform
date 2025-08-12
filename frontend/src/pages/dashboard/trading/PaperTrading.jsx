@@ -854,7 +854,7 @@ const PaperTrading = () => {
                   </SelectContent>
                 </Select>
 
-                <Button variant="outline" size="sm" className="bg-slate-800/60 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/10 hover:border-emerald-400 hover:text-emerald-300">
+                <Button variant="outline" size="sm" className="bg-slate-800 border-emerald-400/40 text-emerald-400 hover:bg-emerald-400/20 hover:border-emerald-400 hover:text-emerald-300">
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
                 </Button>
