@@ -683,7 +683,7 @@ const PaperTrading = () => {
                       </div>
                     </CardHeader>
                     <CardContent className="p-4 flex-1">
-                      <div className="h-80 sm:h-96 bg-gradient-to-br from-slate-800/40 to-slate-900/40 rounded-xl flex flex-col items-center justify-center relative border border-emerald-400/20">
+                      <div className="h-full min-h-[400px] bg-gradient-to-br from-slate-800/40 to-slate-900/40 rounded-xl flex flex-col items-center justify-center relative border border-emerald-400/20">
                         {/* Chart Placeholder */}
                         <div className="text-center mb-6">
                           <Monitor className="h-16 w-16 mx-auto mb-4 text-emerald-400/60" />
@@ -1217,7 +1217,7 @@ const PaperTrading = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Current Price:</span>
-                  <span className="text-white font-medium">���{selectedPosition.ltp}</span>
+                  <span className="text-white font-medium">₹{selectedPosition.ltp}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">Market Value:</span>
