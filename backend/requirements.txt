@@ -34,3 +34,14 @@ dnspython
 
 django-otp
 qrcode
+
+yfinance
+channels
+channels_redis
+celery
+httpx
+websockets
+python-dotenv
+pyarrow
+pandas
+redis

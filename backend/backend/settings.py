@@ -3,7 +3,7 @@ from decouple import config, Csv
 import cloudinary
 from datetime import timedelta
 import cloudinary
-
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    
     "django_otp",
     "django_otp.plugins.otp_totp",
     "django.contrib.sites",  
@@ -35,7 +36,13 @@ INSTALLED_APPS = [
     "corsheaders",
     "cloudinary",
     "cloudinary_storage",
+    'channels',
+
     "users",
+    "marketdata",
+    # "trading",
+    "ohlc",
+    "trading.apps.TradingConfig",  # ensure trading app is loaded
 ]
 
 MIDDLEWARE = [
@@ -51,6 +58,13 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
+ASGI_APPLICATION = "backend.asgi.application"
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": { "hosts": [os.getenv("REDIS_URL","redis://redis:6379/0")] },
+    },
+}
 
 SITE_ID = 5
 AUTH_USER_MODEL = "users.User"
@@ -154,7 +168,6 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
 }
 
-ROOT_URLCONF = "backend.urls"
 
 TEMPLATES = [
     {

@@ -4,6 +4,8 @@ import { useDispatch, useSelector } from "react-redux";
 import { fetchUserProfile, initializeAuth } from "@/store/authSlice";
 import { SidebarProvider } from "@/contexts/sidebar-context";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { Toaster } from "react-hot-toast";
+
 import {
   NotificationContainer,
   useNotifications,
