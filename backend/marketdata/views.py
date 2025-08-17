@@ -25,6 +25,44 @@ def _get_or_create_token_row():
     obj, _ = MarketDataToken.objects.get_or_create(pk=1)
     return obj
 
+# backend/marketdata/views.py
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+from datetime import datetime, date, timedelta
+
+from ohlc.backfill import fetch_historical
+
+@api_view(["POST"])
+@permission_classes([IsAdminUser])  # restrict to admins
+def trigger_backfill(request):
+    """
+    POST payload: {"symbol":"NSE:SBIN-EQ", "from":"2025-07-01", "to":"2025-07-31", "res_minutes":15}
+    Triggers a historical fetch via FYERS and returns count of candles stored.
+    """
+    body = request.data
+    symbol = body.get("symbol")
+    if not symbol:
+        return Response({"error": "symbol required"}, status=400)
+    from_s = body.get("from")
+    to_s = body.get("to")
+    res_minutes = int(body.get("res_minutes", 1))
+    try:
+        if from_s:
+            from_date = datetime.strptime(from_s, "%Y-%m-%d").date()
+        else:
+            from_date = date.today() - timedelta(days=7)
+        if to_s:
+            to_date = datetime.strptime(to_s, "%Y-%m-%d").date()
+        else:
+            to_date = date.today()
+    except Exception:
+        return Response({"error": "invalid date format, use YYYY-MM-DD"}, status=400)
+
+    candles = fetch_historical(symbol, from_date, to_date, resolution_minutes=res_minutes, save_to_db=True)
+    return Response({"symbol": symbol, "candles_fetched": len(candles)})
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedOrReadOnly])
 def fyers_login(request):
