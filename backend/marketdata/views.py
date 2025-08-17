@@ -3,24 +3,24 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework import status
-
-from .storage import get_bootstrap_ohlc
+from ohlc.models import OHLC
+from ohlc.serializers import OHLCCandleSerializer
+from django.utils.dateparse import parse_datetime
+import math
 
 class OHLCView(APIView):
-    """
-    GET /api/v1/market/ohlc/?symbol=RELIANCE&tf=1m&limit=500
-    Returns list of { ts, o, h, l, c, v } ordered oldest->newest.
-    """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get(self, request):
         symbol = request.query_params.get("symbol")
         tf = request.query_params.get("tf", "1m")
-        try:
-            limit = int(request.query_params.get("limit", "500"))
-        except ValueError:
-            limit = 500
+        limit = int(request.query_params.get("limit", 500))
         if not symbol:
             return Response({"detail": "symbol required"}, status=status.HTTP_400_BAD_REQUEST)
-        data = get_bootstrap_ohlc(symbol, tf, limit)
+
+        # normalize tf to stored format (we used e.g., "1m", "5m" etc)
+        tf_key = tf
+        qs = OHLC.objects.filter(symbol__iexact=symbol, tf__iexact=tf_key).order_by("-ts")[:limit]
+        qs = qs.order_by("ts")  # chronological order
+        data = OHLCCandleSerializer(qs, many=True).data
         return Response(data)

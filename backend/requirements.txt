@@ -45,3 +45,4 @@ python-dotenv
 pyarrow
 pandas
 redis
+fyers-apiv3

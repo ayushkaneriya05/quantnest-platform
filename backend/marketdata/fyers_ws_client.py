@@ -1,76 +1,143 @@
 # backend/marketdata/fyers_ws_client.py
 import os
 import json
-import asyncio
 import logging
 from datetime import datetime, timezone
 import redis
-import websockets
+from fyers_apiv3.FyersWebsocket import DataSocket  # precise class name per fyers_apiv3
 
 logger = logging.getLogger(__name__)
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+logger.setLevel(logging.INFO)
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
-FYERS_WS = os.getenv("FYERS_WS_URL", "wss://ws.fyers.in")
-FYERS_API_KEY = os.getenv("FYERS_API_KEY", "")
+FYERS_ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")  # must be set
+FYERS_SUBSCRIBE = os.getenv("FYERS_SUBSCRIBE", "")  # comma-separated list optional
 
-def normalize_fyers_tick(raw_msg: str):
+def _normalize_fyers_tick(msg):
     """
-    Convert provider-specific message to:
-    {"symbol":"RELIANCE","ts":"2025-08-15T10:03:21Z","last":2816.25,"bid":2816,"ask":2816.5,"volume":12345}
-    This function needs adapting to actual Fyers message format.
+    Convert Fyers data socket message into internal tick:
+    {
+      "symbol": "RELIANCE",
+      "ts": "2025-08-17T12:34:56.123Z",
+      "last": 1234.5,
+      "bid": 1234.0,
+      "ask": 1235.0,
+      "volume": 1000
+    }
     """
     try:
-        data = json.loads(raw_msg)
-        # example normalization (adjust to Fyers payload)
-        symbol = data.get("symbol") or data.get("s") or data.get("instrument")
-        last = float(data.get("ltp") or data.get("last") or data.get("price", 0))
-        bid = float(data.get("bid", last))
-        ask = float(data.get("ask", last))
-        vol = int(data.get("volume") or data.get("v", 0))
-        ts = datetime.now(timezone.utc).isoformat()
-        return {"symbol": symbol, "ts": ts, "last": last, "bid": bid, "ask": ask, "volume": vol}
+        # msg may be dict already from SDK callback
+        if isinstance(msg, str):
+            obj = json.loads(msg)
+        else:
+            obj = msg
+
+        # Fyers data socket messages typically look like {'d': {...}}
+        payload = obj.get("d") or obj.get("data") or obj or {}
+        # example payload keys: 'symbol', 'ltp', 'best_bid', 'best_ask', 'volume', 'timestamp'
+        sym_raw = payload.get("symbol") or payload.get("s")
+        if not sym_raw:
+            return None
+        # keep symbol in simple form, e.g., "NSE:RELIANCE-EQ" -> "RELIANCE"
+        sym = sym_raw.split(":")[-1].split("-")[0]
+
+        ts_val = payload.get("timestamp") or payload.get("ts") or None
+        if ts_val:
+            try:
+                ts_iso = datetime.fromtimestamp(float(ts_val)/1000, tz=timezone.utc).isoformat()
+            except Exception:
+                try:
+                    ts_iso = datetime.fromtimestamp(float(ts_val), tz=timezone.utc).isoformat()
+                except Exception:
+                    ts_iso = datetime.now(timezone.utc).isoformat()
+        else:
+            ts_iso = datetime.now(timezone.utc).isoformat()
+
+        last = payload.get("ltp") or payload.get("last_price") or payload.get("lp") or payload.get("last")
+        bid = payload.get("best_bid") or payload.get("bid")
+        ask = payload.get("best_ask") or payload.get("ask")
+        vol = payload.get("volume") or payload.get("v") or 0
+
+        if last is None:
+            return None
+
+        tick = {
+            "symbol": sym,
+            "ts": ts_iso,
+            "last": float(last),
+            "bid": float(bid) if bid is not None else None,
+            "ask": float(ask) if ask is not None else None,
+            "volume": int(vol) if vol is not None else 0
+        }
+        return tick
     except Exception:
-        logger.exception("Failed to normalize fyers message")
+        logger.exception("normalize error")
         return None
 
-async def run_fyers_ws_stub(subscribe_symbols=None):
+def _publish_tick(tick):
+    member = json.dumps(tick, separators=(",", ":"))
+    # use unix timestamp as score for zset
+    try:
+        score = int(datetime.fromisoformat(tick["ts"]).timestamp())
+    except Exception:
+        score = int(datetime.now(timezone.utc).timestamp())
+    r.zadd("live_ticks:zset", {member: score})
+    r.set(f"live:tick:{tick['symbol']}", member)
+    r.publish(f"pubsub:live:tick:{tick['symbol']}", member)
+
+def on_message(raw_msg):
+    tick = _normalize_fyers_tick(raw_msg)
+    if not tick:
+        return
+    _publish_tick(tick)
+
+def on_error(e):
+    logger.error("Fyers DataSocket error: %s", e)
+
+def on_close():
+    logger.info("Fyers DataSocket closed")
+
+def on_open():
+    logger.info("Fyers DataSocket connected")
+
+def run(subscribe_symbols=None):
     """
-    Connect to Fyers WS and push raw live ticks into Redis sorted set.
-    This implementation is a stub: adapt message parsing and subscription.
+    Start the Fyers data socket. subscribe_symbols is a list of simple symbol strings (e.g. ["RELIANCE","TCS"])
     """
-    # If no API key, just simulate ticks (useful for local dev)
-    if not FYERS_API_KEY:
-        import random, time
-        symbols = subscribe_symbols or ["RELIANCE", "TCS", "INFY"]
-        while True:
-            for s in symbols:
-                tick = {
-                    "symbol": s,
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "last": round(1000 + random.random() * 1000, 2),
-                    "bid": round(1000 + random.random() * 999, 2),
-                    "ask": round(1000 + random.random() * 999, 2),
-                    "volume": random.randint(100, 10000),
-                }
-                member = json.dumps(tick)
-                score = int(datetime.now(timezone.utc).timestamp())
-                r.zadd("live_ticks:zset", {member: score})
-            await asyncio.sleep(1)
+    if not FYERS_ACCESS_TOKEN:
+        logger.error("FYERS_ACCESS_TOKEN not set - cannot start data socket")
         return
 
-    # Real connection (example - adapt to Fyers)
-    async with websockets.connect(FYERS_WS, extra_headers={"Authorization": FYERS_API_KEY}) as ws:
-        # subscribe message - actual format depends on Fyers
-        if subscribe_symbols:
-            sub_msg = {"action": "subscribe", "symbols": subscribe_symbols}
-            await ws.send(json.dumps(sub_msg))
-        async for raw in ws:
-            tick = normalize_fyers_tick(raw)
-            if not tick:
-                continue
-            member = json.dumps(tick)
-            score = int(datetime.fromisoformat(tick["ts"]).timestamp())
-            r.zadd("live_ticks:zset", {member: score})
-            # admin only
-            r.set(f"live:tick:{tick['symbol']}", member)
+    # build symbols for Fyers format if provided
+    subs = []
+    if subscribe_symbols:
+        for s in subscribe_symbols:
+            if ":" in s:
+                subs.append(s)
+            else:
+                subs.append(f"NSE:{s}-EQ")
+
+    # if FYERS_SUBSCRIBE env is set and no subscribe_symbols passed, use env
+    if not subs and FYERS_SUBSCRIBE:
+        subs = [p.strip() for p in FYERS_SUBSCRIBE.split(",") if p.strip()]
+
+    logger.info("Starting Fyers DataSocket with subscribe=%s", subs or "ALL (if SDK supports)")
+
+    ws = DataSocket()
+    # configure callbacks per fyers_apiv3 SDK API
+    ws.set_token(FYERS_ACCESS_TOKEN)
+    ws.on_message = on_message
+    ws.on_error = on_error
+    ws.on_close = on_close
+    ws.on_open = on_open
+
+    # Connect (blocking call inside library)
+    try:
+        if subs:
+            ws.connect(symbols=subs)
+        else:
+            ws.connect()
+    except Exception:
+        logger.exception("Fyers DataSocket.connect() failed")
