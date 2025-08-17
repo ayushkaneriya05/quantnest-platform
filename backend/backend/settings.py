@@ -246,7 +246,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
-
+ROOT_URLCONF = "backend.urls"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
