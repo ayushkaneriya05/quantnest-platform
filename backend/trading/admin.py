@@ -1,9 +1,10 @@
-# backend/trading/apps.py
-from django.apps import AppConfig
+# backend/trading/admin.py
+from django.contrib import admin
+from .models import PaperAccount, PaperOrder, PaperTrade, PaperPosition, AuditLog
 
-class TradingConfig(AppConfig):
-    name = "trading"
-
-    def ready(self):
-        # import signals to register them
-        import trading.signals  # noqa: F401
+# Register your models here to make them accessible in the Django admin interface.
+admin.site.register(PaperAccount)
+admin.site.register(PaperOrder)
+admin.site.register(PaperTrade)
+admin.site.register(PaperPosition)
+admin.site.register(AuditLog)

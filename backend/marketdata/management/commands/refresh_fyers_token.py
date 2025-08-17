@@ -4,6 +4,7 @@ from django.utils import timezone
 from marketdata.models import MarketDataToken
 from marketdata.utils import get_active_fyers_access_token
 from fyers_apiv3 import fyersModel
+from decouple import config
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class Command(BaseCommand):
 
             # Initialize Fyers model with token
             fyers = fyersModel.FyersModel(
-                client_id="YOUR_CLIENT_ID",  # keep it in settings.py or env
+                client_id=config("FYERS_CLIENT_ID"),
                 token=token,
                 log_path="."
             )

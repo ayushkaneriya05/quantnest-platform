@@ -2,7 +2,6 @@
 import os, json
 from datetime import datetime, timezone
 import redis
-from . import utils
 from ohlc.tasks import flush_1m_from_redis_to_db
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")

@@ -1,3 +1,4 @@
+# backend/ohlc/apps.py
 from django.apps import AppConfig
 
 

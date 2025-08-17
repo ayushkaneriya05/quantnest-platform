@@ -14,6 +14,7 @@ class MarketDataToken(models.Model):
     expires_at = models.DateTimeField(null=True, blank=True)  # UTC
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    active = models.BooleanField(default=True) # Added active field
 
     class Meta:
         verbose_name = "Market Data Token"

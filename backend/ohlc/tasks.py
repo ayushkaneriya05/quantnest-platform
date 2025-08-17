@@ -23,4 +23,4 @@ def flush_1m_from_redis_to_db(symbol, candles_list):
     if objs:
         with transaction.atomic():
             OHLC.objects.bulk_create(objs, ignore_conflicts=True)
-    return {"inserted": len(objs)}
+    return {"inserted": len(objs)}  

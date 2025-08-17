@@ -1,15 +1,18 @@
-# Add or merge into your celery settings area, e.g., backend/backend/celery.py or backend/settings.py
-from celery.schedules import schedule
+# backend/backend/celery.py
+from __future__ import absolute_import, unicode_literals
+import os
+from celery import Celery
 
-CELERY_BEAT_SCHEDULE = {
-    # publish delayed ticks every second
-    "publish-delayed-ticks-every-second": {
-        "task": "marketdata.tasks.publish_delayed_ticks",
-        "schedule": 1.0,  # seconds
-    },
-    # run 1m builder for active symbols every 10 seconds
-    "build-and-flush-1m-every-10s": {
-        "task": "marketdata.tasks.build_and_flush_1m_for_active_symbols",
-        "schedule": 10.0,
-    },
-}
+# Set the default Django settings module for the 'celery' program.
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+
+app = Celery('backend')
+
+# Using a string here means the worker doesn't have to serialize
+# the configuration object to child processes.
+# - namespace='CELERY' means all celery-related configuration keys
+#   should have a `CELERY_` prefix.
+app.config_from_object('django.conf:settings', namespace='CELERY')
+
+# Load task modules from all registered Django app configs.
+app.autodiscover_tasks()

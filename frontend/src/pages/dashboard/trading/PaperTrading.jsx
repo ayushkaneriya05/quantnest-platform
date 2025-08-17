@@ -5,7 +5,7 @@ import OrdersList from "@/components/dashboard/trading/OrdersList";
 import PositionsList from "@/components/dashboard/trading/PositionsList";
 import OrderForm from "@/components/dashboard/trading/OrderForm";
 import AuditLogs from "@/components/dashboard/trading/AuditLogs";
-import LiveChart from "@/components/dashboard/trading/LiveChart"; // keep your existing LiveChart (or the one added earlier)
+import LiveChart from "@/components/dashboard/trading/LiveChart";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 
 function TerminalInner() {
@@ -14,14 +14,13 @@ function TerminalInner() {
   const trading = useTrading();
 
   return (
-    <div className="grid grid-cols-12 gap-4">
+    <div className="grid grid-cols-12 gap-4 p-4">
       <div className="col-span-3 space-y-4">
         <Card>
           <CardHeader>
-            <div className="font-semibold">Watch</div>
+            <div className="font-semibold">Watchlist</div>
           </CardHeader>
           <CardContent>
-            {/* simple quick-select list (replace with your Watchlist component if present) */}
             {["RELIANCE", "TCS", "INFY", "HDFCBANK", "TECHM"].map((s) => (
               <div key={s} className="flex items-center justify-between py-1">
                 <button
@@ -110,7 +109,6 @@ function TerminalInner() {
             <div className="font-semibold">Orderbook</div>
           </CardHeader>
           <CardContent>
-            {/* lightweight orderbook snapshot */}
             <button
               className="btn btn-ghost"
               onClick={() => trading.fetchOrderbook(activeSymbol)}

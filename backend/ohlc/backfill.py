@@ -13,9 +13,9 @@ from marketdata.utils import build_fyers_rest_client, get_active_fyers_access_to
 
 # Django ORM models - adapt import if your models are placed differently
 try:
-    from ohlc.models import Candle  # assume Candle model exists with fields: symbol, timestamp, open, high, low, close, volume
+    from ohlc.models import OHLC
 except Exception:
-    Candle = None
+    OHLC = None
 
 # resolution mapping: user-friendly -> API resolution strings (minutes/days)
 DEFAULT_TIMEOUT = 30  # seconds
@@ -28,7 +28,7 @@ def _api_resolution_from_minutes(minutes: int) -> str:
 
 def fetch_historical(symbol: str, from_date: date, to_date: date, resolution_minutes: int = 1, save_to_db: bool = True, client_id: Optional[str] = None):
     """
-    Fetch historical OHLC from FYERS and (optionally) store in Candle model.
+    Fetch historical OHLC from FYERS and (optionally) store in OHLC model.
     from_date/to_date are datetime.date objects.
     resolution_minutes: integer (1,5,15,60,...). For daily use a big value or 'D' mapping.
     Returns list of dicts: [{'timestamp': epoch, 'open':..., 'high':..., 'low':..., 'close':..., 'volume':...}, ...]
@@ -71,18 +71,18 @@ def fetch_historical(symbol: str, from_date: date, to_date: date, resolution_min
                     vol = int(c[5])
                     rec = {"timestamp": ts, "open": o, "high": h, "low": l, "close": cl, "volume": vol}
                     res.append(rec)
-                    if save_to_db and Candle is not None:
-                        # upsert into Candle model (create or update)
+                    if save_to_db and OHLC is not None:
+                        # upsert into OHLC model (create or update)
                         try:
-                            # adapt field names to your Candle model
-                            Candle.objects.update_or_create(
+                            # adapt field names to your OHLC model
+                            OHLC.objects.update_or_create(
                                 symbol=symbol,
                                 timestamp=ts,
                                 defaults={"open": o, "high": h, "low": l, "close": cl, "volume": vol},
                             )
                         except Exception:
                             # avoid failing entire run because of DB row error
-                            print("Candle save error for", symbol, ts)
+                            print("OHLC save error for", symbol, ts)
                 except Exception:
                     continue
     except Exception as e:

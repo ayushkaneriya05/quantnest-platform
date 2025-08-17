@@ -25,5 +25,5 @@ class PaperOrderSerializer(serializers.ModelSerializer):
 class AuditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = AuditLog
-        fields = ["id", "order", "action", "performed_by", "timestamp", "details"]
+        fields = ["id", "order", "action", "performed_by", "timestamp", "details", "user"]
         read_only_fields = fields

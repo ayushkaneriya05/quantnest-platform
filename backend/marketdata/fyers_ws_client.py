@@ -19,17 +19,15 @@ from datetime import datetime, timezone
 from typing import List, Optional
 import redis
 
-# try multiple possible fyers v3 entrypoints (docs/samples vary)
+# Corrected fyers v3 entrypoints
 try:
-    # Some distributions provide a FyersWebsocket module
-    from fyers_apiv3.FyersWebsocket import data_ws as fyers_data_ws  # type: ignore
-except Exception:
-    fyers_data_ws = None
+    from fyers_apiv3.FyersWebsocket import data_ws
+except ImportError:
+    data_ws = None
 
 try:
-    # fallback: earlier examples used fyersModel.FyersDataSocket
-    from fyers_apiv3 import fyersModel  # type: ignore
-except Exception:
+    from fyers_apiv3 import fyersModel
+except ImportError:
     fyersModel = None
 
 # repo helpers
@@ -151,12 +149,9 @@ class FyersWSRunner:
         """
         token = get_active_fyers_access_token()
         # Try the recommended data_ws (FyersWebsocket) if available
-        if fyers_data_ws is not None:
+        if data_ws is not None:
             try:
-                # data_ws sample usage: data_ws.Websocket(token=..., on_message=..., mode="symbolUpdate")
-                # adapt to the exact library shape on your environment if needed.
-                ws = fyers_data_ws.Websocket(token=token, on_message=self._handle_payload, mode=self.mode)
-                # subscribe after connect if needed
+                ws = data_ws.Websocket(token=token, on_message=self._handle_payload, mode=self.mode)
                 ws.connect()
                 if subscribe_symbols:
                     ws.subscribe(subscribe_symbols, mode=self.mode)
@@ -168,8 +163,6 @@ class FyersWSRunner:
         # fallback to fyersModel / other wrappers
         if fyersModel is not None:
             try:
-                # many older examples: fyersModel.FyersDataSocket(access_token=..., log_path=...)
-                # try to instantiate and attach callbacks
                 ws = None
                 if hasattr(fyersModel, "FyersDataSocket"):
                     ws = fyersModel.FyersDataSocket(access_token=f"{self.client_id}:{token}")
@@ -178,7 +171,6 @@ class FyersWSRunner:
                 if ws is None:
                     raise RuntimeError("no usable ws constructor in fyersModel")
                 self._attach_callbacks_to_fyers_ws(ws)
-                # if subscribe available
                 if hasattr(ws, "subscribe") and subscribe_symbols:
                     try:
                         ws.subscribe(symbols=subscribe_symbols, data_type=self.mode)
@@ -187,13 +179,11 @@ class FyersWSRunner:
                             ws.subscribe(subscribe_symbols)
                         except Exception:
                             pass
-                # start blocking or background depending on lib
                 if hasattr(ws, "start"):
                     ws.start()
                 elif hasattr(ws, "run_forever"):
                     ws.run_forever()
                 else:
-                    # background-run loop
                     while self._running:
                         time.sleep(1)
                 self._ws_instance = ws
@@ -201,7 +191,6 @@ class FyersWSRunner:
             except Exception:
                 print("fyersModel fallback failed:", traceback.format_exc())
 
-        # if we reach here, we couldn't create ws
         raise RuntimeError("No usable fyers websocket implementation found in environment.")
 
     def start_blocking(self, subscribe_symbols: Optional[List[str]] = None):
@@ -232,7 +221,6 @@ class FyersWSRunner:
             except Exception:
                 pass
 
-# Convenience runner used by management command
 _global_runner = None
 
 def run_fyers_ws(subscribe_symbols: Optional[List[str]] = None, client_id: Optional[str] = None, mode: str = "symbolUpdate"):

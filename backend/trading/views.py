@@ -17,13 +17,11 @@ from .serializers import PaperOrderSerializer, AuditLogSerializer
 from .orderbook import add_order_to_orderbook, match_in_orderbook, remove_order_from_orderbook_by_oid
 from .services.order_execution import execute_market_fill
 from .orderbook import create_bracket_children
+# Corrected import for IsOwnerOrReadOnly
+from .permissions import IsOwnerOrReadOnly
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-
-# Permission helpers (you can import trading.permissions instead)
-from .permissions import IsOwnerOrReadOnly
-
 
 class PlaceOrderView(APIView):
     permission_classes = [IsAuthenticated]
@@ -65,7 +63,8 @@ class PlaceOrderView(APIView):
 
 
 class CancelOrderView(APIView):
-    permission_classes = [IsAuthenticated]
+    # Corrected permissions
+    permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
 
     def post(self, request, order_id):
         order = get_object_or_404(PaperOrder, id=order_id, user=request.user)
@@ -80,7 +79,8 @@ class CancelOrderView(APIView):
 
 
 class ModifyOrderView(APIView):
-    permission_classes = [IsAuthenticated]
+    # Corrected permissions
+    permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
 
     def post(self, request, order_id):
         """
@@ -285,20 +285,14 @@ class CoverOrderView(APIView):
         return Response({"entry": PaperOrderSerializer(order).data, "sl_child": sl_child.id}, status=status.HTTP_201_CREATED)
 
 # backend/trading/views.py (append)
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from trading.models import AuditLog
-from trading.serializers import AuditLogSerializer
 
 class AuditLogsListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         order_id = request.query_params.get("order_id")
-        qs = AuditLog.objects.filter(user=request.user)  # or filter by accessible orders
+        qs = AuditLog.objects.filter(performed_by=request.user)
         if order_id:
             qs = qs.filter(order_id=order_id)
         qs = qs.order_by("-timestamp")[:500]
         return Response(AuditLogSerializer(qs, many=True).data)
-
