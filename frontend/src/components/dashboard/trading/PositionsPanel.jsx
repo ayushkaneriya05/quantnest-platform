@@ -1,34 +1,24 @@
 // src/components/trading/PositionsPanel.jsx
 import React, { useEffect, useState } from "react";
-import api from "@/services/api";
+import { useTrading } from "@/contexts/TradingContext";
 
 export default function PositionsPanel() {
-  const [positions, setPositions] = useState([]);
-
-  async function load() {
-    try {
-      const res = await api.get("/paper/positions/");
-      setPositions(res.data || res);
-    } catch (e) {
-      console.warn(e);
-    }
-  }
+  const { positions, fetchAll, modifyPositionSLTP } = useTrading();
 
   useEffect(() => {
-    load();
-    const id = setInterval(load, 5000);
+    const id = setInterval(fetchAll, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [fetchAll]);
 
-  async function modifySLTP(posId, sl, tp) {
-    try {
-      await api.post(`/paper/positions/${posId}/sl_tp/`, {
-        sl_price: sl,
-        tp_price: tp,
-      });
-      load();
-    } catch (e) {
-      alert("Failed to update SL/TP");
+  async function handleModify(pos) {
+    const sl = prompt("SL price", pos.sl_price || "");
+    const tp = prompt("TP price", pos.tp_price || "");
+    if (sl !== null || tp !== null) {
+      try {
+        await modifyPositionSLTP(pos.id, sl || null, tp || null);
+      } catch (e) {
+        alert("Failed to update SL/TP");
+      }
     }
   }
 
@@ -63,12 +53,7 @@ export default function PositionsPanel() {
               <div className="text-xs">TP: {p.tp_price ?? "-"}</div>
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  const sl = prompt("SL price", p.sl_price || "");
-                  const tp = prompt("TP price", p.tp_price || "");
-                  if (sl !== null || tp !== null)
-                    modifySLTP(p.id, sl || null, tp || null);
-                }}
+                onClick={() => handleModify(p)}
               >
                 Modify
               </button>

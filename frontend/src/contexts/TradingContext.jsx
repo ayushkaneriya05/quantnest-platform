@@ -26,7 +26,7 @@ export function TradingProvider({ children }) {
     try {
       const [oRes, pRes, tRes] = await Promise.all([
         api.get("/paper/orders/list/"),
-        api.get("/paper/positions/"),
+        api.get("/api/v1/paper/positions/"),
         api.get("/paper/orders/trades/"),
       ]);
       setOrders(oRes.data || oRes);
@@ -173,6 +173,19 @@ export function TradingProvider({ children }) {
     }
   }, []);
 
+  // Corrected: Added missing modifyPositionSLTP function
+  const modifyPositionSLTP = useCallback(
+    async (positionId, sl, tp) => {
+      const res = await api.post(`/api/v1/paper/positions/${positionId}/`, {
+        sl_price: sl,
+        tp_price: tp,
+      });
+      await fetchAll();
+      return res;
+    },
+    [fetchAll]
+  );
+
   const value = {
     orders,
     positions,
@@ -188,6 +201,7 @@ export function TradingProvider({ children }) {
     fetchOrderbook,
     fetchAll,
     fetchAuditLogs,
+    modifyPositionSLTP, // Added to context value
   };
 
   return (

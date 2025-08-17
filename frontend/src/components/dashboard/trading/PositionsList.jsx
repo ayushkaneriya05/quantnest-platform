@@ -9,6 +9,18 @@ export default function PositionsList() {
     return <div className="text-sm text-muted-foreground">No positions</div>;
   }
 
+  const handleModify = async (p) => {
+    const sl = prompt("SL price", p.sl_price || "");
+    const tp = prompt("TP price", p.tp_price || "");
+    if (sl === null && tp === null) return;
+
+    try {
+      await trading.modifyPositionSLTP(p.id, sl || null, tp || null);
+    } catch (e) {
+      alert("Failed to update SL/TP");
+    }
+  };
+
   return (
     <div className="space-y-2">
       {trading.positions.map((p) => (
@@ -33,13 +45,7 @@ export default function PositionsList() {
             <div>
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={async () => {
-                  const sl = prompt("SL price", p.sl_price || "");
-                  const tp = prompt("TP price", p.tp_price || "");
-                  if (sl === null && tp === null) return;
-                  await trading.fetchAll(); // use endpoint /positions/<id>/sl_tp/ if available
-                  // call API directly if context provides modifyPosition - otherwise refresh
-                }}
+                onClick={() => handleModify(p)}
               >
                 Modify
               </button>

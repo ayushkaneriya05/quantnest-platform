@@ -1,3 +1,4 @@
+import React from "react";
 import { Outlet } from "react-router-dom";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { usePageTitle } from "@/hooks/use-page-title";

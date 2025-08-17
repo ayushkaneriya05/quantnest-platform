@@ -24,7 +24,7 @@ export default function Orderbook({ symbol }) {
   }, [symbol]);
 
   return (
-    <div className="card p-3">
+    <Card className="p-3">
       <div className="font-semibold mb-2">Orderbook</div>
       <div className="grid grid-cols-2 gap-2 text-sm">
         <div>
@@ -50,6 +50,6 @@ export default function Orderbook({ symbol }) {
           </ul>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

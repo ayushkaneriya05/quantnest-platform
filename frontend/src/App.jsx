@@ -1,10 +1,9 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { fetchUserProfile, initializeAuth } from "@/store/authSlice";
 import { SidebarProvider } from "@/contexts/sidebar-context";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import { Toaster } from "react-hot-toast";
 
 import {
   NotificationContainer,
@@ -50,7 +49,7 @@ import { NotificationContext } from "@/contexts/notification-context";
 function AppContent() {
   const dispatch = useDispatch();
   const { accessToken, user } = useSelector((state) => state.auth);
-  const { notifications, removeNotification, notify } = useNotifications();
+  const notifications = useNotifications();
 
   useEffect(() => {
     // Initialize authentication state from localStorage
@@ -62,16 +61,16 @@ function AppContent() {
     if (accessToken && !user) {
       dispatch(fetchUserProfile()).catch((error) => {
         console.error("Failed to fetch user profile:", error);
-        notify.error("Failed to load user profile");
+        notifications.notify.error("Failed to load user profile");
       });
     }
-  }, [accessToken, user, dispatch, notify]);
+  }, [accessToken, user, dispatch, notifications.notify]);
 
   // Global error handler for unhandled promise rejections
   useEffect(() => {
     const handleUnhandledRejection = (event) => {
       console.error("Unhandled promise rejection:", event.reason);
-      notify.error("An unexpected error occurred");
+      notifications.notify.error("An unexpected error occurred");
     };
 
     window.addEventListener("unhandledrejection", handleUnhandledRejection);
@@ -82,10 +81,10 @@ function AppContent() {
         handleUnhandledRejection
       );
     };
-  }, [notify]);
+  }, [notifications.notify]);
 
   return (
-    <NotificationContext.Provider value={notify}>
+    <NotificationContext.Provider value={notifications}>
       <SidebarProvider>
         <div className="min-h-screen bg-black">
           <Routes>
@@ -187,8 +186,8 @@ function AppContent() {
 
         {/* Global Notification System */}
         <NotificationContainer
-          notifications={notifications}
-          onClose={removeNotification}
+          notifications={notifications.notifications}
+          onClose={notifications.removeNotification}
         />
       </SidebarProvider>
     </NotificationContext.Provider>

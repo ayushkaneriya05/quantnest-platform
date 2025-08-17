@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { PanelLeft, PanelLeftClose } from "lucide-react";
 import { useSidebar } from "@/contexts/sidebar-context";

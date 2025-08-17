@@ -43,10 +43,14 @@ export default function useMarketData(symbol, onUserMessage) {
     return () => {
       try {
         ws.send(JSON.stringify({ action: "unsubscribe", symbol }));
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Failed to unsubscribe:", e);
+      }
       try {
         ws.close();
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Failed to close WebSocket:", e);
+      }
     };
   }, [symbol]);
 

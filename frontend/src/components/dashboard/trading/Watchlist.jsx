@@ -4,6 +4,17 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import api from "@/services/api";
 
+const MOCK_SUGGESTIONS = [
+  "RELIANCE",
+  "TCS",
+  "INFY",
+  "HDFCBANK",
+  "ICICIBANK",
+  "HINDUNILVR",
+  "SBIN",
+  "BAJFINANCE",
+];
+
 export default function Watchlist({
   symbols = [],
   onAdd,
@@ -20,23 +31,28 @@ export default function Watchlist({
       setSuggestions([]);
       return;
     }
-    // try backend symbol search endpoint if exists
-    let cancelled = false;
-    (async () => {
-      try {
-        const resp = await api.get(
-          `/symbols/search/?q=${encodeURIComponent(query)}`
-        );
-        if (!cancelled)
-          setSuggestions(
-            (resp?.data || []).slice(0, 12).map((s) => s.symbol || s)
-          );
-      } catch (e) {
-        // fallback to nothing (project includes a small symbols.json in repo; you can expand)
-        setSuggestions([]);
-      }
-    })();
-    return () => (cancelled = true);
+    // FIXME: Backend endpoint `/api/v1/symbols/search/` does not exist.
+    // Using mock suggestions until the endpoint is implemented.
+    const filteredSuggestions = MOCK_SUGGESTIONS.filter((s) =>
+      s.toLowerCase().startsWith(query.toLowerCase())
+    );
+    setSuggestions(filteredSuggestions);
+
+    // let cancelled = false;
+    // (async () => {
+    //   try {
+    //     const resp = await api.get(
+    //       `/symbols/search/?q=${encodeURIComponent(query)}`
+    //     );
+    //     if (!cancelled)
+    //       setSuggestions(
+    //         (resp?.data || []).slice(0, 12).map((s) => s.symbol || s)
+    //       );
+    //   } catch (e) {
+    //     setSuggestions([]);
+    //   }
+    // })();
+    // return () => (cancelled = true);
   }, [query]);
 
   return (

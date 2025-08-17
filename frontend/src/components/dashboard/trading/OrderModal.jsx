@@ -1,4 +1,6 @@
 // src/components/trading/OrderModal.jsx
+// This component appears to be legacy and is not used in PaperTradingTerminal.jsx.
+// It is recommended to remove this file and use OrderForm.jsx instead.
 import React, { useEffect, useState } from "react";
 import {
   Dialog,

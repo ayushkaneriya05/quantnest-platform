@@ -1,5 +1,5 @@
 // src/components/trading/AuditLogs.jsx
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTrading } from "@/contexts/TradingContext";
 
 export default function AuditLogs() {

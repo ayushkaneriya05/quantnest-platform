@@ -7,6 +7,22 @@ import {
 import api from "@/services/api";
 import { sma, ema, rsi as rsiCalc } from "technicalindicators";
 
+// Mock data to prevent app from crashing due to missing API endpoint
+const generateMockCandles = () => {
+  let candles = [];
+  let lastClose = 100;
+  for (let i = 0; i < 200; i++) {
+    const time = Math.floor(new Date().getTime() / 1000) - (200 - i) * 60;
+    const open = lastClose;
+    const close = open + (Math.random() - 0.5) * 5;
+    const high = Math.max(open, close) + Math.random() * 2;
+    const low = Math.min(open, close) - Math.random() * 2;
+    lastClose = close;
+    candles.push({ time, open, high, low, close });
+  }
+  return candles;
+};
+
 export default function LiveChart({ symbol, ws }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -76,22 +92,25 @@ export default function LiveChart({ symbol, ws }) {
     const load = async () => {
       if (!candleSeriesRef.current) return;
       try {
-        const res = await api.get(
-          `/market/ohlc/?symbol=${symbol}&tf=${tf}&limit=500`,
-          { signal: abort.signal }
-        );
-        const arr = (Array.isArray(res?.data) ? res.data : [])
-          .map((c) => ({
-            time: Math.floor(new Date(c.ts).getTime() / 1000),
-            open: Number(c.o),
-            high: Number(c.h),
-            low: Number(c.l),
-            close: Number(c.c),
-          }))
-          .filter((d) => !isNaN(d.open));
+        // FIXME: Backend endpoint `/api/v1/market/ohlc/` does not exist.
+        // Using mock data until the endpoint is implemented.
+        // const res = await api.get(
+        //   `/market/ohlc/?symbol=${symbol}&tf=${tf}&limit=500`,
+        //   { signal: abort.signal }
+        // );
+        // const arr = (Array.isArray(res?.data) ? res.data : [])
+        //   .map((c) => ({
+        //     time: Math.floor(new Date(c.ts).getTime() / 1000),
+        //     open: Number(c.o),
+        //     high: Number(c.h),
+        //     low: Number(c.l),
+        //     close: Number(c.c),
+        //   }))
+        //   .filter((d) => !isNaN(d.open));
 
-        setCandles(arr);
-        candleSeriesRef.current.setData(arr);
+        const mockCandles = generateMockCandles();
+        setCandles(mockCandles);
+        candleSeriesRef.current.setData(mockCandles);
         chartRef.current?.timeScale().fitContent();
       } catch (e) {
         if (e.name !== "CanceledError") console.error(e);
@@ -140,58 +159,44 @@ export default function LiveChart({ symbol, ws }) {
   useEffect(() => {
     if (!candleSeriesRef.current) return;
 
-    let rafId = null;
-
-    const applyTick = (tick) => {
+    const onTick = (e) => {
+      const tick = e.detail;
       if (!tick?.symbol || tick.symbol !== symbol || !tick.ts) return;
-      const sec = Math.floor(new Date(tick.ts).getTime() / 1000);
+
+      const sec = Math.floor(new Date(tick.ts * 1000).getTime() / 1000); // Assuming tick.ts is epoch seconds
 
       setCandles((prev) => {
         const last = prev[prev.length - 1];
-        const close = Number(tick.c ?? tick.last ?? last?.close ?? 0);
-        const high =
-          last && last.time === sec ? Math.max(last.high, close) : close;
-        const low =
-          last && last.time === sec ? Math.min(last.low, close) : close;
-        const open = last && last.time === sec ? last.open : close;
+        const price = Number(
+          tick.payload?.c ?? tick.payload?.last_price ?? last?.close ?? 0
+        );
 
-        const next =
-          last && last.time === sec
-            ? [...prev.slice(0, -1), { time: sec, open, high, low, close }]
-            : [
-                ...prev,
-                { time: sec, open: close, high: close, low: close, close },
-              ];
-
-        if (!rafId) {
-          rafId = requestAnimationFrame(() => {
-            candleSeriesRef.current.update(next[next.length - 1]);
-            rafId = null;
-          });
+        if (last && last.time === sec) {
+          // Update last candle
+          last.high = Math.max(last.high, price);
+          last.low = Math.min(last.low, price);
+          last.close = price;
+          candleSeriesRef.current.update(last);
+          return [...prev.slice(0, -1), last];
+        } else {
+          // Create new candle
+          const newCandle = {
+            time: sec,
+            open: price,
+            high: price,
+            low: price,
+            close: price,
+          };
+          candleSeriesRef.current.update(newCandle);
+          return [...prev, newCandle];
         }
-        return next;
       });
     };
 
-    let wsListener = null;
-    if (ws?.addEventListener) {
-      wsListener = (e) => {
-        try {
-          const data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
-          applyTick(data.tick || data);
-        } catch {}
-      };
-      ws.addEventListener("message", wsListener);
-    }
-
-    const onTick = (e) => applyTick(e.detail);
     window.addEventListener("quantnest:tick", onTick);
 
     return () => {
       window.removeEventListener("quantnest:tick", onTick);
-      if (ws?.removeEventListener)
-        ws.removeEventListener("message", wsListener);
-      if (rafId) cancelAnimationFrame(rafId);
     };
   }, [symbol, ws]);
 

@@ -35,7 +35,7 @@ export default function OrdersTable() {
   }
 
   return (
-    <div className="card p-3">
+    <Card className="p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold">Orders</div>
         <div className="text-sm text-muted-foreground">
@@ -78,6 +78,6 @@ export default function OrdersTable() {
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   );
 }
