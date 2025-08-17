@@ -43,8 +43,11 @@ export function TradingProvider({ children }) {
 
   // websocket connection to Channels consumer /ws/marketdata/
   useEffect(() => {
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${proto}://${window.location.host}/ws/marketdata/`;
+    const token = localStorage.getItem("accessToken");
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const url = `${protocol}://${
+      window.location.host
+    }/ws/marketdata/?token=${encodeURIComponent(token || "")}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 

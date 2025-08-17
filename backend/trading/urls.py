@@ -1,8 +1,7 @@
 # backend/trading/urls.py
 from django.urls import path
 from .views import (
-    PlaceOrderView, CancelOrderView, ModifyOrderView, OrdersListView, TradesListView,
-    PositionsView, AccountView, OrderbookSnapshotView, BracketOrderView, CoverOrderView
+    PlaceOrderView, CancelOrderView, ModifyOrderView, OrdersListView, TradesListView, AuditLogsListView,  PositionsView, AccountView, OrderbookSnapshotView, BracketOrderView, CoverOrderView
 )
 
 urlpatterns = [
@@ -16,4 +15,6 @@ urlpatterns = [
     path("orderbook/<str:symbol>/", OrderbookSnapshotView.as_view(), name="orderbook-snapshot"),
     path("bracket/", BracketOrderView.as_view(), name="bracket-order"),
     path("cover/", CoverOrderView.as_view(), name="cover-order"),
+    path("orders/audit-logs/", AuditLogsListView.as_view(), name="audit-logs"),
+
 ]

@@ -33,8 +33,11 @@ export default function PaperTradingTerminal() {
 
   // Manage websocket to backend Channels consumer (marketdata)
   useEffect(() => {
+    const token = localStorage.getItem("accessToken");
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/ws/marketdata/`;
+    const url = `${protocol}://${
+      window.location.host
+    }/ws/marketdata/?token=${encodeURIComponent(token || "")}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 

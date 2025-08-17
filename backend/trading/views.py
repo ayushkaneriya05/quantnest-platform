@@ -283,3 +283,21 @@ class CoverOrderView(APIView):
             pass
 
         return Response({"entry": PaperOrderSerializer(order).data, "sl_child": sl_child.id}, status=status.HTTP_201_CREATED)
+
+# backend/trading/views.py (append)
+from .serializers import AuditLogSerializer
+from .models import AuditLog
+
+class AuditLogsListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """
+        Optional filters: ?order_id=123
+        """
+        qs = AuditLog.objects.filter(order__user=request.user).order_by("-timestamp")
+        order_id = request.query_params.get("order_id")
+        if order_id:
+            qs = qs.filter(order_id=order_id)
+        data = AuditLogSerializer(qs[:500], many=True).data
+        return Response(data)

@@ -62,9 +62,21 @@ ASGI_APPLICATION = "backend.asgi.application"
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": { "hosts": [os.getenv("REDIS_URL","redis://redis:6379/0")] },
+        "CONFIG": { "hosts": [os.getenv("REDIS_URL", "redis://redis:6379/0")] },
     },
 }
+# Celery / Redis
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/1")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/2")
+CELERY_TASK_ALWAYS_EAGER = False  # prod
+CELERY_TASK_TIME_LIMIT = 60
+CELERY_TASK_SOFT_TIME_LIMIT = 50
+
+# Import beat schedule from backend/celery.py
+try:
+    from .celery import CELERY_BEAT_SCHEDULE  # noqa: F401
+except Exception:
+    CELERY_BEAT_SCHEDULE = {}
 
 SITE_ID = 5
 AUTH_USER_MODEL = "users.User"
