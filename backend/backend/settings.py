@@ -72,6 +72,12 @@ CELERY_TASK_ALWAYS_EAGER = False  # prod
 CELERY_TASK_TIME_LIMIT = 60
 CELERY_TASK_SOFT_TIME_LIMIT = 50
 
+# Fyers market-data config (used by marketdata views/processes)
+FYERS_CLIENT_ID = config("FYERS_CLIENT_ID", default="")
+FYERS_SECRET = config("FYERS_SECRET", default="")
+FYERS_REDIRECT_URI = config("FYERS_REDIRECT_URI", default="http://localhost:8000/api/v1/market/fyers/callback/")
+
+
 # Import beat schedule from backend/celery.py
 try:
     from .celery import CELERY_BEAT_SCHEDULE  # noqa: F401

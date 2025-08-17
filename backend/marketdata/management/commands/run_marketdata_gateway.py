@@ -1,20 +1,22 @@
 # backend/marketdata/management/commands/run_marketdata_gateway.py
-import asyncio
-import threading
 from django.core.management.base import BaseCommand
-from marketdata.fyers_ws_client import run_fyers_ws_stub
-from marketdata.redis_forwarder import run_forwarder
+from marketdata.fyers_ws_client import run_fyers_ws, run_forever_from_env
+import threading
 
 class Command(BaseCommand):
-    help = "Run marketdata gateway: fyers ws client + redis forwarder"
+    help = "Run marketdata gateway: fyers/apiv3 ws client + redis forwarder (if configured)"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--symbols", type=str, help="Comma-separated list of symbols to subscribe (e.g. RELIANCE,TCS)")
 
     def handle(self, *args, **options):
-        # run redis forwarder in a thread (blocking)
-        t = threading.Thread(target=run_forwarder, daemon=True)
-        t.start()
-        # run fyers ws client in asyncio loop (blocking)
-        loop = asyncio.get_event_loop()
-        try:
-            loop.run_until_complete(run_fyers_ws_stub())
-        except KeyboardInterrupt:
-            pass
+        syms = options.get("symbols")
+        if syms:
+            subs = [s.strip().upper() for s in syms.split(",") if s.strip()]
+        else:
+            subs = None
+        # run WS (blocking)
+        if subs:
+            run_fyers_ws(subscribe_symbols=subs)
+        else:
+            run_forever_from_env()
