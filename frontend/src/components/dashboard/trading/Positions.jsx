@@ -39,7 +39,7 @@ export default function Positions() {
 
     try {
       const side = p.qty > 0 ? "SELL" : "BUY";
-      await api.post("/api/v1/paper/orders/", {
+      await api.post("/paper/orders/", {
         symbol: p.symbol,
         side: side,
         qty: Math.abs(p.qty),
