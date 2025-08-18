@@ -62,7 +62,7 @@ def broadcast_user_update(user_id: int, payload: dict):
 # ... keep imports above ...
 from .orderbook import match_in_orderbook, add_order_to_orderbook, create_bracket_children, activate_bracket_children, cancel_oco_siblings
 
-@shared_task(bind=True)
+@shared_task
 def process_tick(self, symbol: str, tick_json: str):
     """
     Handles a delayed tick:
@@ -204,4 +204,31 @@ def process_tick(self, symbol: str, tick_json: str):
             logging.exception("Error processing pending order %s", oid)
             continue
 
+    # After processing orders, update PNL for all open positions of this symbol
+    update_unrealized_pnl.delay(symbol, str(tick["last"]))
+
     return results
+
+@shared_task
+def update_unrealized_pnl(symbol: str, ltp_str: str):
+    """
+    Calculates and updates the unrealized PNL for all open positions for a given symbol.
+    """
+    ltp = Decimal(ltp_str)
+    positions = PaperPosition.objects.filter(symbol=symbol).exclude(qty=0)
+    
+    for position in positions:
+        if position.qty > 0:  # Long position
+            unrealized_pnl = (ltp - position.avg_price) * position.qty
+        else:  # Short position
+            unrealized_pnl = (position.avg_price - ltp) * abs(position.qty)
+        
+        position.unrealized_pnl = unrealized_pnl
+        position.save(update_fields=['unrealized_pnl'])
+
+        # Broadcast the PNL update to the user
+        broadcast_user_update(position.user_id, {
+            "type": "position_update",
+            "symbol": position.symbol,
+            "unrealized_pnl": str(unrealized_pnl)
+        })

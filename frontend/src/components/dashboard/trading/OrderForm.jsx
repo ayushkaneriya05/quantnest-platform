@@ -13,66 +13,80 @@ export default function OrderForm({
   open = false,
   onClose = () => {},
   symbol = "RELIANCE",
+  side = "BUY",
 }) {
   const trading = useTrading();
-  const [side, setSide] = useState("BUY");
   const [qty, setQty] = useState(1);
   const [orderType, setOrderType] = useState("MARKET"); // MARKET / LIMIT / SL / SL-M
+  const [productType, setProductType] = useState("NRML"); // NRML / MIS / CNC
   const [price, setPrice] = useState("");
   const [triggerPrice, setTriggerPrice] = useState("");
-  const [isBracket, setIsBracket] = useState(false);
+  const [orderTag, setOrderTag] = useState("ENTRY"); // ENTRY / BRACKET / COVER
+
+  // Bracket Order State
   const [tpPrice, setTpPrice] = useState("");
+  const [slPrice, setSlPrice] = useState("");
   const [slIsSlm, setSlIsSlm] = useState(true);
-  const [shortSell, setShortSell] = useState(false);
 
   useEffect(() => {
     if (!open) {
-      // reset
-      setSide("BUY");
+      // reset form on close
       setQty(1);
       setOrderType("MARKET");
+      setProductType("NRML");
       setPrice("");
       setTriggerPrice("");
-      setIsBracket(false);
+      setOrderTag("ENTRY");
       setTpPrice("");
+      setSlPrice("");
       setSlIsSlm(true);
-      setShortSell(false);
     }
   }, [open]);
 
   async function place() {
     try {
-      const base = {
-        symbol,
-        side: shortSell ? "SELL" : side,
-        qty: Number(qty),
-        order_type: orderType,
-        price: orderType === "LIMIT" ? Number(price) : null,
-        trigger_price:
-          orderType === "SL" || orderType === "SL-M"
-            ? Number(triggerPrice)
-            : null,
-        is_slm: orderType === "SL-M",
-      };
-
-      if (isBracket) {
+      let res;
+      if (orderTag === "BRACKET") {
         const payload = {
           symbol,
           side,
           qty: Number(qty),
-          entry_type: orderType === "LIMIT" ? "LIMIT" : "MARKET",
+          entry_type: orderType,
           entry_price: orderType === "LIMIT" ? Number(price) : undefined,
           tp_price: Number(tpPrice),
-          sl_price: Number(triggerPrice),
+          sl_price: Number(slPrice),
           sl_is_slm: slIsSlm,
         };
-        const res = await trading.placeBracket(payload);
-        // optional: toast
+        res = await trading.placeBracket(payload);
+      } else if (orderTag === "COVER") {
+        const payload = {
+          symbol,
+          side,
+          qty: Number(qty),
+          entry_type: orderType,
+          entry_price: orderType === "LIMIT" ? Number(price) : undefined,
+          sl_price: Number(slPrice),
+          sl_is_slm: true,
+        };
+        res = await trading.placeCover(payload);
       } else {
-        const res = await trading.placeOrder(base);
+        const payload = {
+          symbol,
+          side,
+          qty: Number(qty),
+          order_type: orderType,
+          product_type: productType,
+          price: orderType === "LIMIT" ? Number(price) : null,
+          trigger_price:
+            orderType === "SL" || orderType === "SL-M"
+              ? Number(triggerPrice)
+              : null,
+          is_slm: orderType === "SL-M",
+        };
+        res = await trading.placeOrder(payload);
       }
-      // refresh local lists
-      trading.fetchAll && trading.fetchAll();
+
+      trading.fetchAll();
       onClose();
     } catch (err) {
       alert("Order error: " + (err?.response?.data?.detail || err.message));
@@ -88,33 +102,44 @@ export default function OrderForm({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{symbol} — Place Order</DialogTitle>
+          <DialogTitle>
+            {side} {symbol} — Place Order
+          </DialogTitle>
         </DialogHeader>
 
         <div className="p-4 space-y-3">
+          {/* Order Type Tabs */}
           <div className="flex gap-2">
-            <select
-              className="rounded p-2 bg-slate-800"
-              value={side}
-              onChange={(e) => setSide(e.target.value)}
-            >
-              <option value="BUY">BUY</option>
-              <option value="SELL">SELL</option>
-            </select>
+            {["ENTRY", "BRACKET", "COVER"].map((tag) => (
+              <button
+                key={tag}
+                onClick={() => setOrderTag(tag)}
+                className={`btn ${
+                  orderTag === tag ? "btn-primary" : "btn-ghost"
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
             <input
               className="w-full rounded p-2 bg-slate-800"
               type="number"
               value={qty}
               onChange={(e) => setQty(e.target.value)}
+              placeholder="Quantity"
             />
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={shortSell}
-                onChange={(e) => setShortSell(e.target.checked)}
-              />{" "}
-              Allow short
-            </label>
+            <select
+              className="rounded p-2 bg-slate-800"
+              value={productType}
+              onChange={(e) => setProductType(e.target.value)}
+            >
+              <option value="NRML">NRML</option>
+              <option value="MIS">MIS</option>
+              <option value="CNC">CNC</option>
+            </select>
           </div>
 
           <div>
@@ -151,41 +176,42 @@ export default function OrderForm({
             </div>
           )}
 
-          <div>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={isBracket}
-                onChange={(e) => setIsBracket(e.target.checked)}
-              />{" "}
-              Bracket (TP + SL)
-            </label>
-          </div>
-
-          {isBracket && (
-            <div className="space-y-2">
+          {/* Bracket and Cover Order Fields */}
+          {(orderTag === "BRACKET" || orderTag === "COVER") && (
+            <div className="space-y-2 border-t pt-3 mt-3">
+              <h4 className="font-semibold">{orderTag} Order Details</h4>
+              {orderTag === "BRACKET" && (
+                <input
+                  className="w-full rounded p-2 bg-slate-800"
+                  placeholder="Take Profit price"
+                  value={tpPrice}
+                  onChange={(e) => setTpPrice(e.target.value)}
+                />
+              )}
               <input
                 className="w-full rounded p-2 bg-slate-800"
-                placeholder="TP price"
-                value={tpPrice}
-                onChange={(e) => setTpPrice(e.target.value)}
+                placeholder="Stop Loss price"
+                value={slPrice}
+                onChange={(e) => setSlPrice(e.target.value)}
               />
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={slIsSlm}
-                  onChange={(e) => setSlIsSlm(e.target.checked)}
-                />{" "}
-                SL as SL-M (market on trigger)
-              </label>
+              {orderTag === "BRACKET" && (
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={slIsSlm}
+                    onChange={(e) => setSlIsSlm(e.target.checked)}
+                  />
+                  SL as SL-M (market on trigger)
+                </label>
+              )}
             </div>
           )}
         </div>
 
         <DialogFooter>
           <div className="flex gap-2">
-            <button className="btn" onClick={place}>
-              Place
+            <button className="btn btn-primary" onClick={place}>
+              Place {side} Order
             </button>
             <button className="btn btn-ghost" onClick={onClose}>
               Cancel

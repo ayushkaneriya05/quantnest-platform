@@ -1,6 +1,7 @@
 # backend/marketdata/views.py
 import os
 import logging
+import json
 from datetime import datetime, timedelta, timezone
 
 from django.conf import settings
@@ -8,13 +9,14 @@ from django.shortcuts import redirect
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAdminUser, IsAuthenticatedOrReadOnly, AllowAny
+from rest_framework.response import Response
 
 from .models import MarketDataToken
+from ohlc.backfill import fetch_historical
 
 logger = logging.getLogger(__name__)
 
-# Try importing fyers_apiv3 modules
 try:
     from fyers_apiv3 import fyersModel
 except Exception as exc:
@@ -25,16 +27,8 @@ def _get_or_create_token_row():
     obj, _ = MarketDataToken.objects.get_or_create(pk=1)
     return obj
 
-# backend/marketdata/views.py
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser
-from rest_framework.response import Response
-from datetime import datetime, date, timedelta
-
-from ohlc.backfill import fetch_historical
-
 @api_view(["POST"])
-@permission_classes([IsAdminUser])  # restrict to admins
+@permission_classes([IsAdminUser])
 def trigger_backfill(request):
     """
     POST payload: {"symbol":"NSE:SBIN-EQ", "from":"2025-07-01", "to":"2025-07-31", "res_minutes":15}
@@ -48,19 +42,35 @@ def trigger_backfill(request):
     to_s = body.get("to")
     res_minutes = int(body.get("res_minutes", 1))
     try:
-        if from_s:
-            from_date = datetime.strptime(from_s, "%Y-%m-%d").date()
-        else:
-            from_date = date.today() - timedelta(days=7)
-        if to_s:
-            to_date = datetime.strptime(to_s, "%Y-%m-%d").date()
-        else:
-            to_date = date.today()
+        from_date = datetime.strptime(from_s, "%Y-%m-%d").date() if from_s else date.today() - timedelta(days=7)
+        to_date = datetime.strptime(to_s, "%Y-%m-%d").date() if to_s else date.today()
     except Exception:
         return Response({"error": "invalid date format, use YYYY-MM-DD"}, status=400)
 
     candles = fetch_historical(symbol, from_date, to_date, resolution_minutes=res_minutes, save_to_db=True)
     return Response({"symbol": symbol, "candles_fetched": len(candles)})
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def symbol_search(request):
+    """
+    Searches for symbols from the nifty500_symbols.json file.
+    """
+    query = request.query_params.get('q', '').upper()
+    if not query:
+        return Response([], status=200)
+
+    try:
+        symbols_file_path = 'backend/data/nifty500_symbols.json'
+        with open(symbols_file_path, 'r') as f:
+            all_symbols = json.load(f)
+        
+        suggestions = [s for s in all_symbols if s.startswith(query)][:10] # Limit to 10 suggestions
+        return Response(suggestions)
+    except FileNotFoundError:
+        return Response({"error": "Symbols file not found."}, status=500)
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
 
 
 @api_view(["GET"])

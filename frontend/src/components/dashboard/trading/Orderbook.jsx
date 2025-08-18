@@ -1,30 +1,50 @@
 // src/components/trading/Orderbook.jsx
-import React, { useEffect, useState } from "react";
-import api from "@/services/api";
+import React, { useEffect, useState, useRef } from "react";
 
 export default function Orderbook({ symbol }) {
   const [book, setBook] = useState({ bids: [], asks: [] });
-
-  async function load() {
-    if (!symbol) return;
-    try {
-      const res = await api.get(
-        `/paper/orderbook/${encodeURIComponent(symbol)}/?depth=8`
-      );
-      setBook(res.data || res);
-    } catch (e) {
-      // fallback: empty
-    }
-  }
+  const wsRef = useRef(null);
 
   useEffect(() => {
-    load();
-    const id = setInterval(load, 3000);
-    return () => clearInterval(id);
+    const connect = () => {
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const url = `${protocol}://${window.location.host}/ws/orderbook/${symbol}/`;
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (
+          message.type === "orderbook_snapshot" ||
+          message.type === "orderbook_update"
+        ) {
+          setBook(message.data);
+        }
+      };
+
+      ws.onclose = () => {
+        // Optional: implement a reconnect strategy
+        console.log("Orderbook WebSocket closed");
+      };
+
+      ws.onerror = (error) => {
+        console.error("Orderbook WebSocket error:", error);
+      };
+    };
+
+    if (symbol) {
+      connect();
+    }
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
   }, [symbol]);
 
   return (
-    <Card className="p-3">
+    <div className="card p-3">
       <div className="font-semibold mb-2">Orderbook</div>
       <div className="grid grid-cols-2 gap-2 text-sm">
         <div>
@@ -50,6 +70,6 @@ export default function Orderbook({ symbol }) {
           </ul>
         </div>
       </div>
-    </Card>
+    </div>
   );
 }

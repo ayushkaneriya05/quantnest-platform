@@ -151,6 +151,7 @@ class AuditLog(models.Model):
     performed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     details = models.JSONField(null=True, blank=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="audit_logs")
 
     def __str__(self):
         return f"Audit({self.order_id} {self.action} {self.timestamp.isoformat()})"
