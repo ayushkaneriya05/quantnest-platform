@@ -1,28 +1,29 @@
-# backend/run_fyers_client.py
+# backend/backend/run_fyers_client.py
 import os
 import django
-import threading
+import webbrowser
+import requests
 
 # Set up Django environment
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
 django.setup()
 
-from marketdata.fyers_ws_client import run_forever_from_env
-from marketdata.redis_forwarder import run_forwarder
 
 def main():
     """
-    This script runs the Fyers WebSocket client and the Redis forwarder in separate threads.
-    It should be run as a standalone, persistent background service for the application to receive live data.
+    This script handles the one-time Fyers login process by generating the
+    login URL. It then guides the user to complete the login in their browser,
+    which triggers our backend callback to securely generate and store the access token.
     """
-    print("Starting Fyers WebSocket client and Redis forwarder...")
-
-    # Run the Fyers WebSocket client in a separate thread
-    fyers_thread = threading.Thread(target=run_forever_from_env, daemon=True)
-    fyers_thread.start()
-
-    # Run the Redis forwarder in the main thread (or another thread)
-    run_forwarder()
+    webbrowser.open("http://127.0.0.1:8000/api/v1/market/fyers/login/")
 
 if __name__ == "__main__":
-    main()
+    # Ensure the Django server is running before starting the auth process
+    try:
+        requests.get("http://localhost:8000/health/", timeout=2)
+    except requests.ConnectionError:
+        print("❌ Error: Could not connect to the Django development server.")
+        print("Please ensure your backend server is running before executing this script.")
+        print("You can start it with: python manage.py runserver")
+    else:
+        main()
