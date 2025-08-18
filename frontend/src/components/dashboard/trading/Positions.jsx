@@ -19,7 +19,7 @@ export default function Positions() {
     if (sl === null && tp === null) return;
 
     try {
-      await api.post(`/api/v1/paper/positions/${p.id}/modify/`, {
+      await api.post(`/paper/positions/${p.id}/modify/`, {
         sl_price: sl || null,
         tp_price: tp || null,
       });
