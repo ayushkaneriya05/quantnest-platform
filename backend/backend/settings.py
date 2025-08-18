@@ -19,10 +19,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    
     "django_otp",
     "django_otp.plugins.otp_totp",
-    "django.contrib.sites",  
+    "django.contrib.sites",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
@@ -36,8 +35,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "cloudinary",
     "cloudinary_storage",
-    'channels',
-
+    "channels",  # Keep channels
     "users",
     "marketdata",
     "ohlc",
@@ -60,16 +58,9 @@ MIDDLEWARE = [
 ASGI_APPLICATION = "backend.asgi.application"
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": { "hosts": [os.getenv("REDIS_URL", "redis://redis:6379/0")] },
-    },
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
 }
-# Celery / Redis
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/1")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/2")
-CELERY_TASK_ALWAYS_EAGER = False  # prod
-CELERY_TASK_TIME_LIMIT = 60
-CELERY_TASK_SOFT_TIME_LIMIT = 50
 
 # Fyers market-data config (used by marketdata views/processes)
 FYERS_CLIENT_ID = config("FYERS_CLIENT_ID", default="")
