@@ -94,25 +94,24 @@ export default function LiveChart({ symbol, ws }) {
     const load = async () => {
       if (!candleSeriesRef.current) return;
       try {
-        // FIXME: Backend endpoint `/api/v1/market/ohlc/` does not exist.
-        // Using mock data until the endpoint is implemented.
-        // const res = await api.get(
-        //   `/market/ohlc/?symbol=${symbol}&tf=${tf}&limit=500`,
-        //   { signal: abort.signal }
-        // );
-        // const arr = (Array.isArray(res?.data) ? res.data : [])
-        //   .map((c) => ({
-        //     time: Math.floor(new Date(c.ts).getTime() / 1000),
-        //     open: Number(c.o),
-        //     high: Number(c.h),
-        //     low: Number(c.l),
-        //     close: Number(c.c),
-        //   }))
-        //   .filter((d) => !isNaN(d.open));
+        const res = await api.get(
+          `/ohlc/?symbol=${symbol}&tf=${tf}&limit=500`,
+          { signal: abort.signal }
+        );
 
-        const mockCandles = generateMockCandles();
-        setCandles(mockCandles);
-        candleSeriesRef.current.setData(mockCandles);
+        const arr = (Array.isArray(res?.data) ? res.data : [])
+          .map((c) => ({
+            time: Math.floor(new Date(c.ts).getTime() / 1000),
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close),
+          }))
+          .filter((d) => !isNaN(d.open))
+          .sort((a, b) => a.time - b.time); // Ensure data is sorted chronologically
+
+        setCandles(arr);
+        candleSeriesRef.current.setData(arr);
         chartRef.current?.timeScale().fitContent();
       } catch (e) {
         if (e.name !== "CanceledError") console.error(e);
