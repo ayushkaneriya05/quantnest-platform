@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { TradingProvider, useTrading } from "@/contexts/TradingContext";
 import OrdersList from "@/components/dashboard/trading/OrdersList";
-import PositionsList from "@/components/dashboard/trading/PositionsList";
+import PositionsList from "@/components/dashboard/trading/Positions";
 import OrderForm from "@/components/dashboard/trading/OrderForm";
 import AuditLogs from "@/components/dashboard/trading/AuditLogs";
 import LiveChart from "@/components/dashboard/trading/LiveChart";

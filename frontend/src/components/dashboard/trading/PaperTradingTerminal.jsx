@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import Watchlist from "./Watchlist";
 import LiveChart from "./LiveChart";
 import OrdersTable from "./OrdersTable";
-import PositionsPanel from "./PositionsPanel";
+import PositionsPanel from "./Positions";
 import Orderbook from "./Orderbook";
 import OrderModal from "./OrderModal";
 import api from "@/services/api";
@@ -77,10 +77,10 @@ export default function PaperTradingTerminal() {
 
     ws.onclose = () => {
       setWsConnected(false);
-      // attempt reconnect (exponential backoff would be better in prod)
-      setTimeout(() => {
-        window.location.reload();
-      }, 1200);
+      console.log("WebSocket (Terminal) closed.");
+      // Replace the reload with a less aggressive approach.
+      // For simplicity, we can just log it, as the main TradingContext will handle auth.
+      // In a real scenario, you'd unify this logic into one place.
     };
 
     return () => {

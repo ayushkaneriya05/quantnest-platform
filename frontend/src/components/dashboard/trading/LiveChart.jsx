@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   CrosshairMode,
-  CandlestickSeries,
+  CandlestickSeries, // <-- Import CandlestickSeries
+  LineSeries, // <-- Import LineSeries for indicators
 } from "lightweight-charts";
 import api from "@/services/api";
 import { sma, ema, rsi as rsiCalc } from "technicalindicators";
@@ -57,6 +58,7 @@ export default function LiveChart({ symbol, ws }) {
       },
     });
 
+    // Step 2: Use the new unified addSeries method
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#16a34a",
       downColor: "#ef4444",
@@ -66,7 +68,6 @@ export default function LiveChart({ symbol, ws }) {
     });
 
     chart.timeScale().fitContent();
-
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
 
@@ -77,14 +78,15 @@ export default function LiveChart({ symbol, ws }) {
 
     return () => {
       ro.disconnect();
-      indicatorSeriesRef.current.forEach(({ series }) => series.remove());
+      indicatorSeriesRef.current.forEach(({ series }) =>
+        chart.removeSeries(series)
+      ); // Correct cleanup
       indicatorSeriesRef.current = [];
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
     };
   }, []);
-
   // Load Historical Candles
   useEffect(() => {
     let abort = new AbortController();
@@ -130,9 +132,11 @@ export default function LiveChart({ symbol, ws }) {
 
     const closes = candles.map((c) => c.close);
     const addLine = (width = 2) =>
-      chartRef.current.addLineSeries({
+      chartRef.current.addSeries(LineSeries, {
         lineWidth: width,
         priceScaleId: "right",
+        lastValueVisible: false,
+        priceLineVisible: false,
       });
 
     indicators.forEach((ind) => {

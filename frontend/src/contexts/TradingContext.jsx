@@ -86,15 +86,20 @@ export function TradingProvider({ children }) {
 
     ws.onclose = () => {
       setConnected(false);
-      // simple reconnect attempt
-      setTimeout(() => {
-        if (wsRef.current?.readyState !== WebSocket.OPEN) {
-          // force reload to reconnect in dev; in prod use exponential backoff
-          window.location.reload();
-        }
-      }, 1200);
-    };
+      console.log("WebSocket closed. Attempting to handle gracefully.");
 
+      // Don't use a drastic page reload. Instead, try to refresh the token
+      // or log the user out if the token is invalid. The API interceptor
+      // in api.jsx will handle this automatically on the next API call.
+      // We can simply trigger a data fetch to see if we are still authenticated.
+      setTimeout(() => {
+        // This will trigger the 401 interceptor in api.jsx if the token is bad
+        fetchAll().catch(() => {
+          console.error("Could not re-authenticate after WebSocket closure.");
+          // If fetchAll fails after a ws close, the interceptor will handle the logout/redirect.
+        });
+      }, 2000); // Wait 2 seconds before trying
+    };
     return () => {
       try {
         ws.close();
