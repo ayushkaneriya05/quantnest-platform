@@ -10,13 +10,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Calculator, AlertCircle, DollarSign } from "lucide-react";
+import { Calculator, AlertCircle, DollarSign, X } from "lucide-react";
 import api from "@/services/api";
 
 export default function OrderTicket({
   symbol,
   transactionType,
   onOrderPlaced,
+  onClose,
 }) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -101,7 +102,7 @@ export default function OrderTicket({
               onValueChange={(v) => handleSelectChange("order_type", v)}
               value={formData.order_type}
             >
-              <SelectTrigger className="bg-[#21262d] border-gray-700 text-white focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]">
+              <SelectTrigger className="bg-[#21262d] border-gray-700 text-white focus:border-gray-500 focus:ring-1 focus:ring-gray-500">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[#21262d] border-gray-700">
@@ -121,7 +122,7 @@ export default function OrderTicket({
               onValueChange={(v) => handleSelectChange("transaction_type", v)}
               value={formData.transaction_type}
             >
-              <SelectTrigger className="bg-[#21262d] border-gray-700 text-white focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]">
+              <SelectTrigger className="bg-[#21262d] border-gray-700 text-white focus:border-gray-500 focus:ring-1 focus:ring-gray-500">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[#21262d] border-gray-700">
@@ -146,7 +147,7 @@ export default function OrderTicket({
             value={formData.quantity}
             onChange={handleChange}
             required
-            className="bg-[#21262d] border-gray-700 text-white text-lg font-mono placeholder-gray-500 focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]"
+            className="bg-[#21262d] border-gray-700 text-white text-lg font-mono placeholder-gray-500 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
           />
           
           {/* Quick Quantity Buttons */}
@@ -178,7 +179,7 @@ export default function OrderTicket({
               value={formData.price}
               onChange={handleChange}
               required
-              className="bg-[#21262d] border-gray-700 text-white text-lg font-mono placeholder-gray-500 focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]"
+              className="bg-[#21262d] border-gray-700 text-white text-lg font-mono placeholder-gray-500 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
             />
           </div>
         )}
@@ -225,25 +226,35 @@ export default function OrderTicket({
           </div>
         </div>
 
-        {/* Submit Button */}
-        <Button
-          type="submit"
-          disabled={isLoading || !isFormValid}
-          className={`w-full py-3 text-lg font-semibold transition-all duration-200 ${
-            formData.transaction_type === "BUY"
-              ? "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50"
-              : "bg-red-600 hover:bg-red-700 disabled:bg-red-600/50"
-          } disabled:cursor-not-allowed`}
-        >
-          {isLoading ? (
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Placing Order...
-            </div>
-          ) : (
-            `${formData.transaction_type} ${formData.quantity || '0'} Shares`
-          )}
-        </Button>
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="flex-1 border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={isLoading || !isFormValid}
+            className={`flex-1 py-3 text-lg font-semibold transition-all duration-200 ${
+              formData.transaction_type === "BUY"
+                ? "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50"
+                : "bg-red-600 hover:bg-red-700 disabled:bg-red-600/50"
+            } disabled:cursor-not-allowed`}
+          >
+            {isLoading ? (
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Placing...
+              </div>
+            ) : (
+              `${formData.transaction_type} ${formData.quantity || '0'} Shares`
+            )}
+          </Button>
+        </div>
       </form>
     </div>
   );
