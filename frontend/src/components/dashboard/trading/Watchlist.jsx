@@ -16,7 +16,7 @@ const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
       className={`
         group relative px-4 py-3 cursor-pointer transition-all duration-200 border-l-2
         ${isSelected 
-          ? 'bg-[#0969da]/10 border-l-[#0969da] text-white' 
+          ? 'bg-gray-600/20 border-l-gray-500 text-white' 
           : 'hover:bg-[#21262d] border-l-transparent text-gray-300 hover:text-white'
         }
       `}
@@ -94,7 +94,6 @@ export default function Watchlist({ onSymbolSelect }) {
       await api.post("/trading/watchlist/", { instrument_id: instrumentId });
       fetchWatchlist(); // Refresh the list
       setShowAddInstrument(false);
-      setSearchQuery("");
     } catch (err) {
       console.error("Failed to add to watchlist:", err);
     }
@@ -162,19 +161,19 @@ export default function Watchlist({ onSymbolSelect }) {
             placeholder="Search symbols..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-[#21262d] border-gray-700 text-white placeholder-gray-500 focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]"
+            className="pl-10 bg-[#21262d] border-gray-700 text-white placeholder-gray-500 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
           />
         </div>
-
-        {/* Add Instrument Component - Only when plus button is clicked */}
-        {showAddInstrument && (
-          <div className="mt-3 p-3 bg-[#161b22] border border-gray-700 rounded-lg animate-in slide-in-from-top-2 duration-200">
-            <InstrumentSearch onAddToWatchlist={handleAddToWatchlist} />
-          </div>
-        )}
       </div>
+
+      {/* Add Instrument Section - Only when plus button is clicked */}
+      {showAddInstrument && (
+        <div className="flex-shrink-0 p-4 bg-[#161b22] border-b border-gray-800/50">
+          <InstrumentSearch onAddToWatchlist={handleAddToWatchlist} />
+        </div>
+      )}
       
-      {/* Watchlist Items */}
+      {/* Watchlist Items with Scrollbar */}
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
         {filteredWatchlist && filteredWatchlist.length > 0 ? (
           <div className="divide-y divide-gray-800/50">
