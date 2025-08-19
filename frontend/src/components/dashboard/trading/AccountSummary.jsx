@@ -21,15 +21,15 @@ import api from "@/services/api";
 
 const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "default" }) => (
   <Card className="bg-[#161b22] border-gray-700/50 hover:border-gray-600/60 transition-all duration-300 hover:shadow-lg group">
-    <CardContent className="p-6">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`p-3 rounded-xl group-hover:scale-110 transition-transform duration-300 ${
+    <CardContent className="p-3 sm:p-4 lg:p-6">
+      <div className="flex items-start justify-between mb-3 sm:mb-4">
+        <div className={`p-2 sm:p-3 rounded-xl group-hover:scale-110 transition-transform duration-300 ${
           variant === 'positive' ? 'bg-emerald-500/20' :
           variant === 'negative' ? 'bg-red-500/20' :
           variant === 'warning' ? 'bg-orange-500/20' :
           'bg-[#0969da]/20'
         }`}>
-          <Icon className={`h-6 w-6 ${
+          <Icon className={`h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 ${
             variant === 'positive' ? 'text-emerald-400' :
             variant === 'negative' ? 'text-red-400' :
             variant === 'warning' ? 'text-orange-400' :
@@ -39,11 +39,11 @@ const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "defau
         {change && (
           <div className="flex items-center gap-1">
             {change.includes('+') ? (
-              <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+              <ArrowUpRight className="h-3 w-3 sm:h-4 sm:w-4 text-emerald-400" />
             ) : (
-              <ArrowDownRight className="h-4 w-4 text-red-400" />
+              <ArrowDownRight className="h-3 w-3 sm:h-4 sm:w-4 text-red-400" />
             )}
-            <span className={`text-sm font-medium ${
+            <span className={`text-xs sm:text-sm font-medium ${
               change.includes('+') ? 'text-emerald-400' : 'text-red-400'
             }`}>
               {change}
@@ -52,12 +52,12 @@ const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "defau
         )}
       </div>
       <div>
-        <p className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-1">
+        <p className="text-xs sm:text-sm font-medium text-gray-400 uppercase tracking-wider mb-1">
           {title}
         </p>
-        <p className="text-2xl font-bold text-white mb-1">{value}</p>
+        <p className="text-lg sm:text-xl lg:text-2xl font-bold text-white mb-1 truncate">{value}</p>
         {subtitle && (
-          <p className="text-sm text-gray-500">{subtitle}</p>
+          <p className="text-xs sm:text-sm text-gray-500 truncate">{subtitle}</p>
         )}
       </div>
     </CardContent>
@@ -66,19 +66,19 @@ const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "defau
 
 const MetricCard = ({ title, metrics }) => (
   <Card className="bg-[#161b22] border-gray-700/50">
-    <CardHeader className="pb-4">
-      <CardTitle className="text-lg text-white flex items-center gap-2">
-        <BarChart3 className="h-5 w-5 text-[#58a6ff]" />
-        {title}
+    <CardHeader className="pb-3 sm:pb-4">
+      <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
+        <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
+        <span className="truncate">{title}</span>
       </CardTitle>
     </CardHeader>
     <CardContent className="pt-0">
-      <div className="space-y-4">
+      <div className="space-y-3 sm:space-y-4">
         {metrics.map((metric, index) => (
-          <div key={index} className="flex items-center justify-between py-2">
-            <span className="text-sm text-gray-400">{metric.label}</span>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-gray-200">
+          <div key={index} className="flex items-center justify-between py-1 sm:py-2">
+            <span className="text-xs sm:text-sm text-gray-400 truncate pr-2">{metric.label}</span>
+            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+              <span className="text-xs sm:text-sm font-semibold text-gray-200">
                 {metric.value}
               </span>
               {metric.trend && (
@@ -102,16 +102,16 @@ const MetricCard = ({ title, metrics }) => (
 
 const AccountLimits = () => (
   <Card className="bg-[#161b22] border-gray-700/50">
-    <CardHeader className="pb-4">
-      <CardTitle className="text-lg text-white flex items-center gap-2">
-        <Target className="h-5 w-5 text-[#58a6ff]" />
-        Account Limits
+    <CardHeader className="pb-3 sm:pb-4">
+      <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
+        <Target className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
+        <span className="truncate">Account Limits</span>
       </CardTitle>
     </CardHeader>
     <CardContent className="pt-0">
-      <div className="space-y-4">
+      <div className="space-y-3 sm:space-y-4">
         <div className="space-y-2">
-          <div className="flex justify-between text-sm">
+          <div className="flex justify-between text-xs sm:text-sm">
             <span className="text-gray-400">Daily Trading Limit</span>
             <span className="text-gray-200">₹5,00,000</span>
           </div>
@@ -125,7 +125,7 @@ const AccountLimits = () => (
         </div>
         
         <div className="space-y-2">
-          <div className="flex justify-between text-sm">
+          <div className="flex justify-between text-xs sm:text-sm">
             <span className="text-gray-400">Margin Utilization</span>
             <span className="text-gray-200">₹75,000</span>
           </div>
@@ -179,19 +179,19 @@ export default function AccountSummary() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="h-8 bg-[#161b22] rounded w-48 animate-pulse" />
-          <div className="h-10 bg-[#161b22] rounded w-24 animate-pulse" />
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <div className="h-6 sm:h-8 bg-[#161b22] rounded w-32 sm:w-48 animate-pulse" />
+          <div className="h-8 sm:h-10 bg-[#161b22] rounded w-16 sm:w-24 animate-pulse" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-32 bg-[#161b22] rounded-lg animate-pulse" />
+            <div key={i} className="h-24 sm:h-32 bg-[#161b22] rounded-lg animate-pulse" />
           ))}
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6">
           {[...Array(2)].map((_, i) => (
-            <div key={i} className="h-64 bg-[#161b22] rounded-lg animate-pulse" />
+            <div key={i} className="h-48 sm:h-64 bg-[#161b22] rounded-lg animate-pulse" />
           ))}
         </div>
       </div>
@@ -201,22 +201,22 @@ export default function AccountSummary() {
   if (!account) {
     return (
       <Card className="bg-[#161b22] border-gray-700/50">
-        <CardContent className="p-12 text-center">
-          <div className="p-4 rounded-full bg-red-500/20 w-fit mx-auto mb-4">
-            <Wallet className="h-8 w-8 text-red-400" />
+        <CardContent className="p-8 sm:p-12 text-center">
+          <div className="p-3 sm:p-4 rounded-full bg-red-500/20 w-fit mx-auto mb-4">
+            <Wallet className="h-6 w-6 sm:h-8 sm:w-8 text-red-400" />
           </div>
-          <h3 className="text-lg font-medium text-gray-300 mb-2">
+          <h3 className="text-base sm:text-lg font-medium text-gray-300 mb-2">
             Account Data Unavailable
           </h3>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-xs sm:text-sm text-gray-500 mb-4">
             Could not load account details. Please try refreshing.
           </p>
           <Button 
             onClick={fetchAccountData}
             variant="outline"
-            className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+            className="border-red-500/30 text-red-400 hover:bg-red-500/10 text-xs sm:text-sm"
           >
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
             Retry
           </Button>
         </CardContent>
@@ -239,31 +239,31 @@ export default function AccountSummary() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-[#0969da]/20">
-            <Wallet className="h-6 w-6 text-[#58a6ff]" />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="p-2 sm:p-3 rounded-xl bg-[#0969da]/20">
+            <Wallet className="h-5 w-5 sm:h-6 sm:w-6 text-[#58a6ff]" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-white">Account Overview</h1>
-            <p className="text-gray-400">Virtual trading account status</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">Account Overview</h1>
+            <p className="text-xs sm:text-sm lg:text-base text-gray-400">Virtual trading account status</p>
           </div>
         </div>
         <Button
           onClick={fetchAccountData}
           variant="outline"
-          className="border-[#0969da]/30 text-[#58a6ff] hover:bg-[#0969da]/10"
+          className="border-[#0969da]/30 text-[#58a6ff] hover:bg-[#0969da]/10 text-xs sm:text-sm w-fit"
           disabled={refreshing}
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>
 
       {/* Main Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
         <StatCard
           icon={Banknote}
           title="Available Balance"
@@ -284,7 +284,7 @@ export default function AccountSummary() {
           icon={CreditCard}
           title="Margin Used"
           value={formatCurrency(account.margin || 45000)}
-          subtitle="60% of available margin"
+          subtitle="60% of available"
           variant="warning"
         />
         <StatCard
@@ -298,22 +298,22 @@ export default function AccountSummary() {
       </div>
 
       {/* Detailed Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
         <MetricCard title="Trading Performance" metrics={tradingMetrics} />
         <MetricCard title="Risk Analysis" metrics={riskMetrics} />
         <AccountLimits />
       </div>
 
       {/* Additional Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6">
         <Card className="bg-[#161b22] border-gray-700/50">
-          <CardHeader>
-            <CardTitle className="text-lg text-white flex items-center gap-2">
-              <Activity className="h-5 w-5 text-[#58a6ff]" />
-              Recent Activity
+          <CardHeader className="pb-3 sm:pb-4">
+            <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
+              <Activity className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
+              <span className="truncate">Recent Activity</span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             <div className="space-y-3">
               {[
                 { action: "Buy Order Executed", symbol: "RELIANCE", time: "2 mins ago", amount: "+₹12,500" },
@@ -321,11 +321,11 @@ export default function AccountSummary() {
                 { action: "Dividend Received", symbol: "INFY", time: "1 hour ago", amount: "+₹450" },
               ].map((activity, index) => (
                 <div key={index} className="flex items-center justify-between py-2 border-b border-gray-700/50 last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-gray-200">{activity.action}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs sm:text-sm font-medium text-gray-200 truncate">{activity.action}</p>
                     <p className="text-xs text-gray-500">{activity.symbol} • {activity.time}</p>
                   </div>
-                  <span className={`text-sm font-semibold ${
+                  <span className={`text-xs sm:text-sm font-semibold flex-shrink-0 ml-2 ${
                     activity.amount.startsWith('+') ? 'text-emerald-400' : 'text-red-400'
                   }`}>
                     {activity.amount}
@@ -337,29 +337,29 @@ export default function AccountSummary() {
         </Card>
 
         <Card className="bg-[#161b22] border-gray-700/50">
-          <CardHeader>
-            <CardTitle className="text-lg text-white flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-[#58a6ff]" />
-              Account Settings
+          <CardHeader className="pb-3 sm:pb-4">
+            <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
+              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
+              <span className="truncate">Account Settings</span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+          <CardContent className="pt-0">
+            <div className="space-y-3 sm:space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">Auto Square-off</span>
-                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Enabled</Badge>
+                <span className="text-xs sm:text-sm text-gray-400">Auto Square-off</span>
+                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">Enabled</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">Risk Management</span>
-                <Badge className="bg-[#0969da]/20 text-[#58a6ff] border-[#0969da]/30">Active</Badge>
+                <span className="text-xs sm:text-sm text-gray-400">Risk Management</span>
+                <Badge className="bg-[#0969da]/20 text-[#58a6ff] border-[#0969da]/30 text-xs">Active</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">Paper Trading Mode</span>
-                <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">On</Badge>
+                <span className="text-xs sm:text-sm text-gray-400">Paper Trading Mode</span>
+                <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">On</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-400">Account Type</span>
-                <Badge variant="outline" className="border-gray-600 text-gray-400">Virtual</Badge>
+                <span className="text-xs sm:text-sm text-gray-400">Account Type</span>
+                <Badge variant="outline" className="border-gray-600 text-gray-400 text-xs">Virtual</Badge>
               </div>
             </div>
           </CardContent>
