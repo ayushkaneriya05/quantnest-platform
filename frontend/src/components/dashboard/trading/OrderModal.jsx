@@ -20,8 +20,8 @@ export default function OrderModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-[#0d1117] border border-gray-700 text-white max-w-md p-0 gap-0 rounded-lg overflow-hidden">
-        <DialogHeader className="px-6 py-4 border-b border-gray-700 bg-[#161b22]">
+      <DialogContent className="bg-[#0d1117] border border-gray-700 text-white max-w-md p-0 gap-0 rounded-lg overflow-hidden max-h-[90vh] flex flex-col">
+        <DialogHeader className="flex-shrink-0 px-6 py-4 border-b border-gray-700 bg-[#161b22]">
           <div className="flex items-center justify-between">
             <DialogTitle className="text-xl font-bold text-white flex items-center gap-3">
               <div className={`w-3 h-3 rounded-full ${
@@ -43,7 +43,7 @@ export default function OrderModal({
           </div>
         </DialogHeader>
         
-        <div className="p-6">
+        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600 p-6">
           <OrderTicket
             symbol={symbol}
             transactionType={transactionType}
