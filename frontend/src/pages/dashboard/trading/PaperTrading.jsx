@@ -20,6 +20,7 @@ export default function PaperTrading() {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [transactionType, setTransactionType] = useState("BUY");
   const [portfolioKey, setPortfolioKey] = useState(0);
+  const [watchlistWidth, setWatchlistWidth] = useState(320);
 
   const handleOpenOrderModal = (type) => {
     setTransactionType(type);
@@ -35,45 +36,76 @@ export default function PaperTrading() {
     setPortfolioKey((prevKey) => prevKey + 1);
   }, []);
 
+  const handleMouseDown = (e) => {
+    const startX = e.clientX;
+    const startWidth = watchlistWidth;
+
+    const handleMouseMove = (e) => {
+      const newWidth = Math.max(250, Math.min(500, startWidth + (e.clientX - startX)));
+      setWatchlistWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
   return (
-    <div className="h-full bg-[#0d1117] text-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-[#0d1117] text-white flex flex-col overflow-hidden">
       <Tabs defaultValue="trading" className="h-full flex flex-col">
-        {/* Fixed Tabbar at Top */}
+        {/* Full Width Tabbar Fixed at Top */}
         <div className="flex-shrink-0 border-b border-gray-800/50 bg-[#161b22] sticky top-0 z-10">
-          <div className="container mx-auto px-4 py-3">
-            <TabsList className="grid w-full max-w-md mx-auto grid-cols-3 bg-[#21262d] border border-gray-700/50 rounded-lg p-1">
-              <TabsTrigger 
-                value="trading" 
-                className="data-[state=active]:bg-gray-600 data-[state=active]:text-white bg-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-0 rounded-md px-4 py-2 font-medium transition-all duration-200"
-              >
-                <TrendingUp className="h-4 w-4 mr-2" />
-                Trading
-              </TabsTrigger>
-              <TabsTrigger 
-                value="portfolio" 
-                className="data-[state=active]:bg-gray-600 data-[state=active]:text-white bg-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-0 rounded-md px-4 py-2 font-medium transition-all duration-200"
-              >
-                <Briefcase className="h-4 w-4 mr-2" />
-                Portfolio
-              </TabsTrigger>
-              <TabsTrigger 
-                value="account" 
-                className="data-[state=active]:bg-gray-600 data-[state=active]:text-white bg-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-0 rounded-md px-4 py-2 font-medium transition-all duration-200"
-              >
-                <User className="h-4 w-4 mr-2" />
-                Account
-              </TabsTrigger>
+          <div className="w-full px-6 py-3">
+            <TabsList className="w-full bg-[#21262d] border border-gray-700/50 rounded-lg p-1 h-12">
+              <div className="grid grid-cols-3 gap-1 w-full">
+                <TabsTrigger 
+                  value="trading" 
+                  className="data-[state=active]:bg-gray-600 data-[state=active]:text-white bg-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-0 rounded-md px-4 py-2 font-medium transition-all duration-200 w-full"
+                >
+                  <TrendingUp className="h-4 w-4 mr-2" />
+                  Trading
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="portfolio" 
+                  className="data-[state=active]:bg-gray-600 data-[state=active]:text-white bg-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-0 rounded-md px-4 py-2 font-medium transition-all duration-200 w-full"
+                >
+                  <Briefcase className="h-4 w-4 mr-2" />
+                  Portfolio
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="account" 
+                  className="data-[state=active]:bg-gray-600 data-[state=active]:text-white bg-transparent text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border-0 rounded-md px-4 py-2 font-medium transition-all duration-200 w-full"
+                >
+                  <User className="h-4 w-4 mr-2" />
+                  Account
+                </TabsTrigger>
+              </div>
             </TabsList>
           </div>
         </div>
 
-        {/* Main Content Area - Full Height */}
+        {/* Main Content Area - No Page Scrolling */}
         <div className="flex-1 overflow-hidden">
           <TabsContent value="trading" className="h-full m-0 p-0">
             <div className="h-full flex">
-              {/* Left Sidebar - Watchlist */}
-              <div className="w-80 flex-shrink-0 border-r border-gray-800/50 bg-[#0d1117]">
+              {/* Resizable Watchlist */}
+              <div 
+                className="flex-shrink-0 border-r border-gray-800/50 bg-[#0d1117] relative"
+                style={{ width: `${watchlistWidth}px` }}
+              >
                 <Watchlist onSymbolSelect={setSelectedSymbol} />
+                
+                {/* Resize Handle */}
+                <div
+                  className="absolute top-0 right-0 w-1 h-full bg-transparent hover:bg-gray-600 cursor-col-resize group"
+                  onMouseDown={handleMouseDown}
+                >
+                  <div className="w-full h-full group-hover:bg-gray-600 transition-colors duration-200" />
+                </div>
               </div>
 
               {/* Main Trading Area */}
@@ -121,21 +153,17 @@ export default function PaperTrading() {
           </TabsContent>
 
           <TabsContent value="portfolio" className="h-full m-0 p-0 bg-[#0d1117]">
-            <div className="h-full w-full">
-              <div className="h-full overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600 p-4 lg:p-6">
-                <div className="max-w-7xl mx-auto">
-                  <PortfolioDisplay key={portfolioKey} />
-                </div>
+            <div className="h-full w-full overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
+              <div className="p-6">
+                <PortfolioDisplay key={portfolioKey} />
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="account" className="h-full m-0 p-0 bg-[#0d1117]">
-            <div className="h-full w-full">
-              <div className="h-full overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600 p-4 lg:p-6">
-                <div className="max-w-7xl mx-auto">
-                  <AccountSummary />
-                </div>
+            <div className="h-full w-full overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
+              <div className="p-6">
+                <AccountSummary />
               </div>
             </div>
           </TabsContent>
