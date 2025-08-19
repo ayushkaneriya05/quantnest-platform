@@ -11,9 +11,17 @@ export default function Watchlist({ onSymbolSelect }) {
   const fetchWatchlist = async () => {
     try {
       const response = await api.get("/trading/watchlist/");
-      setWatchlist(response.data.instruments);
+
+      // Add defensive check for response data
+      if (response.data && response.data.instruments && Array.isArray(response.data.instruments)) {
+        setWatchlist(response.data.instruments);
+      } else {
+        console.error("Invalid watchlist response:", response.data);
+        setWatchlist([]); // Set empty array as fallback
+      }
     } catch (err) {
       console.error("Failed to fetch watchlist:", err);
+      setWatchlist([]); // Set empty array on error
     } finally {
       setLoading(false);
     }
@@ -54,7 +62,7 @@ export default function Watchlist({ onSymbolSelect }) {
       </h2>
       <InstrumentSearch onAddToWatchlist={handleAddToWatchlist} />
       <div className="mt-4 space-y-2">
-        {watchlist.map((item) => (
+        {watchlist && watchlist.length > 0 ? watchlist.map((item) => (
           <div
             key={item.id}
             className="flex justify-between items-center p-2 rounded hover:bg-gray-800/50 cursor-pointer"
@@ -78,7 +86,11 @@ export default function Watchlist({ onSymbolSelect }) {
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
-        ))}
+        )) : (
+          <div className="text-center text-slate-400 py-4">
+            No instruments in watchlist
+          </div>
+        )}
       </div>
     </div>
   );
