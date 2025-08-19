@@ -31,7 +31,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/users/", include("users.urls")),
     path("health/", health_check, name="health_check"),
-    path("api/v1/paper/", include("trading.urls")),
     path("api/v1/market/", include("marketdata.urls")), 
-    path("api/v1/ohlc/", include("ohlc.urls")),
 ]

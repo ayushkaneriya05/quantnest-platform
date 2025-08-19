@@ -1,140 +1,33 @@
-// src/pages/dashboard/trading/PaperTrading.jsx
-import React, { useState } from "react";
-import { TradingProvider, useTrading } from "@/contexts/TradingContext";
-import OrdersList from "@/components/dashboard/trading/OrdersList";
-import PositionsList from "@/components/dashboard/trading/Positions";
-import OrderForm from "@/components/dashboard/trading/OrderForm";
-import AuditLogs from "@/components/dashboard/trading/AuditLogs";
-import LiveChart from "@/components/dashboard/trading/LiveChart";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { CreditCard } from "lucide-react";
+import React from "react";
 
-function TerminalInner() {
-  const [activeSymbol, setActiveSymbol] = useState("RELIANCE");
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const trading = useTrading();
-
+export default function PaperTrading() {
   return (
-    <div className="grid grid-cols-12 gap-4 p-4">
-      <div className="col-span-3 space-y-4">
-        <Card>
-          <CardHeader>
-            <div className="font-semibold">Watchlist</div>
-          </CardHeader>
-          <CardContent>
-            {["RELIANCE", "TCS", "INFY", "HDFCBANK", "TECHM"].map((s) => (
-              <div key={s} className="flex items-center justify-between py-1">
-                <button
-                  className="font-medium"
-                  onClick={() => setActiveSymbol(s)}
-                >
-                  {s}
-                </button>
-                <div className="flex gap-2">
-                  <button
-                    className="btn btn-xs"
-                    onClick={() => {
-                      setShowOrderModal(true);
-                    }}
-                  >
-                    Buy
-                  </button>
-                  <button
-                    className="btn btn-xs"
-                    onClick={() => {
-                      setShowOrderModal(true);
-                    }}
-                  >
-                    Sell
-                  </button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="font-semibold">Positions</div>
-          </CardHeader>
-          <CardContent>
-            <PositionsList />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="col-span-6 space-y-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="font-semibold">
-                {activeSymbol}{" "}
-                <span className="text-xs text-muted-foreground ml-2">
-                  15m delayed
-                </span>
-              </div>
-              <div>
-                <button className="btn" onClick={() => setShowOrderModal(true)}>
-                  Place Order
-                </button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <LiveChart symbol={activeSymbol} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="font-semibold">Audit Logs</div>
-          </CardHeader>
-          <CardContent>
-            <AuditLogs />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="col-span-3 space-y-4">
-        <Card>
-          <CardHeader>
-            <div className="font-semibold">Orders</div>
-          </CardHeader>
-          <CardContent>
-            <OrdersList />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="font-semibold">Orderbook</div>
-          </CardHeader>
-          <CardContent>
-            <button
-              className="btn btn-ghost"
-              onClick={() => trading.fetchOrderbook(activeSymbol)}
-            >
-              Refresh
-            </button>
-            <pre className="text-xs mt-2">
-              {JSON.stringify(trading.orderbook, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      </div>
-
-      <OrderForm
-        open={showOrderModal}
-        symbol={activeSymbol}
-        onClose={() => setShowOrderModal(false)}
-      />
+    <div className="container-padding py-6 lg:py-8">
+      <Card className="bg-gray-900/50 border-gray-800/50 max-w-2xl mx-auto">
+        <CardHeader className="text-center">
+          <div className="flex justify-center mb-4">
+            <CreditCard className="h-12 w-12 text-cyan-400" />
+          </div>
+          <CardTitle className="text-slate-100">Paper Trading</CardTitle>
+          <CardDescription className="text-slate-400">
+            Risk-free trading simulation
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-300 text-center">
+            Practice your trading strategies without risking real money using
+            real-time market data.
+          </p>
+        </CardContent>
+      </Card>
     </div>
-  );
-}
-
-export default function PaperTradingPage() {
-  return (
-    <TradingProvider>
-      <TerminalInner />
-    </TradingProvider>
   );
 }

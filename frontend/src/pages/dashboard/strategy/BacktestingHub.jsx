@@ -1,5 +1,12 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { TestTube } from 'lucide-react'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { TestTube } from "lucide-react";
+import React from "react";
 
 export default function BacktestingHub() {
   return (
@@ -16,10 +23,11 @@ export default function BacktestingHub() {
         </CardHeader>
         <CardContent>
           <p className="text-slate-300 text-center">
-            Validate your trading strategies with comprehensive backtesting using years of historical market data.
+            Validate your trading strategies with comprehensive backtesting
+            using years of historical market data.
           </p>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

@@ -29,19 +29,3 @@ class MarketDataToken(models.Model):
 
     def __str__(self):
         return f"MarketDataToken(valid={self.is_valid()}, expires_at={self.expires_at})"
-    
-class LiveTick(models.Model):
-    """
-    Stores raw, real-time ticks directly from the Fyers WebSocket.
-    """
-    symbol = models.CharField(max_length=100)
-    timestamp = models.DateTimeField()
-    payload = models.JSONField()
-
-    class Meta:
-        indexes = [
-            models.Index(fields=['timestamp', 'symbol']),
-        ]
-
-    def __str__(self):
-        return f"Tick for {self.symbol} at {self.timestamp}"

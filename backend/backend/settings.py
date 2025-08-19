@@ -35,11 +35,9 @@ INSTALLED_APPS = [
     "corsheaders",
     "cloudinary",
     "cloudinary_storage",
-    "channels",  # Keep channels
+    "channels", 
     "users",
     "marketdata",
-    "ohlc",
-    "trading",
 ]
 
 MIDDLEWARE = [
@@ -56,13 +54,6 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 ASGI_APPLICATION = "backend.asgi.application"
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_postgres.core.PostgresChannelLayer',
-        'CONFIG': {'db': 'default'}
-    }
-}
-
 
 # Fyers market-data config (used by marketdata views/processes)
 FYERS_CLIENT_ID = config("FYERS_CLIENT_ID", default="")
