@@ -64,7 +64,7 @@ export default function Watchlist({ onSymbolSelect }) {
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSymbol, setSelectedSymbol] = useState("RELIANCE");
-  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [showAddInstrument, setShowAddInstrument] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const fetchWatchlist = async () => {
@@ -93,7 +93,7 @@ export default function Watchlist({ onSymbolSelect }) {
     try {
       await api.post("/trading/watchlist/", { instrument_id: instrumentId });
       fetchWatchlist(); // Refresh the list
-      setSearchExpanded(false);
+      setShowAddInstrument(false);
       setSearchQuery("");
     } catch (err) {
       console.error("Failed to add to watchlist:", err);
@@ -149,13 +149,13 @@ export default function Watchlist({ onSymbolSelect }) {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-gray-400 hover:text-white hover:bg-gray-800"
-            onClick={() => setSearchExpanded(!searchExpanded)}
+            onClick={() => setShowAddInstrument(!showAddInstrument)}
           >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
         
-        {/* Search */}
+        {/* Single Search Bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
           <Input
@@ -166,8 +166,9 @@ export default function Watchlist({ onSymbolSelect }) {
           />
         </div>
 
-        {searchExpanded && (
-          <div className="mt-3 animate-in slide-in-from-top-2 duration-200">
+        {/* Add Instrument Component - Only when plus button is clicked */}
+        {showAddInstrument && (
+          <div className="mt-3 p-3 bg-[#161b22] border border-gray-700 rounded-lg animate-in slide-in-from-top-2 duration-200">
             <InstrumentSearch onAddToWatchlist={handleAddToWatchlist} />
           </div>
         )}
@@ -206,7 +207,7 @@ export default function Watchlist({ onSymbolSelect }) {
                 variant="outline"
                 size="sm"
                 className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white"
-                onClick={() => setSearchExpanded(true)}
+                onClick={() => setShowAddInstrument(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Add Symbol
