@@ -159,7 +159,7 @@ def fyers_callback(request):
     if request.headers.get("Accept", "").startswith("application/json") or request.GET.get("json"):
         return JsonResponse({"status": "ok", "token_saved": True})
     # else redirect to a simple page (update to your frontend URL if needed)
-    return redirect(config("FRONTEND_URL")+ "/login/")
+    return redirect(config("FRONTEND_URL"))
 
 @api_view(["GET"])
 @permission_classes([IsAdminUser])

@@ -57,29 +57,20 @@ MIDDLEWARE = [
 ]
 ASGI_APPLICATION = "backend.asgi.application"
 CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    'default': {
+        'BACKEND': 'channels_postgres.core.PostgresChannelLayer',
+        'CONFIG': {'db': 'default'}
     }
 }
+
 
 # Fyers market-data config (used by marketdata views/processes)
 FYERS_CLIENT_ID = config("FYERS_CLIENT_ID", default="")
 FYERS_SECRET = config("FYERS_SECRET", default="")
 FYERS_REDIRECT_URI = config("FYERS_REDIRECT_URI", default="http://localhost:8000/api/v1/market/fyers/callback/")
 
-# Celery Beat Schedule
-CELERY_BEAT_SCHEDULE = {
-    "publish-delayed-ticks-every-second": {
-        "task": "marketdata.tasks.publish_delayed_ticks",
-        "schedule": 1.0,
-    },
-    "build-and-flush-1m-every-10s": {
-        "task": "marketdata.tasks.build_and_flush_1m_for_active_symbols",
-        "schedule": 10.0,
-    },
-}
 
-SITE_ID = 1
+SITE_ID = 5
 AUTH_USER_MODEL = "users.User"
 
 SOCIALACCOUNT_PROVIDERS = {
