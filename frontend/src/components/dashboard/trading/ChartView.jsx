@@ -37,7 +37,7 @@ export default function ChartView({ symbol }) {
     currentCandleRef.current = null;
     try {
       const res = await api.get(
-        `/trading/ohlc/?instrument=${symbol}&resolution=${resolution}`
+        `/market/ohlc/?instrument=${symbol}&resolution=${resolution}`
       );
       const data = res.data.map((d) => ({
         time: d.time / 1000,

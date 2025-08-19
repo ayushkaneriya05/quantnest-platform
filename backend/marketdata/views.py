@@ -35,6 +35,8 @@ RESOLUTION_MAP = {
     '1D': {'unit': 'day', 'binSize': 1},
     '1W': {'unit': 'week', 'binSize': 1},
 }
+from bson import SON
+from datetime import datetime
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -52,7 +54,6 @@ def ohlc_data(request):
     
     fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
 
-    # If the requested resolution is 1m, we can do a simpler and faster find query.
     if resolution == '1m':
         candles = list(candles_collection.find(
             {
@@ -60,54 +61,51 @@ def ohlc_data(request):
                 "resolution": "1m",
                 "timestamp": {"$lte": fifteen_minutes_ago}
             },
-            # Exclude MongoDB's default _id and redundant fields from the response
             {"_id": 0, "instrument": 0, "resolution": 0}
         ).sort("timestamp", 1))
         
-        # Convert timestamp to milliseconds for the charting library
         for candle in candles:
             candle["time"] = int(candle.pop("timestamp").timestamp() * 1000)
     else:
-        # For all other resolutions, we aggregate from the 1m candles.
         agg_params = RESOLUTION_MAP[resolution]
+
+        # Bucket size in seconds
+        unit_seconds = {
+            "minute": 60,
+            "hour": 3600,
+            "day": 86400,
+            "week": 604800,
+        }[agg_params["unit"]] * agg_params["binSize"]
+
         pipeline = [
-            # 1. Match the instrument and the base 1-minute resolution
             {"$match": {
                 "instrument": instrument_symbol,
                 "resolution": "1m",
                 "timestamp": {"$lte": fifteen_minutes_ago}
             }},
-            # 2. Sort by time to ensure correct $first and $last aggregations
             {"$sort": {"timestamp": 1}},
-            # 3. Group into buckets based on the requested resolution
+            {"$project": {
+                "timestamp": 1,
+                "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1,
+                # convert to epoch seconds
+                "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970,1,1)]}, 1000]}}
+            }},
             {"$group": {
-                "_id": {
-                    "$dateTrunc": {
-                        "date": "$timestamp",
-                        "unit": agg_params['unit'],
-                        "binSize": agg_params['binSize'],
-                        "timezone": "UTC" 
-                    }
-                },
+                "_id": {"$multiply": [{"$floor": {"$divide": ["$epoch", unit_seconds]}}, unit_seconds]},
                 "open": {"$first": "$open"},
                 "high": {"$max": "$high"},
                 "low": {"$min": "$low"},
                 "close": {"$last": "$close"},
                 "volume": {"$sum": "$volume"}
             }},
-            # 4. Format the output to match what the charting library expects
             {"$project": {
                 "_id": 0,
-                "time": {"$toMillis": "$_id"},
-                "open": "$open",
-                "high": "$high",
-                "low": "$low",
-                "close": "$close",
-                "volume": "$volume"
+                "time": {"$multiply": ["$_id", 1000]},  # back to ms
+                "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1
             }},
-            # 5. Sort the final aggregated data chronologically
-            {"$sort": {"time": 1}}
+            {"$sort": SON([("time", 1)])}
         ]
+
         candles = list(candles_collection.aggregate(pipeline))
 
     return JsonResponse(candles, safe=False)

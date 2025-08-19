@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Instrument, Watchlist
 from .serializers import InstrumentSerializer, WatchlistSerializer
+from django.db import models
 
 class InstrumentSearchView(generics.ListAPIView):
     """
