@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { Calculator, AlertCircle, DollarSign } from "lucide-react";
 import api from "@/services/api";
 
 export default function OrderTicket({
@@ -26,6 +27,18 @@ export default function OrderTicket({
     price: "",
     trigger_price: "",
   });
+  
+  const [estimatedValue, setEstimatedValue] = useState(0);
+  const currentPrice = 2458.50; // Mock current price
+
+  useEffect(() => {
+    const quantity = parseInt(formData.quantity) || 0;
+    const price = formData.order_type === "MARKET" 
+      ? currentPrice 
+      : parseFloat(formData.price) || currentPrice;
+    
+    setEstimatedValue(quantity * price);
+  }, [formData.quantity, formData.price, formData.order_type]);
 
   const handleChange = (e) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -33,6 +46,10 @@ export default function OrderTicket({
 
   const handleSelectChange = (name, value) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleQuickQuantity = (qty) => {
+    setFormData((prev) => ({ ...prev, quantity: qty.toString() }));
   };
 
   const handleSubmit = async (e) => {
@@ -43,10 +60,15 @@ export default function OrderTicket({
         ...formData,
         instrument_symbol: symbol,
       });
-      toast({ title: "Success", description: "Order placed successfully." });
-      onOrderPlaced(); // Refresh parent component
+      toast({ 
+        title: "Order Placed", 
+        description: `${formData.transaction_type} order for ${formData.quantity} shares of ${symbol} placed successfully.`,
+        className: "bg-[#161b22] border-gray-700 text-white"
+      });
+      onOrderPlaced();
+      // Reset form
       setFormData({
-        transaction_type: "BUY",
+        transaction_type: transactionType,
         order_type: "MARKET",
         quantity: "",
         price: "",
@@ -54,80 +76,172 @@ export default function OrderTicket({
       });
     } catch (error) {
       const errorMsg = error.response?.data?.detail || "Failed to place order.";
-      toast({ variant: "destructive", title: "Error", description: errorMsg });
+      toast({ 
+        variant: "destructive", 
+        title: "Order Failed", 
+        description: errorMsg,
+        className: "bg-red-900 border-red-700 text-white"
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const isFormValid = formData.quantity && 
+    (formData.order_type === "MARKET" || (formData.order_type === "LIMIT" && formData.price));
+
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="p-4 bg-gray-950 border border-gray-800 rounded-lg space-y-4"
-    >
-      <h3 className="text-lg font-semibold text-slate-100">Trade {symbol}</h3>
-      <div className="grid grid-cols-2 gap-4">
-        <Select
-          onValueChange={(v) => handleSelectChange("transaction_type", v)}
-          defaultValue="BUY"
-        >
-          <SelectTrigger className="bg-gray-900">
-            <SelectValue placeholder="Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="BUY">Buy</SelectItem>
-            <SelectItem value="SELL">Sell</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          onValueChange={(v) => handleSelectChange("order_type", v)}
-          defaultValue="MARKET"
-        >
-          <SelectTrigger className="bg-gray-900">
-            <SelectValue placeholder="Order Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="MARKET">Market</SelectItem>
-            <SelectItem value="LIMIT">Limit</SelectItem>
-          </SelectContent>
-        </Select>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Order Type Selection */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label className="text-gray-400 text-xs uppercase tracking-wider">Order Type</Label>
+          <Select
+            onValueChange={(v) => handleSelectChange("order_type", v)}
+            value={formData.order_type}
+          >
+            <SelectTrigger className="bg-[#21262d] border-gray-700 text-white focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[#21262d] border-gray-700">
+              <SelectItem value="MARKET" className="text-white hover:bg-gray-700">
+                Market Order
+              </SelectItem>
+              <SelectItem value="LIMIT" className="text-white hover:bg-gray-700">
+                Limit Order
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-gray-400 text-xs uppercase tracking-wider">Transaction</Label>
+          <Select
+            onValueChange={(v) => handleSelectChange("transaction_type", v)}
+            value={formData.transaction_type}
+          >
+            <SelectTrigger className="bg-[#21262d] border-gray-700 text-white focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[#21262d] border-gray-700">
+              <SelectItem value="BUY" className="text-emerald-400 hover:bg-gray-700">
+                Buy
+              </SelectItem>
+              <SelectItem value="SELL" className="text-red-400 hover:bg-gray-700">
+                Sell
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
-      <div>
-        <Label htmlFor="quantity">Quantity</Label>
+
+      {/* Quantity Input */}
+      <div className="space-y-3">
+        <Label className="text-gray-400 text-xs uppercase tracking-wider">Quantity</Label>
         <Input
-          id="quantity"
           name="quantity"
           type="number"
-          placeholder="0"
+          placeholder="Enter quantity"
           value={formData.quantity}
           onChange={handleChange}
           required
-          className="bg-gray-900"
+          className="bg-[#21262d] border-gray-700 text-white text-lg font-mono placeholder-gray-500 focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]"
         />
+        
+        {/* Quick Quantity Buttons */}
+        <div className="flex gap-2">
+          {[1, 5, 10, 25, 50].map((qty) => (
+            <Button
+              key={qty}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleQuickQuantity(qty)}
+              className="bg-transparent border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white text-xs"
+            >
+              {qty}
+            </Button>
+          ))}
+        </div>
       </div>
+
+      {/* Price Input (for Limit Orders) */}
       {formData.order_type === "LIMIT" && (
-        <div>
-          <Label htmlFor="price">Limit Price</Label>
+        <div className="space-y-2">
+          <Label className="text-gray-400 text-xs uppercase tracking-wider">Limit Price</Label>
           <Input
-            id="price"
             name="price"
             type="number"
-            placeholder="0.00"
+            step="0.01"
+            placeholder="Enter limit price"
             value={formData.price}
             onChange={handleChange}
             required
-            className="bg-gray-900"
+            className="bg-[#21262d] border-gray-700 text-white text-lg font-mono placeholder-gray-500 focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]"
           />
         </div>
       )}
+
+      {/* Order Summary */}
+      <div className="bg-[#161b22] rounded-lg p-4 border border-gray-700">
+        <div className="flex items-center gap-2 mb-3">
+          <Calculator className="h-4 w-4 text-gray-400" />
+          <span className="text-sm font-medium text-gray-400 uppercase tracking-wider">Order Summary</span>
+        </div>
+        
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-400">Quantity:</span>
+            <span className="text-white font-mono">{formData.quantity || '0'} shares</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Price:</span>
+            <span className="text-white font-mono">
+              {formData.order_type === "MARKET" 
+                ? `₹${currentPrice.toFixed(2)} (Market)` 
+                : `₹${formData.price || '0.00'}`}
+            </span>
+          </div>
+          <div className="flex justify-between items-center pt-2 border-t border-gray-700">
+            <span className="text-gray-400">Estimated Value:</span>
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-gray-400" />
+              <span className="text-white font-mono font-bold">
+                ₹{estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Risk Warning */}
+      <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3">
+        <div className="flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-orange-200">
+            This is a paper trading environment. No real money is involved.
+          </p>
+        </div>
+      </div>
+
+      {/* Submit Button */}
       <Button
         type="submit"
-        disabled={isLoading}
-        className="w-full bg-indigo-600 hover:bg-indigo-700"
+        disabled={isLoading || !isFormValid}
+        className={`w-full py-3 text-lg font-semibold transition-all duration-200 ${
+          formData.transaction_type === "BUY"
+            ? "bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50"
+            : "bg-red-600 hover:bg-red-700 disabled:bg-red-600/50"
+        } disabled:cursor-not-allowed`}
       >
-        {isLoading
-          ? "Placing Order..."
-          : `Place ${formData.transaction_type} Order`}
+        {isLoading ? (
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            Placing Order...
+          </div>
+        ) : (
+          `${formData.transaction_type} ${formData.quantity || '0'} Shares`
+        )}
       </Button>
     </form>
   );
