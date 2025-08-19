@@ -12,11 +12,15 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
 
-export default function OrderTicket({ symbol, onOrderPlaced }) {
+export default function OrderTicket({
+  symbol,
+  transactionType,
+  onOrderPlaced,
+}) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
-    transaction_type: "BUY",
+    transaction_type: transactionType,
     order_type: "MARKET",
     quantity: "",
     price: "",

@@ -13,6 +13,7 @@ ALLOWED_HOSTS = config("ALLOWED_HOSTS", cast=Csv())
 
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -216,6 +217,8 @@ else:
         }
     }
 
+MONGO_DB_URL= config("MONGO_DB_URL", default="mongodb://localhost:27017/")
+MONGO_DB_NAME = config("MONGO_DB_NAME", default="quantnest")
 
 cloudinary.config(
     cloud_name=config("CLOUDINARY_CLOUD_NAME"),

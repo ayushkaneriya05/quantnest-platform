@@ -85,7 +85,8 @@ def ohlc_data(request):
                     "$dateTrunc": {
                         "date": "$timestamp",
                         "unit": agg_params['unit'],
-                        "binSize": agg_params['binSize']
+                        "binSize": agg_params['binSize'],
+                        "timezone": "UTC" 
                     }
                 },
                 "open": {"$first": "$open"},

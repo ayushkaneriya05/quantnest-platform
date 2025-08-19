@@ -9,6 +9,7 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
             await self.close()
         else:
             await self.accept()
+            print(f"User {self.scope['user'].username} connected to MarketDataConsumer")
             # Each user gets their own private channel group
             self.user_group_name = f'user_{self.scope["user"].id}'
             await self.channel_layer.group_add(

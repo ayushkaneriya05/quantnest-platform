@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import api from "@/services/api";
 import InstrumentSearch from "./InstrumentSearch";
 
-export default function Watchlist() {
+export default function Watchlist({ onSymbolSelect }) {
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -57,7 +57,8 @@ export default function Watchlist() {
         {watchlist.map((item) => (
           <div
             key={item.id}
-            className="flex justify-between items-center p-2 rounded hover:bg-gray-800/50"
+            className="flex justify-between items-center p-2 rounded hover:bg-gray-800/50 cursor-pointer"
+            onClick={() => onSymbolSelect(item.symbol)} // Call the callback on click
           >
             <div>
               <p className="font-medium text-slate-200">{item.symbol}</p>

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { createChart } from "lightweight-charts";
+// ** FIX 1: Import the series type and ColorType **
+import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
 import api from "@/services/api";
 import TimeframeSelector from "./TimeframeSelector";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -13,7 +14,7 @@ export default function ChartView({ symbol }) {
   const { lastMessage, isConnected, sendMessage } = useWebSocket(
     "ws://localhost:8000/ws/marketdata/"
   );
-  const chartContainerRef = useRef();
+  const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
   const candleSeriesRef = useRef(null);
   const [loading, setLoading] = useState(true);
@@ -24,9 +25,9 @@ export default function ChartView({ symbol }) {
     const unit = res.slice(-1);
     const value = parseInt(res.slice(0, -1), 10);
     if (unit === "m") return value * 60;
-    if (unit === "h") return value * 60 * 60;
-    if (unit === "D") return value * 24 * 60 * 60;
-    if (unit === "W") return value * 7 * 24 * 60 * 60;
+    if (unit === "h") return value * 3600;
+    if (unit === "D") return value * 86400;
+    if (unit === "W") return value * 604800;
     return 86400; // Default to 1 Day
   };
 
@@ -39,7 +40,7 @@ export default function ChartView({ symbol }) {
         `/trading/ohlc/?instrument=${symbol}&resolution=${resolution}`
       );
       const data = res.data.map((d) => ({
-        time: d.time / 1000, // Convert ms to seconds for the library
+        time: d.time / 1000,
         open: d.open,
         high: d.high,
         low: d.low,
@@ -56,12 +57,15 @@ export default function ChartView({ symbol }) {
     }
   }, [symbol, resolution]);
 
-  // Initialize chart on mount
+  // Initialize chart on mount and handle resizing
   useEffect(() => {
+    if (!chartContainerRef.current) return;
+
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 500,
-      layout: { background: { color: "#0A0A1A" }, textColor: "#D1D5DB" },
+      layout: {
+        background: { type: ColorType.Solid, color: "#0A0A1A" },
+        textColor: "#D1D5DB",
+      },
       grid: {
         vertLines: { color: "#1F2937" },
         horzLines: { color: "#1F2937" },
@@ -70,32 +74,88 @@ export default function ChartView({ symbol }) {
         timeVisible: true,
         secondsVisible: resolution.includes("m"),
       },
+      width: chartContainerRef.current.clientWidth,
+      height: 500,
     });
     chartRef.current = chart;
-    candleSeriesRef.current = chart.addCandlestickSeries({
+
+    // ** ERROR FIX HERE **
+    // Use the correct `addSeries` method with the `CandlestickSeries` type
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#22C55E",
       downColor: "#EF4444",
-      borderDownColor: "#EF4444",
-      borderUpColor: "#22C55E",
-      wickDownColor: "#EF4444",
+      borderVisible: false,
       wickUpColor: "#22C55E",
+      wickDownColor: "#EF4444",
     });
-    return () => chart.remove();
-  }, []);
+    candleSeriesRef.current = candleSeries;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (entries.length > 0) {
+        const { width, height } = entries[0].contentRect;
+        chart.applyOptions({ width, height });
+      }
+    });
+    resizeObserver.observe(chartContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+    };
+  }, [resolution]);
 
   // Refetch data when symbol or resolution changes
   useEffect(() => {
     fetchHistoricalData();
   }, [fetchHistoricalData]);
 
+  // Handle WebSocket for live updates
   useEffect(() => {
-    if (loading || !symbol || !isConnected) return;
+    if (loading || !symbol || !isConnected || !lastMessage) return;
+
     const instrument_group_name = `NSE_${symbol.toUpperCase()}_EQ`.replace(
       /-/g,
       "_"
     );
     sendMessage({ type: "subscribe", instrument: instrument_group_name });
-  }, [loading, symbol, isConnected, sendMessage]);
+
+    const tick = JSON.parse(lastMessage);
+
+    if (
+      candleSeriesRef.current &&
+      tick.instrument === `NSE:${symbol.toUpperCase()}-EQ`
+    ) {
+      const tickTime = new Date(tick.timestamp).getTime() / 1000;
+      const tickPrice = tick.price;
+      const resInSeconds = resolutionToSeconds(resolution);
+      const candleStartTime = getCandleStartTime(tickTime, resInSeconds);
+
+      if (
+        currentCandleRef.current &&
+        candleStartTime === currentCandleRef.current.time
+      ) {
+        currentCandleRef.current.high = Math.max(
+          currentCandleRef.current.high,
+          tickPrice
+        );
+        currentCandleRef.current.low = Math.min(
+          currentCandleRef.current.low,
+          tickPrice
+        );
+        currentCandleRef.current.close = tickPrice;
+      } else {
+        currentCandleRef.current = {
+          time: candleStartTime,
+          open: tickPrice,
+          high: tickPrice,
+          low: tickPrice,
+          close: tickPrice,
+        };
+      }
+
+      candleSeriesRef.current.update(currentCandleRef.current);
+    }
+  }, [loading, symbol, resolution, isConnected, sendMessage, lastMessage]);
 
   return (
     <div className="space-y-3">
@@ -117,7 +177,10 @@ export default function ChartView({ symbol }) {
         )}
         <div
           ref={chartContainerRef}
-          style={{ visibility: loading ? "hidden" : "visible" }}
+          style={{
+            visibility: loading ? "hidden" : "visible",
+            height: "500px",
+          }}
         />
       </div>
     </div>

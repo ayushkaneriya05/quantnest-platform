@@ -1,54 +1,132 @@
-# backend/marketdata/management/commands/fyers_ingest.py
+import os
+import json
+import time
+import logging
+from pathlib import Path
+from datetime import datetime, timezone
+
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from fyers_apiv3 import fyersModel
+
+# Use the data_ws module for market data as per the latest fyers_apiv3 docs
+from fyers_apiv3.FyersWebsocket import data_ws 
 from marketdata.models import MarketDataToken
 from marketdata.mongo_client import get_ticks_collection
-import time
-from datetime import datetime, timezone
-import json
-from pathlib import Path
-import os
 
-# Load nifty100 symbols
-nifty100_path = Path(settings.BASE_DIR) / 'data' / 'nifty100_symbols.json'
-nifty100_data = json.loads(nifty100_path.read_text())
+# Setup a dedicated logger for this ingestion script
+logger = logging.getLogger(__name__)
+
+# --- Load Nifty 100 Symbols ---
+try:
+    # Build the path to the data file relative to the project's base directory
+    nifty100_path = Path(settings.BASE_DIR) / 'data' / 'nifty100_symbols.json'
+    nifty100_data = json.loads(nifty100_path.read_text())
+except FileNotFoundError:
+    nifty100_data = []
+    logger.error("FATAL: nifty100_symbols.json not found in the 'data' directory. The service cannot start.")
 
 class Command(BaseCommand):
-    help = 'Starts the Fyers WebSocket for live data ingestion into MongoDB'
+    help = 'Starts the Fyers WebSocket for live data ingestion into MongoDB (Full Data Mode).'
 
     def handle(self, *args, **options):
-        client_id = settings.FYERS_CLIENT_ID
-        token_row = MarketDataToken.objects.get(pk=1)
-        access_token = token_row.access_token
-
-        if not access_token or not token_row.is_valid():
-            self.stdout.write(self.style.ERROR('Fyers token is invalid. Please log in.'))
+        if not nifty100_data:
+            self.stderr.write(self.style.ERROR("Cannot start ingestion: nifty100_symbols.json is missing or empty."))
             return
 
-        ticks_collection = get_ticks_collection()
-        nifty_100_symbols = ["NSE:" + s['symbol'] + "-EQ" for s in nifty100_data]
+        client_id = settings.FYERS_CLIENT_ID
+        
+        try:
+            # Fetch the stored token from PostgreSQL
+            token_row = MarketDataToken.objects.get(pk=1)
+            access_token = token_row.access_token
+        except MarketDataToken.DoesNotExist:
+            self.stderr.write(self.style.ERROR("No MarketDataToken found in the database. Please run the Fyers login process first via the API."))
+            return
 
-        def on_ticks(ticks):
-            documents = []
-            for tick in ticks:
-                documents.append({
-                    "instrument": tick['symbol'],
-                    "timestamp": datetime.fromtimestamp(tick['timestamp'], tz=timezone.utc),
-                    "price": tick['ltp'],
-                    "volume": tick.get('vtt', 0) # Volume Till Trade
-                })
+        if not access_token or not token_row.is_valid():
+            self.stderr.write(self.style.ERROR('Fyers access token is invalid or has expired. Please generate a new one.'))
+            return
 
-            if documents:
-                try:
-                    ticks_collection.insert_many(documents)
-                    self.stdout.write(f"Inserted {len(documents)} ticks into MongoDB.")
-                except Exception as e:
-                    self.stderr.write(f"Error inserting ticks to MongoDB: {e}")
+        # Prepare the correctly formatted access token for the websocket
+        # Format required by the SDK is: <CLIENT_ID>:<ACCESS_TOKEN>
+        websocket_token = f"{client_id}:{access_token}"
 
-        fyers = fyersModel.FyersModel(client_id=client_id, is_async=False, token=access_token, log_path=os.path.join(settings.BASE_DIR, 'logs'))
-        fyers.websocket(data_type="symbolData", symbols=nifty_100_symbols, on_message=on_ticks)
+        # Prepare the list of symbols for subscription
+        nifty_100_symbols = [f"NSE:{s['symbol']}-EQ" for s in nifty100_data]
+        self.stdout.write(f"Preparing to subscribe to {len(nifty_100_symbols)} symbols in full data mode.")
 
-        self.stdout.write("Fyers WebSocket connected. Ingesting ticks...")
+        # --- WebSocket Callback Functions ---
+
+        def on_message(tick):
+            """
+            Callback to process incoming messages from the WebSocket.
+            This now correctly handles a single dictionary per message.
+            """
+            # ** ERROR FIX STARTS HERE **
+            # The primary data message is a dictionary. We check for this type.
+            # Any other message type (like a string) is logged and ignored.
+            if not isinstance(tick, dict):
+                logger.info(f"Received non-tick (control/status) message from WebSocket: {tick}")
+                return # Ignore this message and continue
+            # ** ERROR FIX ENDS HERE **
+
+            ticks_collection = get_ticks_collection()
+            
+            try:
+                # Map all the fields from the sample response to a new document
+                document_to_insert = {
+                    "instrument": tick.get('symbol'),
+                    "timestamp": datetime.fromtimestamp(tick.get('last_traded_time'), tz=timezone.utc),
+                    "price": tick.get('ltp'),
+                    "volume_traded_today": tick.get('vol_traded_today'),
+                    "last_traded_qty": tick.get('last_traded_qty'),
+                    "avg_trade_price": tick.get('avg_trade_price'),
+                    "open": tick.get('open_price'),
+                    "high": tick.get('high_price'),
+                    "low": tick.get('low_price'),
+                    "close": tick.get('prev_close_price'),
+                    "change": tick.get('ch'),
+                    "change_percent": tick.get('chp')
+                }
+                
+                # Insert the single document into MongoDB
+                ticks_collection.insert_one(document_to_insert)
+                logger.info(f"Inserted tick for {tick.get('symbol')} @ {tick.get('ltp')}")
+
+            except Exception as e:
+                logger.error(f"Error processing a single full-mode tick: {tick}. Error: {e}")
+
+        def on_connect():
+            """
+            Callback for when the WebSocket connection is established.
+            Subscribes to the symbols list.
+            """
+            self.stdout.write(self.style.SUCCESS("✅ Fyers WebSocket connected successfully."))
+            self.stdout.write("Subscribing to Nifty 100 symbols...")
+            fyers_socket.subscribe(symbols=nifty_100_symbols)
+
+        def on_close(message):
+            logger.warning(f"WebSocket connection closed: {message}")
+
+        def on_error(message):
+            self.stderr.write(self.style.ERROR(f"WebSocket error received: {message}"))
+
+        # --- Initialize and Connect WebSocket ---
+        fyers_socket = data_ws.FyersDataSocket(
+            access_token=websocket_token,
+            log_path=os.path.join(settings.BASE_DIR, 'logs/'),
+            litemode=False, 
+            write_to_file=False,
+            reconnect=True, 
+            on_connect=on_connect,
+            on_close=on_close,
+            on_error=on_error,
+            on_message=on_message 
+        )
+
+        self.stdout.write("Attempting to connect to Fyers WebSocket...")
+        fyers_socket.connect()
+
+        self.stdout.write(self.style.SUCCESS("🚀 Ingestion engine is now running. Press Ctrl+C to stop."))
         while True:
             time.sleep(1)
