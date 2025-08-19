@@ -1,8 +1,7 @@
 # backend/marketdata/management/commands/aggregate_candles.py
 from django.core.management.base import BaseCommand
 from apscheduler.schedulers.blocking import BlockingScheduler
-from django.utils import timezone
-from datetime import timedelta
+from datetime import datetime,timedelta , timezone
 from marketdata.mongo_client import get_ticks_collection, get_candles_collection
 
 def aggregate_job():
@@ -10,17 +9,16 @@ def aggregate_job():
     ticks_collection = get_ticks_collection()
     candles_collection = get_candles_collection()
 
-    now = timezone.now()
+    now = datetime.now(timezone.utc)
     one_minute_ago = now - timedelta(minutes=1)
     
     pipeline = [
         {"$match": {"timestamp": {"$gte": one_minute_ago, "$lt": now}}},
+        {"$sort": {"timestamp": 1}},
         {"$group": {
             "_id": {
                 "instrument": "$instrument",
-                "timestamp": {
-                    "$dateTrunc": {"date": "$timestamp", "unit": "minute"}
-                }
+                "timestamp": {"$dateTrunc": {"date": "$timestamp", "unit": "minute"}}
             },
             "open": {"$first": "$price"},
             "high": {"$max": "$price"},
@@ -43,8 +41,14 @@ def aggregate_job():
     
     new_candles = list(ticks_collection.aggregate(pipeline))
     if new_candles:
-        candles_collection.insert_many(new_candles)
-        print(f"Aggregated and inserted {len(new_candles)} 1-minute candles.")
+        for candle in new_candles:
+            candles_collection.update_one(
+                {"instrument": candle["instrument"], "timestamp": candle["timestamp"], "resolution": "1m"},
+                {"$set": candle},
+                upsert=True
+            )
+        print(f"Upserted {len(new_candles)} 1-minute candles.")
+
 
 class Command(BaseCommand):
     help = 'Starts the candle aggregation scheduler'
