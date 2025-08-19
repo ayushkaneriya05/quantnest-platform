@@ -24,7 +24,7 @@ coverage.xml
 *.mo
 *.env
 .env
-.env.*
+
 .envrc
 .vscode/
 .idea/

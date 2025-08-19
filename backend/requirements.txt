@@ -1,37 +1,49 @@
 # Core Django
 django
 djangorestframework
+
 # Database
 psycopg2-binary
 pymongo
 dj-database-url
+
 # Configuration
 python-decouple
+
 # CORS and Security
 django-cors-headers
+
 # Authentication
 djangorestframework-simplejwt
 pyjwt
 django-allauth
 dj-rest-auth
 cryptography
+
 # File Storage
 cloudinary
 django-cloudinary-storage
 pillow
+
 # Deployment
 gunicorn
 whitenoise
+
 # Utilities
 dnspython
+
 django-otp
 qrcode
+
 yfinance
 channels
+channels_redis
+celery
 httpx
 websockets
 python-dotenv
 pyarrow
 pandas
+redis
 fyers-apiv3
-channels-postgres
+python-dateutil
