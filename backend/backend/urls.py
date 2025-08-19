@@ -32,4 +32,6 @@ urlpatterns = [
     path("api/v1/users/", include("users.urls")),
     path("health/", health_check, name="health_check"),
     path("api/v1/market/", include("marketdata.urls")), 
+    path("api/v1/trading/", include("trading.urls")),   
+
 ]

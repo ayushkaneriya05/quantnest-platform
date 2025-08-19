@@ -47,3 +47,4 @@ pandas
 redis
 fyers-apiv3
 python-dateutil
+apscheduler

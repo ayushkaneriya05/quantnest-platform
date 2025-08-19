@@ -2,7 +2,7 @@
 import os
 import logging
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decouple import config
 
 from django.conf import settings
@@ -15,6 +15,102 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticatedOrReadOnly, A
 from .models import MarketDataToken
 
 logger = logging.getLogger(__name__)
+
+# backend/marketdata/views.py
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from datetime import timedelta
+from django.utils import timezone
+from .mongo_client import get_candles_collection
+
+# A dictionary to map resolution strings to MongoDB's date truncation units.
+# This makes the code cleaner and easier to extend.
+RESOLUTION_MAP = {
+    '1m': {'unit': 'minute', 'binSize': 1},
+    '5m': {'unit': 'minute', 'binSize': 5},
+    '15m': {'unit': 'minute', 'binSize': 15},
+    '1h': {'unit': 'hour', 'binSize': 1},
+    '1D': {'unit': 'day', 'binSize': 1},
+    '1W': {'unit': 'week', 'binSize': 1},
+}
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def ohlc_data(request):
+    symbol = request.query_params.get('instrument')
+    resolution = request.query_params.get('resolution', '1D')
+
+    if not symbol:
+        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+    if resolution not in RESOLUTION_MAP:
+        return JsonResponse({"error": "Invalid resolution"}, status=400)
+
+    instrument_symbol = f"NSE:{symbol.upper()}-EQ"
+    candles_collection = get_candles_collection()
+    
+    fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
+
+    # If the requested resolution is 1m, we can do a simpler and faster find query.
+    if resolution == '1m':
+        candles = list(candles_collection.find(
+            {
+                "instrument": instrument_symbol,
+                "resolution": "1m",
+                "timestamp": {"$lte": fifteen_minutes_ago}
+            },
+            # Exclude MongoDB's default _id and redundant fields from the response
+            {"_id": 0, "instrument": 0, "resolution": 0}
+        ).sort("timestamp", 1))
+        
+        # Convert timestamp to milliseconds for the charting library
+        for candle in candles:
+            candle["time"] = int(candle.pop("timestamp").timestamp() * 1000)
+    else:
+        # For all other resolutions, we aggregate from the 1m candles.
+        agg_params = RESOLUTION_MAP[resolution]
+        pipeline = [
+            # 1. Match the instrument and the base 1-minute resolution
+            {"$match": {
+                "instrument": instrument_symbol,
+                "resolution": "1m",
+                "timestamp": {"$lte": fifteen_minutes_ago}
+            }},
+            # 2. Sort by time to ensure correct $first and $last aggregations
+            {"$sort": {"timestamp": 1}},
+            # 3. Group into buckets based on the requested resolution
+            {"$group": {
+                "_id": {
+                    "$dateTrunc": {
+                        "date": "$timestamp",
+                        "unit": agg_params['unit'],
+                        "binSize": agg_params['binSize']
+                    }
+                },
+                "open": {"$first": "$open"},
+                "high": {"$max": "$high"},
+                "low": {"$min": "$low"},
+                "close": {"$last": "$close"},
+                "volume": {"$sum": "$volume"}
+            }},
+            # 4. Format the output to match what the charting library expects
+            {"$project": {
+                "_id": 0,
+                "time": {"$toMillis": "$_id"},
+                "open": "$open",
+                "high": "$high",
+                "low": "$low",
+                "close": "$close",
+                "volume": "$volume"
+            }},
+            # 5. Sort the final aggregated data chronologically
+            {"$sort": {"time": 1}}
+        ]
+        candles = list(candles_collection.aggregate(pipeline))
+
+    return JsonResponse(candles, safe=False)
+
 
 try:
     from fyers_apiv3 import fyersModel
