@@ -10,15 +10,15 @@ export default function DashboardLayout() {
   const { title, subtitle } = usePageTitle();
 
   return (
-    <div className="flex min-h-screen bg-black">
+    <div className="flex h-screen bg-black overflow-hidden">
       <Sidebar />
       <div
-        className={`flex-1 flex flex-col transition-all duration-300 ${
+        className={`flex-1 flex flex-col transition-all duration-300 min-w-0 ${
           isOpen ? "ml-64 sm:ml-72 lg:ml-64" : "ml-0"
         }`}
       >
         <MainContentHeader title={title} subtitle={subtitle} />
-        <main className="flex-1 overflow-auto scrollbar-custom">
+        <main className="flex-1 overflow-hidden">
           <Outlet />
         </main>
       </div>
