@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, Plus, Search, Star, TrendingUp, TrendingDown } from "lucide-react";
+import { Trash2, Search, Star, TrendingUp, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import api from "@/services/api";
-import InstrumentSearch from "./InstrumentSearch";
 
 const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
   const priceChange = Math.random() > 0.5 ? 1 : -1; // Mock data
@@ -64,7 +63,6 @@ export default function Watchlist({ onSymbolSelect }) {
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSymbol, setSelectedSymbol] = useState("RELIANCE");
-  const [showAddInstrument, setShowAddInstrument] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const fetchWatchlist = async () => {
@@ -88,16 +86,6 @@ export default function Watchlist({ onSymbolSelect }) {
   useEffect(() => {
     fetchWatchlist();
   }, []);
-
-  const handleAddToWatchlist = async (instrumentId) => {
-    try {
-      await api.post("/trading/watchlist/", { instrument_id: instrumentId });
-      fetchWatchlist(); // Refresh the list
-      setShowAddInstrument(false);
-    } catch (err) {
-      console.error("Failed to add to watchlist:", err);
-    }
-  };
 
   const handleRemoveFromWatchlist = async (instrumentId) => {
     try {
@@ -139,22 +127,14 @@ export default function Watchlist({ onSymbolSelect }) {
     <div className="h-full bg-[#0d1117] flex flex-col">
       {/* Header */}
       <div className="flex-shrink-0 p-4 border-b border-gray-800/50">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center mb-3">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <Star className="h-5 w-5 text-yellow-400" />
             Watchlist
           </h2>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-gray-400 hover:text-white hover:bg-gray-800"
-            onClick={() => setShowAddInstrument(!showAddInstrument)}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
         </div>
         
-        {/* Single Search Bar */}
+        {/* Search Bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
           <Input
@@ -165,13 +145,6 @@ export default function Watchlist({ onSymbolSelect }) {
           />
         </div>
       </div>
-
-      {/* Add Instrument Section - Only when plus button is clicked */}
-      {showAddInstrument && (
-        <div className="flex-shrink-0 p-4 bg-[#161b22] border-b border-gray-800/50">
-          <InstrumentSearch onAddToWatchlist={handleAddToWatchlist} />
-        </div>
-      )}
       
       {/* Watchlist Items with Scrollbar */}
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
@@ -195,23 +168,12 @@ export default function Watchlist({ onSymbolSelect }) {
             <h3 className="text-lg font-medium text-gray-300 mb-2">
               {searchQuery ? 'No results found' : 'No instruments in watchlist'}
             </h3>
-            <p className="text-sm text-gray-500 mb-4">
+            <p className="text-sm text-gray-500">
               {searchQuery 
                 ? `No symbols match "${searchQuery}"`
-                : 'Add your favorite stocks to track them'
+                : 'Your watchlist is empty'
               }
             </p>
-            {!searchQuery && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-gray-700 text-gray-400 hover:bg-gray-800 hover:text-white"
-                onClick={() => setShowAddInstrument(true)}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Symbol
-              </Button>
-            )}
           </div>
         )}
       </div>
