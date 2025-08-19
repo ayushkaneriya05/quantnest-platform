@@ -20,20 +20,20 @@ import {
 import api from "@/services/api";
 
 const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "default" }) => (
-  <Card className="bg-gradient-to-br from-gray-800/60 to-gray-700/40 border-gray-700/50 hover:border-gray-600/60 transition-all duration-300 hover:shadow-lg group">
+  <Card className="bg-[#161b22] border-gray-700/50 hover:border-gray-600/60 transition-all duration-300 hover:shadow-lg group">
     <CardContent className="p-6">
       <div className="flex items-start justify-between mb-4">
         <div className={`p-3 rounded-xl group-hover:scale-110 transition-transform duration-300 ${
           variant === 'positive' ? 'bg-emerald-500/20' :
           variant === 'negative' ? 'bg-red-500/20' :
           variant === 'warning' ? 'bg-orange-500/20' :
-          'bg-cyan-500/20'
+          'bg-[#0969da]/20'
         }`}>
           <Icon className={`h-6 w-6 ${
             variant === 'positive' ? 'text-emerald-400' :
             variant === 'negative' ? 'text-red-400' :
             variant === 'warning' ? 'text-orange-400' :
-            'text-cyan-400'
+            'text-[#58a6ff]'
           }`} />
         </div>
         {change && (
@@ -52,12 +52,12 @@ const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "defau
         )}
       </div>
       <div>
-        <p className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-1">
+        <p className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-1">
           {title}
         </p>
-        <p className="text-2xl font-bold text-slate-100 mb-1">{value}</p>
+        <p className="text-2xl font-bold text-white mb-1">{value}</p>
         {subtitle && (
-          <p className="text-sm text-slate-500">{subtitle}</p>
+          <p className="text-sm text-gray-500">{subtitle}</p>
         )}
       </div>
     </CardContent>
@@ -65,10 +65,10 @@ const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "defau
 );
 
 const MetricCard = ({ title, metrics }) => (
-  <Card className="bg-gradient-to-br from-gray-800/60 to-gray-700/40 border-gray-700/50">
+  <Card className="bg-[#161b22] border-gray-700/50">
     <CardHeader className="pb-4">
-      <CardTitle className="text-lg text-slate-100 flex items-center gap-2">
-        <BarChart3 className="h-5 w-5 text-cyan-400" />
+      <CardTitle className="text-lg text-white flex items-center gap-2">
+        <BarChart3 className="h-5 w-5 text-[#58a6ff]" />
         {title}
       </CardTitle>
     </CardHeader>
@@ -76,15 +76,18 @@ const MetricCard = ({ title, metrics }) => (
       <div className="space-y-4">
         {metrics.map((metric, index) => (
           <div key={index} className="flex items-center justify-between py-2">
-            <span className="text-sm text-slate-400">{metric.label}</span>
+            <span className="text-sm text-gray-400">{metric.label}</span>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-200">
+              <span className="text-sm font-semibold text-gray-200">
                 {metric.value}
               </span>
               {metric.trend && (
                 <Badge 
-                  variant={metric.trend === 'up' ? 'default' : 'destructive'} 
-                  className="text-xs"
+                  className={`text-xs ${
+                    metric.trend === 'up' 
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
+                      : 'bg-red-500/20 text-red-400 border-red-500/30'
+                  }`}
                 >
                   {metric.trend === 'up' ? '↗' : '↘'}
                 </Badge>
@@ -98,10 +101,10 @@ const MetricCard = ({ title, metrics }) => (
 );
 
 const AccountLimits = () => (
-  <Card className="bg-gradient-to-br from-gray-800/60 to-gray-700/40 border-gray-700/50">
+  <Card className="bg-[#161b22] border-gray-700/50">
     <CardHeader className="pb-4">
-      <CardTitle className="text-lg text-slate-100 flex items-center gap-2">
-        <Target className="h-5 w-5 text-cyan-400" />
+      <CardTitle className="text-lg text-white flex items-center gap-2">
+        <Target className="h-5 w-5 text-[#58a6ff]" />
         Account Limits
       </CardTitle>
     </CardHeader>
@@ -109,13 +112,13 @@ const AccountLimits = () => (
       <div className="space-y-4">
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Daily Trading Limit</span>
-            <span className="text-slate-200">₹5,00,000</span>
+            <span className="text-gray-400">Daily Trading Limit</span>
+            <span className="text-gray-200">₹5,00,000</span>
           </div>
-          <div className="w-full bg-gray-700/50 rounded-full h-2">
-            <div className="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full" style={{width: '35%'}}></div>
+          <div className="w-full bg-[#0d1117] rounded-full h-2">
+            <div className="bg-gradient-to-r from-[#58a6ff] to-[#0969da] h-2 rounded-full" style={{width: '35%'}}></div>
           </div>
-          <div className="flex justify-between text-xs text-slate-500">
+          <div className="flex justify-between text-xs text-gray-500">
             <span>Used: ₹1,75,000</span>
             <span>Available: ₹3,25,000</span>
           </div>
@@ -123,13 +126,13 @@ const AccountLimits = () => (
         
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Margin Utilization</span>
-            <span className="text-slate-200">₹75,000</span>
+            <span className="text-gray-400">Margin Utilization</span>
+            <span className="text-gray-200">₹75,000</span>
           </div>
-          <div className="w-full bg-gray-700/50 rounded-full h-2">
+          <div className="w-full bg-[#0d1117] rounded-full h-2">
             <div className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full" style={{width: '60%'}}></div>
           </div>
-          <div className="flex justify-between text-xs text-slate-500">
+          <div className="flex justify-between text-xs text-gray-500">
             <span>Used: ₹45,000</span>
             <span>Available: ₹30,000</span>
           </div>
@@ -178,17 +181,17 @@ export default function AccountSummary() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between mb-6">
-          <div className="h-8 bg-gray-700/30 rounded w-48 animate-pulse" />
-          <div className="h-10 bg-gray-700/30 rounded w-24 animate-pulse" />
+          <div className="h-8 bg-[#161b22] rounded w-48 animate-pulse" />
+          <div className="h-10 bg-[#161b22] rounded w-24 animate-pulse" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-32 bg-gray-700/30 rounded-lg animate-pulse" />
+            <div key={i} className="h-32 bg-[#161b22] rounded-lg animate-pulse" />
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {[...Array(2)].map((_, i) => (
-            <div key={i} className="h-64 bg-gray-700/30 rounded-lg animate-pulse" />
+            <div key={i} className="h-64 bg-[#161b22] rounded-lg animate-pulse" />
           ))}
         </div>
       </div>
@@ -197,15 +200,15 @@ export default function AccountSummary() {
 
   if (!account) {
     return (
-      <Card className="bg-gradient-to-br from-gray-800/60 to-gray-700/40 border-gray-700/50">
+      <Card className="bg-[#161b22] border-gray-700/50">
         <CardContent className="p-12 text-center">
           <div className="p-4 rounded-full bg-red-500/20 w-fit mx-auto mb-4">
             <Wallet className="h-8 w-8 text-red-400" />
           </div>
-          <h3 className="text-lg font-medium text-slate-300 mb-2">
+          <h3 className="text-lg font-medium text-gray-300 mb-2">
             Account Data Unavailable
           </h3>
-          <p className="text-sm text-slate-500 mb-4">
+          <p className="text-sm text-gray-500 mb-4">
             Could not load account details. Please try refreshing.
           </p>
           <Button 
@@ -240,18 +243,18 @@ export default function AccountSummary() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20">
-            <Wallet className="h-6 w-6 text-cyan-400" />
+          <div className="p-3 rounded-xl bg-[#0969da]/20">
+            <Wallet className="h-6 w-6 text-[#58a6ff]" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-slate-100">Account Overview</h1>
-            <p className="text-slate-400">Virtual trading account status</p>
+            <h1 className="text-3xl font-bold text-white">Account Overview</h1>
+            <p className="text-gray-400">Virtual trading account status</p>
           </div>
         </div>
         <Button
           onClick={fetchAccountData}
           variant="outline"
-          className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+          className="border-[#0969da]/30 text-[#58a6ff] hover:bg-[#0969da]/10"
           disabled={refreshing}
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
@@ -303,10 +306,10 @@ export default function AccountSummary() {
 
       {/* Additional Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="bg-gradient-to-br from-gray-800/60 to-gray-700/40 border-gray-700/50">
+        <Card className="bg-[#161b22] border-gray-700/50">
           <CardHeader>
-            <CardTitle className="text-lg text-slate-100 flex items-center gap-2">
-              <Activity className="h-5 w-5 text-cyan-400" />
+            <CardTitle className="text-lg text-white flex items-center gap-2">
+              <Activity className="h-5 w-5 text-[#58a6ff]" />
               Recent Activity
             </CardTitle>
           </CardHeader>
@@ -319,8 +322,8 @@ export default function AccountSummary() {
               ].map((activity, index) => (
                 <div key={index} className="flex items-center justify-between py-2 border-b border-gray-700/50 last:border-0">
                   <div>
-                    <p className="text-sm font-medium text-slate-200">{activity.action}</p>
-                    <p className="text-xs text-slate-500">{activity.symbol} • {activity.time}</p>
+                    <p className="text-sm font-medium text-gray-200">{activity.action}</p>
+                    <p className="text-xs text-gray-500">{activity.symbol} • {activity.time}</p>
                   </div>
                   <span className={`text-sm font-semibold ${
                     activity.amount.startsWith('+') ? 'text-emerald-400' : 'text-red-400'
@@ -333,30 +336,30 @@ export default function AccountSummary() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-gray-800/60 to-gray-700/40 border-gray-700/50">
+        <Card className="bg-[#161b22] border-gray-700/50">
           <CardHeader>
-            <CardTitle className="text-lg text-slate-100 flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-cyan-400" />
+            <CardTitle className="text-lg text-white flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-[#58a6ff]" />
               Account Settings
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-400">Auto Square-off</span>
-                <Badge className="bg-emerald-500/20 text-emerald-400">Enabled</Badge>
+                <span className="text-sm text-gray-400">Auto Square-off</span>
+                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Enabled</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-400">Risk Management</span>
-                <Badge className="bg-cyan-500/20 text-cyan-400">Active</Badge>
+                <span className="text-sm text-gray-400">Risk Management</span>
+                <Badge className="bg-[#0969da]/20 text-[#58a6ff] border-[#0969da]/30">Active</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-400">Paper Trading Mode</span>
-                <Badge className="bg-blue-500/20 text-blue-400">On</Badge>
+                <span className="text-sm text-gray-400">Paper Trading Mode</span>
+                <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">On</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-400">Account Type</span>
-                <Badge variant="outline" className="border-gray-600 text-slate-400">Virtual</Badge>
+                <span className="text-sm text-gray-400">Account Type</span>
+                <Badge variant="outline" className="border-gray-600 text-gray-400">Virtual</Badge>
               </div>
             </div>
           </CardContent>
