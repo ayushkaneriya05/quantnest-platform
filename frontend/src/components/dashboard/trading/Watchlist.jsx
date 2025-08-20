@@ -63,8 +63,7 @@ const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
               ) : (
                 <TrendingDown className="h-3 w-3 mr-1" />
               )}
-              {isPositive ? "+" : ""}
-              {changePercent}%
+              {isPositive ? "+" : ""}{priceData.change.toFixed(2)} ({isPositive ? "+" : ""}{priceData.changePercent.toFixed(2)}%)
             </div>
           </div>
         </div>
