@@ -95,6 +95,7 @@ export default function InstrumentSearch({ onAddToWatchlist }) {
           onChange={(e) => setQuery(e.target.value)}
           onFocus={handleInputFocus}
           onBlur={handleInputBlur}
+          onKeyDown={handleKeyDown}
           className="pl-10 bg-[#21262d] border-gray-700 text-white placeholder-gray-500 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
         />
         {loading && (
