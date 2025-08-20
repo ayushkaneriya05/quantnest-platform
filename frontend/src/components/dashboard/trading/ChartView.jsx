@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 // ** FIX 1: Import the series type and ColorType **
-import { createChart, ColorType } from "lightweight-charts";
+import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
 import api from "@/services/api";
 import TimeframeSelector from "./TimeframeSelector";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -99,7 +99,7 @@ export default function ChartView({ symbol }) {
 
     // ** ERROR FIX HERE **
     // Use the correct lightweight-charts v5 API
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#22C55E",
       downColor: "#EF4444",
       borderVisible: false,
