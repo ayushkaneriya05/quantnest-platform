@@ -102,7 +102,8 @@ function AppContent() {
             />
             <Route path="/google-callback" element={<SocialLoginHandler />} />
 
-
+            {/* Protected Dashboard routes */}
+            <Route element={<ProtectedRoute />}>
               <Route path="/dashboard" element={<DashboardLayout />}>
                 <Route index element={<Dashboard />} />
                 <Route path="search" element={<Search />} />
@@ -176,6 +177,7 @@ function AppContent() {
                   element={<TradeTerminal />}
                 />
               </Route>
+            </Route>
 
             {/* Catch all route - redirect to landing page */}
             <Route path="*" element={<LandingPage />} />
