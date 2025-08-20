@@ -60,7 +60,7 @@ export default function PaperTrading() {
   };
 
   return (
-    <div className="h-full bg-[#0d1117] text-white flex flex-col overflow-hidden">
+    <div className="h-full bg-[#0d1117] text-white flex flex-col">
       <Tabs defaultValue="trading" className="h-full flex flex-col">
         {/* Full Width Tabbar Fixed at Top */}
         <div className="flex-shrink-0 border-b border-gray-800/50 bg-[#161b22] z-10">
@@ -96,10 +96,10 @@ export default function PaperTrading() {
           </div>
         </div>
 
-        {/* Main Content Area - No Scrolling */}
-        <div className="flex-1 overflow-hidden min-h-0">
+        {/* Main Content Area with Scrollbars */}
+        <div className="flex-1 min-h-0 overflow-auto scrollbar-theme">
           <TabsContent value="trading" className="h-full m-0 p-0">
-            <div className="h-full flex flex-col lg:flex-row">
+            <div className="min-h-full flex flex-col lg:flex-row">
               {/* Resizable Watchlist - Hidden on mobile, sidebar on larger screens */}
               <div className="hidden lg:block">
                 <div 
@@ -160,13 +160,15 @@ export default function PaperTrading() {
                   </div>
                 </div>
 
-                {/* Chart Area */}
-                <div className="flex-1 bg-[#0d1117] overflow-hidden min-h-0">
-                  <ChartView symbol={selectedSymbol} />
+                {/* Chart Area with Scrollbar Support */}
+                <div className="flex-1 bg-[#0d1117] min-h-0 overflow-auto scrollbar-theme">
+                  <div className="h-full min-h-[400px] lg:min-h-[600px]">
+                    <ChartView symbol={selectedSymbol} />
+                  </div>
                 </div>
 
                 {/* Mobile Watchlist - Show on small screens */}
-                <div className="lg:hidden border-t border-gray-800/50 bg-[#0d1117] h-48 sm:h-64">
+                <div className="lg:hidden border-t border-gray-800/50 bg-[#0d1117] h-48 sm:h-64 overflow-auto scrollbar-thin-theme">
                   <Watchlist onSymbolSelect={setSelectedSymbol} />
                 </div>
               </div>
@@ -174,16 +176,16 @@ export default function PaperTrading() {
           </TabsContent>
 
           <TabsContent value="portfolio" className="h-full m-0 p-0 bg-[#0d1117]">
-            <div className="h-full w-full overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
-              <div className="p-3 sm:p-4 lg:p-6 max-w-7xl mx-auto">
+            <div className="h-full w-full overflow-y-auto scrollbar-theme">
+              <div className="p-3 sm:p-4 lg:p-6 max-w-7xl mx-auto min-h-full">
                 <PortfolioDisplay key={portfolioKey} />
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="account" className="h-full m-0 p-0 bg-[#0d1117]">
-            <div className="h-full w-full overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
-              <div className="p-3 sm:p-4 lg:p-6 max-w-7xl mx-auto">
+            <div className="h-full w-full overflow-y-auto scrollbar-theme">
+              <div className="p-3 sm:p-4 lg:p-6 max-w-7xl mx-auto min-h-full">
                 <AccountSummary />
               </div>
             </div>
