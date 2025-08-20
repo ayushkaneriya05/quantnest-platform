@@ -39,6 +39,13 @@ export default function ChartView({ symbol }) {
       const res = await api.get(
         `/market/ohlc/?instrument=${symbol}&resolution=${resolution}`
       );
+
+      // Add defensive check for response data
+      if (!res.data || !Array.isArray(res.data)) {
+        console.error("Invalid chart data response:", res.data);
+        return;
+      }
+
       const data = res.data.map((d) => ({
         time: d.time / 1000,
         open: d.open,
