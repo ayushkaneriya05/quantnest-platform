@@ -108,6 +108,16 @@ export default function ChartView({ symbol }) {
     });
     candleSeriesRef.current = candleSeries;
 
+    // Initialize with dummy data immediately to show chart
+    if (symbol) {
+      const initialData = getDummyChartData(symbol, resolution);
+      candleSeries.setData(initialData);
+      if (initialData.length > 0) {
+        currentCandleRef.current = initialData[initialData.length - 1];
+      }
+      setLoading(false);
+    }
+
     const resizeObserver = new ResizeObserver((entries) => {
       if (entries.length > 0) {
         const { width, height } = entries[0].contentRect;
@@ -120,7 +130,7 @@ export default function ChartView({ symbol }) {
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [resolution]);
+  }, [resolution, symbol]);
 
   // Refetch data when symbol or resolution changes
   useEffect(() => {
