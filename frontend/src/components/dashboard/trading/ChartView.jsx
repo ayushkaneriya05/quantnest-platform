@@ -220,7 +220,9 @@ export default function ChartView({ symbol }) {
           };
         }
 
-        candleSeriesRef.current.update(currentCandleRef.current);
+        if (!isDisposedRef.current && candleSeriesRef.current) {
+          candleSeriesRef.current.update(currentCandleRef.current);
+        }
       }
     } catch (err) {
       console.warn("WebSocket message processing error:", err);
