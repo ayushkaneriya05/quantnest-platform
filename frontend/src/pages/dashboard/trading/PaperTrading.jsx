@@ -3,6 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { TrendingUp, Briefcase, User, ArrowUp, ArrowDown } from "lucide-react";
 import { getPriceChange } from "@/data/dummyChartData";
+import { dummyWatchlistPrices } from "@/data/dummyWatchlistData";
 
 import ChartView from "@/components/dashboard/trading/ChartView";
 import Watchlist from "@/components/dashboard/trading/Watchlist";
