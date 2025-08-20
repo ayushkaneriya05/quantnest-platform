@@ -1,12 +1,9 @@
-# backend/marketdata/urls.py
 from django.urls import path
-from . import views
+from .views import historical_data, live_quote, market_status, symbols_list
 
 urlpatterns = [
-    path("fyers/login/", views.fyers_login, name="fyers_login"),
-    path("fyers/callback/", views.fyers_callback, name="fyers_callback"),
-    path("fyers/token/status/", views.fyers_token_status, name="fyers_token_status"),
-    path("fyers/token/refresh/", views.fyers_token_refresh, name="fyers_token_refresh"),
-    path("ohlc/", views.ohlc_data, name="ohlc_data"),
-
+    path('historical/', historical_data, name='historical-data'),
+    path('quote/', live_quote, name='live-quote'),
+    path('status/', market_status, name='market-status'),
+    path('symbols/', symbols_list, name='symbols-list'),
 ]
