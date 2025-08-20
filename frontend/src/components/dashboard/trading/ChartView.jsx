@@ -114,8 +114,10 @@ export default function ChartView({ symbol }) {
       });
       chartRef.current = chart;
 
-      // Correct API for lightweight-charts v5: use addSeries with 'Candlestick' type
-      const candleSeries = chart.addSeries('Candlestick', {
+      // Create candlestick series using the correct v5.x API
+      // The addSeries method expects a configuration object with 'type' property
+      const candleSeries = chart.addSeries({
+        type: 'candlestick',
         upColor: "#22C55E",
         downColor: "#EF4444",
         borderVisible: false,
