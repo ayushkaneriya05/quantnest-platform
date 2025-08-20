@@ -50,8 +50,9 @@ api.interceptors.response.use(
       errorMessage
     );
 
-    // Check if the error is a 401 and we haven't already tried to refresh
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Only handle auth errors if we actually got a response from the server
+    // Don't redirect on network errors (no response)
+    if (error.response?.status === 401 && !originalRequest._retry && error.response) {
       originalRequest._retry = true; // Mark that we've tried to refresh
 
       try {
