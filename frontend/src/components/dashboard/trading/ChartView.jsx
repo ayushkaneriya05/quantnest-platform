@@ -176,7 +176,7 @@ export default function ChartView({ symbol }) {
 
   // Handle WebSocket for live updates (with error handling)
   useEffect(() => {
-    if (loading || !symbol || !isConnected || !lastMessage) return;
+    if (loading || !symbol || !isConnected || !lastMessage || isDisposedRef.current) return;
 
     try {
       const instrument_group_name = `NSE_${symbol.toUpperCase()}_EQ`.replace(
@@ -188,6 +188,7 @@ export default function ChartView({ symbol }) {
       const tick = JSON.parse(lastMessage);
 
       if (
+        !isDisposedRef.current &&
         candleSeriesRef.current &&
         tick.instrument === `NSE:${symbol.toUpperCase()}-EQ`
       ) {
