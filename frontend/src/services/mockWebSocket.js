@@ -33,10 +33,16 @@ class MockWebSocket {
       const changePercent = (Math.random() - 0.5) * 0.02; // -1% to +1% change
       const newPrice = basePrice * (1 + changePercent);
       
+      // Generate proper timestamp
+      const now = new Date();
+      const timestamp = now.toISOString(); // ISO string format
+      const timestampSeconds = Math.floor(now.getTime() / 1000); // Unix timestamp in seconds
+      
       const mockData = {
         instrument: `NSE:${symbol}-EQ`,
         price: parseFloat(newPrice.toFixed(2)),
-        timestamp: new Date().toISOString(),
+        timestamp: timestamp, // ISO format for WebSocket
+        timestamp_seconds: timestampSeconds, // Unix seconds for charts
         volume: Math.floor(Math.random() * 10000) + 1000,
         change: parseFloat((newPrice - basePrice).toFixed(2)),
         change_percent: parseFloat((changePercent * 100).toFixed(2))
@@ -67,14 +73,20 @@ class MockWebSocket {
     // Simulate subscription acknowledgment
     if (this.onmessage) {
       setTimeout(() => {
-        this.onmessage({
-          type: 'message',
-          data: JSON.stringify({
-            type: 'subscription_ack',
-            message: 'Subscribed to market data',
-            data: JSON.parse(data)
-          })
-        });
+        try {
+          const parsedData = JSON.parse(data);
+          this.onmessage({
+            type: 'message',
+            data: JSON.stringify({
+              type: 'subscription_ack',
+              message: 'Subscribed to market data',
+              instrument: parsedData.instrument,
+              timestamp: new Date().toISOString()
+            })
+          });
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
       }, 100);
     }
   }
@@ -85,7 +97,7 @@ class MockWebSocket {
       clearInterval(this.interval);
     }
     if (this.onclose) {
-      this.onclose({ type: 'close' });
+      this.onclose({ type: 'close', code: 1000 });
     }
   }
 
