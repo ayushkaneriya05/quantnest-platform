@@ -1,9 +1,17 @@
 import axios from "axios";
 import { tokenRefreshed, logoutUser, logout } from "../store/authSlice";
 import { store } from "../store/index";
+import { mockAPI, shouldUseMockAPI } from "./mockApi";
+
+// Check if we should use mock API
+const useMockAPI = shouldUseMockAPI();
+
+if (useMockAPI) {
+  console.warn("🔧 Using Mock API - Backend not available");
+}
 
 // Create an Axios instance
-const api = axios.create({
+const axiosInstance = axios.create({
   baseURL: import.meta.env.VITE_REACT_APP_API_URL,
   withCredentials: true,
   timeout: 10000, // 10 second timeout
@@ -13,7 +21,7 @@ const api = axios.create({
 });
 
 // Add a request interceptor to include the token
-api.interceptors.request.use(
+axiosInstance.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("accessToken");
     console.log("API Request - token : ", token);
@@ -28,7 +36,7 @@ api.interceptors.request.use(
   }
 );
 
-api.interceptors.response.use(
+axiosInstance.interceptors.response.use(
   (response) => {
     console.log(
       `API Success - ${response.config.method?.toUpperCase()} ${
@@ -80,7 +88,7 @@ api.interceptors.response.use(
 
         // Update the header of the original request and retry it
         originalRequest.headers["Authorization"] = `Bearer ${access}`;
-        return api(originalRequest);
+        return axiosInstance(originalRequest);
       } catch (refreshError) {
         console.error("Token refresh failed:", refreshError);
 
@@ -121,5 +129,88 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// API wrapper that uses mock API when backend is not available
+const api = {
+  async get(endpoint) {
+    if (useMockAPI) {
+      try {
+        return await mockAPI.get(endpoint);
+      } catch (error) {
+        console.error("Mock API Error:", error);
+        throw error;
+      }
+    }
+    
+    try {
+      return await axiosInstance.get(endpoint);
+    } catch (error) {
+      // If real API fails and returns HTML (like index.html), fall back to mock
+      if (error.response?.data && typeof error.response.data === 'string' && error.response.data.includes('<!doctype html>')) {
+        console.warn("🔄 Real API returned HTML, falling back to Mock API");
+        return await mockAPI.get(endpoint);
+      }
+      throw error;
+    }
+  },
+
+  async post(endpoint, data, config) {
+    if (useMockAPI) {
+      try {
+        return await mockAPI.post(endpoint, data);
+      } catch (error) {
+        console.error("Mock API Error:", error);
+        throw error;
+      }
+    }
+    
+    try {
+      return await axiosInstance.post(endpoint, data, config);
+    } catch (error) {
+      // If real API fails and returns HTML, fall back to mock
+      if (error.response?.data && typeof error.response.data === 'string' && error.response.data.includes('<!doctype html>')) {
+        console.warn("🔄 Real API returned HTML, falling back to Mock API");
+        return await mockAPI.post(endpoint, data);
+      }
+      throw error;
+    }
+  },
+
+  async put(endpoint, data, config) {
+    if (useMockAPI) {
+      console.warn("Mock API: PUT method not implemented yet");
+      return { data: { message: "PUT operation simulated" }, status: 200 };
+    }
+    
+    try {
+      return await axiosInstance.put(endpoint, data, config);
+    } catch (error) {
+      console.error("PUT API Error:", error);
+      throw error;
+    }
+  },
+
+  async delete(endpoint, config) {
+    if (useMockAPI) {
+      try {
+        return await mockAPI.delete(endpoint, config);
+      } catch (error) {
+        console.error("Mock API Error:", error);
+        throw error;
+      }
+    }
+    
+    try {
+      return await axiosInstance.delete(endpoint, config);
+    } catch (error) {
+      // If real API fails and returns HTML, fall back to mock
+      if (error.response?.data && typeof error.response.data === 'string' && error.response.data.includes('<!doctype html>')) {
+        console.warn("🔄 Real API returned HTML, falling back to Mock API");
+        return await mockAPI.delete(endpoint, config);
+      }
+      throw error;
+    }
+  }
+};
 
 export default api;
