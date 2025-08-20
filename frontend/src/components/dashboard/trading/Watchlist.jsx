@@ -235,7 +235,7 @@ export default function Watchlist({ onSymbolSelect }) {
             <p className="text-sm text-gray-500">
               {searchQuery
                 ? `No symbols match "${searchQuery}"`
-                : "Your watchlist is empty"}
+                : "Click the + button above to add stocks to your watchlist"}
             </p>
           </div>
         )}
