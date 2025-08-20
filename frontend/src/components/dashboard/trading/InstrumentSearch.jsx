@@ -65,6 +65,14 @@ export default function InstrumentSearch({ onAddToWatchlist }) {
     setIsOpen(false);
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      setIsOpen(false);
+      setQuery("");
+      setResults([]);
+    }
+  };
+
   const handleInputFocus = () => {
     if (results.length > 0) {
       setIsOpen(true);
