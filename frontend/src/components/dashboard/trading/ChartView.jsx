@@ -137,51 +137,56 @@ export default function ChartView({ symbol }) {
     fetchHistoricalData();
   }, [fetchHistoricalData]);
 
-  // Handle WebSocket for live updates
+  // Handle WebSocket for live updates (with error handling)
   useEffect(() => {
     if (loading || !symbol || !isConnected || !lastMessage) return;
 
-    const instrument_group_name = `NSE_${symbol.toUpperCase()}_EQ`.replace(
-      /-/g,
-      "_"
-    );
-    sendMessage({ type: "subscribe", instrument: instrument_group_name });
+    try {
+      const instrument_group_name = `NSE_${symbol.toUpperCase()}_EQ`.replace(
+        /-/g,
+        "_"
+      );
+      sendMessage({ type: "subscribe", instrument: instrument_group_name });
 
-    const tick = JSON.parse(lastMessage);
-
-    if (
-      candleSeriesRef.current &&
-      tick.instrument === `NSE:${symbol.toUpperCase()}-EQ`
-    ) {
-      const tickTime = new Date(tick.timestamp).getTime() / 1000;
-      const tickPrice = tick.price;
-      const resInSeconds = resolutionToSeconds(resolution);
-      const candleStartTime = getCandleStartTime(tickTime, resInSeconds);
+      const tick = JSON.parse(lastMessage);
 
       if (
-        currentCandleRef.current &&
-        candleStartTime === currentCandleRef.current.time
+        candleSeriesRef.current &&
+        tick.instrument === `NSE:${symbol.toUpperCase()}-EQ`
       ) {
-        currentCandleRef.current.high = Math.max(
-          currentCandleRef.current.high,
-          tickPrice
-        );
-        currentCandleRef.current.low = Math.min(
-          currentCandleRef.current.low,
-          tickPrice
-        );
-        currentCandleRef.current.close = tickPrice;
-      } else {
-        currentCandleRef.current = {
-          time: candleStartTime,
-          open: tickPrice,
-          high: tickPrice,
-          low: tickPrice,
-          close: tickPrice,
-        };
-      }
+        const tickTime = new Date(tick.timestamp).getTime() / 1000;
+        const tickPrice = tick.price;
+        const resInSeconds = resolutionToSeconds(resolution);
+        const candleStartTime = getCandleStartTime(tickTime, resInSeconds);
 
-      candleSeriesRef.current.update(currentCandleRef.current);
+        if (
+          currentCandleRef.current &&
+          candleStartTime === currentCandleRef.current.time
+        ) {
+          currentCandleRef.current.high = Math.max(
+            currentCandleRef.current.high,
+            tickPrice
+          );
+          currentCandleRef.current.low = Math.min(
+            currentCandleRef.current.low,
+            tickPrice
+          );
+          currentCandleRef.current.close = tickPrice;
+        } else {
+          currentCandleRef.current = {
+            time: candleStartTime,
+            open: tickPrice,
+            high: tickPrice,
+            low: tickPrice,
+            close: tickPrice,
+          };
+        }
+
+        candleSeriesRef.current.update(currentCandleRef.current);
+      }
+    } catch (err) {
+      console.warn("WebSocket message processing error:", err);
+      // Continue without WebSocket updates - chart still works with dummy data
     }
   }, [loading, symbol, resolution, isConnected, sendMessage, lastMessage]);
 
