@@ -122,5 +122,44 @@ export const getDummyChartData = (symbol, timeframe = '1D') => {
   return generateDummyOHLC(days, basePrice, symbol);
 };
 
+// Function to get the current price for a symbol (last close price)
+export const getCurrentPrice = (symbol) => {
+  const data = getDummyChartData(symbol, '1D');
+  if (data && data.length > 0) {
+    return data[data.length - 1].close;
+  }
+  return 1000 + Math.random() * 2000; // Random fallback
+};
+
+// Function to get price change data
+export const getPriceChange = (symbol) => {
+  const data = getDummyChartData(symbol, '1D');
+  if (data && data.length >= 2) {
+    const current = data[data.length - 1].close;
+    const previous = data[data.length - 2].close;
+    const change = current - previous;
+    const changePercent = ((change / previous) * 100);
+
+    return {
+      current: current,
+      change: change,
+      changePercent: changePercent,
+      isPositive: change >= 0
+    };
+  }
+
+  // Fallback random data
+  const current = 1000 + Math.random() * 2000;
+  const change = (Math.random() - 0.5) * 100;
+  const changePercent = (Math.random() - 0.5) * 5;
+
+  return {
+    current: current,
+    change: change,
+    changePercent: changePercent,
+    isPositive: change >= 0
+  };
+};
+
 // Export default data for quick access
 export default dummyChartData;
