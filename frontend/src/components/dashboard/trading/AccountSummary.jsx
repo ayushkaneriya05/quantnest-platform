@@ -159,8 +159,7 @@ export default function AccountSummary() {
         throw new Error("Invalid response");
       }
     } catch (error) {
-      console.warn("Failed to fetch account data from API, using dummy data:", error);
-      // Fallback to dummy data
+      // Silently fallback to dummy data - this is expected when backend is not running
       setAccount(dummyAccountData);
     } finally {
       setLoading(false);
