@@ -98,8 +98,8 @@ export default function ChartView({ symbol }) {
     chartRef.current = chart;
 
     // ** ERROR FIX HERE **
-    // Use the correct `addCandlestickSeries` method
-    const candleSeries = chart.addCandlestickSeries({
+    // Use the correct API for adding candlestick series
+    const candleSeries = chart.addSeries('Candlestick', {
       upColor: "#22C55E",
       downColor: "#EF4444",
       borderVisible: false,
