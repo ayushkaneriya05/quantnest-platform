@@ -18,6 +18,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import api from "@/services/api";
+import { dummyAccountData } from "@/data/dummyPortfolioData";
 
 const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "default" }) => (
   <Card className="bg-[#161b22] border-gray-700/50 hover:border-gray-600/60 transition-all duration-300 hover:shadow-lg group">
@@ -155,9 +156,12 @@ export default function AccountSummary() {
         setAccount(response.data);
       } else {
         console.error("Invalid account response:", response.data);
+        throw new Error("Invalid response");
       }
     } catch (error) {
-      console.error("Failed to fetch account data:", error);
+      console.warn("Failed to fetch account data from API, using dummy data:", error);
+      // Fallback to dummy data
+      setAccount(dummyAccountData);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -165,6 +169,10 @@ export default function AccountSummary() {
   };
 
   useEffect(() => {
+    // Initialize with dummy data immediately
+    setAccount(dummyAccountData);
+    setLoading(false);
+    // Still try to fetch real data
     fetchAccountData();
   }, []);
 
