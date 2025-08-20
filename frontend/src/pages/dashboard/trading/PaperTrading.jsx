@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { TrendingUp, Briefcase, User, ArrowUp, ArrowDown } from "lucide-react";
+import { getPriceChange } from "@/data/dummyChartData";
 
 import ChartView from "@/components/dashboard/trading/ChartView";
 import Watchlist from "@/components/dashboard/trading/Watchlist";
@@ -15,6 +16,7 @@ export default function PaperTrading() {
   const [transactionType, setTransactionType] = useState("BUY");
   const [portfolioKey, setPortfolioKey] = useState(0);
   const [watchlistWidth, setWatchlistWidth] = useState(320);
+  const [priceData, setPriceData] = useState(null);
 
   const handleOpenOrderModal = (type) => {
     setTransactionType(type);
@@ -29,6 +31,14 @@ export default function PaperTrading() {
     handleCloseOrderModal();
     setPortfolioKey((prevKey) => prevKey + 1);
   }, []);
+
+  // Update price data when symbol changes
+  useEffect(() => {
+    if (selectedSymbol) {
+      const data = getPriceChange(selectedSymbol);
+      setPriceData(data);
+    }
+  }, [selectedSymbol]);
 
   const handleMouseDown = (e) => {
     e.preventDefault();
@@ -125,12 +135,20 @@ export default function PaperTrading() {
                         {selectedSymbol}
                       </h1>
                       <div className="text-sm sm:text-lg lg:text-2xl font-mono text-white">
-                        ₹2,458.50
+                        ₹{priceData ? priceData.current.toFixed(2) : '0.00'}
                       </div>
-                      <div className="hidden sm:flex items-center text-xs sm:text-sm text-emerald-400">
-                        <ArrowUp className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                        +24.50 (+1.01%)
-                      </div>
+                      {priceData && (
+                        <div className={`hidden sm:flex items-center text-xs sm:text-sm ${
+                          priceData.isPositive ? 'text-emerald-400' : 'text-red-400'
+                        }`}>
+                          {priceData.isPositive ? (
+                            <ArrowUp className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                          )}
+                          {priceData.isPositive ? '+' : ''}{priceData.change.toFixed(2)} ({priceData.isPositive ? '+' : ''}{priceData.changePercent.toFixed(2)}%)
+                        </div>
+                      )}
                     </div>
 
                     {/* Quick Trade Buttons */}
@@ -151,10 +169,18 @@ export default function PaperTrading() {
                   </div>
 
                   {/* Mobile price change */}
-                  <div className="sm:hidden flex items-center text-xs text-emerald-400 mt-1">
-                    <ArrowUp className="h-3 w-3 mr-1" />
-                    +24.50 (+1.01%)
-                  </div>
+                  {priceData && (
+                    <div className={`sm:hidden flex items-center text-xs mt-1 ${
+                      priceData.isPositive ? 'text-emerald-400' : 'text-red-400'
+                    }`}>
+                      {priceData.isPositive ? (
+                        <ArrowUp className="h-3 w-3 mr-1" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 mr-1" />
+                      )}
+                      {priceData.isPositive ? '+' : ''}{priceData.change.toFixed(2)} ({priceData.isPositive ? '+' : ''}{priceData.changePercent.toFixed(2)}%)
+                    </div>
+                  )}
                 </div>
 
                 {/* Chart Area with Scrollbar Support */}
