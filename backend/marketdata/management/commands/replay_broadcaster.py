@@ -27,7 +27,7 @@ class Command(BaseCommand):
                         {"timestamp": {"$gt": start_time, "$lte": end_time}}
                     ).sort("timestamp", 1)
 
-                    async for tick in ticks_to_broadcast:  # if using Motor
+                    for tick in ticks_to_broadcast:  # if using Motor
                         # Safe group name
                         instrument_group = hashlib.sha1(
                             tick['instrument'].encode()
