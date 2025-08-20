@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, Search, Star, TrendingUp, TrendingDown } from "lucide-react";
+import { Trash2, Search, Star, TrendingUp, TrendingDown, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import InstrumentSearch from "./InstrumentSearch";
 import api from "@/services/api";
 
 const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
@@ -70,6 +71,7 @@ export default function Watchlist({ onSymbolSelect }) {
   const [loading, setLoading] = useState(true);
   const [selectedSymbol, setSelectedSymbol] = useState("RELIANCE");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAddInstrument, setShowAddInstrument] = useState(false);
 
   const fetchWatchlist = async () => {
     try {
@@ -108,6 +110,18 @@ export default function Watchlist({ onSymbolSelect }) {
     }
   };
 
+  const handleAddToWatchlist = async (instrumentId) => {
+    try {
+      await api.post("/trading/watchlist/", {
+        instrument_id: instrumentId,
+      });
+      fetchWatchlist(); // Refresh the list
+      setShowAddInstrument(false); // Hide the search component
+    } catch (err) {
+      console.error("Failed to add to watchlist:", err);
+    }
+  };
+
   const handleSymbolSelect = (symbol) => {
     setSelectedSymbol(symbol);
     onSymbolSelect(symbol);
@@ -139,14 +153,31 @@ export default function Watchlist({ onSymbolSelect }) {
     <div className="h-full bg-[#0d1117] flex flex-col">
       {/* Header */}
       <div className="flex-shrink-0 p-4 border-b border-gray-800/50">
-        <div className="flex items-center mb-3">
+        <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <Star className="h-5 w-5 text-yellow-400" />
             Watchlist
           </h2>
+          <Button
+            onClick={() => setShowAddInstrument(!showAddInstrument)}
+            variant="ghost"
+            size="sm"
+            className="text-gray-400 hover:text-white hover:bg-gray-700/50"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
 
-        {/* Search Bar */}
+        {/* Add Instrument Search */}
+        {showAddInstrument && (
+          <div className="mb-3">
+            <InstrumentSearch
+              onAddToWatchlist={handleAddToWatchlist}
+            />
+          </div>
+        )}
+
+        {/* Search Bar for existing watchlist */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
           <Input
