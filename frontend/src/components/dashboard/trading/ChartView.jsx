@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import TimeframeSelector from "./TimeframeSelector";
+import WebSocketStatus from "./WebSocketStatus";
 import { useWebSocketContext } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
@@ -77,7 +78,8 @@ export default function ChartView({ symbol = "RELIANCE" }) {
     subscribe, 
     unsubscribe, 
     getTickData, 
-    connectionStatus 
+    connectionStatus,
+    useMockData
   } = useWebSocketContext();
 
   // Memoized chart data processing
@@ -186,11 +188,15 @@ export default function ChartView({ symbol = "RELIANCE" }) {
     } catch (err) {
       console.error('Failed to load historical data:', err);
       setError('Failed to load chart data. Please try again.');
-      toast.error('Failed to load chart data');
+      
+      // Don't show error toast for demo mode
+      if (!useMockData) {
+        toast.error('Failed to load chart data');
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [useMockData]);
 
   // Update chart data when processed data changes
   useEffect(() => {
@@ -217,7 +223,7 @@ export default function ChartView({ symbol = "RELIANCE" }) {
 
   // Handle live tick data updates
   useEffect(() => {
-    if (!symbol || !isConnected) return;
+    if (!symbol) return;
 
     const handleTickUpdate = (tickData) => {
       if (tickData.symbol === symbol && tickData.ltp) {
@@ -265,7 +271,7 @@ export default function ChartView({ symbol = "RELIANCE" }) {
     return () => {
       if (unsubscribeFunc) unsubscribeFunc();
     };
-  }, [symbol, isConnected, subscribe, timeframe, historicalData]);
+  }, [symbol, subscribe, timeframe, historicalData]);
 
   // Load data when symbol or timeframe changes
   useEffect(() => {
@@ -294,13 +300,7 @@ export default function ChartView({ symbol = "RELIANCE" }) {
           <div className="flex items-center gap-4">
             <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
               {symbol}
-              <Badge variant={isConnected ? "default" : "destructive"} className="text-xs">
-                {isConnected ? (
-                  <><Wifi className="h-3 w-3 mr-1" /> Live</>
-                ) : (
-                  <><WifiOff className="h-3 w-3 mr-1" /> Offline</>
-                )}
-              </Badge>
+              <WebSocketStatus />
             </CardTitle>
             
             <div className="flex items-center gap-4 text-sm">
@@ -332,6 +332,16 @@ export default function ChartView({ symbol = "RELIANCE" }) {
             onTimeframeChange={handleTimeframeChange}
           />
         </div>
+
+        {/* Mode indicator */}
+        {useMockData && (
+          <div className="mt-2">
+            <Badge variant="outline" className="text-xs border-yellow-600 text-yellow-400 bg-yellow-500/10">
+              <Activity className="h-3 w-3 mr-1" />
+              Demo Mode - Simulated Data
+            </Badge>
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="p-0">
