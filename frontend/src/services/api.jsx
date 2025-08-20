@@ -41,12 +41,13 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    console.error(
+    const errorMessage = error.response?.data?.message || error.response?.statusText || error.message || 'Unknown error';
+    console.warn(
       `API Error - ${originalRequest?.method?.toUpperCase()} ${
         originalRequest?.url
       }:`,
-      error.response?.status,
-      error.response?.data
+      error.response?.status || 'Network Error',
+      errorMessage
     );
 
     // Check if the error is a 401 and we haven't already tried to refresh
