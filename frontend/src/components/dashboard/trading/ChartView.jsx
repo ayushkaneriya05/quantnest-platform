@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-// ** FIX 1: Import the series type and ColorType **
-import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
+import { createChart, ColorType } from "lightweight-charts";
 import api from "@/services/api";
 import TimeframeSelector from "./TimeframeSelector";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -35,6 +34,7 @@ export default function ChartView({ symbol }) {
     if (!symbol || !candleSeriesRef.current) return;
     setLoading(true);
     currentCandleRef.current = null;
+    
     try {
       const res = await api.get(
         `/market/ohlc/?instrument=${symbol}&resolution=${resolution}`
@@ -46,16 +46,43 @@ export default function ChartView({ symbol }) {
         return;
       }
 
-      const data = res.data.map((d) => ({
-        time: d.time / 1000,
-        open: d.open,
-        high: d.high,
-        low: d.low,
-        close: d.close,
-      }));
-      candleSeriesRef.current.setData(data);
-      if (data.length > 0) {
-        currentCandleRef.current = data[data.length - 1];
+      // Process and validate data before setting it
+      const processedData = res.data
+        .map((d) => {
+          // Ensure time is a proper Unix timestamp in seconds
+          let timeValue;
+          if (typeof d.time === 'number') {
+            // If time is in milliseconds, convert to seconds
+            timeValue = d.time > 10000000000 ? Math.floor(d.time / 1000) : d.time;
+          } else if (d.time instanceof Date) {
+            timeValue = Math.floor(d.time.getTime() / 1000);
+          } else {
+            // Try to parse as timestamp
+            timeValue = Math.floor(new Date(d.time).getTime() / 1000);
+          }
+
+          return {
+            time: timeValue,
+            open: parseFloat(d.open) || 0,
+            high: parseFloat(d.high) || 0,
+            low: parseFloat(d.low) || 0,
+            close: parseFloat(d.close) || 0,
+          };
+        })
+        .filter(d => !isNaN(d.time) && d.time > 0) // Filter out invalid times
+        .sort((a, b) => a.time - b.time); // Ensure chronological order
+
+      if (processedData.length === 0) {
+        console.warn("No valid chart data after processing");
+        return;
+      }
+
+      console.log("Setting chart data:", processedData.slice(0, 3)); // Log first 3 items for debugging
+      
+      candleSeriesRef.current.setData(processedData);
+      
+      if (processedData.length > 0) {
+        currentCandleRef.current = processedData[processedData.length - 1];
       }
     } catch (err) {
       console.error("Failed to fetch chart data:", err);
@@ -68,99 +95,121 @@ export default function ChartView({ symbol }) {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "#0A0A1A" },
-        textColor: "#D1D5DB",
-      },
-      grid: {
-        vertLines: { color: "#1F2937" },
-        horzLines: { color: "#1F2937" },
-      },
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: resolution.includes("m"),
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: 500,
-    });
-    chartRef.current = chart;
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        layout: {
+          background: { type: ColorType.Solid, color: "#0A0A1A" },
+          textColor: "#D1D5DB",
+        },
+        grid: {
+          vertLines: { color: "#1F2937" },
+          horzLines: { color: "#1F2937" },
+        },
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: resolution.includes("m"),
+        },
+        width: chartContainerRef.current.clientWidth,
+        height: 500,
+      });
+      chartRef.current = chart;
 
-    // ** ERROR FIX HERE **
-    // Use the correct `addSeries` method with the `CandlestickSeries` type
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#22C55E",
-      downColor: "#EF4444",
-      borderVisible: false,
-      wickUpColor: "#22C55E",
-      wickDownColor: "#EF4444",
-    });
-    candleSeriesRef.current = candleSeries;
+      // Use correct method to add candlestick series
+      const candleSeries = chart.addCandlestickSeries({
+        upColor: "#22C55E",
+        downColor: "#EF4444",
+        borderVisible: false,
+        wickUpColor: "#22C55E",
+        wickDownColor: "#EF4444",
+      });
+      candleSeriesRef.current = candleSeries;
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      if (entries.length > 0) {
-        const { width, height } = entries[0].contentRect;
-        chart.applyOptions({ width, height });
-      }
-    });
-    resizeObserver.observe(chartContainerRef.current);
+      const resizeObserver = new ResizeObserver((entries) => {
+        if (entries.length > 0) {
+          const { width, height } = entries[0].contentRect;
+          chart.applyOptions({ width, height });
+        }
+      });
+      resizeObserver.observe(chartContainerRef.current);
 
-    return () => {
-      resizeObserver.disconnect();
-      chart.remove();
-    };
+      return () => {
+        resizeObserver.disconnect();
+        if (chart) {
+          chart.remove();
+        }
+      };
+    } catch (error) {
+      console.error("Failed to initialize chart:", error);
+      setLoading(false);
+    }
   }, [resolution]);
 
   // Refetch data when symbol or resolution changes
   useEffect(() => {
-    fetchHistoricalData();
+    if (chartRef.current && candleSeriesRef.current) {
+      fetchHistoricalData();
+    }
   }, [fetchHistoricalData]);
 
   // Handle WebSocket for live updates
   useEffect(() => {
-    if (loading || !symbol || !isConnected || !lastMessage) return;
+    if (loading || !symbol || !isConnected || !lastMessage || !candleSeriesRef.current) return;
 
-    const instrument_group_name = `NSE_${symbol.toUpperCase()}_EQ`.replace(
-      /-/g,
-      "_"
-    );
-    sendMessage({ type: "subscribe", instrument: instrument_group_name });
+    try {
+      const instrument_group_name = `NSE_${symbol.toUpperCase()}_EQ`.replace(
+        /-/g,
+        "_"
+      );
+      sendMessage({ type: "subscribe", instrument: instrument_group_name });
 
-    const tick = JSON.parse(lastMessage);
+      const tick = JSON.parse(lastMessage);
 
-    if (
-      candleSeriesRef.current &&
-      tick.instrument === `NSE:${symbol.toUpperCase()}-EQ`
-    ) {
-      const tickTime = new Date(tick.timestamp).getTime() / 1000;
-      const tickPrice = tick.price;
-      const resInSeconds = resolutionToSeconds(resolution);
-      const candleStartTime = getCandleStartTime(tickTime, resInSeconds);
+      if (tick.instrument === `NSE:${symbol.toUpperCase()}-EQ`) {
+        let tickTime;
+        
+        // Properly handle timestamp conversion
+        if (typeof tick.timestamp === 'string') {
+          tickTime = Math.floor(new Date(tick.timestamp).getTime() / 1000);
+        } else if (typeof tick.timestamp === 'number') {
+          tickTime = tick.timestamp > 10000000000 ? Math.floor(tick.timestamp / 1000) : tick.timestamp;
+        } else {
+          tickTime = Math.floor(Date.now() / 1000);
+        }
 
-      if (
-        currentCandleRef.current &&
-        candleStartTime === currentCandleRef.current.time
-      ) {
-        currentCandleRef.current.high = Math.max(
-          currentCandleRef.current.high,
-          tickPrice
-        );
-        currentCandleRef.current.low = Math.min(
-          currentCandleRef.current.low,
-          tickPrice
-        );
-        currentCandleRef.current.close = tickPrice;
-      } else {
-        currentCandleRef.current = {
-          time: candleStartTime,
-          open: tickPrice,
-          high: tickPrice,
-          low: tickPrice,
-          close: tickPrice,
-        };
+        const tickPrice = parseFloat(tick.price) || 0;
+        const resInSeconds = resolutionToSeconds(resolution);
+        const candleStartTime = getCandleStartTime(tickTime, resInSeconds);
+
+        if (
+          currentCandleRef.current &&
+          candleStartTime === currentCandleRef.current.time
+        ) {
+          // Update existing candle
+          const updatedCandle = {
+            ...currentCandleRef.current,
+            high: Math.max(currentCandleRef.current.high, tickPrice),
+            low: Math.min(currentCandleRef.current.low, tickPrice),
+            close: tickPrice,
+          };
+          currentCandleRef.current = updatedCandle;
+          candleSeriesRef.current.update(updatedCandle);
+        } else {
+          // Create new candle (only if time is newer)
+          if (!currentCandleRef.current || candleStartTime > currentCandleRef.current.time) {
+            const newCandle = {
+              time: candleStartTime,
+              open: tickPrice,
+              high: tickPrice,
+              low: tickPrice,
+              close: tickPrice,
+            };
+            currentCandleRef.current = newCandle;
+            candleSeriesRef.current.update(newCandle);
+          }
+        }
       }
-
-      candleSeriesRef.current.update(currentCandleRef.current);
+    } catch (error) {
+      console.error("Error processing WebSocket message:", error);
     }
   }, [loading, symbol, resolution, isConnected, sendMessage, lastMessage]);
 
