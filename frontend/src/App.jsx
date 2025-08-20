@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { fetchUserProfile, initializeAuth } from "@/store/authSlice";
 import { SidebarProvider } from "@/contexts/sidebar-context";
+import { WebSocketProvider } from "@/contexts/websocket-context";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 import {
@@ -85,25 +86,33 @@ function AppContent() {
 
   return (
     <NotificationContext.Provider value={notifications}>
-      <SidebarProvider>
-        <div className="min-h-screen bg-black">
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route
-              path="/password-reset"
-              element={<PasswordResetRequestPage />}
-            />
-            <Route
-              path="/password-reset/confirm/:uid/:token"
-              element={<PasswordResetConfirmPage />}
-            />
-            <Route path="/google-callback" element={<SocialLoginHandler />} />
+      <WebSocketProvider>
+        <SidebarProvider>
+          <div className="min-h-screen bg-black">
+            <Routes>
+              {/* Public routes */}
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route
+                path="/password-reset"
+                element={<PasswordResetRequestPage />}
+              />
+              <Route
+                path="/password-reset/confirm/:uid/:token"
+                element={<PasswordResetConfirmPage />}
+              />
+              <Route path="/google-callback" element={<SocialLoginHandler />} />
 
-         
-              <Route path="/dashboard" element={<DashboardLayout />}>
+              {/* Protected dashboard routes */}
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
                 <Route index element={<Dashboard />} />
                 <Route path="search" element={<Search />} />
                 <Route path="profile-settings" element={<ProfileSettings />} />
@@ -176,18 +185,19 @@ function AppContent() {
                   element={<TradeTerminal />}
                 />
               </Route>
-\
-            {/* Catch all route - redirect to landing page */}
-            <Route path="*" element={<LandingPage />} />
-          </Routes>
-        </div>
 
-        {/* Global Notification System */}
-        <NotificationContainer
-          notifications={notifications.notifications}
-          onClose={notifications.removeNotification}
-        />
-      </SidebarProvider>
+              {/* Catch all route - redirect to landing page */}
+              <Route path="*" element={<LandingPage />} />
+            </Routes>
+          </div>
+
+          {/* Global Notification System */}
+          <NotificationContainer
+            notifications={notifications.notifications}
+            onClose={notifications.removeNotification}
+          />
+        </SidebarProvider>
+      </WebSocketProvider>
     </NotificationContext.Provider>
   );
 }
