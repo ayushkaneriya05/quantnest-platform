@@ -18,7 +18,7 @@ export default function DashboardLayout() {
         }`}
       >
         <MainContentHeader title={title} subtitle={subtitle} />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-auto scrollbar-theme">
           <Outlet />
         </main>
       </div>
