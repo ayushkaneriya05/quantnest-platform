@@ -15,6 +15,7 @@ import {
   BarChart3
 } from "lucide-react";
 import api from "@/services/api";
+import { getDummyPortfolioData } from "@/data/dummyPortfolioData";
 
 const PositionCard = ({ position, currentPrice, onClose }) => {
   const pnl = (currentPrice - position.average_price) * position.quantity;
@@ -219,14 +220,14 @@ export default function PortfolioDisplay() {
   const [livePrices, setLivePrices] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Mock live prices for demo
-  const mockLivePrices = {
-    "RELIANCE": 2458.50,
-    "TCS": 3245.80,
-    "INFY": 1456.30,
-    "HDFCBANK": 1678.90,
-    "ICICIBANK": 934.20,
-  };
+  // Initialize with dummy data immediately
+  useEffect(() => {
+    const dummyData = getDummyPortfolioData();
+    setPositions(dummyData.positions);
+    setOrders(dummyData.orders);
+    setLivePrices(dummyData.livePrices);
+    setLoading(false);
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -247,9 +248,13 @@ export default function PortfolioDisplay() {
       // Mock live prices
       setLivePrices(mockLivePrices);
     } catch (error) {
-      console.error("Failed to fetch portfolio data:", error);
-      setPositions([]);
-      setOrders([]);
+      console.warn("Failed to fetch portfolio data from API, using dummy data:", error);
+
+      // Fallback to dummy data
+      const dummyData = getDummyPortfolioData();
+      setPositions(dummyData.positions);
+      setOrders(dummyData.orders);
+      setLivePrices(dummyData.livePrices);
     } finally {
       setLoading(false);
     }
