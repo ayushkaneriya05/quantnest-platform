@@ -41,14 +41,22 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    const errorMessage = error.response?.data?.message || error.response?.statusText || error.message || 'Unknown error';
-    console.warn(
-      `API Error - ${originalRequest?.method?.toUpperCase()} ${
-        originalRequest?.url
-      }:`,
-      error.response?.status || 'Network Error',
-      errorMessage
-    );
+    // Only log errors for non-network issues or if response status is not connection-related
+    if (error.response?.status && error.response.status !== 500) {
+      const errorMessage = error.response?.data?.message || error.response?.statusText || error.message || 'Unknown error';
+      console.warn(
+        `API Error - ${originalRequest?.method?.toUpperCase()} ${
+          originalRequest?.url
+        }:`,
+        error.response?.status,
+        errorMessage
+      );
+    }
+    // For network errors (no response), just log once to avoid spam
+    else if (!error.response && !window._networkErrorLogged) {
+      console.warn('Backend API is not available - using dummy data');
+      window._networkErrorLogged = true;
+    }
 
     // Only handle auth errors if we actually got a response from the server
     // Don't redirect on network errors (no response)
