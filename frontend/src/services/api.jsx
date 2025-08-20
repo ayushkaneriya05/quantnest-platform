@@ -98,26 +98,29 @@ api.interceptors.response.use(
       }
     }
 
-    if (
-      error.response?.status === 403 &&
-      error.response.data.code === "token_not_valid"
-    ) {
-      console.error("Access forbidden - insufficient permissions");
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-      store.dispatch(logoutUser());
-      store.dispatch(logout());
-      window.location.href = "/login";
-    } else if (error.response?.status === 403) {
-      console.error("Access forbidden - insufficient permissions");
-    } else if (error.response?.status === 404) {
-      console.error("Resource not found");
-    } else if (error.response?.status >= 500) {
-      console.error("Server error - please try again later");
+    // Only handle auth/permission errors if we got a proper response
+    if (error.response) {
+      if (
+        error.response.status === 403 &&
+        error.response.data?.code === "token_not_valid"
+      ) {
+        console.warn("Access token expired, please login again");
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("refreshToken");
+        store.dispatch(logoutUser());
+        store.dispatch(logout());
+        window.location.href = "/login";
+      } else if (error.response.status === 403) {
+        console.warn("Access forbidden - insufficient permissions");
+      } else if (error.response.status === 404) {
+        console.warn("Resource not found");
+      } else if (error.response.status >= 500) {
+        console.warn("Server error - please try again later");
+      }
     } else if (error.code === "ECONNABORTED") {
-      console.error("Request timeout - please check your connection");
-    } else if (!error.response) {
-      console.error("Network error - please check your connection");
+      console.warn("Request timeout - backend may not be running");
+    } else {
+      console.warn("Network error - backend may not be running");
     }
 
     return Promise.reject(error);
