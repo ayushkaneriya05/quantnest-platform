@@ -19,11 +19,11 @@ export function useWebSocket(url) {
         };
 
         socket.onmessage = (event) => setLastMessage(event.data);
-        socket.onclose = () => {
+        socket.onclose = (event) => {
             console.log('WebSocket disconnected');
             setIsConnected(false);
-            // Only reconnect if we were previously connected, to avoid spam
-            if (isConnected) {
+            // Only try to reconnect if it wasn't a clean close
+            if (!event.wasClean) {
                 reconnectTimeout.current = setTimeout(() => connect(), 10000);
             }
         };
