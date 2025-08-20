@@ -12,9 +12,9 @@ const getCandleStartTime = (timestamp, resolutionInSeconds) => {
 };
 
 export default function ChartView({ symbol }) {
-  const { lastMessage, isConnected, sendMessage } = useWebSocket(
-    "ws://localhost:8000/ws/marketdata/"
-  );
+  // Make WebSocket optional - only connect if needed
+  const webSocketUrl = "ws://localhost:8000/ws/marketdata/";
+  const { lastMessage, isConnected, sendMessage } = useWebSocket(webSocketUrl);
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
   const candleSeriesRef = useRef(null);
