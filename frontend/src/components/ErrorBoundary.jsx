@@ -1,213 +1,195 @@
-import React from 'react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react'
+import React from 'react';
+import { AlertCircle, RefreshCw, Home, Bug } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
-    super(props)
+    super(props);
     this.state = { 
       hasError: false, 
-      error: null,
+      error: null, 
       errorInfo: null,
-      errorId: null
-    }
+      retryCount: 0,
+      maxRetries: 3
+    };
   }
 
   static getDerivedStateFromError(error) {
     // Update state so the next render will show the fallback UI
-    return { 
-      hasError: true,
-      errorId: Date.now().toString()
-    }
+    return { hasError: true };
   }
 
   componentDidCatch(error, errorInfo) {
-    // Log error to console and external service
-    console.error('Error Boundary caught an error:', error, errorInfo)
+    // Log error details
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
     
     this.setState({
-      error,
-      errorInfo
-    })
+      error: error,
+      errorInfo: errorInfo
+    });
 
-    // Log to external error service (e.g., Sentry)
-    if (window.Sentry) {
-      window.Sentry.captureException(error, {
-        contexts: {
-          react: {
-            componentStack: errorInfo.componentStack
-          }
-        }
-      })
+    // Log to error reporting service in production
+    if (process.env.NODE_ENV === 'production') {
+      this.logErrorToService(error, errorInfo);
     }
-
-    // Send to your own error logging service
-    this.logErrorToService(error, errorInfo)
   }
 
-  logErrorToService = async (error, errorInfo) => {
+  logErrorToService = (error, errorInfo) => {
+    // In production, send error to monitoring service like Sentry
     try {
-      // Replace with your actual error logging endpoint
-      await fetch('/api/errors', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: error.message,
-          stack: error.stack,
-          componentStack: errorInfo.componentStack,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          url: window.location.href,
-          errorId: this.state.errorId
-        })
-      })
+      const errorData = {
+        error: error.toString(),
+        stack: error.stack,
+        componentStack: errorInfo.componentStack,
+        timestamp: new Date().toISOString(),
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        userId: localStorage.getItem('userId') || 'anonymous'
+      };
+      
+      // Example: Send to error monitoring service
+      // fetch('/api/errors', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify(errorData)
+      // });
+      
+      console.warn('Error logged to monitoring service:', errorData);
     } catch (logError) {
-      console.error('Failed to log error to service:', logError)
+      console.error('Failed to log error to service:', logError);
     }
-  }
+  };
 
-  handleReload = () => {
-    window.location.reload()
-  }
-
-  handleGoHome = () => {
-    window.location.href = '/'
-  }
-
-  handleTryAgain = () => {
-    this.setState({ 
-      hasError: false, 
-      error: null, 
-      errorInfo: null,
-      errorId: null 
-    })
-  }
-
-  handleReportBug = () => {
-    const { error, errorInfo, errorId } = this.state
-    const bugReport = {
-      errorId,
-      message: error?.message,
-      stack: error?.stack,
-      componentStack: errorInfo?.componentStack,
-      timestamp: new Date().toISOString(),
-      url: window.location.href,
-      userAgent: navigator.userAgent
-    }
+  handleRetry = () => {
+    const { retryCount, maxRetries } = this.state;
     
-    // Open bug report form or email
-    const subject = encodeURIComponent(`Bug Report - Error ID: ${errorId}`)
+    if (retryCount < maxRetries) {
+      this.setState({ 
+        hasError: false, 
+        error: null, 
+        errorInfo: null,
+        retryCount: retryCount + 1
+      });
+    } else {
+      // Force page reload as last resort
+      window.location.reload();
+    }
+  };
+
+  handleReportError = () => {
+    const { error, errorInfo } = this.state;
+    const subject = encodeURIComponent('QuantNest Trading Platform Error Report');
     const body = encodeURIComponent(`
 Error Details:
-${JSON.stringify(bugReport, null, 2)}
+${error?.toString() || 'Unknown error'}
 
-Steps to reproduce:
-1. 
-2. 
-3. 
+Stack Trace:
+${error?.stack || 'No stack trace available'}
 
-Expected behavior:
+Component Stack:
+${errorInfo?.componentStack || 'No component stack available'}
 
-
-Actual behavior:
-
-
-Additional information:
-
-    `)
+Browser: ${navigator.userAgent}
+URL: ${window.location.href}
+Timestamp: ${new Date().toISOString()}
+    `);
     
-    window.open(`mailto:support@quantnest.com?subject=${subject}&body=${body}`)
-  }
+    window.open(`mailto:support@quantnest.com?subject=${subject}&body=${body}`);
+  };
 
   render() {
-    if (this.state.hasError) {
-      const { error, errorId } = this.state
-      const isDevelopment = process.env.NODE_ENV === 'development'
+    const { hasError, error, retryCount, maxRetries } = this.state;
+    const { children, fallback } = this.props;
+
+    if (hasError) {
+      // Custom fallback UI if provided
+      if (fallback) {
+        return fallback;
+      }
+
+      const isNetworkError = error?.message?.includes('fetch') || error?.message?.includes('network');
+      const isWebSocketError = error?.message?.includes('websocket') || error?.message?.includes('WebSocket');
+      const isTradingError = error?.message?.includes('order') || error?.message?.includes('position');
 
       return (
-        <div className="min-h-screen bg-black flex items-center justify-center p-4">
-          <Card className="w-full max-w-2xl bg-gray-900/50 border border-gray-800/50 shadow-xl">
-            <CardHeader className="text-center pb-6">
-              <div className="flex justify-center mb-4">
-                <AlertTriangle className="h-16 w-16 text-red-400" />
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+          <Card className="w-full max-w-2xl bg-slate-900 border-slate-700">
+            <CardHeader className="text-center">
+              <div className="mx-auto mb-4 p-3 w-fit rounded-full bg-red-500/20">
+                <AlertCircle className="h-8 w-8 text-red-400" />
               </div>
-              <CardTitle className="text-2xl font-bold text-slate-100">
-                Oops! Something went wrong
+              <CardTitle className="text-xl text-white">
+                {isNetworkError && "Network Connection Error"}
+                {isWebSocketError && "Live Data Connection Error"}
+                {isTradingError && "Trading System Error"}
+                {!isNetworkError && !isWebSocketError && !isTradingError && "Application Error"}
               </CardTitle>
-              <CardDescription className="text-slate-400 text-base">
-                We apologize for the inconvenience. An unexpected error has occurred.
-              </CardDescription>
-              {errorId && (
-                <div className="mt-2">
-                  <span className="text-xs text-slate-500">Error ID: {errorId}</span>
-                </div>
-              )}
             </CardHeader>
-            
             <CardContent className="space-y-6">
-              {isDevelopment && error && (
-                <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-4">
-                  <h4 className="text-red-300 font-medium mb-2">Development Error Details:</h4>
-                  <pre className="text-xs text-red-200 whitespace-pre-wrap overflow-auto max-h-40">
-                    {error.message}
-                    {'\n\n'}
-                    {error.stack}
-                  </pre>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <p className="text-slate-300 text-sm">
-                  You can try one of the following options:
-                </p>
-                
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Button
-                    onClick={this.handleTryAgain}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)]"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Try Again
-                  </Button>
-                  
-                  <Button
-                    onClick={this.handleReload}
-                    variant="outline"
-                    className="bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Reload Page
-                  </Button>
-                  
-                  <Button
-                    onClick={this.handleGoHome}
-                    variant="outline"
-                    className="bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                  >
-                    <Home className="h-4 w-4 mr-2" />
-                    Go Home
-                  </Button>
-                  
-                  <Button
-                    onClick={this.handleReportBug}
-                    variant="outline"
-                    className="bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                  >
-                    <Bug className="h-4 w-4 mr-2" />
-                    Report Bug
-                  </Button>
-                </div>
+              <div className="text-center text-gray-300">
+                {isNetworkError && (
+                  <p>Unable to connect to trading servers. Please check your internet connection and try again.</p>
+                )}
+                {isWebSocketError && (
+                  <p>Lost connection to live market data. Your trading functionality may be limited.</p>
+                )}
+                {isTradingError && (
+                  <p>A trading system error occurred. Your orders and positions are safe, but some features may be unavailable.</p>
+                )}
+                {!isNetworkError && !isWebSocketError && !isTradingError && (
+                  <p>An unexpected error occurred. We're working to resolve this issue.</p>
+                )}
               </div>
 
-              <div className="text-center pt-4 border-t border-gray-800/50">
-                <p className="text-xs text-slate-500">
-                  If the problem persists, please contact our support team at{' '}
+              {process.env.NODE_ENV === 'development' && (
+                <details className="bg-slate-800 rounded-lg p-4">
+                  <summary className="text-sm text-gray-400 cursor-pointer mb-2">
+                    Technical Details (Development Mode)
+                  </summary>
+                  <div className="text-xs text-red-300 font-mono whitespace-pre-wrap overflow-auto max-h-40">
+                    {error?.toString()}
+                    {'\n\n'}
+                    {error?.stack}
+                  </div>
+                </details>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Button
+                  onClick={this.handleRetry}
+                  disabled={retryCount >= maxRetries}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  {retryCount >= maxRetries ? 'Reload Page' : `Retry (${retryCount}/${maxRetries})`}
+                </Button>
+                
+                <Button
+                  onClick={() => window.location.href = '/'}
+                  variant="outline"
+                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                >
+                  <Home className="h-4 w-4 mr-2" />
+                  Go Home
+                </Button>
+                
+                <Button
+                  onClick={this.handleReportError}
+                  variant="outline"
+                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                >
+                  <Bug className="h-4 w-4 mr-2" />
+                  Report Issue
+                </Button>
+              </div>
+
+              <div className="text-center">
+                <p className="text-sm text-gray-500">
+                  Need immediate help? Contact support at{' '}
                   <a 
                     href="mailto:support@quantnest.com" 
-                    className="text-indigo-400 hover:text-indigo-300 underline"
+                    className="text-blue-400 hover:text-blue-300"
                   >
                     support@quantnest.com
                   </a>
@@ -216,33 +198,54 @@ Additional information:
             </CardContent>
           </Card>
         </div>
-      )
+      );
     }
 
-    return this.props.children
+    return children;
   }
 }
 
-export default ErrorBoundary
-
-// Higher-order component for easy usage
-export function withErrorBoundary(Component, errorBoundaryProps = {}) {
-  const WrappedComponent = (props) => {
+// Higher-order component for wrapping components with error boundaries
+export const withErrorBoundary = (Component, fallback) => {
+  return function WrappedComponent(props) {
     return (
-      <ErrorBoundary {...errorBoundaryProps}>
+      <ErrorBoundary fallback={fallback}>
         <Component {...props} />
       </ErrorBoundary>
-    )
+    );
+  };
+};
+
+// Specialized error boundary for trading components
+export class TradingErrorBoundary extends ErrorBoundary {
+  render() {
+    const { hasError, error } = this.state;
+    const { children } = this.props;
+
+    if (hasError) {
+      return (
+        <Card className="bg-red-900/20 border-red-700/50">
+          <CardContent className="p-6 text-center">
+            <AlertCircle className="h-8 w-8 text-red-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-red-300 mb-2">Trading Component Error</h3>
+            <p className="text-sm text-red-200 mb-4">
+              This trading feature is temporarily unavailable. Your existing positions and orders are safe.
+            </p>
+            <Button 
+              onClick={this.handleRetry}
+              size="sm"
+              className="bg-red-600 hover:bg-red-700"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return children;
   }
-  
-  WrappedComponent.displayName = `withErrorBoundary(${Component.displayName || Component.name})`
-  
-  return WrappedComponent
 }
 
-// Hook for programmatic error throwing (useful for testing)
-export function useErrorHandler() {
-  return (error) => {
-    throw error
-  }
-}
+export default ErrorBoundary;
