@@ -171,7 +171,9 @@ export default function ChartView({ symbol }) {
 
   // Refetch data when symbol or resolution changes
   useEffect(() => {
-    fetchHistoricalData();
+    if (!isDisposedRef.current) {
+      fetchHistoricalData();
+    }
   }, [fetchHistoricalData]);
 
   // Handle WebSocket for live updates (with error handling)
