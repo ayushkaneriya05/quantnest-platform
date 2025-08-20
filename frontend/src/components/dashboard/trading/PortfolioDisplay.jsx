@@ -248,9 +248,7 @@ export default function PortfolioDisplay() {
       // Mock live prices
       setLivePrices(mockLivePrices);
     } catch (error) {
-      console.warn("Failed to fetch portfolio data from API, using dummy data:", error);
-
-      // Fallback to dummy data
+      // Silently fallback to dummy data - this is expected when backend is not running
       const dummyData = getDummyPortfolioData();
       setPositions(dummyData.positions);
       setOrders(dummyData.orders);
