@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, Search, Star, TrendingUp, TrendingDown, Plus } from "lucide-react";
+import { Trash2, Search, Star, TrendingUp, TrendingDown, Plus, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import InstrumentSearch from "./InstrumentSearch";
@@ -72,6 +72,7 @@ export default function Watchlist({ onSymbolSelect }) {
   const [selectedSymbol, setSelectedSymbol] = useState("RELIANCE");
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddInstrument, setShowAddInstrument] = useState(false);
+  const [addingInstrument, setAddingInstrument] = useState(false);
 
   const fetchWatchlist = async () => {
     try {
@@ -113,6 +114,7 @@ export default function Watchlist({ onSymbolSelect }) {
   };
 
   const handleAddToWatchlist = async (instrumentId) => {
+    setAddingInstrument(true);
     try {
       await api.post("/trading/watchlist/", {
         instrument_id: instrumentId,
@@ -129,6 +131,8 @@ export default function Watchlist({ onSymbolSelect }) {
       };
       setWatchlist(prev => [...prev, mockInstrument]);
       setShowAddInstrument(false);
+    } finally {
+      setAddingInstrument(false);
     }
   };
 
@@ -172,9 +176,16 @@ export default function Watchlist({ onSymbolSelect }) {
             onClick={() => setShowAddInstrument(!showAddInstrument)}
             variant="ghost"
             size="sm"
-            className="text-gray-400 hover:text-white hover:bg-gray-700/50"
+            className={`text-gray-400 hover:text-white hover:bg-gray-700/50 transition-colors ${
+              showAddInstrument ? 'text-white bg-gray-700/50' : ''
+            }`}
+            disabled={addingInstrument}
           >
-            <Plus className="h-4 w-4" />
+            {addingInstrument ? (
+              <div className="animate-spin h-4 w-4 border-2 border-gray-400 border-t-transparent rounded-full" />
+            ) : (
+              <Plus className={`h-4 w-4 transition-transform ${showAddInstrument ? 'rotate-45' : ''}`} />
+            )}
           </Button>
         </div>
 
