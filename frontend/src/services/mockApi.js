@@ -26,7 +26,7 @@ const generateMockWatchlist = () => {
   }));
 };
 
-// Generate mock chart data
+// Generate mock chart data with proper time formatting
 const generateMockChartData = (symbol, resolution) => {
   const now = Date.now();
   const data = [];
@@ -35,8 +35,34 @@ const generateMockChartData = (symbol, resolution) => {
   let basePrice = 1500 + Math.random() * 1000; // Random base price between 1500-2500
   
   for (let i = intervals; i >= 0; i--) {
-    const timeOffset = i * (resolution === '1D' ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000); // 1 day or 1 hour intervals
-    const time = now - timeOffset;
+    let timeOffset;
+    
+    // Calculate time offset based on resolution
+    switch (resolution) {
+      case '1m':
+        timeOffset = i * 60 * 1000; // 1 minute intervals
+        break;
+      case '5m':
+        timeOffset = i * 5 * 60 * 1000; // 5 minute intervals
+        break;
+      case '15m':
+        timeOffset = i * 15 * 60 * 1000; // 15 minute intervals
+        break;
+      case '1h':
+        timeOffset = i * 60 * 60 * 1000; // 1 hour intervals
+        break;
+      case '4h':
+        timeOffset = i * 4 * 60 * 60 * 1000; // 4 hour intervals
+        break;
+      case '1D':
+      default:
+        timeOffset = i * 24 * 60 * 60 * 1000; // 1 day intervals
+        break;
+    }
+    
+    // Calculate timestamp in seconds (as required by lightweight-charts)
+    const timeInMs = now - timeOffset;
+    const timeInSeconds = Math.floor(timeInMs / 1000);
     
     // Generate realistic OHLC data
     const changePercent = (Math.random() - 0.5) * 0.1; // -5% to +5% change
@@ -48,7 +74,7 @@ const generateMockChartData = (symbol, resolution) => {
     const close = newPrice;
     
     data.push({
-      time,
+      time: timeInSeconds, // Unix timestamp in seconds
       open: parseFloat(open.toFixed(2)),
       high: parseFloat(high.toFixed(2)),
       low: parseFloat(low.toFixed(2)),
@@ -59,7 +85,8 @@ const generateMockChartData = (symbol, resolution) => {
     basePrice = newPrice; // Use this as base for next candle
   }
   
-  return data;
+  // Sort by time to ensure chronological order
+  return data.sort((a, b) => a.time - b.time);
 };
 
 // Generate mock positions
@@ -132,7 +159,7 @@ const generateMockAccount = () => {
 // Mock API implementation
 class MockAPI {
   constructor() {
-    this.delay = 500; // Simulate network delay
+    this.delay = 300; // Simulate network delay (reduced for better UX)
     this.watchlistData = generateMockWatchlist();
     this.positionsData = generateMockPositions();
     this.ordersData = generateMockOrders();
@@ -164,8 +191,11 @@ class MockAPI {
       const symbol = urlParams.get('instrument');
       const resolution = urlParams.get('resolution') || '1D';
       
+      const chartData = generateMockChartData(symbol, resolution);
+      console.log(`Generated chart data for ${symbol} (${resolution}):`, chartData.slice(0, 3));
+      
       return {
-        data: generateMockChartData(symbol, resolution),
+        data: chartData,
         status: 200
       };
     }
