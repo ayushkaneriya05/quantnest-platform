@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { TrendingUp, Volume2, Activity, AlertCircle, Wifi, WifiOff } from "lucide-react";
+import { TrendingUp, Volume2, Activity, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import TimeframeSelector from "./TimeframeSelector";
 import WebSocketStatus from "./WebSocketStatus";
+import BackendStatus from "./BackendStatus";
 import { useWebSocketContext } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
@@ -74,7 +75,7 @@ const TIMEFRAMES = [
 ];
 
 // Simple fallback chart component
-const FallbackChart = ({ symbol, lastPrice, priceChange }) => (
+const FallbackChart = ({ symbol, lastPrice, priceChange, volume24h }) => (
   <div className="w-full h-[500px] bg-slate-900 flex items-center justify-center">
     <div className="text-center p-8">
       <div className="mb-6">
@@ -89,6 +90,11 @@ const FallbackChart = ({ symbol, lastPrice, priceChange }) => (
           <div className={`text-lg ${priceChange.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {priceChange.change >= 0 ? '+' : ''}{priceChange.change.toFixed(2)} 
             ({priceChange.percentage.toFixed(2)}%)
+          </div>
+        )}
+        {volume24h > 0 && (
+          <div className="text-gray-400 mt-2">
+            Volume: {volume24h.toLocaleString()}
           </div>
         )}
       </div>
@@ -240,7 +246,7 @@ export default function ChartView({ symbol = "RELIANCE" }) {
     };
   }, [chartLibraryLoaded]);
 
-  // Load historical data with better error handling
+  // Load historical data
   const loadHistoricalData = useCallback(async (symbolToLoad, timeframeToLoad) => {
     if (!symbolToLoad) return;
 
@@ -248,7 +254,7 @@ export default function ChartView({ symbol = "RELIANCE" }) {
     setError(null);
 
     try {
-      const response = await api.get('/api/v1/marketdata/historical/', {
+      const response = await api.get('/marketdata/historical/', {
         params: {
           symbol: symbolToLoad,
           timeframe: timeframeToLoad,
@@ -263,68 +269,17 @@ export default function ChartView({ symbol = "RELIANCE" }) {
         const totalVolume = response.data.reduce((sum, item) => sum + parseFloat(item.volume || 0), 0);
         setVolume24h(totalVolume);
       } else {
-        throw new Error('Invalid data format received');
+        console.warn('Unexpected data format:', response.data);
+        setHistoricalData([]);
       }
     } catch (err) {
       console.error('Failed to load historical data:', err);
-      
-      // Generate mock data for demo purposes
-      console.log('Generating mock historical data for demo');
-      const mockData = generateMockHistoricalData(symbolToLoad, timeframeToLoad, 100);
-      setHistoricalData(mockData);
-      
-      const totalVolume = mockData.reduce((sum, item) => sum + parseFloat(item.volume || 0), 0);
-      setVolume24h(totalVolume);
-      
-      if (!useMockData) {
-        setError('Using simulated data - backend unavailable');
-        toast.error('Using demo data - backend connection failed', { duration: 3000 });
-      }
+      setError('Chart data temporarily unavailable');
+      setHistoricalData([]);
     } finally {
       setIsLoading(false);
     }
-  }, [useMockData]);
-
-  // Generate mock historical data
-  const generateMockHistoricalData = (symbol, timeframe, limit) => {
-    const basePrices = {
-      'RELIANCE': 2450.0,
-      'TCS': 3200.0,
-      'INFY': 1450.0,
-      'HDFCBANK': 1650.0,
-      'ICICIBANK': 920.0,
-    };
-
-    const basePrice = basePrices[symbol] || 2000;
-    const data = [];
-    let currentPrice = basePrice;
-    const now = Math.floor(Date.now() / 1000);
-
-    for (let i = limit - 1; i >= 0; i--) {
-      const timestamp = now - (i * 300); // 5 minute intervals
-      
-      // Generate realistic price movement
-      const volatility = 0.02;
-      const change = (Math.random() - 0.5) * volatility;
-      currentPrice *= (1 + change);
-      
-      const high = currentPrice * (1 + Math.random() * 0.01);
-      const low = currentPrice * (1 - Math.random() * 0.01);
-      const open = currentPrice * (1 + (Math.random() - 0.5) * 0.005);
-      
-      data.push({
-        timestamp,
-        open: open.toFixed(2),
-        high: Math.max(high, open, currentPrice).toFixed(2),
-        low: Math.min(low, open, currentPrice).toFixed(2),
-        close: currentPrice.toFixed(2),
-        volume: Math.floor(Math.random() * 100000) + 50000,
-        symbol
-      });
-    }
-
-    return data;
-  };
+  }, []);
 
   // Update chart data when processed data changes
   useEffect(() => {
@@ -419,6 +374,7 @@ export default function ChartView({ symbol = "RELIANCE" }) {
             <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
               {symbol}
               <WebSocketStatus />
+              <BackendStatus />
             </CardTitle>
             
             <div className="flex items-center gap-4 text-sm">
@@ -456,7 +412,7 @@ export default function ChartView({ symbol = "RELIANCE" }) {
           {useMockData && (
             <Badge variant="outline" className="text-xs border-yellow-600 text-yellow-400 bg-yellow-500/10">
               <Activity className="h-3 w-3 mr-1" />
-              Demo Mode
+              Live Simulation
             </Badge>
           )}
           {!chartLibraryLoaded && (
@@ -492,7 +448,8 @@ export default function ChartView({ symbol = "RELIANCE" }) {
             <FallbackChart 
               symbol={symbol} 
               lastPrice={lastPrice} 
-              priceChange={priceChange} 
+              priceChange={priceChange}
+              volume24h={volume24h}
             />
           ) : (
             <div 
