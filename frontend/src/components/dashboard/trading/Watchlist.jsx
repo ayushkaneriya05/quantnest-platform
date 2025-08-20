@@ -146,8 +146,8 @@ export default function Watchlist({ onSymbolSelect }) {
         </div>
       </div>
       
-      {/* Watchlist Items with Scrollbar */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600">
+      {/* Watchlist Items with Theme Scrollbar */}
+      <div className="flex-1 overflow-y-auto scrollbar-theme">
         {filteredWatchlist && filteredWatchlist.length > 0 ? (
           <div className="divide-y divide-gray-800/50">
             {filteredWatchlist.map((item) => (

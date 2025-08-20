@@ -31,7 +31,7 @@ export default function OrderModal({
           </div>
         </DialogHeader>
         
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-gray-800 scrollbar-thumb-gray-600 p-6">
+        <div className="flex-1 overflow-y-auto scrollbar-theme p-6">
           <OrderTicket
             symbol={symbol}
             transactionType={transactionType}
