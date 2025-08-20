@@ -4,6 +4,7 @@ import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
 import api from "@/services/api";
 import TimeframeSelector from "./TimeframeSelector";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { getDummyChartData } from "@/data/dummyChartData";
 
 // Helper to get the start of a candle based on resolution
 const getCandleStartTime = (timestamp, resolutionInSeconds) => {
@@ -35,6 +36,7 @@ export default function ChartView({ symbol }) {
     if (!symbol || !candleSeriesRef.current) return;
     setLoading(true);
     currentCandleRef.current = null;
+
     try {
       const res = await api.get(
         `/market/ohlc/?instrument=${symbol}&resolution=${resolution}`
@@ -43,7 +45,7 @@ export default function ChartView({ symbol }) {
       // Add defensive check for response data
       if (!res.data || !Array.isArray(res.data)) {
         console.error("Invalid chart data response:", res.data);
-        return;
+        throw new Error("Invalid API response");
       }
 
       const data = res.data.map((d) => ({
@@ -53,12 +55,21 @@ export default function ChartView({ symbol }) {
         low: d.low,
         close: d.close,
       }));
+
       candleSeriesRef.current.setData(data);
       if (data.length > 0) {
         currentCandleRef.current = data[data.length - 1];
       }
     } catch (err) {
-      console.error("Failed to fetch chart data:", err);
+      console.warn("Failed to fetch chart data from API, using dummy data:", err);
+
+      // Fallback to dummy data
+      const dummyData = getDummyChartData(symbol, resolution);
+      candleSeriesRef.current.setData(dummyData);
+
+      if (dummyData.length > 0) {
+        currentCandleRef.current = dummyData[dummyData.length - 1];
+      }
     } finally {
       setLoading(false);
     }
@@ -172,8 +183,8 @@ export default function ChartView({ symbol }) {
           onSelect={setResolution}
           disabled={loading}
         />
-        <div className="bg-red-900/50 text-red-300 text-xs px-2 py-1 rounded-md border border-red-800/50">
-          15-Min Delayed Data
+        <div className="bg-amber-900/50 text-amber-300 text-xs px-2 py-1 rounded-md border border-amber-800/50">
+          Demo Data
         </div>
       </div>
       <div className="relative">
