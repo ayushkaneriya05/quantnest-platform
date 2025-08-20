@@ -4,12 +4,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import InstrumentSearch from "./InstrumentSearch";
 import api from "@/services/api";
+import { getDummyWatchlistData } from "@/data/dummyWatchlistData";
 
 const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
-  const priceChange = Math.random() > 0.5 ? 1 : -1; // Mock data
-  const changePercent = (Math.random() * 5).toFixed(2);
-  const currentPrice = (1500 + Math.random() * 1000).toFixed(2);
-  const isPositive = priceChange > 0;
+  // Use consistent price data from dummy data if available
+  const priceData = item.price || {
+    current: 1500 + Math.random() * 1000,
+    change: (Math.random() - 0.5) * 100,
+    changePercent: (Math.random() - 0.5) * 5
+  };
+
+  const currentPrice = priceData.current.toFixed(2);
+  const changePercent = Math.abs(priceData.changePercent).toFixed(2);
+  const isPositive = priceData.change >= 0;
 
   return (
     <div
@@ -86,17 +93,24 @@ export default function Watchlist({ onSymbolSelect }) {
         setWatchlist(response.data.instruments);
       } else {
         console.error("Invalid watchlist response:", response.data);
-        setWatchlist([]); // Set empty array as fallback
+        throw new Error("Invalid response");
       }
     } catch (err) {
-      console.warn("Failed to fetch watchlist, starting with empty list:", err);
-      setWatchlist([]); // Set empty array on error
+      console.warn("Failed to fetch watchlist from API, using dummy data:", err);
+      // Fallback to dummy data
+      const dummyData = getDummyWatchlistData();
+      setWatchlist(dummyData.instruments);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    // Initialize with dummy data immediately
+    const dummyData = getDummyWatchlistData();
+    setWatchlist(dummyData.instruments);
+    setLoading(false);
+    // Still try to fetch real data
     fetchWatchlist();
   }, []);
 
