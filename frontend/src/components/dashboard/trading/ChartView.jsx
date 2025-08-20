@@ -21,6 +21,7 @@ export default function ChartView({ symbol }) {
   const [loading, setLoading] = useState(true);
   const [resolution, setResolution] = useState("1D");
   const currentCandleRef = useRef(null);
+  const isDisposedRef = useRef(false);
 
   const resolutionToSeconds = (res) => {
     const unit = res.slice(-1);
@@ -33,7 +34,7 @@ export default function ChartView({ symbol }) {
   };
 
   const fetchHistoricalData = useCallback(async () => {
-    if (!symbol || !candleSeriesRef.current) return;
+    if (!symbol || !candleSeriesRef.current || isDisposedRef.current) return;
     setLoading(true);
     currentCandleRef.current = null;
 
@@ -42,9 +43,11 @@ export default function ChartView({ symbol }) {
         `/market/ohlc/?instrument=${symbol}&resolution=${resolution}`
       );
 
+      // Check if disposed before proceeding
+      if (isDisposedRef.current || !candleSeriesRef.current) return;
+
       // Add defensive check for response data
       if (!res.data || !Array.isArray(res.data)) {
-        console.error("Invalid chart data response:", res.data);
         throw new Error("Invalid API response");
       }
 
@@ -56,22 +59,27 @@ export default function ChartView({ symbol }) {
         close: d.close,
       }));
 
-      candleSeriesRef.current.setData(data);
-      if (data.length > 0) {
-        currentCandleRef.current = data[data.length - 1];
+      // Check again before setting data
+      if (!isDisposedRef.current && candleSeriesRef.current) {
+        candleSeriesRef.current.setData(data);
+        if (data.length > 0) {
+          currentCandleRef.current = data[data.length - 1];
+        }
       }
     } catch (err) {
-      console.warn("Failed to fetch chart data from API, using dummy data:", err);
-
       // Fallback to dummy data
-      const dummyData = getDummyChartData(symbol, resolution);
-      candleSeriesRef.current.setData(dummyData);
+      if (!isDisposedRef.current && candleSeriesRef.current) {
+        const dummyData = getDummyChartData(symbol, resolution);
+        candleSeriesRef.current.setData(dummyData);
 
-      if (dummyData.length > 0) {
-        currentCandleRef.current = dummyData[dummyData.length - 1];
+        if (dummyData.length > 0) {
+          currentCandleRef.current = dummyData[dummyData.length - 1];
+        }
       }
     } finally {
-      setLoading(false);
+      if (!isDisposedRef.current) {
+        setLoading(false);
+      }
     }
   }, [symbol, resolution]);
 
