@@ -87,6 +87,9 @@ export default function ChartView({ symbol }) {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
+    // Reset disposal flag
+    isDisposedRef.current = false;
+
     const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "#0A0A1A" },
@@ -117,7 +120,7 @@ export default function ChartView({ symbol }) {
     candleSeriesRef.current = candleSeries;
 
     // Initialize with dummy data immediately to show chart
-    if (symbol) {
+    if (symbol && !isDisposedRef.current) {
       const initialData = getDummyChartData(symbol, resolution);
       candleSeries.setData(initialData);
       if (initialData.length > 0) {
@@ -127,16 +130,42 @@ export default function ChartView({ symbol }) {
     }
 
     const resizeObserver = new ResizeObserver((entries) => {
-      if (entries.length > 0) {
+      if (entries.length > 0 && !isDisposedRef.current && chartRef.current) {
         const { width, height } = entries[0].contentRect;
-        chart.applyOptions({ width, height });
+        try {
+          chart.applyOptions({ width, height });
+        } catch (error) {
+          // Ignore errors if chart is disposed
+          console.warn('Chart resize failed, chart may be disposed');
+        }
       }
     });
-    resizeObserver.observe(chartContainerRef.current);
+
+    if (chartContainerRef.current) {
+      resizeObserver.observe(chartContainerRef.current);
+    }
 
     return () => {
+      // Mark as disposed first
+      isDisposedRef.current = true;
+
+      // Clean up observer
       resizeObserver.disconnect();
-      chart.remove();
+
+      // Clear refs
+      candleSeriesRef.current = null;
+      currentCandleRef.current = null;
+
+      // Remove chart last
+      try {
+        if (chartRef.current) {
+          chart.remove();
+          chartRef.current = null;
+        }
+      } catch (error) {
+        // Ignore disposal errors
+        console.warn('Chart disposal error (expected if already disposed)');
+      }
     };
   }, [resolution, symbol]);
 
