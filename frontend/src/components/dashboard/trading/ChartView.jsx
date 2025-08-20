@@ -63,10 +63,7 @@ export default function ChartView({ symbol }) {
 
           return {
             time: timeValue,
-            open: parseFloat(d.open) || 0,
-            high: parseFloat(d.high) || 0,
-            low: parseFloat(d.low) || 0,
-            close: parseFloat(d.close) || 0,
+            value: parseFloat(d.close) || 0, // Use close price for line chart
           };
         })
         .filter(d => !isNaN(d.time) && d.time > 0) // Filter out invalid times
@@ -114,20 +111,37 @@ export default function ChartView({ symbol }) {
       });
       chartRef.current = chart;
 
-      // Use the proven working approach for lightweight-charts
-      // Create a line series first as a fallback, then try candlestick
+      // Try the basic addSeries approach for v5.x
       let series;
       try {
-        // Try the most basic approach that should work in v5.x
-        series = chart.addLineSeries({
+        // Try line series with basic addSeries call
+        series = chart.addSeries("Line", {
           color: "#22C55E",
           lineWidth: 2,
         });
-        console.log("Created line series as fallback");
+        console.log("Created line series successfully");
       } catch (lineError) {
-        console.error("Failed to create line series:", lineError);
-        // If even line series fails, there's a fundamental issue
-        throw new Error("Cannot create any series on chart");
+        console.error("Failed with Line type:", lineError);
+        
+        // Try without type parameter
+        try {
+          series = chart.addSeries({
+            color: "#22C55E",
+            lineWidth: 2,
+          });
+          console.log("Created series without type");
+        } catch (noTypeError) {
+          console.error("Failed without type:", noTypeError);
+          
+          // Last resort - try minimal configuration
+          try {
+            series = chart.addSeries("line");
+            console.log("Created minimal line series");
+          } catch (minimalError) {
+            console.error("All series creation attempts failed:", minimalError);
+            throw new Error("Cannot create any chart series");
+          }
+        }
       }
       
       candleSeriesRef.current = series;
@@ -152,77 +166,12 @@ export default function ChartView({ symbol }) {
     }
   }, [resolution]);
 
-  // Modified data processing for line series
-  const processDataForSeries = useCallback((data) => {
-    // For line series, we only need time and value (close price)
-    return data.map(d => ({
-      time: d.time,
-      value: d.close || d.value || 0
-    }));
-  }, []);
-
   // Refetch data when symbol or resolution changes
   useEffect(() => {
     if (chartRef.current && candleSeriesRef.current) {
-      const fetchData = async () => {
-        if (!symbol) return;
-        setLoading(true);
-        currentCandleRef.current = null;
-        
-        try {
-          const res = await api.get(
-            `/market/ohlc/?instrument=${symbol}&resolution=${resolution}`
-          );
-
-          if (!res.data || !Array.isArray(res.data)) {
-            console.error("Invalid chart data response:", res.data);
-            return;
-          }
-
-          const processedData = res.data
-            .map((d) => {
-              let timeValue;
-              if (typeof d.time === 'number') {
-                timeValue = d.time > 10000000000 ? Math.floor(d.time / 1000) : d.time;
-              } else if (d.time instanceof Date) {
-                timeValue = Math.floor(d.time.getTime() / 1000);
-              } else {
-                timeValue = Math.floor(new Date(d.time).getTime() / 1000);
-              }
-
-              return {
-                time: timeValue,
-                open: parseFloat(d.open) || 0,
-                high: parseFloat(d.high) || 0,
-                low: parseFloat(d.low) || 0,
-                close: parseFloat(d.close) || 0,
-              };
-            })
-            .filter(d => !isNaN(d.time) && d.time > 0)
-            .sort((a, b) => a.time - b.time);
-
-          if (processedData.length === 0) {
-            console.warn("No valid chart data after processing");
-            return;
-          }
-
-          // Convert data for line series (using close prices)
-          const lineData = processDataForSeries(processedData);
-          candleSeriesRef.current.setData(lineData);
-          
-          if (processedData.length > 0) {
-            currentCandleRef.current = processedData[processedData.length - 1];
-          }
-        } catch (err) {
-          console.error("Failed to fetch chart data:", err);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      fetchData();
+      fetchHistoricalData();
     }
-  }, [symbol, resolution, processDataForSeries]);
+  }, [fetchHistoricalData]);
 
   // Handle WebSocket for live updates
   useEffect(() => {
@@ -250,11 +199,15 @@ export default function ChartView({ symbol }) {
 
         const tickPrice = parseFloat(tick.price) || 0;
         
-        // For line series, just update with new price point
-        candleSeriesRef.current.update({
-          time: tickTime,
-          value: tickPrice
-        });
+        // Update line chart with new price point
+        try {
+          candleSeriesRef.current.update({
+            time: tickTime,
+            value: tickPrice
+          });
+        } catch (updateError) {
+          console.error("Failed to update chart:", updateError);
+        }
       }
     } catch (error) {
       console.error("Error processing WebSocket message:", error);
@@ -269,8 +222,8 @@ export default function ChartView({ symbol }) {
           onSelect={setResolution}
           disabled={loading}
         />
-        <div className="bg-red-900/50 text-red-300 text-xs px-2 py-1 rounded-md border border-red-800/50">
-          Line Chart (Fallback) • 15-Min Delayed Data
+        <div className="bg-blue-900/50 text-blue-300 text-xs px-2 py-1 rounded-md border border-blue-800/50">
+          Price Chart • 15-Min Delayed Data
         </div>
       </div>
       <div className="relative">
