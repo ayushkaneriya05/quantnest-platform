@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 // ** FIX 1: Import the series type and ColorType **
-import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
+import { createChart, ColorType } from "lightweight-charts";
 import api from "@/services/api";
 import TimeframeSelector from "./TimeframeSelector";
 import { useWebSocket } from "@/hooks/use-websocket";
