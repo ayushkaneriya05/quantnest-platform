@@ -95,8 +95,7 @@ export default function Watchlist({ onSymbolSelect }) {
         throw new Error("Invalid response");
       }
     } catch (err) {
-      console.warn("Failed to fetch watchlist from API, using dummy data:", err);
-      // Fallback to dummy data
+      // Silently fallback to dummy data - this is expected when backend is not running
       const dummyData = getDummyWatchlistData();
       setWatchlist(dummyData.instruments);
     } finally {
