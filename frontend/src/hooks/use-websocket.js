@@ -22,8 +22,10 @@ export function useWebSocket(url) {
         socket.onclose = () => {
             console.log('WebSocket disconnected');
             setIsConnected(false);
-            // Exponential backoff for reconnection
-            reconnectTimeout.current = setTimeout(() => connect(), 5000);
+            // Only reconnect if we were previously connected, to avoid spam
+            if (isConnected) {
+                reconnectTimeout.current = setTimeout(() => connect(), 10000);
+            }
         };
         socket.onerror = (error) => {
             console.warn('WebSocket connection failed (this is expected if backend is not running):', error);
