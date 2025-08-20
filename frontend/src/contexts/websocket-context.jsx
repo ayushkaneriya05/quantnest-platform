@@ -6,7 +6,24 @@ const WebSocketContext = createContext();
 export const useWebSocketContext = () => {
   const context = useContext(WebSocketContext);
   if (!context) {
-    throw new Error('useWebSocketContext must be used within a WebSocketProvider');
+    // Provide a fallback object instead of throwing an error
+    console.warn('useWebSocketContext must be used within a WebSocketProvider. Using fallback values.');
+    return {
+      isConnected: false,
+      connectionStatus: 'disconnected',
+      lastMessage: null,
+      tickData: new Map(),
+      orderUpdates: [],
+      positionUpdates: [],
+      connect: () => console.warn('WebSocket not available'),
+      disconnect: () => console.warn('WebSocket not available'),
+      sendMessage: () => false,
+      subscribe: () => () => {},
+      unsubscribe: () => {},
+      getLatestPrice: () => null,
+      getTickData: () => null,
+      subscriptions: []
+    };
   }
   return context;
 };
@@ -31,6 +48,14 @@ export const WebSocketProvider = ({ children }) => {
 
     try {
       setConnectionStatus('connecting');
+      
+      // Check if WebSocket is available in the environment
+      if (typeof WebSocket === 'undefined') {
+        console.warn('WebSocket not available in this environment');
+        setConnectionStatus('unavailable');
+        return;
+      }
+
       ws.current = new WebSocket('ws://localhost:8000/ws/marketdata/');
 
       ws.current.onopen = () => {
@@ -47,7 +72,7 @@ export const WebSocketProvider = ({ children }) => {
           }));
         });
         
-        toast.success('Market data connected');
+        toast.success('Market data connected', { duration: 2000 });
       };
 
       ws.current.onmessage = (event) => {
@@ -67,7 +92,11 @@ export const WebSocketProvider = ({ children }) => {
           // Call specific callbacks for subscriptions
           if (data.symbol && subscriptionCallbacks.current.has(data.symbol)) {
             subscriptionCallbacks.current.get(data.symbol).forEach(callback => {
-              callback(data);
+              try {
+                callback(data);
+              } catch (callbackError) {
+                console.error('Error in subscription callback:', callbackError);
+              }
             });
           }
         } catch (error) {
@@ -80,11 +109,11 @@ export const WebSocketProvider = ({ children }) => {
         setIsConnected(false);
         setConnectionStatus('disconnected');
         
-        // Only attempt reconnection if it wasn't a clean close
+        // Only attempt reconnection if it wasn't a clean close and we haven't exceeded retry limit
         if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
           attemptReconnect();
         } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-          toast.error('Connection failed after multiple attempts');
+          toast.error('Connection failed after multiple attempts', { duration: 4000 });
           setConnectionStatus('failed');
         }
       };
@@ -92,12 +121,17 @@ export const WebSocketProvider = ({ children }) => {
       ws.current.onerror = (error) => {
         console.error('WebSocket error:', error);
         setConnectionStatus('error');
-        toast.error('Market data connection error');
+        
+        // Don't show toast for every error to avoid spam
+        if (reconnectAttempts.current === 0) {
+          toast.error('Market data connection error', { duration: 3000 });
+        }
       };
 
     } catch (error) {
       console.error('WebSocket connection error:', error);
       setConnectionStatus('error');
+      toast.error('Failed to establish market data connection', { duration: 3000 });
     }
   }, [subscriptions]);
 
@@ -131,10 +165,15 @@ export const WebSocketProvider = ({ children }) => {
 
   const sendMessage = useCallback((message) => {
     if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify(message));
-      return true;
+      try {
+        ws.current.send(JSON.stringify(message));
+        return true;
+      } catch (error) {
+        console.error('Error sending WebSocket message:', error);
+        return false;
+      }
     } else {
-      console.warn('WebSocket not connected');
+      console.warn('WebSocket not connected - message not sent:', message);
       return false;
     }
   }, []);
@@ -218,9 +257,11 @@ export const WebSocketProvider = ({ children }) => {
     return tickData.get(symbol) || null;
   }, [tickData]);
 
-  // Auto-connect on mount
+  // Auto-connect on mount, but only if in browser environment
   useEffect(() => {
-    connect();
+    if (typeof window !== 'undefined' && typeof WebSocket !== 'undefined') {
+      connect();
+    }
     
     return () => {
       disconnect();
