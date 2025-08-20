@@ -1,97 +1,82 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { 
-  Wallet, 
+  DollarSign, 
   TrendingUp, 
   TrendingDown, 
-  DollarSign,
+  Wallet, 
+  PieChart, 
   BarChart3,
-  Target,
+  Zap,
+  Shield,
+  RefreshCw,
+  AlertCircle,
   Activity,
-  CreditCard,
-  Banknote,
-  PieChart,
-  ArrowUpRight,
-  ArrowDownRight,
-  RefreshCw
+  Target
 } from "lucide-react";
+import { useWebSocketContext } from "@/contexts/websocket-context";
 import api from "@/services/api";
+import toast from "react-hot-toast";
 
-const StatCard = ({ icon: Icon, title, value, subtitle, change, variant = "default" }) => (
-  <Card className="bg-[#161b22] border-gray-700/50 hover:border-gray-600/60 transition-all duration-300 hover:shadow-lg group">
-    <CardContent className="p-3 sm:p-4 lg:p-6">
-      <div className="flex items-start justify-between mb-3 sm:mb-4">
-        <div className={`p-2 sm:p-3 rounded-xl group-hover:scale-110 transition-transform duration-300 ${
-          variant === 'positive' ? 'bg-emerald-500/20' :
-          variant === 'negative' ? 'bg-red-500/20' :
-          variant === 'warning' ? 'bg-orange-500/20' :
-          'bg-[#0969da]/20'
-        }`}>
-          <Icon className={`h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 ${
-            variant === 'positive' ? 'text-emerald-400' :
-            variant === 'negative' ? 'text-red-400' :
-            variant === 'warning' ? 'text-orange-400' :
-            'text-[#58a6ff]'
-          }`} />
+const MetricCard = ({ icon: Icon, title, value, subtitle, change, variant = "default", className = "" }) => (
+  <Card className={`bg-slate-900/50 border-slate-700/50 hover:border-slate-600/60 transition-all duration-300 ${className}`}>
+    <CardContent className="p-4 lg:p-6">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 lg:p-3 rounded-xl ${
+            variant === 'positive' ? 'bg-emerald-500/20' :
+            variant === 'negative' ? 'bg-red-500/20' :
+            variant === 'warning' ? 'bg-yellow-500/20' :
+            'bg-blue-500/20'
+          }`}>
+            <Icon className={`h-4 w-4 lg:h-5 lg:w-5 ${
+              variant === 'positive' ? 'text-emerald-400' :
+              variant === 'negative' ? 'text-red-400' :
+              variant === 'warning' ? 'text-yellow-400' :
+              'text-blue-400'
+            }`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs lg:text-sm font-medium text-gray-400 uppercase tracking-wider mb-1">
+              {title}
+            </p>
+            <p className="text-lg lg:text-xl font-bold text-white truncate">{value}</p>
+            {subtitle && (
+              <p className="text-xs lg:text-sm text-gray-500 truncate">{subtitle}</p>
+            )}
+          </div>
         </div>
         {change && (
-          <div className="flex items-center gap-1">
-            {change.includes('+') ? (
-              <ArrowUpRight className="h-3 w-3 sm:h-4 sm:w-4 text-emerald-400" />
-            ) : (
-              <ArrowDownRight className="h-3 w-3 sm:h-4 sm:w-4 text-red-400" />
-            )}
-            <span className={`text-xs sm:text-sm font-medium ${
-              change.includes('+') ? 'text-emerald-400' : 'text-red-400'
-            }`}>
-              {change}
-            </span>
+          <div className={`flex items-center gap-1 text-xs lg:text-sm ${
+            change.isPositive ? 'text-emerald-400' : 'text-red-400'
+          }`}>
+            {change.isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            <span>{change.value}</span>
           </div>
-        )}
-      </div>
-      <div>
-        <p className="text-xs sm:text-sm font-medium text-gray-400 uppercase tracking-wider mb-1">
-          {title}
-        </p>
-        <p className="text-lg sm:text-xl lg:text-2xl font-bold text-white mb-1 truncate">{value}</p>
-        {subtitle && (
-          <p className="text-xs sm:text-sm text-gray-500 truncate">{subtitle}</p>
         )}
       </div>
     </CardContent>
   </Card>
 );
 
-const MetricCard = ({ title, metrics }) => (
-  <Card className="bg-[#161b22] border-gray-700/50">
-    <CardHeader className="pb-3 sm:pb-4">
-      <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
-        <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
-        <span className="truncate">{title}</span>
-      </CardTitle>
+const PerformanceChart = ({ data, title }) => (
+  <Card className="bg-slate-900/50 border-slate-700/50">
+    <CardHeader className="pb-3">
+      <CardTitle className="text-sm text-gray-400 uppercase tracking-wider">{title}</CardTitle>
     </CardHeader>
-    <CardContent className="pt-0">
-      <div className="space-y-3 sm:space-y-4">
-        {metrics.map((metric, index) => (
-          <div key={index} className="flex items-center justify-between py-1 sm:py-2">
-            <span className="text-xs sm:text-sm text-gray-400 truncate pr-2">{metric.label}</span>
-            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-              <span className="text-xs sm:text-sm font-semibold text-gray-200">
-                {metric.value}
-              </span>
-              {metric.trend && (
-                <Badge 
-                  className={`text-xs ${
-                    metric.trend === 'up' 
-                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
-                      : 'bg-red-500/20 text-red-400 border-red-500/30'
-                  }`}
-                >
-                  {metric.trend === 'up' ? '↗' : '↘'}
-                </Badge>
-              )}
+    <CardContent>
+      <div className="space-y-3">
+        {data.map((item, index) => (
+          <div key={index} className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-2 h-2 rounded-full ${item.color}`}></div>
+              <span className="text-sm text-gray-300">{item.label}</span>
+            </div>
+            <div className="text-right">
+              <span className="text-sm font-medium text-white">{item.value}</span>
+              <span className="text-xs text-gray-500 ml-2">{item.percentage}</span>
             </div>
           </div>
         ))}
@@ -100,67 +85,31 @@ const MetricCard = ({ title, metrics }) => (
   </Card>
 );
 
-const AccountLimits = () => (
-  <Card className="bg-[#161b22] border-gray-700/50">
-    <CardHeader className="pb-3 sm:pb-4">
-      <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
-        <Target className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
-        <span className="truncate">Account Limits</span>
-      </CardTitle>
-    </CardHeader>
-    <CardContent className="pt-0">
-      <div className="space-y-3 sm:space-y-4">
-        <div className="space-y-2">
-          <div className="flex justify-between text-xs sm:text-sm">
-            <span className="text-gray-400">Daily Trading Limit</span>
-            <span className="text-gray-200">₹5,00,000</span>
-          </div>
-          <div className="w-full bg-[#0d1117] rounded-full h-2">
-            <div className="bg-gradient-to-r from-[#58a6ff] to-[#0969da] h-2 rounded-full" style={{width: '35%'}}></div>
-          </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>Used: ₹1,75,000</span>
-            <span>Available: ₹3,25,000</span>
-          </div>
-        </div>
-        
-        <div className="space-y-2">
-          <div className="flex justify-between text-xs sm:text-sm">
-            <span className="text-gray-400">Margin Utilization</span>
-            <span className="text-gray-200">₹75,000</span>
-          </div>
-          <div className="w-full bg-[#0d1117] rounded-full h-2">
-            <div className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full" style={{width: '60%'}}></div>
-          </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>Used: ₹45,000</span>
-            <span>Available: ₹30,000</span>
-          </div>
-        </div>
-      </div>
-    </CardContent>
-  </Card>
-);
-
 export default function AccountSummary() {
-  const [account, setAccount] = useState(null);
+  const [accountData, setAccountData] = useState(null);
+  const [portfolioSummary, setPortfolioSummary] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const { isConnected, connectionStatus } = useWebSocketContext();
 
   const fetchAccountData = async () => {
     try {
-      setRefreshing(true);
-      const response = await api.get("/trading/account/");
-      if (response.data) {
-        setAccount(response.data);
-      } else {
-        console.error("Invalid account response:", response.data);
-      }
+      const [accountRes, portfolioRes] = await Promise.all([
+        api.get('/trading/account/'),
+        api.get('/trading/portfolio/summary/')
+      ]);
+
+      setAccountData(accountRes.data);
+      setPortfolioSummary(portfolioRes.data);
+      setLastUpdated(new Date());
     } catch (error) {
-      console.error("Failed to fetch account data:", error);
+      console.error('Failed to fetch account data:', error);
+      toast.error('Failed to load account data');
     } finally {
       setLoading(false);
-      setRefreshing(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -168,55 +117,50 @@ export default function AccountSummary() {
     fetchAccountData();
   }, []);
 
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value);
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchAccountData();
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount || 0);
+  };
+
+  const formatPercentage = (value) => {
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 
   if (loading) {
     return (
-      <div className="space-y-4 sm:space-y-6">
-        <div className="flex items-center justify-between mb-4 sm:mb-6">
-          <div className="h-6 sm:h-8 bg-[#161b22] rounded w-32 sm:w-48 animate-pulse" />
-          <div className="h-8 sm:h-10 bg-[#161b22] rounded w-16 sm:w-24 animate-pulse" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 sm:h-32 bg-[#161b22] rounded-lg animate-pulse" />
+            <div key={i} className="h-24 lg:h-28 bg-slate-900/50 rounded-lg animate-pulse" />
           ))}
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
           {[...Array(2)].map((_, i) => (
-            <div key={i} className="h-48 sm:h-64 bg-[#161b22] rounded-lg animate-pulse" />
+            <div key={i} className="h-48 bg-slate-900/50 rounded-lg animate-pulse" />
           ))}
         </div>
       </div>
     );
   }
 
-  if (!account) {
+  if (!accountData || !portfolioSummary) {
     return (
-      <Card className="bg-[#161b22] border-gray-700/50">
-        <CardContent className="p-8 sm:p-12 text-center">
-          <div className="p-3 sm:p-4 rounded-full bg-red-500/20 w-fit mx-auto mb-4">
-            <Wallet className="h-6 w-6 sm:h-8 sm:w-8 text-red-400" />
-          </div>
-          <h3 className="text-base sm:text-lg font-medium text-gray-300 mb-2">
-            Account Data Unavailable
-          </h3>
-          <p className="text-xs sm:text-sm text-gray-500 mb-4">
-            Could not load account details. Please try refreshing.
-          </p>
-          <Button 
-            onClick={fetchAccountData}
-            variant="outline"
-            className="border-red-500/30 text-red-400 hover:bg-red-500/10 text-xs sm:text-sm"
-          >
-            <RefreshCw className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+      <Card className="bg-slate-900/50 border-slate-700/50">
+        <CardContent className="p-8 text-center">
+          <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-300 mb-2">Failed to Load Account Data</h3>
+          <p className="text-sm text-gray-500 mb-4">Unable to retrieve your account information</p>
+          <Button onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
             Retry
           </Button>
         </CardContent>
@@ -224,147 +168,169 @@ export default function AccountSummary() {
     );
   }
 
-  const tradingMetrics = [
-    { label: "Total Trades", value: "47", trend: "up" },
-    { label: "Win Rate", value: "68%", trend: "up" },
-    { label: "Avg Trade Size", value: "₹12,500" },
-    { label: "Max Drawdown", value: "₹3,250", trend: "down" },
+  const totalPnlVariant = portfolioSummary.total_pnl >= 0 ? 'positive' : 'negative';
+  const returnPercentage = portfolioSummary.return_percentage || 0;
+
+  // Mock performance data for demonstration
+  const sectorData = [
+    { label: 'Technology', value: '₹3,45,000', percentage: '35%', color: 'bg-blue-500' },
+    { label: 'Banking', value: '₹2,10,000', percentage: '21%', color: 'bg-green-500' },
+    { label: 'Healthcare', value: '₹1,80,000', percentage: '18%', color: 'bg-purple-500' },
+    { label: 'Energy', value: '₹1,35,000', percentage: '13.5%', color: 'bg-yellow-500' },
+    { label: 'Others', value: '₹1,25,000', percentage: '12.5%', color: 'bg-gray-500' },
   ];
 
-  const riskMetrics = [
-    { label: "Portfolio Beta", value: "1.24" },
-    { label: "Sharpe Ratio", value: "1.89", trend: "up" },
-    { label: "VaR (1 day)", value: "₹8,500" },
-    { label: "Risk Score", value: "Medium" },
+  const topPerformers = [
+    { label: 'TCS', value: '+12.5%', percentage: '₹45,000', color: 'bg-emerald-500' },
+    { label: 'RELIANCE', value: '+8.3%', percentage: '₹32,000', color: 'bg-emerald-500' },
+    { label: 'INFY', value: '+6.7%', percentage: '₹28,000', color: 'bg-emerald-500' },
+    { label: 'HDFCBANK', value: '-2.1%', percentage: '-₹8,500', color: 'bg-red-500' },
   ];
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="p-2 sm:p-3 rounded-xl bg-[#0969da]/20">
-            <Wallet className="h-5 w-5 sm:h-6 sm:w-6 text-[#58a6ff]" />
-          </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">Account Overview</h1>
-            <p className="text-xs sm:text-sm lg:text-base text-gray-400">Virtual trading account status</p>
+    <div className="space-y-6">
+      {/* Header with Refresh */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-white">Account Summary</h2>
+          <div className="flex items-center gap-2 mt-1">
+            <Badge variant={isConnected ? "default" : "destructive"} className="text-xs">
+              {isConnected ? "Live" : "Offline"}
+            </Badge>
+            {lastUpdated && (
+              <span className="text-xs text-gray-500">
+                Updated {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
           </div>
         </div>
-        <Button
-          onClick={fetchAccountData}
+        <Button 
+          onClick={handleRefresh} 
+          disabled={isRefreshing}
           variant="outline"
-          className="border-[#0969da]/30 text-[#58a6ff] hover:bg-[#0969da]/10 text-xs sm:text-sm w-fit"
-          disabled={refreshing}
+          size="sm"
+          className="border-gray-700 text-gray-300 hover:bg-gray-800"
         >
-          <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>
 
-      {/* Main Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
-        <StatCard
-          icon={Banknote}
-          title="Available Balance"
-          value={formatCurrency(account.balance || 100000)}
-          subtitle="Ready for trading"
-          change="+2.5%"
-          variant="positive"
+      {/* Main Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+        <MetricCard
+          icon={Wallet}
+          title="Account Balance"
+          value={formatCurrency(accountData.balance)}
+          subtitle="Available Cash"
+          variant="default"
         />
-        <StatCard
-          icon={TrendingUp}
-          title="Unrealized P&L"
-          value={formatCurrency(2450)}
-          subtitle="Open positions"
-          change="+₹1,250 today"
-          variant="positive"
-        />
-        <StatCard
-          icon={CreditCard}
-          title="Margin Used"
-          value={formatCurrency(account.margin || 45000)}
-          subtitle="60% of available"
-          variant="warning"
-        />
-        <StatCard
+        <MetricCard
           icon={PieChart}
           title="Portfolio Value"
-          value={formatCurrency(125000)}
-          subtitle="Total equity"
-          change="+8.2%"
-          variant="positive"
+          value={formatCurrency(portfolioSummary.total_current_value)}
+          subtitle="Total Holdings"
+          variant="default"
+        />
+        <MetricCard
+          icon={TrendingUp}
+          title="Total P&L"
+          value={formatCurrency(portfolioSummary.total_pnl)}
+          subtitle={formatPercentage(returnPercentage)}
+          variant={totalPnlVariant}
+          change={{
+            value: formatPercentage(returnPercentage),
+            isPositive: portfolioSummary.total_pnl >= 0
+          }}
+        />
+        <MetricCard
+          icon={Zap}
+          title="Buying Power"
+          value={formatCurrency(accountData.buying_power)}
+          subtitle="Available for Trading"
+          variant="default"
         />
       </div>
 
-      {/* Detailed Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
-        <MetricCard title="Trading Performance" metrics={tradingMetrics} />
-        <MetricCard title="Risk Analysis" metrics={riskMetrics} />
-        <AccountLimits />
+      {/* Additional Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+        <MetricCard
+          icon={Shield}
+          title="Margin Used"
+          value={formatCurrency(accountData.margin_used)}
+          subtitle={`${((accountData.margin_used / accountData.balance) * 100).toFixed(1)}% of balance`}
+          variant={accountData.margin_used > accountData.balance * 0.7 ? 'warning' : 'default'}
+        />
+        <MetricCard
+          icon={Activity}
+          title="Active Positions"
+          value={portfolioSummary.positions_count.toString()}
+          subtitle={`${portfolioSummary.open_orders_count} pending orders`}
+          variant="default"
+        />
+        <MetricCard
+          icon={Target}
+          title="Total Investment"
+          value={formatCurrency(portfolioSummary.total_investment)}
+          subtitle="Cost basis"
+          variant="default"
+        />
+        <MetricCard
+          icon={BarChart3}
+          title="Day's P&L"
+          value="₹+8,450"
+          subtitle="+0.85% today"
+          variant="positive"
+          change={{
+            value: "+0.85%",
+            isPositive: true
+          }}
+        />
       </div>
 
-      {/* Additional Info */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6">
-        <Card className="bg-[#161b22] border-gray-700/50">
-          <CardHeader className="pb-3 sm:pb-4">
-            <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
-              <Activity className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
-              <span className="truncate">Recent Activity</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-3">
-              {[
-                { action: "Buy Order Executed", symbol: "RELIANCE", time: "2 mins ago", amount: "+₹12,500" },
-                { action: "Sell Order Placed", symbol: "TCS", time: "15 mins ago", amount: "-₹8,900" },
-                { action: "Dividend Received", symbol: "INFY", time: "1 hour ago", amount: "+₹450" },
-              ].map((activity, index) => (
-                <div key={index} className="flex items-center justify-between py-2 border-b border-gray-700/50 last:border-0">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs sm:text-sm font-medium text-gray-200 truncate">{activity.action}</p>
-                    <p className="text-xs text-gray-500">{activity.symbol} • {activity.time}</p>
-                  </div>
-                  <span className={`text-xs sm:text-sm font-semibold flex-shrink-0 ml-2 ${
-                    activity.amount.startsWith('+') ? 'text-emerald-400' : 'text-red-400'
-                  }`}>
-                    {activity.amount}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-[#161b22] border-gray-700/50">
-          <CardHeader className="pb-3 sm:pb-4">
-            <CardTitle className="text-base sm:text-lg text-white flex items-center gap-2">
-              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-[#58a6ff]" />
-              <span className="truncate">Account Settings</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-3 sm:space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs sm:text-sm text-gray-400">Auto Square-off</span>
-                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">Enabled</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs sm:text-sm text-gray-400">Risk Management</span>
-                <Badge className="bg-[#0969da]/20 text-[#58a6ff] border-[#0969da]/30 text-xs">Active</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs sm:text-sm text-gray-400">Paper Trading Mode</span>
-                <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">On</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs sm:text-sm text-gray-400">Account Type</span>
-                <Badge variant="outline" className="border-gray-600 text-gray-400 text-xs">Virtual</Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Performance Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <PerformanceChart 
+          data={sectorData}
+          title="Portfolio by Sector"
+        />
+        <PerformanceChart 
+          data={topPerformers}
+          title="Top Performers"
+        />
       </div>
+
+      {/* Risk Metrics */}
+      <Card className="bg-slate-900/50 border-slate-700/50">
+        <CardHeader>
+          <CardTitle className="text-sm text-gray-400 uppercase tracking-wider flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            Risk Metrics
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="text-center p-4 bg-slate-800/30 rounded-lg">
+              <div className="text-2xl font-bold text-white mb-1">
+                {((accountData.margin_used / accountData.balance) * 100).toFixed(1)}%
+              </div>
+              <div className="text-xs text-gray-400 uppercase tracking-wider">Margin Usage</div>
+            </div>
+            <div className="text-center p-4 bg-slate-800/30 rounded-lg">
+              <div className="text-2xl font-bold text-white mb-1">
+                {portfolioSummary.positions_count > 0 ? (portfolioSummary.total_current_value / portfolioSummary.positions_count / 1000).toFixed(0) + 'K' : '0'}
+              </div>
+              <div className="text-xs text-gray-400 uppercase tracking-wider">Avg Position Size</div>
+            </div>
+            <div className="text-center p-4 bg-slate-800/30 rounded-lg">
+              <div className="text-2xl font-bold text-emerald-400 mb-1">
+                {((portfolioSummary.total_current_value / (portfolioSummary.total_investment || 1)) * 100).toFixed(1)}%
+              </div>
+              <div className="text-xs text-gray-400 uppercase tracking-wider">Portfolio Health</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
