@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, Search, Star, TrendingUp, TrendingDown } from "lucide-react";
+import { Trash2, Search, Star, TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { useWebSocketContext } from "@/contexts/websocket-context";
 import api from "@/services/api";
+import toast from "react-hot-toast";
 
 const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
+  const { getLatestPrice } = useWebSocketContext();
+  
+  // Get live price or use mock data
+  const currentPrice = getLatestPrice(item.symbol) || (2000 + Math.random() * 1000);
   const priceChange = Math.random() > 0.5 ? 1 : -1; // Mock data
   const changePercent = (Math.random() * 5).toFixed(2);
-  const currentPrice = (1500 + Math.random() * 1000).toFixed(2);
   const isPositive = priceChange > 0;
 
   return (
@@ -43,7 +49,7 @@ const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
 
           <div className="flex items-center justify-between">
             <span className="font-mono text-sm font-medium">
-              ₹{currentPrice}
+              ₹{currentPrice.toFixed(2)}
             </span>
             <div
               className={`flex items-center text-xs ${
@@ -68,26 +74,36 @@ const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
 export default function Watchlist({ onSymbolSelect }) {
   const [watchlist, setWatchlist] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedSymbol, setSelectedSymbol] = useState("RELIANCE");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const { isConnected } = useWebSocketContext();
+
   const fetchWatchlist = async () => {
     try {
+      setLoading(true);
+      setError(null);
+      
       const response = await api.get("/trading/watchlist/");
 
-      if (
-        response.data &&
-        response.data.instruments &&
-        Array.isArray(response.data.instruments)
-      ) {
-        setWatchlist(response.data.instruments);
+      if (response.data) {
+        // Handle both backend and mock API response formats
+        const instruments = response.data.instruments || response.data || [];
+        
+        if (Array.isArray(instruments)) {
+          setWatchlist(instruments);
+        } else {
+          console.warn("Invalid watchlist response format:", response.data);
+          setWatchlist([]);
+        }
       } else {
-        console.error("Invalid watchlist response:", response.data);
-        setWatchlist([]); // Set empty array as fallback
+        setWatchlist([]);
       }
     } catch (err) {
       console.error("Failed to fetch watchlist:", err);
-      setWatchlist([]); // Set empty array on error
+      setError("Failed to load watchlist");
+      setWatchlist([]);
     } finally {
       setLoading(false);
     }
@@ -102,20 +118,25 @@ export default function Watchlist({ onSymbolSelect }) {
       await api.delete("/trading/watchlist/", {
         data: { instrument_id: instrumentId },
       });
+      
+      toast.success("Removed from watchlist");
       fetchWatchlist(); // Refresh the list
     } catch (err) {
       console.error("Failed to remove from watchlist:", err);
+      toast.error("Failed to remove from watchlist");
     }
   };
 
   const handleSymbolSelect = (symbol) => {
     setSelectedSymbol(symbol);
-    onSymbolSelect(symbol);
+    if (onSymbolSelect) {
+      onSymbolSelect(symbol);
+    }
   };
 
   const filteredWatchlist = watchlist.filter(
     (item) =>
-      item.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.symbol?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (item.company_name &&
         item.company_name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
@@ -144,6 +165,11 @@ export default function Watchlist({ onSymbolSelect }) {
             <Star className="h-5 w-5 text-yellow-400" />
             Watchlist
           </h2>
+          {!isConnected && (
+            <Badge variant="outline" className="ml-2 text-xs border-yellow-600 text-yellow-400">
+              Demo
+            </Badge>
+          )}
         </div>
 
         {/* Search Bar */}
@@ -158,13 +184,31 @@ export default function Watchlist({ onSymbolSelect }) {
         </div>
       </div>
 
+      {/* Error Message */}
+      {error && (
+        <div className="mx-4 mt-4 p-3 bg-red-900/20 border border-red-700/50 rounded-lg">
+          <div className="flex items-center gap-2 text-red-300 text-sm">
+            <AlertCircle className="h-4 w-4" />
+            {error}
+            <Button
+              onClick={fetchWatchlist}
+              size="sm"
+              variant="outline"
+              className="ml-auto h-6 px-2 text-xs border-red-700 text-red-300 hover:bg-red-800"
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Watchlist Items with Theme Scrollbar */}
       <div className="flex-1 overflow-y-auto scrollbar-theme">
         {filteredWatchlist && filteredWatchlist.length > 0 ? (
           <div className="divide-y divide-gray-800/50">
             {filteredWatchlist.map((item) => (
               <WatchlistItem
-                key={item.id}
+                key={item.id || item.symbol}
                 item={item}
                 onSymbolSelect={handleSymbolSelect}
                 onRemove={handleRemoveFromWatchlist}
@@ -183,8 +227,18 @@ export default function Watchlist({ onSymbolSelect }) {
             <p className="text-sm text-gray-500">
               {searchQuery
                 ? `No symbols match "${searchQuery}"`
-                : "Your watchlist is empty"}
+                : "Use the search above to add instruments to your watchlist"}
             </p>
+            {!searchQuery && (
+              <Button
+                onClick={fetchWatchlist}
+                variant="outline"
+                size="sm"
+                className="mt-4 border-gray-700 text-gray-300 hover:bg-gray-800"
+              >
+                Refresh Watchlist
+              </Button>
+            )}
           </div>
         )}
       </div>
