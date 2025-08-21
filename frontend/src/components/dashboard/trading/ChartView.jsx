@@ -17,6 +17,7 @@ import { useApi } from '../../../hooks/use-api';
 import { useWebSocket } from '../../../contexts/websocket-context';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../../lib/utils';
+import DevelopmentNotice from '../../ui/development-notice';
 
 const TIMEFRAMES = [
   { value: '1m', label: '1M', interval: 60000 },
