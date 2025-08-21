@@ -32,8 +32,9 @@ const CHART_TYPES = [
   { value: 'line', label: 'Line', icon: Activity }
 ];
 
-const ChartView = ({ 
-  instrument, 
+const ChartView = ({
+  instrument,
+  symbol, // Support legacy symbol prop
   className,
   height = 400,
   showControls = true,
