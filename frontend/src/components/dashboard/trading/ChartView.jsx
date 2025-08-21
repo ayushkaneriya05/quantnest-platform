@@ -1,104 +1,151 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-// ** FIX 1: Import the series type and ColorType **
-import { createChart, ColorType, CandlestickSeries } from "lightweight-charts";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
+import { Button } from "../../ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../ui/tooltip";
+import {
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
+  Activity,
+  AlertCircle,
+  Loader2,
+  Eye,
+  EyeOff,
+} from "lucide-react";
+import {
+  createChart,
+  ColorType,
+  CrosshairMode,
+  CandlestickSeries,
+  LineSeries,
+  HistogramSeries,
+} from "lightweight-charts";
 import api from "@/services/api";
-import TimeframeSelector from "./TimeframeSelector";
-import { useWebSocket } from "@/hooks/use-websocket";
+import { useWebSocketContext as useWebSocket } from "../../../contexts/websocket-context";
+import { toast } from "react-hot-toast";
+import { cn } from "../../../lib/utils";
+import DevelopmentNotice from "../../ui/development-notice";
 
-// Helper to get the start of a candle based on resolution
-const getCandleStartTime = (timestamp, resolutionInSeconds) => {
-  return Math.floor(timestamp / resolutionInSeconds) * resolutionInSeconds;
-};
+const TIMEFRAMES = [
+  { value: "1m", label: "1M", interval: 60 * 1000 },
+  { value: "5m", label: "5M", interval: 5 * 60 * 1000 },
+  { value: "15m", label: "15M", interval: 15 * 60 * 1000 },
+  { value: "1h", label: "1H", interval: 60 * 60 * 1000 },
+  { value: "1D", label: "1D", interval: 24 * 60 * 60 * 1000 },
+  { value: "1W", label: "1W", interval: 7 * 24 * 60 * 60 * 1000 },
+];
 
-export default function ChartView({ symbol }) {
-  const { lastMessage, isConnected, sendMessage } = useWebSocket(
-    "ws://localhost:8000/ws/marketdata/"
-  );
+const CHART_TYPES = [
+  { value: "candles", label: "Candlesticks", icon: BarChart3 },
+  { value: "line", label: "Line", icon: Activity },
+];
+
+const ChartView = ({
+  instrument,
+  symbol,
+  className,
+  height = 500,
+  showControls = true,
+  defaultTimeframe = "1D",
+  defaultChartType = "candles",
+  onBuyClick,
+  onSellClick,
+}) => {
+  const [selectedTimeframe, setSelectedTimeframe] = useState(defaultTimeframe);
+  const [selectedChartType, setSelectedChartType] = useState(defaultChartType);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastPrice, setLastPrice] = useState(null);
+  const [priceChange, setPriceChange] = useState(null);
+  const [volume, setVolume] = useState(null);
+  const [showVolume, setShowVolume] = useState(true);
+
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
-  const candleSeriesRef = useRef(null);
-  const [loading, setLoading] = useState(true);
-  const [resolution, setResolution] = useState("1D");
-  const currentCandleRef = useRef(null);
+  const candlestickSeriesRef = useRef(null);
+  const lineSeriesRef = useRef(null);
+  const volumeSeriesRef = useRef(null);
+  const lastCandleRef = useRef(null);
 
-  const resolutionToSeconds = (res) => {
-    const unit = res.slice(-1);
-    const value = parseInt(res.slice(0, -1), 10);
-    if (unit === "m") return value * 60;
-    if (unit === "h") return value * 3600;
-    if (unit === "D") return value * 86400;
-    if (unit === "W") return value * 604800;
-    return 86400; // Default to 1 Day
-  };
+  const {
+    isConnected,
+    subscribeToInstrument,
+    addMarketDataListener,
+    unsubscribeFromInstrument,
+  } = useWebSocket();
 
-  const fetchHistoricalData = useCallback(async () => {
-    if (!symbol || !candleSeriesRef.current) return;
-    setLoading(true);
-    currentCandleRef.current = null;
-    try {
-      const res = await api.get(
-        `/market/ohlc/?instrument=${symbol}&resolution=${resolution}`
-      );
+  const normalizedInstrument = useMemo(() => {
+    if (instrument) return instrument;
+    if (symbol) return { symbol, company_name: symbol };
+    return null;
+  }, [instrument, symbol]);
 
-      // Add defensive check for response data
-      if (!res.data || !Array.isArray(res.data)) {
-        console.error("Invalid chart data response:", res.data);
-        return;
-      }
-
-      const data = res.data.map((d) => ({
-        time: d.time / 1000,
-        open: d.open,
-        high: d.high,
-        low: d.low,
-        close: d.close,
-      }));
-      candleSeriesRef.current.setData(data);
-      if (data.length > 0) {
-        currentCandleRef.current = data[data.length - 1];
-      }
-    } catch (err) {
-      console.error("Failed to fetch chart data:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [symbol, resolution]);
-
-  // Initialize chart on mount and handle resizing
+  // Chart Initialization Effect
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#0A0A1A" },
-        textColor: "#D1D5DB",
+        textColor: "#d1d4dc",
+        background: { type: ColorType.Solid, color: "#0d1117" },
+        fontSize: 12,
       },
       grid: {
-        vertLines: { color: "#1F2937" },
-        horzLines: { color: "#1F2937" },
+        vertLines: { color: "#363a45" },
+        horzLines: { color: "#363a45" },
       },
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: resolution.includes("m"),
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: {
+        borderColor: "#4e5260",
+        scaleMargins: { top: 0.1, bottom: 0.25 },
       },
+      timeScale: { borderColor: "#4e5260", timeVisible: true },
       width: chartContainerRef.current.clientWidth,
-      height: 500,
+      height,
     });
     chartRef.current = chart;
 
-    // ** ERROR FIX HERE **
-    // Use the correct `addSeries` method with the `CandlestickSeries` type
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#22C55E",
-      downColor: "#EF4444",
+    candlestickSeriesRef.current = chart.addSeries(CandlestickSeries, {
+      upColor: "#22c55e",
+      downColor: "#ef4444",
       borderVisible: false,
-      wickUpColor: "#22C55E",
-      wickDownColor: "#EF4444",
+      wickUpColor: "#22c55e",
+      wickDownColor: "#ef4444",
     });
-    candleSeriesRef.current = candleSeries;
+
+    lineSeriesRef.current = chart.addSeries(LineSeries, {
+      color: "#2196f3",
+      lineWidth: 2,
+      visible: false,
+    });
+
+    volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume_scale",
+      scaleMargins: { top: 0.75, bottom: 0 },
+    });
 
     const resizeObserver = new ResizeObserver((entries) => {
-      if (entries.length > 0) {
+      if (entries[0]) {
         const { width, height } = entries[0].contentRect;
         chart.applyOptions({ width, height });
       }
@@ -109,87 +156,378 @@ export default function ChartView({ symbol }) {
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [resolution]);
+  }, [height]);
 
-  // Refetch data when symbol or resolution changes
+  // Historical Data Fetching Effect
+  const fetchHistoricalData = useCallback(async () => {
+    if (!normalizedInstrument?.symbol || !candlestickSeriesRef.current) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await api.get(
+        `/market/ohlc/?instrument=${normalizedInstrument.symbol}&resolution=${selectedTimeframe}`
+      );
+
+      const transformed = response.data
+        .map((c) => ({
+          time: Math.floor(c.time / 1000),
+          open: parseFloat(c.open),
+          high: parseFloat(c.high),
+          low: parseFloat(c.low),
+          close: parseFloat(c.close),
+          volume: parseInt(c.volume || 0, 10),
+        }))
+        .sort((a, b) => a.time - b.time);
+
+      candlestickSeriesRef.current.setData(transformed);
+      lineSeriesRef.current.setData(
+        transformed.map((d) => ({ time: d.time, value: d.close }))
+      );
+      volumeSeriesRef.current.setData(
+        transformed.map((d) => ({
+          time: d.time,
+          value: d.volume,
+          color: d.close >= d.open ? "#22c55e40" : "#ef444440",
+        }))
+      );
+
+      if (transformed.length > 0) {
+        lastCandleRef.current = transformed[transformed.length - 1];
+        setLastPrice(lastCandleRef.current.close);
+        setVolume(lastCandleRef.current.volume);
+        if (transformed.length > 1) {
+          const prev = transformed[transformed.length - 2];
+          const change = lastCandleRef.current.close - prev.close;
+          setPriceChange({
+            change: change.toFixed(2),
+            changePercent: ((change / prev.close) * 100).toFixed(2),
+            isPositive: change >= 0,
+          });
+        }
+
+        // **FIX 2: Corrected initial zoom logic**
+        if (selectedTimeframe === "1D" || selectedTimeframe === "1W") {
+          const lastDataPoint = transformed[transformed.length - 1];
+          // Approx 150 trading days for 5 months
+          const fromIndex = Math.max(0, transformed.length - 150);
+          const fromTimestamp = transformed[fromIndex].time;
+          chartRef.current.timeScale().setVisibleRange({
+            from: fromTimestamp,
+            to: lastDataPoint.time,
+          });
+        } else {
+          chartRef.current.timeScale().fitContent();
+        }
+      } else {
+        lastCandleRef.current = null;
+      }
+    } catch (e) {
+      setError("Failed to load chart data. Please try again.");
+      toast.error("Failed to load chart data.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [normalizedInstrument, selectedTimeframe]);
+
   useEffect(() => {
     fetchHistoricalData();
   }, [fetchHistoricalData]);
 
-  // Handle WebSocket for live updates
+  // WebSocket Logic Effect
   useEffect(() => {
-    if (loading || !symbol || !isConnected || !lastMessage) return;
+    if (!normalizedInstrument?.symbol || !isConnected || isLoading) return;
 
-    const instrument_group_name = `NSE_${symbol.toUpperCase()}_EQ`.replace(
-      /-/g,
-      "_"
-    );
-    sendMessage({ type: "subscribe", instrument: instrument_group_name });
+    subscribeToInstrument(normalizedInstrument.symbol);
 
-    const tick = JSON.parse(lastMessage);
+    const unsubscribe = addMarketDataListener(
+      normalizedInstrument.symbol,
+      (tick) => {
+        if (!tick || !candlestickSeriesRef.current || !lastCandleRef.current)
+          return;
 
-    if (
-      candleSeriesRef.current &&
-      tick.instrument === `NSE:${symbol.toUpperCase()}-EQ`
-    ) {
-      const tickTime = new Date(tick.timestamp).getTime() / 1000;
-      const tickPrice = tick.price;
-      const resInSeconds = resolutionToSeconds(resolution);
-      const candleStartTime = getCandleStartTime(tickTime, resInSeconds);
-
-      if (
-        currentCandleRef.current &&
-        candleStartTime === currentCandleRef.current.time
-      ) {
-        currentCandleRef.current.high = Math.max(
-          currentCandleRef.current.high,
-          tickPrice
+        const timeframe = TIMEFRAMES.find(
+          (tf) => tf.value === selectedTimeframe
         );
-        currentCandleRef.current.low = Math.min(
-          currentCandleRef.current.low,
-          tickPrice
-        );
-        currentCandleRef.current.close = tickPrice;
-      } else {
-        currentCandleRef.current = {
-          time: candleStartTime,
-          open: tickPrice,
-          high: tickPrice,
-          low: tickPrice,
-          close: tickPrice,
-        };
+        if (!timeframe) return;
+
+        const bucket = timeframe.interval / 1000;
+        const tickTime = Math.floor(new Date(tick.timestamp).getTime() / 1000);
+        const alignedTime = Math.floor(tickTime / bucket) * bucket;
+
+        let currentCandle = { ...lastCandleRef.current };
+
+        if (alignedTime === currentCandle.time) {
+          currentCandle.high = Math.max(currentCandle.high, tick.price);
+          currentCandle.low = Math.min(currentCandle.low, tick.price);
+          currentCandle.close = tick.price;
+          currentCandle.volume = tick.volume_traded_today;
+        } else if (alignedTime > currentCandle.time) {
+          currentCandle = {
+            time: alignedTime,
+            open: tick.price,
+            high: tick.price,
+            low: tick.price,
+            close: tick.price,
+            volume: tick.volume_traded_today,
+          };
+        }
+
+        lastCandleRef.current = currentCandle;
+        candlestickSeriesRef.current.update(currentCandle);
+        lineSeriesRef.current.update({
+          time: currentCandle.time,
+          value: currentCandle.close,
+        });
+        volumeSeriesRef.current.update({
+          time: currentCandle.time,
+          value: currentCandle.volume,
+          color:
+            currentCandle.close >= currentCandle.open
+              ? "#22c55e40"
+              : "#ef444440",
+        });
+
+        setLastPrice(currentCandle.close);
+        setVolume(currentCandle.volume);
       }
+    );
 
-      candleSeriesRef.current.update(currentCandleRef.current);
+    return () => {
+      unsubscribe();
+      unsubscribeFromInstrument(normalizedInstrument.symbol);
+    };
+  }, [
+    normalizedInstrument,
+    isConnected,
+    isLoading,
+    selectedTimeframe,
+    subscribeToInstrument,
+    addMarketDataListener,
+    unsubscribeFromInstrument,
+  ]);
+
+  // Chart Type Visibility Effect
+  useEffect(() => {
+    if (!candlestickSeriesRef.current || !lineSeriesRef.current) return;
+    if (selectedChartType === "candles") {
+      candlestickSeriesRef.current.applyOptions({ visible: true });
+      lineSeriesRef.current.applyOptions({ visible: false });
+    } else {
+      candlestickSeriesRef.current.applyOptions({ visible: false });
+      lineSeriesRef.current.applyOptions({ visible: true });
     }
-  }, [loading, symbol, resolution, isConnected, sendMessage, lastMessage]);
+  }, [selectedChartType]);
+
+  // Volume Visibility Effect
+  useEffect(() => {
+    if (!volumeSeriesRef.current || !chartRef.current) return;
+
+    volumeSeriesRef.current.applyOptions({ visible: showVolume });
+
+    chartRef.current.priceScale("right").applyOptions({
+      scaleMargins: { top: 0.1, bottom: showVolume ? 0.25 : 0.05 },
+    });
+  }, [showVolume]);
+
+  const formatPrice = (p) => (p ? `₹${parseFloat(p).toFixed(2)}` : "--");
+  const formatVolume = (vol) => {
+    if (!vol) return "--";
+    if (vol >= 10000000) return `${(vol / 10000000).toFixed(1)}Cr`;
+    if (vol >= 100000) return `${(vol / 100000).toFixed(1)}L`;
+    if (vol >= 1000) return `${(vol / 1000).toFixed(1)}K`;
+    return vol.toString();
+  };
 
   return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center px-2">
-        <TimeframeSelector
-          selected={resolution}
-          onSelect={setResolution}
-          disabled={loading}
-        />
-        <div className="bg-red-900/50 text-red-300 text-xs px-2 py-1 rounded-md border border-red-800/50">
-          15-Min Delayed Data
-        </div>
-      </div>
-      <div className="relative">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-950/50 z-10">
-            Loading Chart...
+    <Card className={cn("w-full bg-[#0d1117] border-[#4e5260]", className)}>
+      {showControls && (
+        <CardHeader className="pb-4 bg-[#0d1117] border-b border-[#4e5260]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <CardTitle className="text-lg text-[#d1d4dc]">
+                {normalizedInstrument?.symbol || "Select Instrument"}
+              </CardTitle>
+            </div>
+            <div className="flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowVolume(!showVolume)}
+                      // **FIX 1: Improved hover effect**
+                      className="text-slate-400 hover:text-white hover:bg-gray-700/50"
+                    >
+                      {showVolume ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-gray-800 text-white border-gray-700">
+                    <p>{showVolume ? "Hide Volume" : "Show Volume"}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <Select
+                value={selectedChartType}
+                onValueChange={setSelectedChartType}
+              >
+                <SelectTrigger className="w-32 bg-[#2a2e39] border-[#4e5260] text-[#d1d4dc]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2e39] border-[#4e5260]">
+                  {CHART_TYPES.map((type) => {
+                    const Icon = type.icon;
+                    return (
+                      <SelectItem
+                        key={type.value}
+                        value={type.value}
+                        className="text-[#d1d4dc] focus:bg-[#4e5260]"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4" />
+                          {type.label}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {lastPrice && (
+            <div className="flex items-center gap-6 mt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-[#d1d4dc]">
+                  {formatPrice(lastPrice)}
+                </span>
+                {priceChange && (
+                  <div
+                    className={cn(
+                      "flex items-center gap-1",
+                      priceChange.isPositive
+                        ? "text-[#22c55e]"
+                        : "text-[#ef4444]"
+                    )}
+                  >
+                    {priceChange.isPositive ? (
+                      <TrendingUp className="h-4 w-4" />
+                    ) : (
+                      <TrendingDown className="h-4 w-4" />
+                    )}
+                    <span className="font-medium">
+                      {priceChange.change} ({priceChange.changePercent}%)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {volume && (
+                <div className="flex items-center gap-2 text-sm text-[#758696]">
+                  <span>Vol:</span>
+                  <span className="font-medium">{formatVolume(volume)}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-1">
+                <div
+                  className={cn(
+                    "h-2 w-2 rounded-full",
+                    isConnected ? "bg-[#22c55e]" : "bg-[#ef4444]"
+                  )}
+                />
+                <span className="text-xs text-[#758696]">
+                  {isConnected ? "Live" : "Offline"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between mt-4">
+            <Tabs
+              value={selectedTimeframe}
+              onValueChange={setSelectedTimeframe}
+            >
+              <TabsList className="grid grid-cols-6 w-fit bg-[#2a2e39] border-[#4e5260]">
+                {TIMEFRAMES.map((t) => (
+                  <TabsTrigger
+                    key={t.value}
+                    value={t.value}
+                    className="text-xs px-3 text-[#d1d4dc] data-[state=active]:bg-[#4e5260] data-[state=active]:text-white hover:text-white"
+                  >
+                    {t.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            {(onBuyClick || onSellClick) && (
+              <div className="flex gap-2">
+                {onBuyClick && (
+                  <Button
+                    onClick={onBuyClick}
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-green-500/25 text-xs"
+                  >
+                    Buy
+                  </Button>
+                )}
+                {onSellClick && (
+                  <Button
+                    onClick={onSellClick}
+                    size="sm"
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-red-500/25 text-xs"
+                  >
+                    Sell
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </CardHeader>
+      )}
+      <CardContent className="p-0">
+        {isLoading && (
+          <div
+            className="flex items-center justify-center"
+            style={{ height: `${height}px` }}
+          >
+            <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
+          </div>
+        )}
+        {error && !isLoading && (
+          <div
+            className="flex items-center justify-center"
+            style={{ height: `${height}px` }}
+          >
+            <div className="text-center text-red-400">
+              <AlertCircle className="h-12 w-12 mx-auto mb-4" />
+              <p>{error}</p>
+            </div>
           </div>
         )}
         <div
           ref={chartContainerRef}
-          style={{
-            visibility: loading ? "hidden" : "visible",
-            height: "500px",
-          }}
+          className={cn("w-full", isLoading || error ? "hidden" : "block")}
+          style={{ height: `${height}px` }}
         />
-      </div>
-    </div>
+        {!normalizedInstrument && !isLoading && !error && (
+          <div className="flex items-center justify-center h-96">
+            <div className="text-center">
+              <BarChart3 className="h-12 w-12 text-[#758696] mx-auto mb-4" />
+              <p className="text-[#758696]">
+                Select an instrument to view chart
+              </p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
-}
+};
+
+export default ChartView;

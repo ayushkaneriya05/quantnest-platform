@@ -6,6 +6,7 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import { store } from "./store";
 import App from "./App.jsx";
 import "./index.css";
+import { WebSocketProvider } from "@/contexts/websocket-context";
 
 const googleClientId = import.meta.env.VITE_REACT_APP_GOOGLE_CLIENT_ID;
 
@@ -14,7 +15,9 @@ export const AppWithAuth = () => {
     return (
       <GoogleOAuthProvider clientId={googleClientId}>
         <BrowserRouter>
-          <App />
+          <WebSocketProvider>
+            <App />
+          </WebSocketProvider>
         </BrowserRouter>
       </GoogleOAuthProvider>
     );

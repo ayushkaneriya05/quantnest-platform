@@ -117,50 +117,14 @@ export default function PaperTrading() {
 
               {/* Main Trading Area */}
               <div className="flex-1 flex flex-col min-w-0 min-h-0">
-                {/* Symbol Header */}
-                <div className="flex-shrink-0 px-2 sm:px-4 lg:px-6 py-2 sm:py-4 border-b border-gray-800/50 bg-[#161b22]">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
-                      <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-white truncate">
-                        {selectedSymbol}
-                      </h1>
-                      <div className="text-sm sm:text-lg lg:text-2xl font-mono text-white">
-                        ₹2,458.50
-                      </div>
-                      <div className="hidden sm:flex items-center text-xs sm:text-sm text-emerald-400">
-                        <ArrowUp className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                        +24.50 (+1.01%)
-                      </div>
-                    </div>
-
-                    {/* Quick Trade Buttons */}
-                    <div className="flex gap-1 sm:gap-2 lg:gap-3 flex-shrink-0">
-                      <Button
-                        onClick={() => handleOpenOrderModal("BUY")}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 lg:px-6 py-1 sm:py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-emerald-500/25 text-xs sm:text-sm"
-                      >
-                        Buy
-                      </Button>
-                      <Button
-                        onClick={() => handleOpenOrderModal("SELL")}
-                        className="bg-red-600 hover:bg-red-700 text-white px-2 sm:px-4 lg:px-6 py-1 sm:py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-red-500/25 text-xs sm:text-sm"
-                      >
-                        Sell
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Mobile price change */}
-                  <div className="sm:hidden flex items-center text-xs text-emerald-400 mt-1">
-                    <ArrowUp className="h-3 w-3 mr-1" />
-                    +24.50 (+1.01%)
-                  </div>
-                </div>
-
                 {/* Chart Area with Scrollbar Support */}
                 <div className="flex-1 bg-[#0d1117] min-h-0 overflow-auto scrollbar-theme">
                   <div className="h-full min-h-[400px] lg:min-h-[600px]">
-                    <ChartView symbol={selectedSymbol} />
+                    <ChartView
+                      symbol={selectedSymbol}
+                      onBuyClick={() => handleOpenOrderModal("BUY")}
+                      onSellClick={() => handleOpenOrderModal("SELL")}
+                    />
                   </div>
                 </div>
 

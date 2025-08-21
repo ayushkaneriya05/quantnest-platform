@@ -10,7 +10,7 @@ from django.conf import settings
 
 # Use the data_ws module for market data as per the latest fyers_apiv3 docs
 from fyers_apiv3.FyersWebsocket import data_ws 
-from marketdata.models import MarketDataToken
+from marketdata.utils import get_active_fyers_access_token
 from marketdata.mongo_client import get_ticks_collection
 
 # Setup a dedicated logger for this ingestion script
@@ -35,17 +35,10 @@ class Command(BaseCommand):
 
         client_id = settings.FYERS_CLIENT_ID
         
-        try:
-            # Fetch the stored token from PostgreSQL
-            token_row = MarketDataToken.objects.get(pk=1)
-            access_token = token_row.access_token
-        except MarketDataToken.DoesNotExist:
-            self.stderr.write(self.style.ERROR("No MarketDataToken found in the database. Please run the Fyers login process first via the API."))
-            return
+        access_token = get_active_fyers_access_token()
+        if not access_token:
+            raise RuntimeError("No valid Fyers access token available")
 
-        if not access_token or not token_row.is_valid():
-            self.stderr.write(self.style.ERROR('Fyers access token is invalid or has expired. Please generate a new one.'))
-            return
 
         # Prepare the correctly formatted access token for the websocket
         # Format required by the SDK is: <CLIENT_ID>:<ACCESS_TOKEN>
@@ -62,13 +55,9 @@ class Command(BaseCommand):
             Callback to process incoming messages from the WebSocket.
             This now correctly handles a single dictionary per message.
             """
-            # ** ERROR FIX STARTS HERE **
-            # The primary data message is a dictionary. We check for this type.
-            # Any other message type (like a string) is logged and ignored.
             if not isinstance(tick, dict):
                 logger.info(f"Received non-tick (control/status) message from WebSocket: {tick}")
                 return # Ignore this message and continue
-            # ** ERROR FIX ENDS HERE **
 
             ticks_collection = get_ticks_collection()
             

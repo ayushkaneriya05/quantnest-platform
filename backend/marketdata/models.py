@@ -11,10 +11,10 @@ class MarketDataToken(models.Model):
     access_token = models.TextField(null=True, blank=True)
     refresh_token = models.TextField(null=True, blank=True)
     token_type = models.CharField(max_length=32, default="Bearer", blank=True)
-    expires_at = models.DateTimeField(null=True, blank=True)  # UTC
+    expires_at = models.DateTimeField(null=True, blank=True,)  # UTC
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    active = models.BooleanField(default=True) # Added active field
+    is_active = models.BooleanField(default=True) # Added active field
 
     class Meta:
         verbose_name = "Market Data Token"

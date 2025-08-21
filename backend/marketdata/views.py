@@ -1,10 +1,7 @@
 # backend/marketdata/views.py
-import os
 import logging
-import json
 from datetime import datetime, timedelta
 from decouple import config
-
 from django.conf import settings
 from django.shortcuts import redirect
 from django.http import JsonResponse, HttpResponseBadRequest
@@ -12,16 +9,13 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser, IsAuthenticatedOrReadOnly, AllowAny
 
+from .utils import refresh_fyers_token
+
 from .models import MarketDataToken
 
 logger = logging.getLogger(__name__)
 
 # backend/marketdata/views.py
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from datetime import timedelta
 from django.utils import timezone
 from .mongo_client import get_candles_collection
 
@@ -36,7 +30,6 @@ RESOLUTION_MAP = {
     '1W': {'unit': 'week', 'binSize': 1},
 }
 from bson import SON
-from datetime import datetime
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -51,25 +44,25 @@ def ohlc_data(request):
 
     instrument_symbol = f"NSE:{symbol.upper()}-EQ"
     candles_collection = get_candles_collection()
-    
     fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
 
     if resolution == '1m':
-        candles = list(candles_collection.find(
-            {
-                "instrument": instrument_symbol,
-                "resolution": "1m",
-                "timestamp": {"$lte": fifteen_minutes_ago}
-            },
-            {"_id": 0, "instrument": 0, "resolution": 0}
-        ).sort("timestamp", 1))
-        
+        def fetch_candles():
+            return list(candles_collection.find(
+                {
+                    "instrument": instrument_symbol,
+                    "resolution": "1m",
+                    "timestamp": {"$lte": fifteen_minutes_ago}
+                },
+                {"_id": 0, "instrument": 0, "resolution": 0}
+            ).sort("timestamp", 1))
+
+        candles = fetch_candles()
         for candle in candles:
             candle["time"] = int(candle.pop("timestamp").timestamp() * 1000)
+
     else:
         agg_params = RESOLUTION_MAP[resolution]
-
-        # Bucket size in seconds
         unit_seconds = {
             "minute": 60,
             "hour": 3600,
@@ -87,7 +80,6 @@ def ohlc_data(request):
             {"$project": {
                 "timestamp": 1,
                 "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1,
-                # convert to epoch seconds
                 "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970,1,1)]}, 1000]}}
             }},
             {"$group": {
@@ -100,15 +92,19 @@ def ohlc_data(request):
             }},
             {"$project": {
                 "_id": 0,
-                "time": {"$multiply": ["$_id", 1000]},  # back to ms
+                "time": {"$multiply": ["$_id", 1000]},
                 "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1
             }},
             {"$sort": SON([("time", 1)])}
         ]
 
-        candles = list(candles_collection.aggregate(pipeline))
+        def aggregate_candles():
+            return list(candles_collection.aggregate(pipeline))
+
+        candles = aggregate_candles()
 
     return JsonResponse(candles, safe=False)
+
 
 
 try:
@@ -147,6 +143,15 @@ def fyers_login(request):
     )
     auth_url = session.generate_authcode()
     return redirect(auth_url)
+
+from datetime import datetime, timedelta
+import pytz
+
+# Assume IST timezone
+ist = pytz.timezone("Asia/Kolkata")
+
+# Fyers tokens always expire at EOD IST
+today_eod = datetime.now(ist).replace(hour=23, minute=59, second=59, microsecond=0)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedOrReadOnly])
@@ -193,6 +198,7 @@ def fyers_callback(request):
     token_row.access_token = access_token
     token_row.refresh_token = refresh_token
     token_row.token_type = token_resp.get("token_type", token_row.token_type)
+    token_row.expires_at = today_eod
     if expires_in:
         try:
             expires_seconds = int(expires_in)
@@ -226,43 +232,13 @@ def fyers_token_status(request):
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 def fyers_token_refresh(request):
-    """
-    Manually refresh the stored token using refresh_token.
-    """
-    if fyersModel is None:
-        return JsonResponse({"error": "fyers_apiv3 not installed on server"}, status=500)
+    """API endpoint: manually refresh token"""
+    token_row = MarketDataToken.objects.filter(is_active=True).first()
+    if not token_row:
+        return JsonResponse({"error": "No active token row"}, status=400)
 
-    token_row = _get_or_create_token_row()
-    if not token_row.refresh_token:
-        return JsonResponse({"error": "No refresh_token available"}, status=400)
+    refreshed = refresh_fyers_token(token_row)
+    if not refreshed:
+        return JsonResponse({"error": "refresh_failed"}, status=500)
 
-    client_id = getattr(settings, "FYERS_CLIENT_ID", None)
-    secret_key = getattr(settings, "FYERS_SECRET", None)
-    redirect_uri = getattr(settings, "FYERS_REDIRECT_URI", None)
-    if not client_id or not secret_key or not redirect_uri:
-        return JsonResponse({"error": "FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured"}, status=500)
-
-    try:
-        session = fyersModel.SessionModel(
-            client_id=client_id,
-            secret_key=secret_key,
-            redirect_uri=redirect_uri,
-            response_type="code",
-            grant_type="refresh_token"
-        )
-        session.set_token(token_row.refresh_token)
-        resp = session.generate_token()
-    except Exception as exc:
-        logger.exception("Error refreshing token: %s", exc)
-        return JsonResponse({"error": "refresh_failed", "detail": str(exc)}, status=500)
-
-    token_row.access_token = resp.get("access_token") or resp.get("accessToken")
-    token_row.refresh_token = resp.get("refresh_token") or resp.get("refreshToken")
-    expires_in = resp.get("expires_in") or resp.get("expiresIn") or None
-    if expires_in:
-        try:
-            token_row.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
-        except Exception:
-            token_row.expires_at = None
-    token_row.save()
     return JsonResponse({"status": "ok", "expires_at": token_row.expires_at})
