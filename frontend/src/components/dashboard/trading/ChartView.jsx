@@ -189,7 +189,7 @@ const ChartView = ({
 
     try {
       const response = await callApi(
-        `/api/v1/market/historical/?instrument=${encodeURIComponent(instrument.symbol)}&resolution=${selectedTimeframe}`,
+        `/api/v1/market/historical/?instrument=${encodeURIComponent(normalizedInstrument.symbol)}&resolution=${selectedTimeframe}`,
         'GET'
       );
 
@@ -237,7 +237,7 @@ const ChartView = ({
     } finally {
       setIsLoading(false);
     }
-  }, [instrument?.symbol, selectedTimeframe, callApi]);
+  }, [normalizedInstrument?.symbol, selectedTimeframe, callApi]);
 
   // Update chart with data
   const updateChart = useCallback((data) => {
@@ -287,13 +287,13 @@ const ChartView = ({
 
   // Handle live data updates
   useEffect(() => {
-    if (!instrument?.symbol || !isConnected) return;
+    if (!normalizedInstrument?.symbol || !isConnected) return;
 
     // Subscribe to live data
-    subscribeToInstrument(instrument.symbol);
+    subscribeToInstrument(normalizedInstrument.symbol);
 
     // Add market data listener
-    const unsubscribe = addMarketDataListener(instrument.symbol, (data) => {
+    const unsubscribe = addMarketDataListener(normalizedInstrument.symbol, (data) => {
       if (!data || !chartRef.current) return;
 
       try {
@@ -351,7 +351,7 @@ const ChartView = ({
         wsUnsubscribeRef.current();
       }
     };
-  }, [instrument?.symbol, isConnected, subscribeToInstrument, addMarketDataListener, chartData, selectedChartType]);
+  }, [normalizedInstrument?.symbol, isConnected, subscribeToInstrument, addMarketDataListener, chartData, selectedChartType]);
 
   // Fetch data when instrument or timeframe changes
   useEffect(() => {
@@ -384,11 +384,11 @@ const ChartView = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <CardTitle className="text-lg">
-                {instrument?.symbol || 'Select Instrument'}
+                {normalizedInstrument?.symbol || 'Select Instrument'}
               </CardTitle>
-              {instrument?.company_name && (
+              {normalizedInstrument?.company_name && normalizedInstrument.company_name !== normalizedInstrument.symbol && (
                 <span className="text-sm text-muted-foreground">
-                  {instrument.company_name}
+                  {normalizedInstrument.company_name}
                 </span>
               )}
             </div>
@@ -509,7 +509,7 @@ const ChartView = ({
         )}
 
         {/* No Instrument Selected */}
-        {!instrument && !isLoading && !error && (
+        {!normalizedInstrument && !isLoading && !error && (
           <div className="flex items-center justify-center h-96">
             <div className="text-center">
               <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
