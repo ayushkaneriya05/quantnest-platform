@@ -86,8 +86,9 @@ function AppContent() {
 
   return (
     <NotificationContext.Provider value={notifications}>
-      <SidebarProvider>
-        <div className="min-h-screen bg-black">
+      <WebSocketProvider>
+        <SidebarProvider>
+          <div className="min-h-screen bg-black">
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
@@ -181,14 +182,15 @@ function AppContent() {
             {/* Catch all route - redirect to landing page */}
             <Route path="*" element={<LandingPage />} />
           </Routes>
-        </div>
+          </div>
 
-        {/* Global Notification System */}
-        <NotificationContainer
-          notifications={notifications.notifications}
-          onClose={notifications.removeNotification}
-        />
-      </SidebarProvider>
+          {/* Global Notification System */}
+          <NotificationContainer
+            notifications={notifications.notifications}
+            onClose={notifications.removeNotification}
+          />
+        </SidebarProvider>
+      </WebSocketProvider>
     </NotificationContext.Provider>
   );
 }
