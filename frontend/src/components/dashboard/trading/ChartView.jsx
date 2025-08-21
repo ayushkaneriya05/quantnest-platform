@@ -326,7 +326,7 @@ const ChartView = ({
     } finally {
       setIsLoading(false);
     }
-  }, [normalizedInstrument?.symbol, selectedTimeframe, callApi]);
+  }, [normalizedInstrument?.symbol, selectedTimeframe, callApi, generateMockData, updateChart]);
 
   // Update chart with data
   const updateChart = useCallback((data) => {
