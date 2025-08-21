@@ -568,6 +568,13 @@ const ChartView = ({
       )}
 
       <CardContent className={cn("p-0", showControls && "px-6 pb-6")}>
+        {/* Development Notice */}
+        {usingMockData && (
+          <div className="p-4">
+            <DevelopmentNotice type="mock-data" />
+          </div>
+        )}
+
         {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center h-96">
