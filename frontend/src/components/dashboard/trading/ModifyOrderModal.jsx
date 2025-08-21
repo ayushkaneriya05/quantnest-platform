@@ -191,7 +191,7 @@ export default function ModifyOrderModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[550px] bg-slate-900 border-slate-700 text-white">
+      <DialogContent className="sm:max-w-[550px] bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-slate-800 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Edit3 className="h-5 w-5 text-blue-400" />

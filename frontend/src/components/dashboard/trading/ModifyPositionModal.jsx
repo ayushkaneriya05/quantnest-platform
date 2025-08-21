@@ -37,7 +37,6 @@ import toast from "react-hot-toast";
 const TRANSACTION_TYPES = [
   { value: 'BUY', label: 'Buy More', description: 'Add to existing position' },
   { value: 'SELL', label: 'Sell Partial', description: 'Reduce position size' },
-  { value: 'CLOSE', label: 'Close Position', description: 'Exit entire position' },
 ];
 
 const ORDER_TYPES = [
@@ -139,11 +138,9 @@ export default function ModifyPositionModal({
     }
 
     // Check if trying to sell more than available
-    if ((formData.action === 'SELL' || formData.action === 'CLOSE') && position) {
+    if (formData.action === 'SELL' && position) {
       const quantity = parseInt(formData.quantity);
-      if (formData.action === 'CLOSE' && quantity !== Math.abs(position.quantity)) {
-        newErrors.quantity = `To close position, quantity must be ${Math.abs(position.quantity)}`;
-      } else if (formData.action === 'SELL' && quantity > Math.abs(position.quantity)) {
+      if (quantity > Math.abs(position.quantity)) {
         newErrors.quantity = `Cannot sell more than available quantity (${Math.abs(position.quantity)})`;
       }
     }
@@ -200,11 +197,6 @@ export default function ModifyPositionModal({
       let transaction_type = formData.action;
       let quantity = parseInt(formData.quantity);
 
-      // For closing position, determine transaction type based on current position
-      if (formData.action === 'CLOSE') {
-        transaction_type = position.quantity > 0 ? 'SELL' : 'BUY';
-        quantity = Math.abs(position.quantity);
-      }
 
       const orderData = {
         instrument_id: position.instrument.id,
@@ -229,11 +221,7 @@ export default function ModifyPositionModal({
 
       const response = await api.post('/api/v1/trading/orders/', orderData);
       
-      toast.success(
-        formData.action === 'CLOSE' 
-          ? 'Position close order placed successfully' 
-          : 'Position modification order placed successfully'
-      );
+      toast.success('Position modification order placed successfully');
       
       if (onPositionModified) {
         onPositionModified(response.data);
@@ -265,10 +253,6 @@ export default function ModifyPositionModal({
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     
-    // Auto-fill quantity for close position
-    if (field === 'action' && value === 'CLOSE' && position) {
-      setFormData(prev => ({ ...prev, quantity: Math.abs(position.quantity).toString() }));
-    }
     
     // Clear error when user starts typing
     if (errors[field]) {
@@ -298,7 +282,7 @@ export default function ModifyPositionModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-slate-800 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Settings className="h-5 w-5 text-blue-400" />
@@ -576,7 +560,7 @@ export default function ModifyPositionModal({
               ) : (
                 <>
                   <Settings className="h-4 w-4 mr-2" />
-                  {formData.action === 'CLOSE' ? 'Close Position' : 'Place Order'}
+                  Place Order
                 </>
               )}
             </Button>
