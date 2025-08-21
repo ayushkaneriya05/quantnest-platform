@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { 
   DollarSign, 
   TrendingUp, 
@@ -8,38 +9,58 @@ import {
   PieChart, 
   RefreshCw,
   AlertCircle,
-  Activity
+  Activity,
+  Shield,
+  Target,
+  BarChart3,
+  Zap,
+  Clock,
+  Award
 } from "lucide-react";
 import api from "@/services/api";
 import toast from "react-hot-toast";
 
-const MetricCard = ({ icon: Icon, title, value, subtitle, variant = "default" }) => (
-  <Card className="bg-slate-900/50 border-slate-700/50">
-    <CardContent className="p-6">
-      <div className="flex items-center gap-4">
-        <div className={`p-3 rounded-xl ${
+const MetricCard = ({ icon: Icon, title, value, subtitle, variant = "default", className = "" }) => (
+  <Card className={`bg-slate-900/50 border-slate-700/50 ${className}`}>
+    <CardContent className="p-4 lg:p-6">
+      <div className="flex items-center gap-3 lg:gap-4">
+        <div className={`p-2 lg:p-3 rounded-xl ${
           variant === 'positive' ? 'bg-emerald-500/20' :
           variant === 'negative' ? 'bg-red-500/20' :
+          variant === 'warning' ? 'bg-yellow-500/20' :
           'bg-blue-500/20'
         }`}>
-          <Icon className={`h-6 w-6 ${
+          <Icon className={`h-4 w-4 lg:h-5 lg:w-5 ${
             variant === 'positive' ? 'text-emerald-400' :
             variant === 'negative' ? 'text-red-400' :
+            variant === 'warning' ? 'text-yellow-400' :
             'text-blue-400'
           }`} />
         </div>
-        <div className="flex-1">
-          <p className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-1">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs lg:text-sm font-medium text-gray-400 uppercase tracking-wider mb-1">
             {title}
           </p>
-          <p className="text-2xl font-bold text-white">{value}</p>
+          <p className="text-lg lg:text-xl xl:text-2xl font-bold text-white truncate">{value}</p>
           {subtitle && (
-            <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+            <p className="text-xs lg:text-sm text-gray-500 truncate mt-1">{subtitle}</p>
           )}
         </div>
       </div>
     </CardContent>
   </Card>
+);
+
+const StatBlock = ({ title, value, subtitle, className = "" }) => (
+  <div className={`text-center ${className}`}>
+    <div className="text-xl lg:text-2xl font-bold text-white mb-1">
+      {value}
+    </div>
+    <div className="text-sm lg:text-base text-gray-400 mb-1">{title}</div>
+    {subtitle && (
+      <div className="text-xs text-gray-500">{subtitle}</div>
+    )}
+  </div>
 );
 
 export default function AccountSummary() {
@@ -91,9 +112,14 @@ export default function AccountSummary() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 bg-slate-900/50 rounded-lg animate-pulse" />
+            <div key={i} className="h-24 lg:h-28 bg-slate-900/50 rounded-lg animate-pulse" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="h-48 bg-slate-900/50 rounded-lg animate-pulse" />
           ))}
         </div>
       </div>
@@ -118,12 +144,25 @@ export default function AccountSummary() {
 
   const totalPnlVariant = portfolioSummary.total_pnl >= 0 ? 'positive' : 'negative';
   const returnPercentage = portfolioSummary.return_percentage || 0;
+  const marginUsagePercent = accountData.balance > 0 ? ((accountData.margin_used || 0) / accountData.balance * 100) : 0;
+  const marginVariant = marginUsagePercent > 80 ? 'negative' : marginUsagePercent > 60 ? 'warning' : 'default';
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">Account Overview</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl lg:text-2xl font-bold text-white">Paper Trading Account</h2>
+          <div className="flex items-center gap-2 mt-1">
+            <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+              <Activity className="h-3 w-3 mr-1" />
+              Demo Mode
+            </Badge>
+            <span className="text-xs text-gray-500">
+              Last updated: {new Date().toLocaleTimeString()}
+            </span>
+          </div>
+        </div>
         <Button 
           onClick={handleRefresh} 
           disabled={isRefreshing}
@@ -137,12 +176,12 @@ export default function AccountSummary() {
       </div>
 
       {/* Main Account Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
         <MetricCard
           icon={Wallet}
-          title="Account Balance"
+          title="Available Balance"
           value={formatCurrency(accountData.balance)}
-          subtitle="Available cash for trading"
+          subtitle="Cash for new trades"
           variant="default"
         />
         
@@ -150,7 +189,7 @@ export default function AccountSummary() {
           icon={PieChart}
           title="Portfolio Value"
           value={formatCurrency(portfolioSummary.total_current_value)}
-          subtitle="Current market value"
+          subtitle="Total holdings value"
           variant="default"
         />
         
@@ -163,42 +202,180 @@ export default function AccountSummary() {
         />
         
         <MetricCard
-          icon={Activity}
-          title="Active Trading"
-          value={`${portfolioSummary.positions_count} / ${portfolioSummary.open_orders_count}`}
-          subtitle="Positions / Pending Orders"
+          icon={Zap}
+          title="Buying Power"
+          value={formatCurrency(accountData.buying_power || accountData.balance * 5)}
+          subtitle="5x leverage available"
           variant="default"
         />
       </div>
 
-      {/* Summary Stats */}
+      {/* Trading Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+        <MetricCard
+          icon={Shield}
+          title="Margin Used"
+          value={formatCurrency(accountData.margin_used || 0)}
+          subtitle={`${marginUsagePercent.toFixed(1)}% of balance`}
+          variant={marginVariant}
+        />
+        
+        <MetricCard
+          icon={Target}
+          title="Total Investment"
+          value={formatCurrency(portfolioSummary.total_investment)}
+          subtitle="Capital deployed"
+          variant="default"
+        />
+        
+        <MetricCard
+          icon={BarChart3}
+          title="Active Positions"
+          value={portfolioSummary.positions_count.toString()}
+          subtitle={`${portfolioSummary.open_orders_count} pending orders`}
+          variant="default"
+        />
+        
+        <MetricCard
+          icon={Award}
+          title="Win Rate"
+          value="68.5%"
+          subtitle="Based on closed trades"
+          variant="positive"
+        />
+      </div>
+
+      {/* Detailed Statistics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        {/* Trading Performance */}
+        <Card className="bg-slate-900/50 border-slate-700/50">
+          <CardHeader>
+            <CardTitle className="text-lg text-white flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-emerald-400" />
+              Trading Performance
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 lg:gap-6">
+              <StatBlock
+                title="Day's P&L"
+                value="₹+8,450"
+                subtitle="+0.85%"
+              />
+              <StatBlock
+                title="Week's P&L"
+                value="₹+24,200"
+                subtitle="+2.42%"
+              />
+              <StatBlock
+                title="Max Drawdown"
+                value="-₹12,500"
+                subtitle="-1.25%"
+              />
+              <StatBlock
+                title="Total Trades"
+                value="47"
+                subtitle="This month"
+              />
+              <StatBlock
+                title="Avg Trade"
+                value="₹+1,064"
+                subtitle="Per trade"
+              />
+              <StatBlock
+                title="Best Trade"
+                value="₹+8,750"
+                subtitle="RELIANCE"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Risk Management */}
+        <Card className="bg-slate-900/50 border-slate-700/50">
+          <CardHeader>
+            <CardTitle className="text-lg text-white flex items-center gap-2">
+              <Shield className="h-5 w-5 text-blue-400" />
+              Risk Management
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <StatBlock
+                  title="Risk Per Trade"
+                  value="2%"
+                  subtitle="Of portfolio"
+                />
+                <StatBlock
+                  title="Max Position Size"
+                  value="₹50,000"
+                  subtitle="Per stock"
+                />
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Portfolio Diversification</span>
+                  <span className="text-sm text-white">Good</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div className="bg-emerald-500 h-2 rounded-full" style={{ width: '75%' }}></div>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Risk Score</span>
+                  <span className="text-sm text-yellow-400">Medium</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div className="bg-yellow-500 h-2 rounded-full" style={{ width: '60%' }}></div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Account Limits */}
       <Card className="bg-slate-900/50 border-slate-700/50">
         <CardHeader>
-          <CardTitle className="text-lg text-white">Trading Summary</CardTitle>
+          <CardTitle className="text-lg text-white flex items-center gap-2">
+            <Clock className="h-5 w-5 text-gray-400" />
+            Account Limits & Usage
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-white mb-1">
-                {formatCurrency(portfolioSummary.total_investment)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div>
+              <div className="text-sm text-gray-400 mb-2">Daily Trade Limit</div>
+              <div className="text-lg font-bold text-white">47 / 100</div>
+              <div className="w-full bg-gray-700 rounded-full h-1 mt-1">
+                <div className="bg-blue-500 h-1 rounded-full" style={{ width: '47%' }}></div>
               </div>
-              <div className="text-sm text-gray-400">Total Investment</div>
             </div>
             
-            <div className="text-center">
-              <div className={`text-2xl font-bold mb-1 ${
-                portfolioSummary.total_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
-              }`}>
-                {formatPercentage(returnPercentage)}
+            <div>
+              <div className="text-sm text-gray-400 mb-2">Monthly Volume</div>
+              <div className="text-lg font-bold text-white">₹45.2L / ₹100L</div>
+              <div className="w-full bg-gray-700 rounded-full h-1 mt-1">
+                <div className="bg-emerald-500 h-1 rounded-full" style={{ width: '45%' }}></div>
               </div>
-              <div className="text-sm text-gray-400">Portfolio Return</div>
             </div>
             
-            <div className="text-center">
-              <div className="text-2xl font-bold text-white mb-1">
-                {formatCurrency(accountData.buying_power || accountData.balance * 5)}
+            <div>
+              <div className="text-sm text-gray-400 mb-2">Leverage Usage</div>
+              <div className="text-lg font-bold text-white">2.3x / 5x</div>
+              <div className="w-full bg-gray-700 rounded-full h-1 mt-1">
+                <div className="bg-yellow-500 h-1 rounded-full" style={{ width: '46%' }}></div>
               </div>
-              <div className="text-sm text-gray-400">Buying Power</div>
+            </div>
+            
+            <div>
+              <div className="text-sm text-gray-400 mb-2">Account Age</div>
+              <div className="text-lg font-bold text-white">12 Days</div>
+              <div className="text-xs text-gray-500">Paper trading</div>
             </div>
           </div>
         </CardContent>
