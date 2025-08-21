@@ -295,7 +295,7 @@ const ChartView = ({
         const volumeData = data.map(candle => ({
           time: candle.time,
           value: candle.volume,
-          color: '#26a69a40'
+          color: '#73737540'
         }));
         volumeSeriesRef.current?.setData(volumeData);
       }
