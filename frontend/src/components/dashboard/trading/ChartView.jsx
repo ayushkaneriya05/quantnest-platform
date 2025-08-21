@@ -279,16 +279,50 @@ const ChartView = ({
 
       // Handle specific API errors
       let errorMessage = 'Failed to load chart data';
-      if (error.message?.includes('Network Error') || error.code === 'ECONNREFUSED') {
-        errorMessage = 'Backend server is not running. Please start the Django backend on port 8000.';
+      let useMockData = false;
+
+      if (error.message?.includes('Network Error') || error.code === 'ECONNREFUSED' || !error.response) {
+        errorMessage = 'Using mock data - Backend server not available';
+        useMockData = true;
       } else if (error.response?.status === 404) {
-        errorMessage = 'Chart data endpoint not found. Check API configuration.';
+        errorMessage = 'Using mock data - API endpoint not found';
+        useMockData = true;
       } else {
         errorMessage = error.message || 'Failed to load chart data';
       }
 
-      setError(errorMessage);
-      toast.error(errorMessage);
+      // Use mock data as fallback
+      if (useMockData) {
+        console.log('Using mock data for development');
+        const mockData = generateMockData(normalizedInstrument.symbol, selectedTimeframe);
+        setChartData(mockData);
+        updateChart(mockData);
+
+        // Set initial price info from mock data
+        if (mockData.length > 0) {
+          const latest = mockData[mockData.length - 1];
+          const previous = mockData[mockData.length - 2];
+
+          setLastPrice(latest.close);
+          setVolume(latest.volume);
+
+          if (previous) {
+            const change = latest.close - previous.close;
+            const changePercent = (change / previous.close) * 100;
+            setPriceChange({
+              change: change.toFixed(2),
+              changePercent: changePercent.toFixed(2),
+              isPositive: change >= 0
+            });
+          }
+        }
+
+        toast.success('Using mock data for development');
+        setError(null); // Clear error since we have fallback data
+      } else {
+        setError(errorMessage);
+        toast.error(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
