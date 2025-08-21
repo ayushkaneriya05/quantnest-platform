@@ -17,7 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, TrendingUp, TrendingDown, Edit3, X } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { AlertCircle, TrendingUp, TrendingDown, Edit3, X, DollarSign, Clock, Info } from "lucide-react";
 import { useWebSocketContext } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
@@ -44,6 +45,7 @@ export default function ModifyOrderModal({
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentMarketPrice, setCurrentMarketPrice] = useState(null);
+  const [estimatedValue, setEstimatedValue] = useState(0);
 
   const { getLatestPrice } = useWebSocketContext();
 
@@ -62,6 +64,25 @@ export default function ModifyOrderModal({
       setCurrentMarketPrice(marketPrice);
     }
   }, [order, getLatestPrice]);
+
+  // Calculate estimated value when form data changes
+  useEffect(() => {
+    if (!formData.quantity) {
+      setEstimatedValue(0);
+      return;
+    }
+
+    const quantity = parseInt(formData.quantity);
+    let price = 0;
+
+    if (formData.order_type === 'MARKET') {
+      price = currentMarketPrice || 2500; // Mock current price
+    } else if (formData.price) {
+      price = parseFloat(formData.price);
+    }
+
+    setEstimatedValue(quantity * price);
+  }, [formData, currentMarketPrice]);
 
   const validateForm = () => {
     const newErrors = {};
@@ -108,7 +129,7 @@ export default function ModifyOrderModal({
         updateData.trigger_price = parseFloat(formData.trigger_price);
       }
 
-      const response = await api.put(`/trading/orders/${order.id}/`, updateData);
+      const response = await api.put(`/api/v1/trading/orders/${order.id}/`, updateData);
       
       toast.success('Order modified successfully');
       
@@ -164,9 +185,13 @@ export default function ModifyOrderModal({
 
   if (!order) return null;
 
+  const timeSinceCreated = new Date() - new Date(order.created_at);
+  const hoursAgo = Math.floor(timeSinceCreated / (1000 * 60 * 60));
+  const minutesAgo = Math.floor((timeSinceCreated % (1000 * 60 * 60)) / (1000 * 60));
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] bg-gray-900 border-gray-700 text-white">
+      <DialogContent className="sm:max-w-[550px] bg-slate-900 border-slate-700 text-white">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Edit3 className="h-5 w-5 text-blue-400" />
@@ -176,37 +201,50 @@ export default function ModifyOrderModal({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Order Info */}
-          <div className="bg-gray-800/50 p-4 rounded-lg">
+          <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/50">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="font-semibold text-lg">{order.instrument?.symbol}</h3>
                 <p className="text-sm text-gray-400">{order.instrument?.company_name}</p>
               </div>
-              <div className="text-right">
-                <Badge variant={order.transaction_type === 'BUY' ? 'default' : 'secondary'}>
-                  {order.transaction_type}
-                </Badge>
-                <Badge variant="outline" className="ml-2">
-                  {order.status}
-                </Badge>
+              <div className="text-right space-y-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant={order.transaction_type === 'BUY' ? 'default' : 'secondary'} className="text-xs">
+                    {order.transaction_type}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
+                    {order.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <Clock className="h-3 w-3" />
+                  {hoursAgo > 0 ? `${hoursAgo}h ` : ''}{minutesAgo}m ago
+                </div>
               </div>
             </div>
             
             {currentMarketPrice && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-gray-400">Current Price:</span>
-                <span className="font-mono text-white">₹{currentMarketPrice.toFixed(2)}</span>
-                {order.price && (
-                  <>
-                    <span className="text-gray-400">• Order Price:</span>
-                    <span className="font-mono text-white">₹{order.price}</span>
-                    <span className={`flex items-center gap-1 ${
-                      currentMarketPrice > order.price ? 'text-green-400' : 'text-red-400'
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-400">Current Price:</span>
+                  <div className="font-mono text-white">₹{currentMarketPrice.toFixed(2)}</div>
+                </div>
+                <div>
+                  <span className="text-gray-400">Order Price:</span>
+                  <div className="font-mono text-white">
+                    {order.order_type === 'MARKET' ? 'Market' : `₹${order.price}`}
+                  </div>
+                </div>
+                {order.price && order.order_type !== 'MARKET' && (
+                  <div>
+                    <span className="text-gray-400">Price Diff:</span>
+                    <div className={`font-mono flex items-center gap-1 ${
+                      currentMarketPrice > order.price ? 'text-emerald-400' : 'text-red-400'
                     }`}>
                       {currentMarketPrice > order.price ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                       {((currentMarketPrice - order.price) / order.price * 100).toFixed(2)}%
-                    </span>
-                  </>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -219,12 +257,12 @@ export default function ModifyOrderModal({
               value={formData.order_type} 
               onValueChange={(value) => handleInputChange('order_type', value)}
             >
-              <SelectTrigger className="bg-gray-800 border-gray-700">
+              <SelectTrigger className="bg-slate-800 border-slate-700">
                 <SelectValue placeholder="Select order type" />
               </SelectTrigger>
-              <SelectContent className="bg-gray-800 border-gray-700">
+              <SelectContent className="bg-slate-800 border-slate-700">
                 {ORDER_TYPES.map((type) => (
-                  <SelectItem key={type.value} value={type.value} className="text-white hover:bg-gray-700">
+                  <SelectItem key={type.value} value={type.value} className="text-white hover:bg-slate-700">
                     <div>
                       <div className="font-medium">{type.label}</div>
                       <div className="text-xs text-gray-400">{type.description}</div>
@@ -244,7 +282,7 @@ export default function ModifyOrderModal({
               value={formData.quantity}
               onChange={(e) => handleInputChange('quantity', e.target.value)}
               placeholder="Enter quantity"
-              className="bg-gray-800 border-gray-700"
+              className="bg-slate-800 border-slate-700"
               min="1"
               step="1"
             />
@@ -256,51 +294,93 @@ export default function ModifyOrderModal({
             )}
           </div>
 
-          {/* Price (for LIMIT and STOP_LIMIT orders) */}
-          {requiresPrice && (
-            <div className="space-y-2">
-              <Label htmlFor="price">Limit Price</Label>
-              <Input
-                id="price"
-                type="number"
-                value={formData.price}
-                onChange={(e) => handleInputChange('price', e.target.value)}
-                placeholder="Enter limit price"
-                className="bg-gray-800 border-gray-700"
-                min="0"
-                step="0.01"
-              />
-              {errors.price && (
-                <p className="text-red-400 text-sm flex items-center gap-1">
-                  <AlertCircle className="h-4 w-4" />
-                  {errors.price}
-                </p>
-              )}
-            </div>
-          )}
+          {/* Price Fields */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Price (for LIMIT and STOP_LIMIT orders) */}
+            {requiresPrice && (
+              <div className="space-y-2">
+                <Label htmlFor="price">Limit Price</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  value={formData.price}
+                  onChange={(e) => handleInputChange('price', e.target.value)}
+                  placeholder="Enter limit price"
+                  className="bg-slate-800 border-slate-700"
+                  min="0"
+                  step="0.01"
+                />
+                {errors.price && (
+                  <p className="text-red-400 text-sm flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" />
+                    {errors.price}
+                  </p>
+                )}
+              </div>
+            )}
 
-          {/* Trigger Price (for STOP and STOP_LIMIT orders) */}
-          {requiresTriggerPrice && (
-            <div className="space-y-2">
-              <Label htmlFor="trigger_price">Stop/Trigger Price</Label>
-              <Input
-                id="trigger_price"
-                type="number"
-                value={formData.trigger_price}
-                onChange={(e) => handleInputChange('trigger_price', e.target.value)}
-                placeholder="Enter trigger price"
-                className="bg-gray-800 border-gray-700"
-                min="0"
-                step="0.01"
-              />
-              {errors.trigger_price && (
-                <p className="text-red-400 text-sm flex items-center gap-1">
-                  <AlertCircle className="h-4 w-4" />
-                  {errors.trigger_price}
-                </p>
-              )}
+            {/* Trigger Price (for STOP and STOP_LIMIT orders) */}
+            {requiresTriggerPrice && (
+              <div className="space-y-2">
+                <Label htmlFor="trigger_price">Stop/Trigger Price</Label>
+                <Input
+                  id="trigger_price"
+                  type="number"
+                  value={formData.trigger_price}
+                  onChange={(e) => handleInputChange('trigger_price', e.target.value)}
+                  placeholder="Enter trigger price"
+                  className="bg-slate-800 border-slate-700"
+                  min="0"
+                  step="0.01"
+                />
+                {errors.trigger_price && (
+                  <p className="text-red-400 text-sm flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" />
+                    {errors.trigger_price}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <Separator className="bg-slate-700" />
+
+          {/* Order Summary */}
+          <div className="bg-blue-900/20 p-4 rounded-lg border border-blue-700/30">
+            <div className="flex items-center gap-2 mb-3">
+              <Info className="h-4 w-4 text-blue-400" />
+              <span className="text-sm font-medium text-blue-300">Order Summary</span>
             </div>
-          )}
+            
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <div className="text-gray-400">Side</div>
+                <div className={`font-medium ${order.transaction_type === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {order.transaction_type}
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-400">Quantity</div>
+                <div className="text-white font-mono">{formData.quantity || order.quantity} shares</div>
+              </div>
+              <div>
+                <div className="text-gray-400">Type</div>
+                <div className="text-white">{formData.order_type || order.order_type}</div>
+              </div>
+            </div>
+
+            {estimatedValue > 0 && (
+              <div className="mt-3 pt-3 border-t border-blue-700/30">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Estimated Value:</span>
+                  <div className="flex items-center gap-1 text-blue-300">
+                    <DollarSign className="h-4 w-4" />
+                    <span className="font-mono font-bold">₹{estimatedValue.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           <DialogFooter className="gap-2">
             <Button
@@ -308,7 +388,7 @@ export default function ModifyOrderModal({
               variant="outline"
               onClick={handleCancel}
               disabled={isSubmitting}
-              className="border-gray-700 text-gray-300 hover:bg-gray-800"
+              className="border-slate-700 text-gray-300 hover:bg-slate-800"
             >
               <X className="h-4 w-4 mr-2" />
               Cancel
