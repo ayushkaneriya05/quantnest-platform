@@ -5,7 +5,14 @@ import { Badge } from '../../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../ui/tabs';
 import { TrendingUp, TrendingDown, BarChart3, Activity, AlertCircle, Loader2 } from 'lucide-react';
-import { createChart, ColorType, CrosshairMode, LineStyle } from 'lightweight-charts';
+import { 
+  createChart, 
+  ColorType, 
+  CrosshairMode, 
+  CandlestickSeries, 
+  LineSeries, 
+  HistogramSeries 
+} from 'lightweight-charts';
 import { useApi } from '../../../hooks/use-api';
 import { useWebSocket } from '../../../contexts/websocket-context';
 import { toast } from 'react-hot-toast';
@@ -95,63 +102,68 @@ const ChartView = ({
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      ...chartOptions,
-      width: chartContainerRef.current.clientWidth,
-      height: height,
-    });
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        ...chartOptions,
+        width: chartContainerRef.current.clientWidth,
+        height: height,
+      });
 
-    chartRef.current = chart;
+      chartRef.current = chart;
 
-    // Add candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderVisible: false,
-      wickUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-    });
-    candlestickSeriesRef.current = candlestickSeries;
+      // Add candlestick series using v5 API
+      const candlestickSeries = chart.addSeries(CandlestickSeries, {
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderVisible: false,
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+      });
+      candlestickSeriesRef.current = candlestickSeries;
 
-    // Add line series (initially hidden)
-    const lineSeries = chart.addLineSeries({
-      color: '#2962FF',
-      lineWidth: 2,
-      visible: false,
-    });
-    lineSeriesRef.current = lineSeries;
+      // Add line series (initially hidden) using v5 API
+      const lineSeries = chart.addSeries(LineSeries, {
+        color: '#2962FF',
+        lineWidth: 2,
+        visible: false,
+      });
+      lineSeriesRef.current = lineSeries;
 
-    // Add volume series
-    const volumeSeries = chart.addHistogramSeries({
-      color: '#26a69a',
-      priceFormat: {
-        type: 'volume',
-      },
-      priceScaleId: '',
-      scaleMargins: {
-        top: 0.8,
-        bottom: 0,
-      },
-    });
-    volumeSeriesRef.current = volumeSeries;
+      // Add volume series using v5 API
+      const volumeSeries = chart.addSeries(HistogramSeries, {
+        color: '#26a69a',
+        priceFormat: {
+          type: 'volume',
+        },
+        priceScaleId: '',
+        scaleMargins: {
+          top: 0.8,
+          bottom: 0,
+        },
+      });
+      volumeSeriesRef.current = volumeSeries;
 
-    // Handle resize
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
-      }
-    };
+      // Handle resize
+      const handleResize = () => {
+        if (chartContainerRef.current && chartRef.current) {
+          chartRef.current.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+          });
+        }
+      };
 
-    window.addEventListener('resize', handleResize);
+      window.addEventListener('resize', handleResize);
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartRef.current) {
-        chartRef.current.remove();
-      }
-    };
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        if (chartRef.current) {
+          chartRef.current.remove();
+        }
+      };
+    } catch (error) {
+      console.error('Error initializing chart:', error);
+      setError('Failed to initialize chart');
+    }
   }, [chartOptions, height]);
 
   // Fetch historical data
