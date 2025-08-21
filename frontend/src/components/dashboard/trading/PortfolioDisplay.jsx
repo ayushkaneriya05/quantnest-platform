@@ -228,6 +228,35 @@ export default function PortfolioDisplay() {
     "ICICIBANK": 934.20,
   };
 
+  // Mock data for positions
+  const mockPositions = [
+    {
+      id: 1,
+      instrument: {
+        symbol: "RELIANCE",
+        company_name: "Reliance Industries Limited"
+      },
+      quantity: 50,
+      average_price: 2420.75
+    }
+  ];
+
+  // Mock data for orders
+  const mockOrders = [
+    {
+      id: 1,
+      instrument: {
+        symbol: "TCS",
+        company_name: "Tata Consultancy Services"
+      },
+      transaction_type: "BUY",
+      order_type: "LIMIT",
+      quantity: 25,
+      price: 3200.00,
+      status: "OPEN"
+    }
+  ];
+
   const fetchData = useCallback(async () => {
     try {
       const posRes = await api.get("/trading/positions/");
@@ -248,8 +277,10 @@ export default function PortfolioDisplay() {
       setLivePrices(mockLivePrices);
     } catch (error) {
       console.error("Failed to fetch portfolio data:", error);
-      setPositions([]);
-      setOrders([]);
+      // Use mock data as fallback when API fails
+      setPositions(mockPositions);
+      setOrders(mockOrders);
+      setLivePrices(mockLivePrices);
     } finally {
       setLoading(false);
     }
