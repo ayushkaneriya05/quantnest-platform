@@ -628,7 +628,7 @@ const ChartView = ({
         </CardHeader>
       )}
 
-      <CardContent className={cn("p-0", showControls && "px-6 pb-6")}>
+      <CardContent className={cn("p-0 bg-[#0d1117]", showControls && "px-6 pb-6")}>
         {/* Development Notice */}
         {usingMockData && (
           <div className="p-4">
@@ -639,7 +639,7 @@ const ChartView = ({
         {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center h-96">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-[#d1d4dc]">
               <Loader2 className="h-6 w-6 animate-spin" />
               <span>Loading chart data...</span>
             </div>
@@ -650,9 +650,14 @@ const ChartView = ({
         {error && !isLoading && (
           <div className="flex items-center justify-center h-96">
             <div className="text-center">
-              <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground mb-2">{error}</p>
-              <Button onClick={fetchHistoricalData} variant="outline" size="sm">
+              <AlertCircle className="h-12 w-12 text-[#758696] mx-auto mb-4" />
+              <p className="text-[#758696] mb-2">{error}</p>
+              <Button
+                onClick={fetchHistoricalData}
+                variant="outline"
+                size="sm"
+                className="bg-[#2a2e39] border-[#4e5260] text-[#d1d4dc] hover:bg-[#4e5260]"
+              >
                 Retry
               </Button>
             </div>
@@ -663,7 +668,7 @@ const ChartView = ({
         {!isLoading && !error && (
           <div
             ref={chartContainerRef}
-            className="w-full"
+            className="w-full bg-[#0d1117]"
             style={{ height: `${height}px` }}
           />
         )}
@@ -672,8 +677,8 @@ const ChartView = ({
         {!normalizedInstrument && !isLoading && !error && (
           <div className="flex items-center justify-center h-96">
             <div className="text-center">
-              <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">
+              <BarChart3 className="h-12 w-12 text-[#758696] mx-auto mb-4" />
+              <p className="text-[#758696]">
                 Select an instrument to view chart
               </p>
             </div>
