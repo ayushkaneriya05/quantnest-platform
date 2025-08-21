@@ -64,7 +64,6 @@ const TradingChart = ({ symbol, timeframe, lastPrice, priceChange, volume24h, is
           </div>
           
           <div className="space-y-2">
-            <h3 className="text-lg lg:text-xl font-bold text-white">{symbol}</h3>
             <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
               <BarChart3 className="h-4 w-4" />
               <span>Live {timeframe} Chart</span>

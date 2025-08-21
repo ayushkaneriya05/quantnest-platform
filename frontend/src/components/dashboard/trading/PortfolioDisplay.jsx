@@ -224,10 +224,10 @@ export default function PortfolioDisplay() {
             variant={totalPnl >= 0 ? 'positive' : 'negative'}
           />
           <StatCard
-            icon={TrendingUp}
-            title="Active Trading"
-            value="Live"
-            subtitle="Market hours: 9:15 - 15:30"
+            icon={Package}
+            title="Active Positions"
+            value={positions.length.toString()}
+            subtitle={`${orders.length} pending orders`}
             variant="positive"
           />
         </div>
