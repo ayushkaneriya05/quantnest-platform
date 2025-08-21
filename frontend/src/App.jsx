@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { fetchUserProfile, initializeAuth } from "@/store/authSlice";
 import { SidebarProvider } from "@/contexts/sidebar-context";
+import { WebSocketProvider } from "@/contexts/websocket-context";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 import {
