@@ -8,6 +8,7 @@ import React, {
   useCallback,
 } from "react";
 import toast from "react-hot-toast";
+import sha1 from "crypto-js/sha1";
 
 const WebSocketContext = createContext();
 
@@ -55,7 +56,8 @@ export const WebSocketProvider = ({ children }) => {
   const [orderUpdates, setOrderUpdates] = useState([]);
   const [positionUpdates, setPositionUpdates] = useState([]);
   const [useMockData, setUseMockData] = useState(false);
-
+  const symbolToHash = useRef(new Map()); // maps original symbol -> hashed symbol
+  const hashToSymbol = useRef(new Map()); // maps hashed symbol -> original symbol
   const ws = useRef(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 3;
@@ -133,9 +135,47 @@ export const WebSocketProvider = ({ children }) => {
     }
     return `ws://localhost:8000/ws/marketdata/${accessToken}`;
   };
+  const sendMessage = useCallback(
+    (message) => {
+      if (useMockData) return true;
+      if (ws.current?.readyState === WebSocket.OPEN) {
+        try {
+          ws.current.send(JSON.stringify(message));
+          return true;
+        } catch (e) {
+          console.error("WS send error:", e);
+          return false;
+        }
+      } else {
+        console.warn("WebSocket not connected - message not sent:", message);
+        return false;
+      }
+    },
+    [useMockData]
+  );
+  const handleTickData = useCallback((data) => {
+    if (!data.symbol) return;
 
+    // Map hashed symbol to original symbol if needed
+    const originalSymbol = hashToSymbol.current.get(data.symbol) || data.symbol;
+
+    setTickData((prev) => {
+      const next = new Map(prev);
+      next.set(originalSymbol, { ...data, timestamp: Date.now() });
+      return next;
+    });
+  }, []);
+
+  const handleOrderUpdate = useCallback((data) => {
+    setOrderUpdates((prev) => [data, ...prev.slice(0, 99)]);
+  }, []);
+
+  const handlePositionUpdate = useCallback((data) => {
+    setPositionUpdates((prev) => [data, ...prev.slice(0, 99)]);
+  }, []);
   const connect = useCallback(() => {
     if (ws.current?.readyState === WebSocket.OPEN) return;
+
     try {
       setConnectionStatus("connecting");
 
@@ -157,10 +197,12 @@ export const WebSocketProvider = ({ children }) => {
         reconnectAttempts.current = 0;
         stopMockDataGeneration();
 
+        // Resubscribe all existing symbols on reconnect
         subscriptions.forEach((symbol) => {
-          ws.current?.send(
-            JSON.stringify({ type: "subscribe", instrument: symbol })
-          );
+          const hashedSymbol = symbolToHash.current.get(symbol);
+          if (hashedSymbol) {
+            sendMessage({ type: "subscribe", instrument: hashedSymbol });
+          }
         });
 
         toast.success("Live market data connected", { duration: 3000 });
@@ -179,14 +221,22 @@ export const WebSocketProvider = ({ children }) => {
             handlePositionUpdate(data);
           }
 
-          if (data.symbol && subscriptionCallbacks.current.has(data.symbol)) {
-            subscriptionCallbacks.current.get(data.symbol).forEach((cb) => {
-              try {
-                cb(data);
-              } catch (e) {
-                console.error("Sub cb error:", e);
-              }
-            });
+          const symbolForCallback =
+            hashToSymbol.current.get(data.symbol) || data.symbol;
+
+          if (
+            symbolForCallback &&
+            subscriptionCallbacks.current.has(symbolForCallback)
+          ) {
+            subscriptionCallbacks.current
+              .get(symbolForCallback)
+              .forEach((cb) => {
+                try {
+                  cb(data);
+                } catch (e) {
+                  console.error("Sub cb error:", e);
+                }
+              });
           }
         } catch (e) {
           console.error("WS parse error:", e);
@@ -227,7 +277,13 @@ export const WebSocketProvider = ({ children }) => {
       startMockDataGeneration();
       toast.error("Using simulated market data", { duration: 3000 });
     }
-  }, [startMockDataGeneration, stopMockDataGeneration, subscriptions]);
+  }, [
+    startMockDataGeneration,
+    stopMockDataGeneration,
+    subscriptions,
+    sendMessage,
+    handleTickData,
+  ]);
 
   const attemptReconnect = useCallback(() => {
     if (reconnectAttempts.current >= maxReconnectAttempts) return;
@@ -249,59 +305,54 @@ export const WebSocketProvider = ({ children }) => {
     setUseMockData(false);
   }, [stopMockDataGeneration]);
 
-  const sendMessage = useCallback(
-    (message) => {
-      if (useMockData) return true;
-      if (ws.current?.readyState === WebSocket.OPEN) {
-        try {
-          ws.current.send(JSON.stringify(message));
-          return true;
-        } catch (e) {
-          console.error("WS send error:", e);
-          return false;
+  const subscribe = useCallback(
+    (symbol, callback) => {
+      if (!symbol) return () => {};
+
+      // Add to frontend subscriptions set
+      setSubscriptions((prev) => new Set([...prev, symbol]));
+
+      // Add callback if provided
+      if (callback) {
+        if (!subscriptionCallbacks.current.has(symbol)) {
+          subscriptionCallbacks.current.set(symbol, new Set());
         }
-      } else {
-        console.warn("WebSocket not connected - message not sent:", message);
-        return false;
+        subscriptionCallbacks.current.get(symbol).add(callback);
       }
-    },
-    [useMockData]
-  );
 
-  const subscribe = useCallback((symbol, callback) => {
-    if (!symbol) return () => {};
-    setSubscriptions((prev) => new Set([...prev, symbol]));
+      // Compute hashed symbol and store mapping
+      const hashedSymbol = sha1(symbol).toString();
+      symbolToHash.current.set(symbol, hashedSymbol);
+      hashToSymbol.current.set(hashedSymbol, symbol);
 
-    if (callback) {
-      if (!subscriptionCallbacks.current.has(symbol)) {
-        subscriptionCallbacks.current.set(symbol, new Set());
-      }
-      subscriptionCallbacks.current.get(symbol).add(callback);
-    }
-
-    if (useMockData) {
-      setTimeout(() => {
-        const mockData = generateMockTickData(symbol);
-        handleTickData(mockData);
-        if (callback) {
-          try {
-            callback(mockData);
-          } catch (e) {
-            console.error("Mock cb error:", e);
+      if (useMockData) {
+        // Generate mock tick data
+        setTimeout(() => {
+          const mockData = generateMockTickData(symbol);
+          handleTickData(mockData);
+          if (callback) {
+            try {
+              callback(mockData);
+            } catch (e) {
+              console.error("Mock cb error:", e);
+            }
           }
-        }
-      }, 100);
-    } else if (ws.current?.readyState === WebSocket.OPEN) {
-      sendMessage({ type: "subscribe", instrument: symbol });
-    }
+        }, 100);
+      } else if (ws.current?.readyState === WebSocket.OPEN) {
+        // Send hashed instrument to backend
+        sendMessage({ type: "subscribe", instrument: hashedSymbol });
+      }
 
-    return () => unsubscribe(symbol, callback);
-  });
+      return () => unsubscribe(symbol, callback);
+    },
+    [sendMessage, useMockData, subscriptions]
+  );
 
   const unsubscribe = useCallback(
     (symbol, callback) => {
       if (!symbol) return;
 
+      // Remove callback if provided
       if (callback && subscriptionCallbacks.current.has(symbol)) {
         subscriptionCallbacks.current.get(symbol).delete(callback);
         if (subscriptionCallbacks.current.get(symbol).size === 0) {
@@ -309,6 +360,7 @@ export const WebSocketProvider = ({ children }) => {
         }
       }
 
+      // Only unsubscribe from backend if no more callbacks exist
       if (!subscriptionCallbacks.current.has(symbol)) {
         setSubscriptions((prev) => {
           const next = new Set(prev);
@@ -317,29 +369,17 @@ export const WebSocketProvider = ({ children }) => {
         });
 
         if (!useMockData && ws.current?.readyState === WebSocket.OPEN) {
-          sendMessage({ type: "unsubscribe", instrument: symbol });
+          const hashedSymbol = symbolToHash.current.get(symbol);
+          if (hashedSymbol) {
+            sendMessage({ type: "unsubscribe", instrument: hashedSymbol });
+            symbolToHash.current.delete(symbol);
+            hashToSymbol.current.delete(hashedSymbol);
+          }
         }
       }
     },
     [sendMessage, useMockData]
   );
-
-  const handleTickData = useCallback((data) => {
-    if (!data.symbol) return;
-    setTickData((prev) => {
-      const next = new Map(prev);
-      next.set(data.symbol, { ...data, timestamp: Date.now() });
-      return next;
-    });
-  }, []);
-
-  const handleOrderUpdate = useCallback((data) => {
-    setOrderUpdates((prev) => [data, ...prev.slice(0, 99)]);
-  }, []);
-
-  const handlePositionUpdate = useCallback((data) => {
-    setPositionUpdates((prev) => [data, ...prev.slice(0, 99)]);
-  }, []);
 
   const getLatestPrice = useCallback(
     (symbol) => tickData.get(symbol)?.ltp ?? null,
