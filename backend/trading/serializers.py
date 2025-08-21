@@ -83,3 +83,13 @@ class TradeHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = TradeHistory
         fields = '__all__'
+
+class PortfolioSummarySerializer(serializers.Serializer):
+    """
+    Serializer for portfolio summary data.
+    """
+    account_balance = serializers.DecimalField(max_digits=15, decimal_places=2)
+    total_invested = serializers.DecimalField(max_digits=15, decimal_places=2)
+    total_value = serializers.DecimalField(max_digits=15, decimal_places=2)
+    total_pnl = serializers.DecimalField(max_digits=15, decimal_places=2)
+    positions = PositionSerializer(many=True, read_only=True)
