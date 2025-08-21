@@ -273,11 +273,11 @@ const ChartView = ({
 
         candlestickSeriesRef.current?.setData(data);
 
-        // Update volume data
+        // Update volume data with TradingView colors
         const volumeData = data.map(candle => ({
           time: candle.time,
           value: candle.volume,
-          color: candle.close >= candle.open ? '#26a69a40' : '#ef535040'
+          color: candle.close >= candle.open ? '#22c55e40' : '#ef444440'
         }));
         volumeSeriesRef.current?.setData(volumeData);
       } else {
