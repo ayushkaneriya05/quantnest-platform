@@ -77,42 +77,68 @@ const ChartView = ({
     return null;
   }, [instrument, symbol]);
 
-  // Memoized chart options
+  // TradingView-style dark theme chart options
   const chartOptions = useMemo(() => ({
     layout: {
-      textColor: 'rgb(120, 123, 134)',
+      textColor: '#d1d4dc',
       background: {
         type: ColorType.Solid,
-        color: 'transparent',
+        color: '#0d1117',
       },
+      fontSize: 12,
     },
     grid: {
       vertLines: {
-        color: 'rgba(197, 203, 206, 0.1)',
+        color: '#363a45',
+        style: 2, // LineStyle.Dashed
+        visible: true,
       },
       horzLines: {
-        color: 'rgba(197, 203, 206, 0.1)',
+        color: '#363a45',
+        style: 2, // LineStyle.Dashed
+        visible: true,
       },
     },
     crosshair: {
       mode: CrosshairMode.Normal,
+      vertLine: {
+        color: '#758696',
+        width: 1,
+        style: 3, // LineStyle.LargeDashed
+        labelBackgroundColor: '#131722',
+      },
+      horzLine: {
+        color: '#758696',
+        width: 1,
+        style: 3, // LineStyle.LargeDashed
+        labelBackgroundColor: '#131722',
+      },
     },
     rightPriceScale: {
-      borderColor: 'rgba(197, 203, 206, 0.2)',
+      borderColor: '#4e5260',
+      textColor: '#d1d4dc',
+      entireTextOnly: true,
     },
     timeScale: {
-      borderColor: 'rgba(197, 203, 206, 0.2)',
+      borderColor: '#4e5260',
+      textColor: '#d1d4dc',
       timeVisible: true,
       secondsVisible: false,
     },
     handleScroll: {
       mouseWheel: true,
       pressedMouseMove: true,
+      horzTouchDrag: true,
+      vertTouchDrag: true,
     },
     handleScale: {
       axisPressedMouseMove: true,
       mouseWheel: true,
       pinch: true,
+    },
+    kineticScroll: {
+      touch: true,
+      mouse: false,
     },
   }), []);
 
