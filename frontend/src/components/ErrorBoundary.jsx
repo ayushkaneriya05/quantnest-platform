@@ -1,248 +1,339 @@
-import React from 'react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react'
+import React from 'react';
+import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Badge } from './ui/badge';
+import { Separator } from './ui/separator';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
-    super(props)
-    this.state = { 
-      hasError: false, 
+    super(props);
+    this.state = {
+      hasError: false,
       error: null,
       errorInfo: null,
       errorId: null
-    }
+    };
   }
 
   static getDerivedStateFromError(error) {
     // Update state so the next render will show the fallback UI
-    return { 
+    return {
       hasError: true,
-      errorId: Date.now().toString()
-    }
+      errorId: Date.now().toString(36)
+    };
   }
 
   componentDidCatch(error, errorInfo) {
-    // Log error to console and external service
-    console.error('Error Boundary caught an error:', error, errorInfo)
+    // Log error details
+    console.error('Error Boundary caught an error:', error, errorInfo);
     
     this.setState({
       error,
       errorInfo
-    })
+    });
 
-    // Log to external error service (e.g., Sentry)
-    if (window.Sentry) {
-      window.Sentry.captureException(error, {
-        contexts: {
-          react: {
-            componentStack: errorInfo.componentStack
-          }
-        }
-      })
-    }
-
-    // Send to your own error logging service
-    this.logErrorToService(error, errorInfo)
+    // Report error to monitoring service
+    this.reportError(error, errorInfo);
   }
 
-  logErrorToService = async (error, errorInfo) => {
+  reportError = (error, errorInfo) => {
     try {
-      // Replace with your actual error logging endpoint
-      await fetch('/api/errors', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: error.message,
-          stack: error.stack,
-          componentStack: errorInfo.componentStack,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          url: window.location.href,
-          errorId: this.state.errorId
-        })
-      })
-    } catch (logError) {
-      console.error('Failed to log error to service:', logError)
-    }
-  }
+      // Create error report
+      const errorReport = {
+        message: error.message,
+        stack: error.stack,
+        componentStack: errorInfo.componentStack,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        url: window.location.href,
+        errorId: this.state.errorId
+      };
 
-  handleReload = () => {
-    window.location.reload()
-  }
+      // Log to console for development
+      console.group('🐛 Error Report');
+      console.error('Error:', error.message);
+      console.error('Stack:', error.stack);
+      console.error('Component Stack:', errorInfo.componentStack);
+      console.error('Error ID:', this.state.errorId);
+      console.groupEnd();
+
+      // In production, you would send this to your error monitoring service
+      // Example: Sentry, LogRocket, Bugsnag, etc.
+      // this.sendToErrorService(errorReport);
+      
+    } catch (reportingError) {
+      console.error('Failed to report error:', reportingError);
+    }
+  };
+
+  handleRetry = () => {
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+      errorId: null
+    });
+  };
 
   handleGoHome = () => {
-    window.location.href = '/'
-  }
-
-  handleTryAgain = () => {
-    this.setState({ 
-      hasError: false, 
-      error: null, 
-      errorInfo: null,
-      errorId: null 
-    })
-  }
-
-  handleReportBug = () => {
-    const { error, errorInfo, errorId } = this.state
-    const bugReport = {
-      errorId,
-      message: error?.message,
-      stack: error?.stack,
-      componentStack: errorInfo?.componentStack,
-      timestamp: new Date().toISOString(),
-      url: window.location.href,
-      userAgent: navigator.userAgent
-    }
-    
-    // Open bug report form or email
-    const subject = encodeURIComponent(`Bug Report - Error ID: ${errorId}`)
-    const body = encodeURIComponent(`
-Error Details:
-${JSON.stringify(bugReport, null, 2)}
-
-Steps to reproduce:
-1. 
-2. 
-3. 
-
-Expected behavior:
-
-
-Actual behavior:
-
-
-Additional information:
-
-    `)
-    
-    window.open(`mailto:support@quantnest.com?subject=${subject}&body=${body}`)
-  }
+    window.location.href = '/';
+  };
 
   render() {
     if (this.state.hasError) {
-      const { error, errorId } = this.state
-      const isDevelopment = process.env.NODE_ENV === 'development'
-
+      const { error, errorInfo } = this.state;
+      const isDevelopment = import.meta.env.DEV;
+      
       return (
-        <div className="min-h-screen bg-black flex items-center justify-center p-4">
-          <Card className="w-full max-w-2xl bg-gray-900/50 border border-gray-800/50 shadow-xl">
-            <CardHeader className="text-center pb-6">
-              <div className="flex justify-center mb-4">
-                <AlertTriangle className="h-16 w-16 text-red-400" />
-              </div>
-              <CardTitle className="text-2xl font-bold text-slate-100">
-                Oops! Something went wrong
-              </CardTitle>
-              <CardDescription className="text-slate-400 text-base">
-                We apologize for the inconvenience. An unexpected error has occurred.
-              </CardDescription>
-              {errorId && (
-                <div className="mt-2">
-                  <span className="text-xs text-slate-500">Error ID: {errorId}</span>
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <Card className="w-full max-w-2xl">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-red-100 dark:bg-red-900/20 rounded-full">
+                  <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" />
                 </div>
-              )}
+                <div>
+                  <CardTitle className="text-xl text-red-600 dark:text-red-400">
+                    Something went wrong
+                  </CardTitle>
+                  <p className="text-muted-foreground mt-1">
+                    We encountered an unexpected error. Please try refreshing the page.
+                  </p>
+                </div>
+              </div>
             </CardHeader>
-            
-            <CardContent className="space-y-6">
-              {isDevelopment && error && (
-                <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-4">
-                  <h4 className="text-red-300 font-medium mb-2">Development Error Details:</h4>
-                  <pre className="text-xs text-red-200 whitespace-pre-wrap overflow-auto max-h-40">
-                    {error.message}
-                    {'\n\n'}
-                    {error.stack}
-                  </pre>
-                </div>
-              )}
 
+            <CardContent className="space-y-6">
+              {/* Error Summary */}
               <div className="space-y-3">
-                <p className="text-slate-300 text-sm">
-                  You can try one of the following options:
-                </p>
-                
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Button
-                    onClick={this.handleTryAgain}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)]"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Try Again
-                  </Button>
-                  
-                  <Button
-                    onClick={this.handleReload}
-                    variant="outline"
-                    className="bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Reload Page
-                  </Button>
-                  
-                  <Button
-                    onClick={this.handleGoHome}
-                    variant="outline"
-                    className="bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                  >
-                    <Home className="h-4 w-4 mr-2" />
-                    Go Home
-                  </Button>
-                  
-                  <Button
-                    onClick={this.handleReportBug}
-                    variant="outline"
-                    className="bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                  >
-                    <Bug className="h-4 w-4 mr-2" />
-                    Report Bug
-                  </Button>
+                <div className="flex items-center gap-2">
+                  <Badge variant="destructive" className="text-xs">
+                    Error ID: {this.state.errorId}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {new Date().toLocaleString()}
+                  </Badge>
                 </div>
+                
+                {error && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                      {error.message || 'Unknown error occurred'}
+                    </p>
+                  </div>
+                )}
               </div>
 
-              <div className="text-center pt-4 border-t border-gray-800/50">
-                <p className="text-xs text-slate-500">
-                  If the problem persists, please contact our support team at{' '}
-                  <a 
-                    href="mailto:support@quantnest.com" 
-                    className="text-indigo-400 hover:text-indigo-300 underline"
-                  >
-                    support@quantnest.com
-                  </a>
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button 
+                  onClick={this.handleRetry}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Try Again
+                </Button>
+                
+                <Button 
+                  variant="outline"
+                  onClick={this.handleGoHome}
+                  className="flex items-center gap-2"
+                >
+                  <Home className="h-4 w-4" />
+                  Go to Homepage
+                </Button>
+                
+                <Button 
+                  variant="ghost"
+                  onClick={() => window.location.reload()}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh Page
+                </Button>
+              </div>
+
+              <Separator />
+
+              {/* User-friendly troubleshooting tips */}
+              <div className="space-y-3">
+                <h4 className="font-medium text-sm">What you can try:</h4>
+                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                  <li>Refresh the page or try again in a few moments</li>
+                  <li>Check your internet connection</li>
+                  <li>Clear your browser cache and cookies</li>
+                  <li>Try using a different browser or device</li>
+                  <li>Contact support if the problem persists</li>
+                </ul>
+              </div>
+
+              {/* Technical Details (Development Only) */}
+              {isDevelopment && error && (
+                <details className="space-y-3">
+                  <summary className="cursor-pointer text-sm font-medium flex items-center gap-2">
+                    <Bug className="h-4 w-4" />
+                    Technical Details (Development)
+                  </summary>
+                  
+                  <div className="pl-6 space-y-3">
+                    <div>
+                      <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+                        Error Message
+                      </h5>
+                      <pre className="text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto">
+                        {error.message}
+                      </pre>
+                    </div>
+                    
+                    {error.stack && (
+                      <div>
+                        <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+                          Stack Trace
+                        </h5>
+                        <pre className="text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto max-h-32">
+                          {error.stack}
+                        </pre>
+                      </div>
+                    )}
+                    
+                    {errorInfo?.componentStack && (
+                      <div>
+                        <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+                          Component Stack
+                        </h5>
+                        <pre className="text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-x-auto max-h-32">
+                          {errorInfo.componentStack}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+
+              {/* Support Information */}
+              <div className="pt-4 text-center">
+                <p className="text-xs text-muted-foreground">
+                  If this error persists, please contact our support team with Error ID: {this.state.errorId}
                 </p>
               </div>
             </CardContent>
           </Card>
         </div>
-      )
+      );
     }
 
-    return this.props.children
+    return this.props.children;
   }
 }
 
-export default ErrorBoundary
-
-// Higher-order component for easy usage
-export function withErrorBoundary(Component, errorBoundaryProps = {}) {
-  const WrappedComponent = (props) => {
+// Higher-order component for functional components error handling
+export const withErrorBoundary = (Component, fallback) => {
+  return function WrappedComponent(props) {
     return (
-      <ErrorBoundary {...errorBoundaryProps}>
+      <ErrorBoundary fallback={fallback}>
         <Component {...props} />
       </ErrorBoundary>
-    )
-  }
-  
-  WrappedComponent.displayName = `withErrorBoundary(${Component.displayName || Component.name})`
-  
-  return WrappedComponent
-}
+    );
+  };
+};
 
-// Hook for programmatic error throwing (useful for testing)
-export function useErrorHandler() {
-  return (error) => {
-    throw error
-  }
-}
+// Hook for error handling in functional components
+export const useErrorHandler = () => {
+  const [error, setError] = React.useState(null);
+
+  const resetError = React.useCallback(() => {
+    setError(null);
+  }, []);
+
+  const captureError = React.useCallback((error, errorInfo = {}) => {
+    console.error('Error captured by useErrorHandler:', error);
+    
+    // Report error to monitoring service
+    const errorReport = {
+      message: error.message || 'Unknown error',
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      url: window.location.href,
+      ...errorInfo
+    };
+
+    // Log for development
+    console.group('🐛 Error Handler Report');
+    console.error('Error:', error);
+    console.error('Additional Info:', errorInfo);
+    console.groupEnd();
+
+    setError(error);
+  }, []);
+
+  // Reset error when component unmounts
+  React.useEffect(() => {
+    return () => {
+      if (error) {
+        resetError();
+      }
+    };
+  }, [error, resetError]);
+
+  return {
+    error,
+    captureError,
+    resetError,
+    hasError: !!error
+  };
+};
+
+// Error display component for controlled error states
+export const ErrorDisplay = ({ 
+  error, 
+  onRetry, 
+  title = "Something went wrong",
+  description = "An unexpected error occurred. Please try again.",
+  showDetails = false 
+}) => {
+  return (
+    <Card className="border-red-200 dark:border-red-800">
+      <CardContent className="p-6">
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-red-100 dark:bg-red-900/20 rounded-full flex-shrink-0">
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+          </div>
+          <div className="flex-1 space-y-3">
+            <div>
+              <h3 className="font-medium text-red-800 dark:text-red-200">
+                {title}
+              </h3>
+              <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                {description}
+              </p>
+            </div>
+            
+            {showDetails && error && (
+              <div className="text-xs bg-red-50 dark:bg-red-900/10 p-2 rounded border border-red-200 dark:border-red-800">
+                <code className="text-red-800 dark:text-red-200">
+                  {error.message || 'Unknown error'}
+                </code>
+              </div>
+            )}
+            
+            {onRetry && (
+              <Button 
+                onClick={onRetry}
+                size="sm"
+                variant="outline"
+                className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/20"
+              >
+                <RefreshCw className="h-3 w-3 mr-2" />
+                Try Again
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default ErrorBoundary;
