@@ -44,6 +44,16 @@ const InstrumentSearch = ({ onInstrumentSelect, className }) => {
       }
     } catch (error) {
       console.error('Error fetching watchlist:', error);
+      // Use mock watchlist data as fallback
+      const mockWatchlist = [
+        { id: 1, symbol: 'RELIANCE', company_name: 'Reliance Industries Limited' },
+        { id: 2, symbol: 'TCS', company_name: 'Tata Consultancy Services' },
+        { id: 3, symbol: 'INFY', company_name: 'Infosys Limited' },
+        { id: 4, symbol: 'HDFCBANK', company_name: 'HDFC Bank Limited' },
+        { id: 5, symbol: 'ICICIBANK', company_name: 'ICICI Bank Limited' }
+      ];
+      setWatchlist(mockWatchlist);
+      toast.success('Using mock watchlist data');
     }
   };
 
