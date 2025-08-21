@@ -182,7 +182,7 @@ const ChartView = ({
 
   // Fetch historical data
   const fetchHistoricalData = useCallback(async () => {
-    if (!instrument?.symbol) return;
+    if (!normalizedInstrument?.symbol) return;
 
     setIsLoading(true);
     setError(null);
