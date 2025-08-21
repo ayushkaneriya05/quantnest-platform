@@ -41,6 +41,9 @@ from datetime import datetime
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def ohlc_data(request):
+    """
+    Enhanced OHLC data endpoint with better error handling.
+    """
     symbol = request.query_params.get('instrument')
     resolution = request.query_params.get('resolution', '1D')
 
@@ -49,66 +52,229 @@ def ohlc_data(request):
     if resolution not in RESOLUTION_MAP:
         return JsonResponse({"error": "Invalid resolution"}, status=400)
 
-    instrument_symbol = f"NSE:{symbol.upper()}-EQ"
-    candles_collection = get_candles_collection()
-    
-    fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
+    try:
+        instrument_symbol = f"NSE:{symbol.upper()}-EQ"
+        candles_collection = get_candles_collection()
 
-    if resolution == '1m':
-        candles = list(candles_collection.find(
-            {
-                "instrument": instrument_symbol,
-                "resolution": "1m",
-                "timestamp": {"$lte": fifteen_minutes_ago}
-            },
-            {"_id": 0, "instrument": 0, "resolution": 0}
-        ).sort("timestamp", 1))
-        
-        for candle in candles:
-            candle["time"] = int(candle.pop("timestamp").timestamp() * 1000)
-    else:
-        agg_params = RESOLUTION_MAP[resolution]
+        fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
 
-        # Bucket size in seconds
-        unit_seconds = {
-            "minute": 60,
-            "hour": 3600,
-            "day": 86400,
-            "week": 604800,
-        }[agg_params["unit"]] * agg_params["binSize"]
+        if resolution == '1m':
+            candles = list(candles_collection.find(
+                {
+                    "instrument": instrument_symbol,
+                    "resolution": "1m",
+                    "timestamp": {"$lte": fifteen_minutes_ago}
+                },
+                {"_id": 0, "instrument": 0, "resolution": 0}
+            ).sort("timestamp", 1))
 
-        pipeline = [
-            {"$match": {
-                "instrument": instrument_symbol,
-                "resolution": "1m",
-                "timestamp": {"$lte": fifteen_minutes_ago}
-            }},
-            {"$sort": {"timestamp": 1}},
-            {"$project": {
-                "timestamp": 1,
-                "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1,
-                # convert to epoch seconds
-                "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970,1,1)]}, 1000]}}
-            }},
-            {"$group": {
-                "_id": {"$multiply": [{"$floor": {"$divide": ["$epoch", unit_seconds]}}, unit_seconds]},
-                "open": {"$first": "$open"},
-                "high": {"$max": "$high"},
-                "low": {"$min": "$low"},
-                "close": {"$last": "$close"},
-                "volume": {"$sum": "$volume"}
-            }},
-            {"$project": {
-                "_id": 0,
-                "time": {"$multiply": ["$_id", 1000]},  # back to ms
-                "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1
-            }},
-            {"$sort": SON([("time", 1)])}
-        ]
+            for candle in candles:
+                candle["time"] = int(candle.pop("timestamp").timestamp() * 1000)
+        else:
+            agg_params = RESOLUTION_MAP[resolution]
 
-        candles = list(candles_collection.aggregate(pipeline))
+            # Bucket size in seconds
+            unit_seconds = {
+                "minute": 60,
+                "hour": 3600,
+                "day": 86400,
+                "week": 604800,
+            }[agg_params["unit"]] * agg_params["binSize"]
 
-    return JsonResponse(candles, safe=False)
+            pipeline = [
+                {"$match": {
+                    "instrument": instrument_symbol,
+                    "resolution": "1m",
+                    "timestamp": {"$lte": fifteen_minutes_ago}
+                }},
+                {"$sort": {"timestamp": 1}},
+                {"$project": {
+                    "timestamp": 1,
+                    "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1,
+                    # convert to epoch seconds
+                    "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970,1,1)]}, 1000]}}
+                }},
+                {"$group": {
+                    "_id": {"$multiply": [{"$floor": {"$divide": ["$epoch", unit_seconds]}}, unit_seconds]},
+                    "open": {"$first": "$open"},
+                    "high": {"$max": "$high"},
+                    "low": {"$min": "$low"},
+                    "close": {"$last": "$close"},
+                    "volume": {"$sum": "$volume"}
+                }},
+                {"$project": {
+                    "_id": 0,
+                    "time": {"$multiply": ["$_id", 1000]},  # back to ms
+                    "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1
+                }},
+                {"$sort": SON([("time", 1)])}
+            ]
+
+            candles = list(candles_collection.aggregate(pipeline))
+
+        return JsonResponse({
+            "status": "success",
+            "data": candles,
+            "symbol": symbol,
+            "resolution": resolution,
+            "count": len(candles)
+        })
+
+    except Exception as e:
+        logger.exception(f"Error fetching OHLC data for {symbol}: %s", e)
+        return JsonResponse({
+            "error": "Failed to fetch OHLC data",
+            "detail": str(e)
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def live_price(request):
+    """
+    Get latest price data for an instrument.
+    """
+    symbol = request.query_params.get('instrument')
+
+    if not symbol:
+        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+
+    try:
+        instrument_symbol = f"NSE:{symbol.upper()}-EQ"
+        candles_collection = get_candles_collection()
+
+        # Get the latest candle
+        latest_candle = candles_collection.find_one(
+            {"instrument": instrument_symbol, "resolution": "1m"},
+            {"_id": 0},
+            sort=[("timestamp", -1)]
+        )
+
+        if not latest_candle:
+            return JsonResponse({
+                "error": "No price data available for this instrument"
+            }, status=404)
+
+        return JsonResponse({
+            "status": "success",
+            "symbol": symbol,
+            "price": latest_candle.get("close"),
+            "open": latest_candle.get("open"),
+            "high": latest_candle.get("high"),
+            "low": latest_candle.get("low"),
+            "volume": latest_candle.get("volume"),
+            "timestamp": latest_candle.get("timestamp").isoformat() if latest_candle.get("timestamp") else None
+        })
+
+    except Exception as e:
+        logger.exception(f"Error fetching live price for {symbol}: %s", e)
+        return JsonResponse({
+            "error": "Failed to fetch live price",
+            "detail": str(e)
+        }, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def historical_data(request):
+    """
+    Enhanced historical data endpoint with date range support.
+    """
+    symbol = request.query_params.get('instrument')
+    resolution = request.query_params.get('resolution', '1D')
+    from_date = request.query_params.get('from')
+    to_date = request.query_params.get('to')
+
+    if not symbol:
+        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+    if resolution not in RESOLUTION_MAP:
+        return JsonResponse({"error": "Invalid resolution"}, status=400)
+
+    try:
+        instrument_symbol = f"NSE:{symbol.upper()}-EQ"
+        candles_collection = get_candles_collection()
+
+        # Build date filter
+        date_filter = {}
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+                date_filter["$gte"] = from_dt
+            except ValueError:
+                return JsonResponse({"error": "Invalid from date format"}, status=400)
+
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+                date_filter["$lte"] = to_dt
+            except ValueError:
+                return JsonResponse({"error": "Invalid to date format"}, status=400)
+
+        match_filter = {
+            "instrument": instrument_symbol,
+            "resolution": "1m"
+        }
+        if date_filter:
+            match_filter["timestamp"] = date_filter
+
+        if resolution == '1m':
+            candles = list(candles_collection.find(
+                match_filter,
+                {"_id": 0, "instrument": 0, "resolution": 0}
+            ).sort("timestamp", 1).limit(5000))  # Limit for performance
+
+            for candle in candles:
+                candle["time"] = int(candle.pop("timestamp").timestamp() * 1000)
+        else:
+            agg_params = RESOLUTION_MAP[resolution]
+            unit_seconds = {
+                "minute": 60,
+                "hour": 3600,
+                "day": 86400,
+                "week": 604800,
+            }[agg_params["unit"]] * agg_params["binSize"]
+
+            pipeline = [
+                {"$match": match_filter},
+                {"$sort": {"timestamp": 1}},
+                {"$limit": 10000},  # Limit for performance
+                {"$project": {
+                    "timestamp": 1,
+                    "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1,
+                    "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970,1,1)]}, 1000]}}
+                }},
+                {"$group": {
+                    "_id": {"$multiply": [{"$floor": {"$divide": ["$epoch", unit_seconds]}}, unit_seconds]},
+                    "open": {"$first": "$open"},
+                    "high": {"$max": "$high"},
+                    "low": {"$min": "$low"},
+                    "close": {"$last": "$close"},
+                    "volume": {"$sum": "$volume"}
+                }},
+                {"$project": {
+                    "_id": 0,
+                    "time": {"$multiply": ["$_id", 1000]},
+                    "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1
+                }},
+                {"$sort": SON([("time", 1)])}
+            ]
+
+            candles = list(candles_collection.aggregate(pipeline))
+
+        return JsonResponse({
+            "status": "success",
+            "data": candles,
+            "symbol": symbol,
+            "resolution": resolution,
+            "count": len(candles),
+            "from": from_date,
+            "to": to_date
+        })
+
+    except Exception as e:
+        logger.exception(f"Error fetching historical data for {symbol}: %s", e)
+        return JsonResponse({
+            "error": "Failed to fetch historical data",
+            "detail": str(e)
+        }, status=500)
 
 
 try:
