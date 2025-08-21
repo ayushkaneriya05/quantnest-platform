@@ -40,7 +40,9 @@ const ChartView = ({
   height = 400,
   showControls = true,
   defaultTimeframe = '1D',
-  defaultChartType = 'candles'
+  defaultChartType = 'candles',
+  onBuyClick,
+  onSellClick
 }) => {
   const [selectedTimeframe, setSelectedTimeframe] = useState(defaultTimeframe);
   const [selectedChartType, setSelectedChartType] = useState(defaultChartType);
