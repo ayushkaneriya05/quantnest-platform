@@ -9,7 +9,7 @@ import toast from "react-hot-toast";
 const SearchResultItem = ({ instrument, onSelect, isAdding }) => {
   const { getLatestPrice } = useWebSocketContext();
   const price = getLatestPrice(instrument.symbol);
-  const priceChange = Math.random() > 0.5 ? 1 : -1; // Mock for demo
+  const priceChange = Math.random() > 0.5 ? 1 : -1;
   const changePercent = (Math.random() * 5).toFixed(2);
   const isPositive = priceChange > 0;
 
@@ -112,7 +112,9 @@ export default function InstrumentSearch({ onAddToWatchlist }) {
 
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const response = await api.get(`/trading/instruments/search/?query=${encodeURIComponent(query)}`);
+        const response = await api.get(`/api/v1/trading/instruments/search/`, {
+          params: { query: encodeURIComponent(query) }
+        });
         setResults(response.data || []);
         setIsOpen(true);
         setError(null);
@@ -139,7 +141,7 @@ export default function InstrumentSearch({ onAddToWatchlist }) {
     setAddingInstruments(prev => new Set([...prev, instrument.id]));
 
     try {
-      await api.post("/trading/watchlist/", {
+      await api.post("/api/v1/trading/watchlist/", {
         instrument_id: instrument.id
       });
       
