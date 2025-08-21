@@ -60,6 +60,19 @@ const ChartView = ({
   const { callApi } = useApi();
   const { marketData, subscribeToInstrument, addMarketDataListener, isConnected } = useWebSocket();
 
+  // Normalize instrument - support both symbol string and instrument object
+  const normalizedInstrument = useMemo(() => {
+    if (instrument) {
+      return instrument;
+    } else if (symbol) {
+      return {
+        symbol: symbol,
+        company_name: symbol // Fallback to symbol as company name
+      };
+    }
+    return null;
+  }, [instrument, symbol]);
+
   // Memoized chart options
   const chartOptions = useMemo(() => ({
     layout: {
