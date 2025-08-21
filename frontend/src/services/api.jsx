@@ -5,7 +5,7 @@ import { mockApi } from "./mockApi";
 
 // Create an Axios instance
 const api = axios.create({
-  baseURL: import.meta.env.VITE_REACT_APP_API_URL || "http://localhost:8000/api/v1/",
+  baseURL: import.meta.env.VITE_REACT_APP_API_URL || "http://localhost:8000/",
   withCredentials: true,
   timeout: 10000, // 10 second timeout
   headers: {
@@ -80,29 +80,29 @@ const apiWrapper = {
     }
   },
 
-  // Trading API methods
+  // Trading API methods with correct endpoints
   async get(url, config = {}) {
     return this.callWithFallback(
       () => api.get(url, config),
       async () => {
-        // Route to appropriate mock method based on URL
-        if (url.includes('/trading/instruments/search/')) {
+        // Route to appropriate mock method based on URL - using correct backend paths
+        if (url.includes('/api/v1/trading/instruments/search/')) {
           const query = config.params?.query || '';
           return mockApi.searchInstruments(query);
-        } else if (url.includes('/trading/watchlist/')) {
+        } else if (url.includes('/api/v1/trading/watchlist/')) {
           return mockApi.getWatchlist();
-        } else if (url.includes('/trading/account/')) {
+        } else if (url.includes('/api/v1/trading/account/')) {
           return mockApi.getAccount();
-        } else if (url.includes('/trading/positions/')) {
+        } else if (url.includes('/api/v1/trading/positions/')) {
           return mockApi.getPositions();
-        } else if (url.includes('/trading/orders/')) {
+        } else if (url.includes('/api/v1/trading/orders/')) {
           return mockApi.getOrders();
-        } else if (url.includes('/trading/portfolio/summary/')) {
+        } else if (url.includes('/api/v1/trading/portfolio/summary/')) {
           return mockApi.getPortfolioSummary();
-        } else if (url.includes('/marketdata/historical/')) {
+        } else if (url.includes('/api/v1/market/historical/')) {
           const { symbol, timeframe, limit } = config.params || {};
           return mockApi.getHistoricalData(symbol, timeframe, limit);
-        } else if (url.includes('/marketdata/quote/')) {
+        } else if (url.includes('/api/v1/market/quote/')) {
           const symbol = config.params?.symbol || 'RELIANCE';
           return mockApi.getLiveQuote(symbol);
         }
@@ -117,9 +117,9 @@ const apiWrapper = {
     return this.callWithFallback(
       () => api.post(url, data, config),
       async () => {
-        if (url.includes('/trading/watchlist/')) {
+        if (url.includes('/api/v1/trading/watchlist/')) {
           return mockApi.addToWatchlist(data.instrument_id);
-        } else if (url.includes('/trading/orders/')) {
+        } else if (url.includes('/api/v1/trading/orders/')) {
           return mockApi.createOrder(data);
         }
         
@@ -132,7 +132,7 @@ const apiWrapper = {
     return this.callWithFallback(
       () => api.put(url, data, config),
       async () => {
-        if (url.includes('/trading/orders/')) {
+        if (url.includes('/api/v1/trading/orders/')) {
           const orderId = parseInt(url.split('/').slice(-2, -1)[0]);
           return mockApi.updateOrder(orderId, data);
         }
@@ -146,10 +146,10 @@ const apiWrapper = {
     return this.callWithFallback(
       () => api.delete(url, config),
       async () => {
-        if (url.includes('/trading/watchlist/')) {
+        if (url.includes('/api/v1/trading/watchlist/')) {
           const instrumentId = config.data?.instrument_id;
           return mockApi.removeFromWatchlist(instrumentId);
-        } else if (url.includes('/trading/orders/')) {
+        } else if (url.includes('/api/v1/trading/orders/')) {
           const orderId = parseInt(url.split('/').slice(-2, -1)[0]);
           return mockApi.cancelOrder(orderId);
         }
@@ -223,14 +223,6 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    console.error(
-      `API Error - ${originalRequest?.method?.toUpperCase()} ${
-        originalRequest?.url
-      }:`,
-      error.response?.status,
-      error.response?.data
-    );
-
     // Check if the error is a 401 and we haven't already tried to refresh
     if (error.response?.status === 401 && !originalRequest._retry && backendAvailable) {
       originalRequest._retry = true; // Mark that we've tried to refresh
@@ -242,10 +234,8 @@ api.interceptors.response.use(
           throw new Error("No refresh token available");
         }
 
-        console.log("Attempting to refresh token...");
-
         const response = await axios.post(
-          `${api.defaults.baseURL}users/auth/token/refresh/`,
+          `${api.defaults.baseURL}api/v1/users/auth/token/refresh/`,
           { refresh: refreshToken },
           {
             withCredentials: true,
@@ -257,8 +247,6 @@ api.interceptors.response.use(
 
         // Update the Redux store and localStorage with the new token
         store.dispatch(tokenRefreshed({ access }));
-
-        console.log("Token refreshed successfully");
 
         // Update the header of the original request and retry it
         originalRequest.headers["Authorization"] = `Bearer ${access}`;
@@ -279,29 +267,6 @@ api.interceptors.response.use(
 
         return Promise.reject(refreshError);
       }
-    }
-
-    if (
-      error.response?.status === 403 &&
-      error.response.data.code === "token_not_valid" &&
-      backendAvailable
-    ) {
-      console.error("Access forbidden - insufficient permissions");
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-      store.dispatch(logoutUser());
-      store.dispatch(logout());
-      window.location.href = "/login";
-    } else if (error.response?.status === 403) {
-      console.error("Access forbidden - insufficient permissions");
-    } else if (error.response?.status === 404) {
-      console.error("Resource not found");
-    } else if (error.response?.status >= 500) {
-      console.error("Server error - please try again later");
-    } else if (error.code === "ECONNABORTED") {
-      console.error("Request timeout - please check your connection");
-    } else if (!error.response) {
-      console.error("Network error - please check your connection");
     }
 
     return Promise.reject(error);
