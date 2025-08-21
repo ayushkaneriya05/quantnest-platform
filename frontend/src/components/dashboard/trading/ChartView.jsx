@@ -321,6 +321,7 @@ const ChartView = ({
 
         toast.success('Using mock data for development');
         setError(null); // Clear error since we have fallback data
+        setUsingMockData(true);
       } else {
         setError(errorMessage);
         toast.error(errorMessage);
