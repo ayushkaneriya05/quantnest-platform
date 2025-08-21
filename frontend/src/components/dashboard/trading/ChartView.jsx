@@ -505,31 +505,31 @@ const ChartView = ({
   };
 
   return (
-    <Card className={cn("w-full", className)}>
+    <Card className={cn("w-full bg-[#0d1117] border-[#4e5260]", className)}>
       {showControls && (
-        <CardHeader className="pb-4">
+        <CardHeader className="pb-4 bg-[#0d1117] border-b border-[#4e5260]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <CardTitle className="text-lg">
+              <CardTitle className="text-lg text-[#d1d4dc]">
                 {normalizedInstrument?.symbol || 'Select Instrument'}
               </CardTitle>
               {normalizedInstrument?.company_name && normalizedInstrument.company_name !== normalizedInstrument.symbol && (
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-[#758696]">
                   {normalizedInstrument.company_name}
                 </span>
               )}
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Select value={selectedChartType} onValueChange={setSelectedChartType}>
-                <SelectTrigger className="w-32">
+                <SelectTrigger className="w-32 bg-[#2a2e39] border-[#4e5260] text-[#d1d4dc]">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-[#2a2e39] border-[#4e5260]">
                   {CHART_TYPES.map(type => {
                     const Icon = type.icon;
                     return (
-                      <SelectItem key={type.value} value={type.value}>
+                      <SelectItem key={type.value} value={type.value} className="text-[#d1d4dc] hover:bg-[#4e5260]">
                         <div className="flex items-center gap-2">
                           <Icon className="h-4 w-4" />
                           {type.label}
