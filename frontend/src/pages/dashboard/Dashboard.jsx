@@ -1,21 +1,33 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { TrendingUp, BarChart3, Target, Zap, ArrowRight } from 'lucide-react'
-
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { TrendingUp, BarChart3, Target, Zap, ArrowRight } from "lucide-react";
+import React from "react";
 export default function Dashboard() {
   return (
     <div className="container-padding py-6 lg:py-8 space-y-6 lg:space-y-8">
       {/* Welcome Section */}
       <div className="mb-6 sm:mb-8">
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-100 mb-2">Welcome to QuantNest</h1>
-        <p className="text-slate-400 text-base sm:text-lg">Your professional algorithmic trading platform</p>
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-100 mb-2">
+          Welcome to QuantNest
+        </h1>
+        <p className="text-slate-400 text-base sm:text-lg">
+          Your professional algorithmic trading platform
+        </p>
       </div>
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <Card className="bg-gray-900/50 border-gray-800/50 shadow-card hover:shadow-card-hover transition-all duration-200 hover-scale">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-300">Portfolio Value</CardTitle>
+            <CardTitle className="text-sm font-medium text-slate-300">
+              Portfolio Value
+            </CardTitle>
             <TrendingUp className="h-4 w-4 text-emerald-400" />
           </CardHeader>
           <CardContent>
@@ -26,7 +38,9 @@ export default function Dashboard() {
 
         <Card className="bg-gray-900/50 border-gray-800/50 shadow-card hover:shadow-card-hover transition-all duration-200 hover-scale">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-300">Active Strategies</CardTitle>
+            <CardTitle className="text-sm font-medium text-slate-300">
+              Active Strategies
+            </CardTitle>
             <BarChart3 className="h-4 w-4 text-indigo-400" />
           </CardHeader>
           <CardContent>
@@ -37,7 +51,9 @@ export default function Dashboard() {
 
         <Card className="bg-gray-900/50 border-gray-800/50 shadow-card hover:shadow-card-hover transition-all duration-200 hover-scale">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-300">Win Rate</CardTitle>
+            <CardTitle className="text-sm font-medium text-slate-300">
+              Win Rate
+            </CardTitle>
             <Target className="h-4 w-4 text-purple-400" />
           </CardHeader>
           <CardContent>
@@ -48,7 +64,9 @@ export default function Dashboard() {
 
         <Card className="bg-gray-900/50 border-gray-800/50 shadow-card hover:shadow-card-hover transition-all duration-200 hover-scale">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-300">Daily P&L</CardTitle>
+            <CardTitle className="text-sm font-medium text-slate-300">
+              Daily P&L
+            </CardTitle>
             <Zap className="h-4 w-4 text-cyan-400" />
           </CardHeader>
           <CardContent>
@@ -64,7 +82,8 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="text-slate-100">Strategy Builder</CardTitle>
             <CardDescription className="text-slate-300">
-              Create and backtest new trading strategies with our AI-powered builder.
+              Create and backtest new trading strategies with our AI-powered
+              builder.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -214,32 +233,44 @@ export default function Dashboard() {
             <div className="flex items-center space-x-4 p-4 rounded-lg bg-gray-800/30">
               <div className="w-2 h-2 bg-emerald-400 rounded-full"></div>
               <div className="flex-1">
-                <p className="text-slate-300 font-medium">TSLA Strategy executed</p>
-                <p className="text-sm text-slate-400">Bought 10 shares at $185.42</p>
+                <p className="text-slate-300 font-medium">
+                  TSLA Strategy executed
+                </p>
+                <p className="text-sm text-slate-400">
+                  Bought 10 shares at $185.42
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-slate-300">+$124.50</p>
                 <p className="text-xs text-slate-400">2 hours ago</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-4 p-4 rounded-lg bg-gray-800/30">
               <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
               <div className="flex-1">
-                <p className="text-slate-300 font-medium">New strategy created</p>
-                <p className="text-sm text-slate-400">Mean Reversion Strategy v2.1</p>
+                <p className="text-slate-300 font-medium">
+                  New strategy created
+                </p>
+                <p className="text-sm text-slate-400">
+                  Mean Reversion Strategy v2.1
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-slate-400">Backtesting</p>
                 <p className="text-xs text-slate-400">4 hours ago</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-4 p-4 rounded-lg bg-gray-800/30">
               <div className="w-2 h-2 bg-cyan-400 rounded-full"></div>
               <div className="flex-1">
-                <p className="text-slate-300 font-medium">Portfolio rebalanced</p>
-                <p className="text-sm text-slate-400">Risk management rules applied</p>
+                <p className="text-slate-300 font-medium">
+                  Portfolio rebalanced
+                </p>
+                <p className="text-sm text-slate-400">
+                  Risk management rules applied
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-slate-300">-$45.20</p>
@@ -265,8 +296,12 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="p-4 rounded-lg bg-gray-800/30 hover:bg-gray-800/50 transition-all">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-slate-300 font-medium">Mean Reversion Pro</h4>
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full">LIVE</span>
+                <h4 className="text-slate-300 font-medium">
+                  Mean Reversion Pro
+                </h4>
+                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full">
+                  LIVE
+                </span>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -287,7 +322,9 @@ export default function Dashboard() {
             <div className="p-4 rounded-lg bg-gray-800/30 hover:bg-gray-800/50 transition-all">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-slate-300 font-medium">Momentum Scanner</h4>
-                <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded-full">PAPER</span>
+                <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded-full">
+                  PAPER
+                </span>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -307,8 +344,12 @@ export default function Dashboard() {
 
             <div className="p-4 rounded-lg bg-gray-800/30 hover:bg-gray-800/50 transition-all">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-slate-300 font-medium">Volatility Breakout</h4>
-                <span className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full">TESTING</span>
+                <h4 className="text-slate-300 font-medium">
+                  Volatility Breakout
+                </h4>
+                <span className="text-xs bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full">
+                  TESTING
+                </span>
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -329,5 +370,5 @@ export default function Dashboard() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

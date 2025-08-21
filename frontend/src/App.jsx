@@ -45,6 +45,7 @@ import TradeTerminal from "@/pages/dashboard/trading/TradeTerminal";
 
 // Create notification context
 import { NotificationContext } from "@/contexts/notification-context";
+import { WebSocketProvider } from "@/contexts/websocket-context";
 
 function AppContent() {
   const dispatch = useDispatch();
@@ -104,7 +105,14 @@ function AppContent() {
 
             {/* Protected Dashboard routes */}
             <Route element={<ProtectedRoute />}>
-              <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route
+                path="/dashboard"
+                element={
+                  <WebSocketProvider>
+                    <DashboardLayout />
+                  </WebSocketProvider>
+                }
+              >
                 <Route index element={<Dashboard />} />
                 <Route path="search" element={<Search />} />
                 <Route path="profile-settings" element={<ProfileSettings />} />
