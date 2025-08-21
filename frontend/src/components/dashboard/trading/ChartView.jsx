@@ -155,33 +155,40 @@ const ChartView = ({
 
       chartRef.current = chart;
 
-      // Add candlestick series using v5 API
+      // Add candlestick series using v5 API with TradingView colors
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
+        upColor: '#22c55e', // TradingView green
+        downColor: '#ef4444', // TradingView red
         borderVisible: false,
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
+        wickUpColor: '#22c55e',
+        wickDownColor: '#ef4444',
+        borderUpColor: '#22c55e',
+        borderDownColor: '#ef4444',
+        wickColor: '#737375',
       });
       candlestickSeriesRef.current = candlestickSeries;
 
       // Add line series (initially hidden) using v5 API
       const lineSeries = chart.addSeries(LineSeries, {
-        color: '#2962FF',
+        color: '#2196f3', // TradingView blue
         lineWidth: 2,
         visible: false,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+        crosshairMarkerBorderColor: '#2196f3',
+        crosshairMarkerBackgroundColor: '#2196f3',
       });
       lineSeriesRef.current = lineSeries;
 
-      // Add volume series using v5 API
+      // Add volume series using v5 API with TradingView styling
       const volumeSeries = chart.addSeries(HistogramSeries, {
-        color: '#26a69a',
+        color: '#737375',
         priceFormat: {
           type: 'volume',
         },
         priceScaleId: '',
         scaleMargins: {
-          top: 0.8,
+          top: 0.7,
           bottom: 0,
         },
       });
