@@ -180,6 +180,50 @@ const ChartView = ({
     }
   }, [chartOptions, height]);
 
+  // Generate mock data for development
+  const generateMockData = useCallback((symbol, timeframe) => {
+    const now = Math.floor(Date.now() / 1000);
+    const data = [];
+    let basePrice = 2500; // Base price for mock data
+
+    // Adjust intervals based on timeframe
+    const intervals = {
+      '1m': { count: 100, step: 60 },
+      '5m': { count: 100, step: 300 },
+      '15m': { count: 100, step: 900 },
+      '1h': { count: 100, step: 3600 },
+      '1D': { count: 30, step: 86400 },
+      '1W': { count: 20, step: 604800 }
+    };
+
+    const { count, step } = intervals[timeframe] || intervals['1D'];
+
+    for (let i = count; i >= 0; i--) {
+      const time = now - (i * step);
+      const volatility = 0.02; // 2% volatility
+      const change = (Math.random() - 0.5) * volatility;
+
+      const open = basePrice;
+      const close = basePrice * (1 + change);
+      const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+      const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+      const volume = Math.floor(Math.random() * 1000000) + 100000;
+
+      data.push({
+        time,
+        open: parseFloat(open.toFixed(2)),
+        high: parseFloat(high.toFixed(2)),
+        low: parseFloat(low.toFixed(2)),
+        close: parseFloat(close.toFixed(2)),
+        volume
+      });
+
+      basePrice = close; // Next candle starts where this one ended
+    }
+
+    return data;
+  }, []);
+
   // Fetch historical data
   const fetchHistoricalData = useCallback(async () => {
     if (!normalizedInstrument?.symbol) return;
