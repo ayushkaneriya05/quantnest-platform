@@ -546,13 +546,13 @@ const ChartView = ({
           {lastPrice && (
             <div className="flex items-center gap-6 mt-2">
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold">
+                <span className="text-2xl font-bold text-[#d1d4dc]">
                   {formatPrice(lastPrice)}
                 </span>
                 {priceChange && (
                   <div className={cn(
                     "flex items-center gap-1",
-                    priceChange.isPositive ? "text-green-600" : "text-red-600"
+                    priceChange.isPositive ? "text-[#22c55e]" : "text-[#ef4444]"
                   )}>
                     {priceChange.isPositive ? (
                       <TrendingUp className="h-4 w-4" />
@@ -565,20 +565,20 @@ const ChartView = ({
                   </div>
                 )}
               </div>
-              
+
               {volume && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 text-sm text-[#758696]">
                   <span>Vol:</span>
                   <span className="font-medium">{formatVolume(volume)}</span>
                 </div>
               )}
-              
+
               <div className="flex items-center gap-1">
                 <div className={cn(
                   "h-2 w-2 rounded-full",
-                  isConnected ? "bg-green-500" : "bg-red-500"
+                  isConnected ? "bg-[#22c55e]" : "bg-[#ef4444]"
                 )} />
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-[#758696]">
                   {isConnected ? "Live" : "Offline"}
                 </span>
               </div>
