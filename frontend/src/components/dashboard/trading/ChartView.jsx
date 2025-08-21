@@ -585,20 +585,46 @@ const ChartView = ({
             </div>
           )}
 
-          {/* Timeframe Selection */}
-          <Tabs value={selectedTimeframe} onValueChange={setSelectedTimeframe} className="mt-4">
-            <TabsList className="grid grid-cols-6 w-fit">
-              {TIMEFRAMES.map(timeframe => (
-                <TabsTrigger 
-                  key={timeframe.value} 
-                  value={timeframe.value}
-                  className="text-xs px-3"
-                >
-                  {timeframe.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+          {/* Timeframe Selection and Trading Buttons */}
+          <div className="flex items-center justify-between mt-4">
+            <Tabs value={selectedTimeframe} onValueChange={setSelectedTimeframe}>
+              <TabsList className="grid grid-cols-6 w-fit bg-[#2a2e39] border-[#4e5260]">
+                {TIMEFRAMES.map(timeframe => (
+                  <TabsTrigger
+                    key={timeframe.value}
+                    value={timeframe.value}
+                    className="text-xs px-3 text-[#d1d4dc] data-[state=active]:bg-[#4e5260] data-[state=active]:text-white hover:text-white"
+                  >
+                    {timeframe.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            {/* Trading Buttons */}
+            {(onBuyClick || onSellClick) && (
+              <div className="flex gap-2">
+                {onBuyClick && (
+                  <Button
+                    onClick={onBuyClick}
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-green-500/25 text-xs"
+                  >
+                    Buy
+                  </Button>
+                )}
+                {onSellClick && (
+                  <Button
+                    onClick={onSellClick}
+                    size="sm"
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-red-500/25 text-xs"
+                  >
+                    Sell
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </CardHeader>
       )}
 
