@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { TrendingUp, Volume2, AlertCircle } from "lucide-react";
+import { TrendingUp, Volume2, AlertCircle, BarChart3, Activity, Eye, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import TimeframeSelector from "./TimeframeSelector";
 import { useWebSocketContext } from "@/contexts/websocket-context";
 import api from "@/services/api";
@@ -13,6 +15,119 @@ const TIMEFRAMES = [
   { label: '4h', value: '4h' },
   { label: '1D', value: '1D' },
 ];
+
+const TradingChart = ({ symbol, timeframe, lastPrice, priceChange, volume24h, isConnected }) => {
+  return (
+    <div className="w-full h-full min-h-[300px] lg:min-h-[400px] bg-slate-950 relative overflow-hidden">
+      {/* Trading Grid Background */}
+      <div className="absolute inset-0 opacity-10">
+        <div 
+          className="w-full h-full"
+          style={{
+            backgroundImage: `
+              linear-gradient(to right, #374151 1px, transparent 1px),
+              linear-gradient(to bottom, #374151 1px, transparent 1px)
+            `,
+            backgroundSize: '40px 20px'
+          }}
+        />
+      </div>
+
+      {/* Price Info Overlay */}
+      <div className="absolute top-4 left-4 right-4 z-10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className="text-xl lg:text-2xl font-bold text-white">
+              ₹{lastPrice.toFixed(2)}
+            </div>
+            <div className={`flex items-center gap-1 text-sm lg:text-base ${
+              priceChange.change >= 0 ? 'text-emerald-400' : 'text-red-400'
+            }`}>
+              <TrendingUp className={`h-4 w-4 ${priceChange.change < 0 ? 'rotate-180' : ''}`} />
+              {priceChange.change >= 0 ? '+' : ''}{priceChange.change.toFixed(2)} 
+              ({priceChange.percentage.toFixed(2)}%)
+            </div>
+          </div>
+          <div className="flex items-center gap-4 text-xs lg:text-sm text-gray-400">
+            <div className="flex items-center gap-1">
+              <Volume2 className="h-3 w-3 lg:h-4 lg:w-4" />
+              <span>{volume24h.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Eye className="h-3 w-3 lg:h-4 lg:w-4" />
+              <span>{timeframe}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Chart Area */}
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center space-y-4 mt-16">
+          {/* Simulated Candlestick Pattern */}
+          <div className="flex items-end justify-center gap-1 lg:gap-2 h-32 lg:h-40">
+            {[...Array(20)].map((_, i) => {
+              const height = Math.random() * 80 + 20;
+              const isGreen = Math.random() > 0.5;
+              return (
+                <div
+                  key={i}
+                  className={`w-2 lg:w-3 ${
+                    isGreen ? 'bg-emerald-500' : 'bg-red-500'
+                  } opacity-70 hover:opacity-100 transition-opacity`}
+                  style={{ height: `${height}%` }}
+                />
+              );
+            })}
+          </div>
+          
+          <div className="space-y-2">
+            <h3 className="text-lg lg:text-xl font-bold text-white">{symbol}</h3>
+            <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+              <BarChart3 className="h-4 w-4" />
+              <span>Live {timeframe} Chart</span>
+              {isConnected && (
+                <Badge className="bg-emerald-500/20 text-emerald-400 text-xs">
+                  <div className="w-1 h-1 bg-emerald-400 rounded-full mr-1 animate-pulse" />
+                  Live
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {/* Trading Indicators */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-6 text-xs lg:text-sm">
+            <div className="text-center p-2 bg-gray-900/50 rounded">
+              <div className="text-gray-400">Open</div>
+              <div className="text-white font-mono">₹{(lastPrice * 0.998).toFixed(2)}</div>
+            </div>
+            <div className="text-center p-2 bg-gray-900/50 rounded">
+              <div className="text-gray-400">High</div>
+              <div className="text-emerald-400 font-mono">₹{(lastPrice * 1.015).toFixed(2)}</div>
+            </div>
+            <div className="text-center p-2 bg-gray-900/50 rounded">
+              <div className="text-gray-400">Low</div>
+              <div className="text-red-400 font-mono">₹{(lastPrice * 0.985).toFixed(2)}</div>
+            </div>
+            <div className="text-center p-2 bg-gray-900/50 rounded">
+              <div className="text-gray-400">Volume</div>
+              <div className="text-blue-400 font-mono">{(volume24h / 1000).toFixed(0)}K</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Time Axis */}
+      <div className="absolute bottom-2 left-4 right-4">
+        <div className="flex justify-between text-xs text-gray-500">
+          <span>09:15</span>
+          <span>12:00</span>
+          <span>15:30</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function ChartView({ symbol = "RELIANCE" }) {
   const [timeframe, setTimeframe] = useState('5m');
@@ -89,64 +204,48 @@ export default function ChartView({ symbol = "RELIANCE" }) {
     setTimeframe(newTimeframe);
   };
 
-  const formatPrice = (price) => {
-    return price ? `₹${price.toFixed(2)}` : '₹0.00';
-  };
-
-  const formatVolume = (volume) => {
-    if (volume >= 1e7) return `${(volume / 1e7).toFixed(1)}Cr`;
-    if (volume >= 1e5) return `${(volume / 1e5).toFixed(1)}L`;
-    if (volume >= 1e3) return `${(volume / 1e3).toFixed(1)}K`;
-    return volume.toString();
-  };
-
   return (
-    <Card className="w-full bg-gray-800/50 border-gray-700/50">
-      <CardHeader className="pb-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <CardTitle className="text-xl font-bold text-white">
+    <Card className="w-full bg-gray-900/50 border-gray-700/50 overflow-hidden">
+      <CardHeader className="pb-3 lg:pb-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 lg:gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:gap-4">
+            <CardTitle className="text-lg lg:text-xl font-bold text-white flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-blue-400" />
               {symbol}
             </CardTitle>
             
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-emerald-400" />
-                <span className="text-white font-mono">
-                  {formatPrice(lastPrice)}
-                </span>
-                <span className={`font-medium ${
-                  priceChange.change >= 0 ? 'text-emerald-400' : 'text-red-400'
-                }`}>
-                  {priceChange.change >= 0 ? '+' : ''}{priceChange.change.toFixed(2)} 
-                  ({priceChange.percentage.toFixed(2)}%)
-                </span>
-              </div>
+            <div className="flex items-center gap-2 text-xs lg:text-sm">
+              {useMockData && (
+                <Badge variant="outline" className="border-yellow-600 text-yellow-400 bg-yellow-500/10">
+                  <Activity className="h-3 w-3 mr-1" />
+                  Demo Data
+                </Badge>
+              )}
               
-              <div className="flex items-center gap-2">
-                <Volume2 className="h-4 w-4 text-blue-400" />
-                <span className="text-slate-300">
-                  {formatVolume(volume24h)}
-                </span>
-              </div>
+              <Badge variant="outline" className="border-gray-600 text-gray-300">
+                <Calendar className="h-3 w-3 mr-1" />
+                Market Hours
+              </Badge>
             </div>
           </div>
 
-          <TimeframeSelector
-            timeframes={TIMEFRAMES}
-            selectedTimeframe={timeframe}
-            onTimeframeChange={handleTimeframeChange}
-          />
+          <div className="flex items-center justify-between lg:justify-end gap-3">
+            <TimeframeSelector
+              timeframes={TIMEFRAMES}
+              selectedTimeframe={timeframe}
+              onTimeframeChange={handleTimeframeChange}
+            />
+          </div>
         </div>
       </CardHeader>
 
       <CardContent className="p-0">
-        <div className="relative">
+        <div className="relative w-full">
           {isLoading && (
             <div className="absolute inset-0 bg-gray-900/80 flex items-center justify-center z-10">
               <div className="flex items-center gap-3 text-slate-300">
                 <div className="animate-spin h-6 w-6 border-2 border-emerald-400 border-t-transparent rounded-full" />
-                <span>Loading chart data...</span>
+                <span className="text-sm lg:text-base">Loading chart data...</span>
               </div>
             </div>
           )}
@@ -160,30 +259,43 @@ export default function ChartView({ symbol = "RELIANCE" }) {
             </div>
           )}
 
-          {/* Simple Chart Placeholder */}
-          <div className="w-full h-[400px] bg-gray-900 flex items-center justify-center">
-            <div className="text-center p-8">
-              <div className="mb-6">
-                <div className="w-16 h-16 bg-emerald-400/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <TrendingUp className="h-8 w-8 text-emerald-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white mb-2">{symbol}</h3>
-                <div className="text-2xl font-mono text-white mb-2">
-                  {formatPrice(lastPrice)}
-                </div>
-                <div className={`text-lg ${priceChange.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {priceChange.change >= 0 ? '+' : ''}{priceChange.change.toFixed(2)} 
-                  ({priceChange.percentage.toFixed(2)}%)
-                </div>
-              </div>
-              <div className="text-gray-400 text-sm">
-                <p>Chart visualization for {timeframe} timeframe</p>
-                <p>Live price updates {isConnected ? 'active' : 'simulated'}</p>
-              </div>
-            </div>
+          <div className="aspect-[16/9] lg:aspect-[21/9] max-h-[400px] lg:max-h-[500px] w-full">
+            <TradingChart 
+              symbol={symbol}
+              timeframe={timeframe}
+              lastPrice={lastPrice}
+              priceChange={priceChange}
+              volume24h={volume24h}
+              isConnected={isConnected}
+            />
           </div>
         </div>
       </CardContent>
+
+      {/* Chart Controls */}
+      <div className="border-t border-gray-700/50 p-3 lg:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs lg:text-sm text-gray-400">
+          <div className="flex items-center gap-4">
+            <span>Indicators:</span>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-gray-400 hover:text-white">
+              RSI
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-gray-400 hover:text-white">
+              MACD
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-gray-400 hover:text-white">
+              BB
+            </Button>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <span className="text-xs">Data:</span>
+            <span className={`text-xs ${isConnected ? 'text-emerald-400' : 'text-yellow-400'}`}>
+              {isConnected ? 'Live' : 'Simulated'}
+            </span>
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }
