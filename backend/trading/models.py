@@ -37,17 +37,34 @@ class Account(models.Model):
 class Position(models.Model):
     """
     Represents a user's holding in a specific instrument.
+    Supports both long and short positions.
     """
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='positions')
     instrument = models.ForeignKey(Instrument, on_delete=models.CASCADE)
-    quantity = models.IntegerField()
+    quantity = models.IntegerField()  # Positive for long, negative for short
     average_price = models.DecimalField(max_digits=10, decimal_places=2)
+    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = ('account', 'instrument')
 
+    @property
+    def is_long(self):
+        return self.quantity > 0
+
+    @property
+    def is_short(self):
+        return self.quantity < 0
+
+    @property
+    def abs_quantity(self):
+        return abs(self.quantity)
+
     def __str__(self):
-        return f"{self.account.user.username}'s Position in {self.instrument.symbol}"
+        position_type = "Long" if self.is_long else "Short"
+        return f"{self.account.user.username}'s {position_type} Position in {self.instrument.symbol}"
 
 class Order(models.Model):
     """
@@ -64,7 +81,12 @@ class Order(models.Model):
         ('EXECUTED', 'Executed'),
         ('CANCELLED', 'Cancelled'),
     ]
-    TRANSACTION_TYPES = [('BUY', 'Buy'), ('SELL', 'Sell')]
+    TRANSACTION_TYPES = [
+        ('BUY', 'Buy'),
+        ('SELL', 'Sell'),
+        ('SHORT', 'Short Sell'),
+        ('COVER', 'Cover Short')
+    ]
 
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='orders')
     instrument = models.ForeignKey(Instrument, on_delete=models.CASCADE)
@@ -88,4 +110,3 @@ class TradeHistory(models.Model):
 
     def __str__(self):
         return f"Trade for Order {self.order.id} at {self.executed_price}"
-
