@@ -232,8 +232,19 @@ const ChartView = ({
       }
     } catch (error) {
       console.error('Error fetching historical data:', error);
-      setError(error.message || 'Failed to load chart data');
-      toast.error('Failed to load chart data');
+
+      // Handle specific API errors
+      let errorMessage = 'Failed to load chart data';
+      if (error.message?.includes('Network Error') || error.code === 'ECONNREFUSED') {
+        errorMessage = 'Backend server is not running. Please start the Django backend on port 8000.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Chart data endpoint not found. Check API configuration.';
+      } else {
+        errorMessage = error.message || 'Failed to load chart data';
+      }
+
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
