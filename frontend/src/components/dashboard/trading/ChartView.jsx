@@ -344,33 +344,86 @@ const ChartView = ({
         <CardHeader className="pb-4 bg-[#0d1117] border-b border-[#4e5260]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <CardTitle className="text-lg text-[#d1d4dc]">
+              <CardTitle className="text-2xl text-[#d1d4dc]">
                 {normalizedInstrument?.symbol || "Select Instrument"}
               </CardTitle>
-            </div>
-            <div className="flex items-center gap-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setShowVolume(!showVolume)}
-                      // **FIX 1: Improved hover effect**
-                      className="text-slate-400 hover:text-white hover:bg-gray-700/50"
-                    >
-                      {showVolume ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
+              {lastPrice && (
+                <div className="flex items-center gap-6 mt-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold text-[#d1d4dc]">
+                      {formatPrice(lastPrice)}
+                    </span>
+                    {priceChange && (
+                      <div
+                        className={cn(
+                          "flex items-center gap-1",
+                          priceChange.isPositive
+                            ? "text-[#22c55e]"
+                            : "text-[#ef4444]"
+                        )}
+                      >
+                        {priceChange.isPositive ? (
+                          <TrendingUp className="h-4 w-4" />
+                        ) : (
+                          <TrendingDown className="h-4 w-4" />
+                        )}
+                        <span className="font-medium">
+                          {priceChange.change} ({priceChange.changePercent}%)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <div
+                      className={cn(
+                        "h-2 w-2 rounded-full",
+                        isConnected ? "bg-[#22c55e]" : "bg-[#ef4444]"
                       )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-gray-800 text-white border-gray-700">
-                    <p>{showVolume ? "Hide Volume" : "Show Volume"}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+                    />
+                    <span className="text-xs text-[#758696]">
+                      {isConnected ? "Live" : "Offline"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mt-4">
+            <Tabs
+              value={selectedTimeframe}
+              onValueChange={setSelectedTimeframe}
+            >
+              <TabsList className="grid grid-cols-6 bg-[#2a2e39] border-[#4e5260]">
+                {TIMEFRAMES.map((t) => (
+                  <TabsTrigger
+                    key={t.value}
+                    value={t.value}
+                    className="text-xs px-3 text-[#d1d4dc] data-[state=active]:bg-[#4e5260] data-[state=active]:text-white hover:text-white"
+                  >
+                    {t.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            <div className="flex items-center gap-2">
+              <div className="flex items-center text-[#d1d4dc]">
+                Volume
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowVolume(!showVolume)}
+                  className="text-slate-400 hover:text-white hover:bg-gray-700/50"
+                >
+                  {showVolume ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
 
               <Select
                 value={selectedChartType}
@@ -386,7 +439,7 @@ const ChartView = ({
                       <SelectItem
                         key={type.value}
                         value={type.value}
-                        className="text-[#d1d4dc] focus:bg-[#4e5260]"
+                        className="text-[#d1d4dc] hover:text-white hover:bg-[#4e5260]"
                       >
                         <div className="flex items-center gap-2">
                           <Icon className="h-4 w-4" />
@@ -398,80 +451,14 @@ const ChartView = ({
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          {lastPrice && (
-            <div className="flex items-center gap-6 mt-2">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-[#d1d4dc]">
-                  {formatPrice(lastPrice)}
-                </span>
-                {priceChange && (
-                  <div
-                    className={cn(
-                      "flex items-center gap-1",
-                      priceChange.isPositive
-                        ? "text-[#22c55e]"
-                        : "text-[#ef4444]"
-                    )}
-                  >
-                    {priceChange.isPositive ? (
-                      <TrendingUp className="h-4 w-4" />
-                    ) : (
-                      <TrendingDown className="h-4 w-4" />
-                    )}
-                    <span className="font-medium">
-                      {priceChange.change} ({priceChange.changePercent}%)
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {volume && (
-                <div className="flex items-center gap-2 text-sm text-[#758696]">
-                  <span>Vol:</span>
-                  <span className="font-medium">{formatVolume(volume)}</span>
-                </div>
-              )}
-
-              <div className="flex items-center gap-1">
-                <div
-                  className={cn(
-                    "h-2 w-2 rounded-full",
-                    isConnected ? "bg-[#22c55e]" : "bg-[#ef4444]"
-                  )}
-                />
-                <span className="text-xs text-[#758696]">
-                  {isConnected ? "Live" : "Offline"}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between mt-4">
-            <Tabs
-              value={selectedTimeframe}
-              onValueChange={setSelectedTimeframe}
-            >
-              <TabsList className="grid grid-cols-6 w-fit bg-[#2a2e39] border-[#4e5260]">
-                {TIMEFRAMES.map((t) => (
-                  <TabsTrigger
-                    key={t.value}
-                    value={t.value}
-                    className="text-xs px-3 text-[#d1d4dc] data-[state=active]:bg-[#4e5260] data-[state=active]:text-white hover:text-white"
-                  >
-                    {t.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
 
             {(onBuyClick || onSellClick) && (
-              <div className="flex gap-2">
+              <div className="flex gap-4">
                 {onBuyClick && (
                   <Button
                     onClick={onBuyClick}
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-green-500/25 text-xs"
+                    size="lg"
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-green-500/25 text-md"
                   >
                     Buy
                   </Button>
@@ -479,8 +466,8 @@ const ChartView = ({
                 {onSellClick && (
                   <Button
                     onClick={onSellClick}
-                    size="sm"
-                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-red-500/25 text-xs"
+                    size="lg"
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 font-semibold transition-all duration-200 shadow-lg hover:shadow-red-500/25 text-md"
                   >
                     Sell
                   </Button>
