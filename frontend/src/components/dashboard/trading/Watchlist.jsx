@@ -12,7 +12,7 @@ const WatchlistItem = ({ item, onSymbolSelect, onRemove, isSelected }) => {
   
   // Get live price or use mock data
   const currentPrice = getLatestPrice(item.symbol) || (2000 + Math.random() * 1000);
-  const priceChange = Math.random() > 0.5 ? 1 : -1; // Mock data
+  const priceChange = Math.random() > 0.5 ? 1 : -1;
   const changePercent = (Math.random() * 5).toFixed(2);
   const isPositive = priceChange > 0;
 
@@ -85,10 +85,9 @@ export default function Watchlist({ onSymbolSelect }) {
       setLoading(true);
       setError(null);
       
-      const response = await api.get("/trading/watchlist/");
+      const response = await api.get("/api/v1/trading/watchlist/");
 
       if (response.data) {
-        // Handle both backend and mock API response formats
         const instruments = response.data.instruments || response.data || [];
         
         if (Array.isArray(instruments)) {
@@ -115,12 +114,12 @@ export default function Watchlist({ onSymbolSelect }) {
 
   const handleRemoveFromWatchlist = async (instrumentId) => {
     try {
-      await api.delete("/trading/watchlist/", {
+      await api.delete("/api/v1/trading/watchlist/", {
         data: { instrument_id: instrumentId },
       });
       
       toast.success("Removed from watchlist");
-      fetchWatchlist(); // Refresh the list
+      fetchWatchlist();
     } catch (err) {
       console.error("Failed to remove from watchlist:", err);
       toast.error("Failed to remove from watchlist");
@@ -202,7 +201,7 @@ export default function Watchlist({ onSymbolSelect }) {
         </div>
       )}
 
-      {/* Watchlist Items with Theme Scrollbar */}
+      {/* Watchlist Items */}
       <div className="flex-1 overflow-y-auto scrollbar-theme">
         {filteredWatchlist && filteredWatchlist.length > 0 ? (
           <div className="divide-y divide-gray-800/50">
