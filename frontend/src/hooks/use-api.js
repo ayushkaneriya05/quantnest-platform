@@ -75,11 +75,63 @@ export function useApi() {
     setError(null)
   }, [])
 
+  // Simplified callApi function for easier usage
+  const callApi = useCallback(async (url, method = 'GET', data = null) => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const config = {
+        method: method.toLowerCase(),
+        url,
+      }
+
+      if (data && (method.toUpperCase() === 'POST' || method.toUpperCase() === 'PUT' || method.toUpperCase() === 'PATCH' || method.toUpperCase() === 'DELETE')) {
+        config.data = data
+      }
+
+      const response = await api(config)
+
+      return {
+        success: true,
+        data: response.data
+      }
+    } catch (err) {
+      console.error('API Error:', err)
+
+      let errorMsg = 'An error occurred'
+
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMsg = err.response.data
+        } else if (err.response.data.detail) {
+          errorMsg = err.response.data.detail
+        } else if (err.response.data.message) {
+          errorMsg = err.response.data.message
+        } else if (err.response.data.error) {
+          errorMsg = err.response.data.error
+        }
+      } else if (err.message) {
+        errorMsg = err.message
+      }
+
+      setError(errorMsg)
+
+      return {
+        success: false,
+        error: errorMsg
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
   return {
     isLoading,
     error,
     execute,
-    clearError
+    clearError,
+    callApi
   }
 }
 
