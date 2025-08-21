@@ -50,7 +50,8 @@ const ChartView = ({
   const [lastPrice, setLastPrice] = useState(null);
   const [priceChange, setPriceChange] = useState(null);
   const [volume, setVolume] = useState(null);
-  
+  const [usingMockData, setUsingMockData] = useState(false);
+
   const chartContainerRef = useRef();
   const chartRef = useRef();
   const candlestickSeriesRef = useRef();
