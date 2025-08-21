@@ -10,7 +10,6 @@ import {
   X, 
   Clock,
   DollarSign,
-  Activity,
   BarChart3,
   Settings,
   Edit3,
@@ -192,8 +191,8 @@ export default function PortfolioDisplay() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[...Array(3)].map((_, i) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[...Array(2)].map((_, i) => (
             <div key={i} className="h-20 bg-[#161b22] rounded-lg animate-pulse" />
           ))}
         </div>
@@ -209,8 +208,8 @@ export default function PortfolioDisplay() {
   return (
     <>
       <div className="space-y-6">
-        {/* Portfolio Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Portfolio Stats - Removed Active Trading */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <StatCard
             icon={DollarSign}
             title="Total Investment"
@@ -223,12 +222,6 @@ export default function PortfolioDisplay() {
             value={`₹${totalPnl.toFixed(2)}`}
             subtitle={totalInvestment > 0 ? `${((totalPnl / totalInvestment) * 100).toFixed(2)}% return` : '0% return'}
             variant={totalPnl >= 0 ? 'positive' : 'negative'}
-          />
-          <StatCard
-            icon={Activity}
-            title="Active Positions"
-            value={positions.length.toString()}
-            subtitle={`${orders.length} pending orders`}
           />
         </div>
 
@@ -246,13 +239,13 @@ export default function PortfolioDisplay() {
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-gray-700/50">
-                      <TableHead className="text-gray-400">Symbol</TableHead>
-                      <TableHead className="text-gray-400">Qty</TableHead>
-                      <TableHead className="text-gray-400">Avg Price</TableHead>
-                      <TableHead className="text-gray-400">Current Price</TableHead>
-                      <TableHead className="text-gray-400">P&L</TableHead>
-                      <TableHead className="text-gray-400">Actions</TableHead>
+                    <TableRow className="border-gray-700/50 hover:bg-gray-800/20">
+                      <TableHead className="text-gray-300 hover:text-white">Symbol</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Qty</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Avg Price</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Current Price</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">P&L</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -287,7 +280,7 @@ export default function PortfolioDisplay() {
                           <TableCell>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
+                                <Button variant="ghost" size="sm" className="text-gray-300 hover:text-white hover:bg-gray-700">
                                   <MoreVertical className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
@@ -335,14 +328,14 @@ export default function PortfolioDisplay() {
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-gray-700/50">
-                      <TableHead className="text-gray-400">Symbol</TableHead>
-                      <TableHead className="text-gray-400">Type</TableHead>
-                      <TableHead className="text-gray-400">Side</TableHead>
-                      <TableHead className="text-gray-400">Qty</TableHead>
-                      <TableHead className="text-gray-400">Price</TableHead>
-                      <TableHead className="text-gray-400">Created</TableHead>
-                      <TableHead className="text-gray-400">Actions</TableHead>
+                    <TableRow className="border-gray-700/50 hover:bg-gray-800/20">
+                      <TableHead className="text-gray-300 hover:text-white">Symbol</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Type</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Side</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Qty</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Price</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Created</TableHead>
+                      <TableHead className="text-gray-300 hover:text-white">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -382,7 +375,7 @@ export default function PortfolioDisplay() {
                           <TableCell>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
+                                <Button variant="ghost" size="sm" className="text-gray-300 hover:text-white hover:bg-gray-700">
                                   <MoreVertical className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
