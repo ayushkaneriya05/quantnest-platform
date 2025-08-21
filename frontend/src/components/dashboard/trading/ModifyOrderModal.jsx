@@ -388,7 +388,7 @@ export default function ModifyOrderModal({
               variant="outline"
               onClick={handleCancel}
               disabled={isSubmitting}
-              className="border-slate-700 text-gray-300 hover:bg-slate-800"
+              className="border-slate-700 text-gray-300 hover:bg-slate-800 hover:text-white"
             >
               <X className="h-4 w-4 mr-2" />
               Cancel
@@ -396,7 +396,7 @@ export default function ModifyOrderModal({
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {isSubmitting ? (
                 <div className="flex items-center gap-2">

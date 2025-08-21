@@ -208,8 +208,8 @@ export default function PortfolioDisplay() {
   return (
     <>
       <div className="space-y-6">
-        {/* Portfolio Stats - Removed Active Trading */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Portfolio Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <StatCard
             icon={DollarSign}
             title="Total Investment"
@@ -222,6 +222,13 @@ export default function PortfolioDisplay() {
             value={`₹${totalPnl.toFixed(2)}`}
             subtitle={totalInvestment > 0 ? `${((totalPnl / totalInvestment) * 100).toFixed(2)}% return` : '0% return'}
             variant={totalPnl >= 0 ? 'positive' : 'negative'}
+          />
+          <StatCard
+            icon={TrendingUp}
+            title="Active Trading"
+            value="Live"
+            subtitle="Market hours: 9:15 - 15:30"
+            variant="positive"
           />
         </div>
 

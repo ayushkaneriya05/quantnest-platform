@@ -33,30 +33,12 @@ const TradingChart = ({ symbol, timeframe, lastPrice, priceChange, volume24h, is
         />
       </div>
 
-      {/* Price Info Overlay */}
-      <div className="absolute top-4 left-4 right-4 z-10">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <div className="text-xl lg:text-2xl font-bold text-white">
-              ₹{lastPrice.toFixed(2)}
-            </div>
-            <div className={`flex items-center gap-1 text-sm lg:text-base ${
-              priceChange.change >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}>
-              <TrendingUp className={`h-4 w-4 ${priceChange.change < 0 ? 'rotate-180' : ''}`} />
-              {priceChange.change >= 0 ? '+' : ''}{priceChange.change.toFixed(2)} 
-              ({priceChange.percentage.toFixed(2)}%)
-            </div>
-          </div>
-          <div className="flex items-center gap-4 text-xs lg:text-sm text-gray-400">
-            <div className="flex items-center gap-1">
-              <Volume2 className="h-3 w-3 lg:h-4 lg:w-4" />
-              <span>{volume24h.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Eye className="h-3 w-3 lg:h-4 lg:w-4" />
-              <span>{timeframe}</span>
-            </div>
+      {/* Volume Info Overlay */}
+      <div className="absolute top-4 right-4 z-10">
+        <div className="flex items-center gap-4 text-xs lg:text-sm text-gray-400">
+          <div className="flex items-center gap-1">
+            <Volume2 className="h-3 w-3 lg:h-4 lg:w-4" />
+            <span>{volume24h.toLocaleString()}</span>
           </div>
         </div>
       </div>
@@ -207,34 +189,53 @@ export default function ChartView({ symbol = "RELIANCE" }) {
   return (
     <Card className="w-full bg-gray-900/50 border-gray-700/50 overflow-hidden">
       <CardHeader className="pb-3 lg:pb-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 lg:gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:gap-4">
+        <div className="flex items-center justify-between gap-4">
+          {/* Left side - Timeframe */}
+          <TimeframeSelector
+            timeframes={TIMEFRAMES}
+            selectedTimeframe={timeframe}
+            onTimeframeChange={handleTimeframeChange}
+          />
+
+          {/* Center - Symbol and Price */}
+          <div className="flex items-center gap-4 flex-1 justify-center">
             <CardTitle className="text-lg lg:text-xl font-bold text-white flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-blue-400" />
               {symbol}
             </CardTitle>
-            
-            <div className="flex items-center gap-2 text-xs lg:text-sm">
-              {useMockData && (
-                <Badge variant="outline" className="border-yellow-600 text-yellow-400 bg-yellow-500/10">
-                  <Activity className="h-3 w-3 mr-1" />
-                  Demo Data
-                </Badge>
-              )}
-              
-              <Badge variant="outline" className="border-gray-600 text-gray-300">
-                <Calendar className="h-3 w-3 mr-1" />
-                Market Hours
-              </Badge>
+            <div className="text-lg lg:text-xl font-bold text-white">₹{lastPrice.toFixed(2)}</div>
+            <div className={`flex items-center gap-1 text-sm lg:text-base ${
+              priceChange.change >= 0 ? 'text-emerald-400' : 'text-red-400'
+            }`}>
+              <TrendingUp className={`h-4 w-4 ${priceChange.change < 0 ? 'rotate-180' : ''}`} />
+              {priceChange.change >= 0 ? '+' : ''}{priceChange.change.toFixed(2)}
+              ({priceChange.percentage.toFixed(2)}%)
             </div>
+            {useMockData && (
+              <Badge variant="outline" className="border-yellow-600 text-yellow-400 bg-yellow-500/10">
+                <Activity className="h-3 w-3 mr-1" />
+                Demo
+              </Badge>
+            )}
           </div>
 
-          <div className="flex items-center justify-between lg:justify-end gap-3">
-            <TimeframeSelector
-              timeframes={TIMEFRAMES}
-              selectedTimeframe={timeframe}
-              onTimeframeChange={handleTimeframeChange}
-            />
+          {/* Right side - Buy/Sell buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => {/* Handle buy */}}
+            >
+              Buy
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-red-600 text-red-400 hover:bg-red-600 hover:text-white"
+              onClick={() => {/* Handle sell */}}
+            >
+              Sell
+            </Button>
           </div>
         </div>
       </CardHeader>

@@ -133,7 +133,11 @@ export default function AccountSummary() {
           <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-300 mb-2">Failed to Load Account Data</h3>
           <p className="text-sm text-gray-500 mb-4">Unable to retrieve your account information</p>
-          <Button onClick={handleRefresh} disabled={isRefreshing}>
+          <Button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
             <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
             Retry
           </Button>
@@ -163,12 +167,12 @@ export default function AccountSummary() {
             </span>
           </div>
         </div>
-        <Button 
-          onClick={handleRefresh} 
+        <Button
+          onClick={handleRefresh}
           disabled={isRefreshing}
           variant="outline"
           size="sm"
-          className="border-gray-700 text-gray-300 hover:bg-gray-800"
+          className="border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white"
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
           Refresh
@@ -176,7 +180,7 @@ export default function AccountSummary() {
       </div>
 
       {/* Main Account Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
         <MetricCard
           icon={Wallet}
           title="Available Balance"
@@ -184,15 +188,7 @@ export default function AccountSummary() {
           subtitle="Cash for new trades"
           variant="default"
         />
-        
-        <MetricCard
-          icon={PieChart}
-          title="Portfolio Value"
-          value={formatCurrency(portfolioSummary.total_current_value)}
-          subtitle="Total holdings value"
-          variant="default"
-        />
-        
+
         <MetricCard
           icon={TrendingUp}
           title="Total P&L"
@@ -200,34 +196,18 @@ export default function AccountSummary() {
           subtitle={formatPercentage(returnPercentage)}
           variant={totalPnlVariant}
         />
-        
+
         <MetricCard
-          icon={Zap}
-          title="Buying Power"
-          value={formatCurrency(accountData.buying_power || accountData.balance * 5)}
-          subtitle="5x leverage available"
-          variant="default"
+          icon={Award}
+          title="Win Rate"
+          value="68.5%"
+          subtitle="Based on closed trades"
+          variant="positive"
         />
       </div>
 
       {/* Trading Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-        <MetricCard
-          icon={Shield}
-          title="Margin Used"
-          value={formatCurrency(accountData.margin_used || 0)}
-          subtitle={`${marginUsagePercent.toFixed(1)}% of balance`}
-          variant={marginVariant}
-        />
-        
-        <MetricCard
-          icon={Target}
-          title="Total Investment"
-          value={formatCurrency(portfolioSummary.total_investment)}
-          subtitle="Capital deployed"
-          variant="default"
-        />
-        
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
         <MetricCard
           icon={BarChart3}
           title="Active Positions"
@@ -235,13 +215,21 @@ export default function AccountSummary() {
           subtitle={`${portfolioSummary.open_orders_count} pending orders`}
           variant="default"
         />
-        
+
         <MetricCard
-          icon={Award}
-          title="Win Rate"
-          value="68.5%"
-          subtitle="Based on closed trades"
-          variant="positive"
+          icon={Clock}
+          title="Account Age"
+          value="12 Days"
+          subtitle="Paper trading mode"
+          variant="default"
+        />
+
+        <MetricCard
+          icon={Activity}
+          title="Trade Frequency"
+          value="47 trades"
+          subtitle="This month"
+          variant="default"
         />
       </div>
 
