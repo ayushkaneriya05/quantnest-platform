@@ -78,7 +78,28 @@ const InstrumentSearch = ({ onInstrumentSelect, className }) => {
       }
     } catch (error) {
       console.error('Error searching instruments:', error);
-      toast.error('Failed to search instruments');
+
+      // Use mock search results as fallback
+      const mockInstruments = [
+        { id: 1, symbol: 'RELIANCE', company_name: 'Reliance Industries Limited' },
+        { id: 2, symbol: 'TCS', company_name: 'Tata Consultancy Services' },
+        { id: 3, symbol: 'INFY', company_name: 'Infosys Limited' },
+        { id: 4, symbol: 'HDFCBANK', company_name: 'HDFC Bank Limited' },
+        { id: 5, symbol: 'ICICIBANK', company_name: 'ICICI Bank Limited' },
+        { id: 6, symbol: 'ITC', company_name: 'ITC Limited' },
+        { id: 7, symbol: 'WIPRO', company_name: 'Wipro Limited' },
+        { id: 8, symbol: 'MARUTI', company_name: 'Maruti Suzuki India Limited' },
+        { id: 9, symbol: 'BAJFINANCE', company_name: 'Bajaj Finance Limited' },
+        { id: 10, symbol: 'ASIANPAINT', company_name: 'Asian Paints Limited' }
+      ].filter(instrument =>
+        instrument.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        instrument.company_name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+
+      setSearchResults(mockInstruments);
+      setShowResults(true);
+      setSelectedIndex(-1);
+      toast.success('Using mock search results');
     } finally {
       setIsSearching(false);
     }
