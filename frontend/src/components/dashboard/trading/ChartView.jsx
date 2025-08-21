@@ -226,6 +226,52 @@ const ChartView = ({
     return data;
   }, []);
 
+  // Update chart with data
+  const updateChart = useCallback((data) => {
+    if (!chartRef.current || !data.length) return;
+
+    try {
+      if (selectedChartType === 'candles') {
+        // Show candlestick series, hide line series
+        candlestickSeriesRef.current?.applyOptions({ visible: true });
+        lineSeriesRef.current?.applyOptions({ visible: false });
+
+        candlestickSeriesRef.current?.setData(data);
+
+        // Update volume data
+        const volumeData = data.map(candle => ({
+          time: candle.time,
+          value: candle.volume,
+          color: candle.close >= candle.open ? '#26a69a40' : '#ef535040'
+        }));
+        volumeSeriesRef.current?.setData(volumeData);
+      } else {
+        // Show line series, hide candlestick series
+        candlestickSeriesRef.current?.applyOptions({ visible: false });
+        lineSeriesRef.current?.applyOptions({ visible: true });
+
+        const lineData = data.map(candle => ({
+          time: candle.time,
+          value: candle.close
+        }));
+        lineSeriesRef.current?.setData(lineData);
+
+        // Update volume data
+        const volumeData = data.map(candle => ({
+          time: candle.time,
+          value: candle.volume,
+          color: '#26a69a40'
+        }));
+        volumeSeriesRef.current?.setData(volumeData);
+      }
+
+      // Fit content
+      chartRef.current.timeScale().fitContent();
+    } catch (error) {
+      console.error('Error updating chart:', error);
+    }
+  }, [selectedChartType]);
+
   // Fetch historical data
   const fetchHistoricalData = useCallback(async () => {
     if (!normalizedInstrument?.symbol) return;
