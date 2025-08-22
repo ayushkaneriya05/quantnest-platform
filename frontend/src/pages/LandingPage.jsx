@@ -4,6 +4,32 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { TrendingUp, Code2, TestTube2, Rocket, Plug, Shield, BarChart3, Zap, Users, CheckCircle, Star, ArrowRight, Play, Target, Brain, Activity, Globe, Lock, Clock, EyeOff, Lightbulb, Handshake, Award } from 'lucide-react'
 
+// Import animation components
+import { StaggeredGrid, StaggeredContainer } from '@/components/ui/staggered-grid'
+import {
+  ParallaxLayer,
+  FloatingElement,
+  Transform3D,
+  MouseParallax,
+  HeroBackgroundEffects,
+  TiltCard,
+  GlowingOrb
+} from '@/components/ui/hero-animations'
+import {
+  InteractiveButton,
+  HoverCard,
+  AnimatedIcon,
+  GlitchText,
+  ScrollReveal,
+  CounterAnimation
+} from '@/components/ui/micro-interactions'
+import {
+  SectionTransition,
+  TypewriterEffect,
+  SlideInSection
+} from '@/components/ui/loading-transitions'
+import { useScrollAnimation } from '@/hooks/use-scroll-animation'
+
 // Import the new MainHeader component
 import MainHeader from '@/components/layout/main-header'
 
