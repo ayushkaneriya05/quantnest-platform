@@ -56,7 +56,6 @@ class Command(BaseCommand):
         fyers = fyersModel.FyersModel(client_id=client_id, is_async=False, token=access_token, log_path=os.path.join(settings.BASE_DIR, 'logs/'))
         candles_collection = get_candles_collection()
 
-        # ** FIX: Break the date range into smaller chunks (e.g., 90 days) **
         total_start_date = (datetime.now(timezone.utc) - timedelta(days=days_to_backfill)).date()
         today = datetime.now(timezone.utc).date()
         

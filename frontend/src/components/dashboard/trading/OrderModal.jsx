@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -5,7 +6,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import OrderTicket from "./OrderTicket";
-import React from "react";
+import { useWebSocket } from "@/contexts/websocket-context"; // Import the WebSocket hook
 
 export default function OrderModal({
   isOpen,
@@ -14,6 +15,33 @@ export default function OrderModal({
   transactionType,
   onOrderPlaced,
 }) {
+  // State to hold the live market price for the header
+  const [currentPrice, setCurrentPrice] = useState(null);
+  const { getTickData, subscribe } = useWebSocket(); // Get live data functions
+
+  // Effect to subscribe to live price updates for the selected symbol
+  useEffect(() => {
+    if (!isOpen || !symbol) {
+      // Reset price if modal is closed or there's no symbol
+      setCurrentPrice(null);
+      return;
+    }
+
+    // Get the initial price from the context's cache
+    const initialTick = getTickData(symbol);
+    if (initialTick) {
+      setCurrentPrice(initialTick.price);
+    }
+
+    // Subscribe to the symbol for real-time updates
+    const unsubscribe = subscribe(symbol, (tick) => {
+      setCurrentPrice(tick.price);
+    });
+
+    // Cleanup subscription on component unmount or when dependencies change
+    return () => unsubscribe();
+  }, [isOpen, symbol, getTickData, subscribe]);
+
   if (!isOpen) return null;
 
   return (
@@ -28,8 +56,11 @@ export default function OrderModal({
             />
             {transactionType} {symbol}
           </DialogTitle>
+          {/* Display live price in the header */}
           <div className="text-sm text-gray-400 mt-1">
-            Current Price: ₹2,458.50 • Market: NSE
+            Current Price:{" "}
+            {currentPrice ? `₹${currentPrice.toFixed(2)}` : "Fetching..."} •
+            Market: NSE
           </div>
         </DialogHeader>
 

@@ -1,16 +1,16 @@
 from django.urls import path
-from .views import InstrumentSearchView, WatchlistView
+from . import views
 
 urlpatterns = [
-    path('instruments/search/', InstrumentSearchView.as_view(), name='instrument-search'),
-    path('watchlist/', WatchlistView.as_view(), name='watchlist'),
-]
-# ... existing urls
-from .views import AccountView, PositionView, OrderView, OrderDetailView
+    # Instrument and Watchlist URLs
+    path('instruments/search/', views.InstrumentSearchView.as_view(), name='instrument-search'),
+    path('watchlist/', views.WatchlistView.as_view(), name='watchlist'),
 
-urlpatterns += [
-    path('account/', AccountView.as_view(), name='account-details'),
-    path('positions/', PositionView.as_view(), name='positions-list'),
-    path('orders/', OrderView.as_view(), name='order-list-create'),
-    path('orders/<int:pk>/', OrderDetailView.as_view(), name='order-detail'),
+    # Account, Position, and Order URLs
+    path('account/', views.AccountView.as_view(), name='account-details'),
+    path('positions/', views.PositionView.as_view(), name='position-list'),
+    path('orders/', views.OrderView.as_view(), name='order-list-create'),
+    # FIX: Changed <int:pk> to <int:id> to match the lookup_field in OrderDetailView
+    path('orders/<int:id>/', views.OrderDetailView.as_view(), name='order-detail'),
+    path('history/', views.TradeHistoryView.as_view(), name='trade-history'),
 ]

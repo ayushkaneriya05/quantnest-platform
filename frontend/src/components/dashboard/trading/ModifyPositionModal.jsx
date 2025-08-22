@@ -28,17 +28,16 @@ import {
   Shield,
   Target,
   Calculator,
-  Info,
 } from "lucide-react";
 import { useWebSocket } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
 
+// Constants for form selections
 const TRANSACTION_TYPES = [
   { value: "BUY", label: "Buy More", description: "Add to existing position" },
   { value: "SELL", label: "Sell Partial", description: "Reduce position size" },
 ];
-
 const ORDER_TYPES = [
   { value: "MARKET", label: "Market", description: "Execute immediately" },
   { value: "LIMIT", label: "Limit", description: "Execute at specified price" },
@@ -67,6 +66,7 @@ export default function ModifyPositionModal({
   position,
   onPositionModified,
 }) {
+  // Form and UI State
   const [formData, setFormData] = useState({
     action: "",
     order_type: "MARKET",
@@ -86,140 +86,100 @@ export default function ModifyPositionModal({
     ratio: 0,
   });
 
-  const { getLatestPrice } = useWebSocket();
+  const { getTickData, subscribe } = useWebSocket();
 
-  // Initialize form data and calculations when position changes
+  // Effect to subscribe to live price updates when the modal is open
+  useEffect(() => {
+    if (!isOpen || !position?.instrument?.symbol) {
+      setCurrentMarketPrice(null);
+      return;
+    }
+    const symbol = position.instrument.symbol;
+
+    const initialTick = getTickData(symbol);
+    if (initialTick) {
+      setCurrentMarketPrice(initialTick.price);
+    }
+
+    const unsubscribe = subscribe(symbol, (tick) => {
+      setCurrentMarketPrice(tick.price);
+    });
+
+    return () => unsubscribe();
+  }, [isOpen, position, getTickData, subscribe]);
+
+  // Effect to calculate P&L whenever the live price changes
+  useEffect(() => {
+    if (position && currentMarketPrice !== null) {
+      const quantity = safeNumber(position.quantity);
+      const avgPrice = safeNumber(position.average_price);
+      const investedValue = Math.abs(quantity * avgPrice);
+      const pnl = (currentMarketPrice - avgPrice) * quantity;
+      const pnlPercentage = investedValue > 0 ? (pnl / investedValue) * 100 : 0;
+      setProfitLoss({ amount: pnl, percentage: pnlPercentage });
+    }
+  }, [position, currentMarketPrice]);
+
+  // FIX: Effect to reset the form ONLY when the position ID changes.
+  // This prevents the form from resetting on every parent component re-render.
   useEffect(() => {
     if (position) {
-      const marketPrice = getLatestPrice(position.instrument?.symbol) || 0;
-      setCurrentMarketPrice(marketPrice);
-
-      if (marketPrice > 0) {
-        const quantity = safeNumber(position.quantity);
-        const avgPrice = safeNumber(position.average_price);
-
-        const currentValue = quantity * marketPrice;
-        const investedValue = quantity * avgPrice;
-        const pnl = currentValue - investedValue;
-        const pnlPercentage =
-          investedValue > 0 ? (pnl / investedValue) * 100 : 0;
-
-        setProfitLoss({
-          amount: pnl,
-          percentage: pnlPercentage,
-        });
-      }
-
-      // Reset form
       setFormData({
         action: "",
         order_type: "MARKET",
         quantity: "",
         price: "",
-        stop_loss: "",
-        take_profit: "",
+        stop_loss: position.stop_loss?.toString() || "",
+        take_profit: position.take_profit?.toString() || "",
       });
       setErrors({});
     }
-  }, [position, getLatestPrice]);
+  }, [position?.id]); // Dependency changed from `position` to `position.id`
 
-  // Calculate estimated value and risk/reward when form data changes
+  // Effect to calculate estimated order value and risk/reward
   useEffect(() => {
-    if (!formData.quantity || !currentMarketPrice) {
+    if (!formData.quantity || currentMarketPrice === null) {
       setEstimatedValue(0);
       setRiskReward({ risk: 0, reward: 0, ratio: 0 });
       return;
     }
-
     const quantity = safeNumber(formData.quantity);
     const price =
       formData.order_type === "LIMIT" && formData.price
         ? safeNumber(formData.price)
         : currentMarketPrice;
-
     setEstimatedValue(quantity * price);
 
-    // Calculate risk/reward if stop loss and take profit are set
     if (formData.stop_loss && formData.take_profit && position) {
       const stopLoss = safeNumber(formData.stop_loss);
       const takeProfit = safeNumber(formData.take_profit);
       const entryPrice = safeNumber(position.average_price);
       const positionQuantity = safeNumber(position.quantity);
-
       const risk = Math.abs(entryPrice - stopLoss) * Math.abs(positionQuantity);
       const reward =
         Math.abs(takeProfit - entryPrice) * Math.abs(positionQuantity);
       const ratio = risk > 0 ? reward / risk : 0;
-
       setRiskReward({ risk, reward, ratio });
     }
   }, [formData, currentMarketPrice, position]);
 
   const validateForm = () => {
     const newErrors = {};
-
-    if (!formData.action) {
-      newErrors.action = "Please select an action";
-    }
+    if (!formData.action) newErrors.action = "Please select an action";
 
     const quantity = safeNumber(formData.quantity);
-    if (quantity <= 0) {
-      newErrors.quantity = "Quantity must be greater than 0";
-    }
+    if (quantity <= 0) newErrors.quantity = "Quantity must be greater than 0";
 
-    // Check if trying to sell more than available
     if (formData.action === "SELL" && position) {
-      const positionQuantity = safeNumber(position.quantity);
-      if (quantity > Math.abs(positionQuantity)) {
+      if (quantity > Math.abs(safeNumber(position.quantity))) {
         newErrors.quantity = `Cannot sell more than available quantity (${Math.abs(
-          positionQuantity
+          safeNumber(position.quantity)
         )})`;
       }
     }
 
-    if (formData.order_type === "LIMIT") {
-      const price = safeNumber(formData.price);
-      if (price <= 0) {
-        newErrors.price = "Price must be greater than 0";
-      }
-    }
-
-    // Validate stop loss and take profit
-    const stopLoss = safeNumber(formData.stop_loss);
-    const takeProfit = safeNumber(formData.take_profit);
-
-    if (formData.stop_loss && stopLoss <= 0) {
-      newErrors.stop_loss = "Stop loss must be greater than 0";
-    }
-
-    if (formData.take_profit && takeProfit <= 0) {
-      newErrors.take_profit = "Take profit must be greater than 0";
-    }
-
-    if (formData.stop_loss && formData.take_profit && position) {
-      const avgPrice = safeNumber(position.average_price);
-      const positionQuantity = safeNumber(position.quantity);
-      const isLong = positionQuantity > 0;
-
-      if (isLong) {
-        if (stopLoss >= avgPrice) {
-          newErrors.stop_loss =
-            "Stop loss should be below average price for long positions";
-        }
-        if (takeProfit <= avgPrice) {
-          newErrors.take_profit =
-            "Take profit should be above average price for long positions";
-        }
-      } else {
-        if (stopLoss <= avgPrice) {
-          newErrors.stop_loss =
-            "Stop loss should be above average price for short positions";
-        }
-        if (takeProfit >= avgPrice) {
-          newErrors.take_profit =
-            "Take profit should be below average price for short positions";
-        }
-      }
+    if (formData.order_type === "LIMIT" && safeNumber(formData.price) <= 0) {
+      newErrors.price = "Price must be greater than 0";
     }
 
     setErrors(newErrors);
@@ -228,62 +188,32 @@ export default function ModifyPositionModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!validateForm()) return;
 
     setIsSubmitting(true);
-
     try {
-      let transaction_type = formData.action;
-      let quantity = safeNumber(formData.quantity);
-
       const orderData = {
-        instrument_id: position.instrument?.id,
+        instrument_symbol: position.instrument?.symbol,
         order_type: formData.order_type,
-        transaction_type: transaction_type,
-        quantity: quantity,
+        transaction_type: formData.action,
+        quantity: safeNumber(formData.quantity),
+        price:
+          formData.order_type === "LIMIT" ? safeNumber(formData.price) : null,
+        stop_loss: formData.stop_loss ? safeNumber(formData.stop_loss) : null,
+        take_profit: formData.take_profit
+          ? safeNumber(formData.take_profit)
+          : null,
       };
 
-      // Add price for limit orders
-      if (formData.order_type === "LIMIT") {
-        orderData.price = safeNumber(formData.price);
-      }
-
-      // Add stop loss and take profit if provided
-      if (formData.stop_loss) {
-        orderData.stop_loss = safeNumber(formData.stop_loss);
-      }
-
-      if (formData.take_profit) {
-        orderData.take_profit = safeNumber(formData.take_profit);
-      }
-
-      const response = await api.post("/api/v1/trading/orders/", orderData);
-
+      await api.post("/trading/orders/", orderData);
       toast.success("Position modification order placed successfully");
-
-      if (onPositionModified) {
-        onPositionModified(response.data);
-      }
-
+      if (onPositionModified) onPositionModified();
       onClose();
     } catch (err) {
+      const errorMsg =
+        err.response?.data?.detail || "Failed to modify position.";
+      toast.error(errorMsg);
       console.error("Failed to modify position:", err);
-
-      if (err.response?.data?.error) {
-        toast.error(err.response.data.error);
-      } else if (err.response?.data) {
-        // Handle field-specific errors
-        const fieldErrors = {};
-        Object.keys(err.response.data).forEach((field) => {
-          if (Array.isArray(err.response.data[field])) {
-            fieldErrors[field] = err.response.data[field][0];
-          }
-        });
-        setErrors(fieldErrors);
-      } else {
-        toast.error("Failed to modify position. Please try again.");
-      }
     } finally {
       setIsSubmitting(false);
     }
@@ -291,27 +221,8 @@ export default function ModifyPositionModal({
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-
-    // Clear error when user starts typing
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: "" }));
-    }
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
   };
-
-  const handleCancel = () => {
-    setFormData({
-      action: "",
-      order_type: "MARKET",
-      quantity: "",
-      price: "",
-      stop_loss: "",
-      take_profit: "",
-    });
-    setErrors({});
-    onClose();
-  };
-
-  const requiresPrice = formData.order_type === "LIMIT";
 
   if (!position) return null;
 
@@ -326,11 +237,9 @@ export default function ModifyPositionModal({
       <DialogContent className="sm:max-w-[600px] bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-slate-800 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
-            <Settings className="h-5 w-5 text-blue-400" />
-            Modify Position
+            <Settings className="h-5 w-5 text-blue-400" /> Modify Position
           </DialogTitle>
         </DialogHeader>
-
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Position Info */}
           <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/50">
@@ -355,7 +264,6 @@ export default function ModifyPositionModal({
                 </div>
               </div>
             </div>
-
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
                 <span className="text-gray-400">Avg Price:</span>
@@ -431,91 +339,90 @@ export default function ModifyPositionModal({
             )}
           </div>
 
-          {/* Order Type and Quantity */}
+          {/* Order Inputs (shown after an action is selected) */}
           {formData.action && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="order_type">Order Type</Label>
-                <Select
-                  value={formData.order_type}
-                  onValueChange={(value) =>
-                    handleInputChange("order_type", value)
-                  }
-                >
-                  <SelectTrigger className="bg-slate-800 border-slate-700">
-                    <SelectValue placeholder="Select order type" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    {ORDER_TYPES.map((type) => (
-                      <SelectItem
-                        key={type.value}
-                        value={type.value}
-                        className="text-white hover:bg-slate-700"
-                      >
-                        <div>
-                          <div className="font-medium">{type.label}</div>
-                          <div className="text-xs text-gray-400">
-                            {type.description}
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="order_type">Order Type</Label>
+                  <Select
+                    value={formData.order_type}
+                    onValueChange={(value) =>
+                      handleInputChange("order_type", value)
+                    }
+                  >
+                    <SelectTrigger className="bg-slate-800 border-slate-700">
+                      <SelectValue placeholder="Select order type" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-slate-700">
+                      {ORDER_TYPES.map((type) => (
+                        <SelectItem
+                          key={type.value}
+                          value={type.value}
+                          className="text-white hover:bg-slate-700"
+                        >
+                          <div>
+                            <div className="font-medium">{type.label}</div>
+                            <div className="text-xs text-gray-400">
+                              {type.description}
+                            </div>
                           </div>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="quantity">
-                  Quantity
-                  {formData.action === "SELL" && (
-                    <span className="text-sm text-gray-400 ml-2">
-                      (Available: {Math.abs(positionQuantity)})
-                    </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="quantity">
+                    Quantity
+                    {formData.action === "SELL" && (
+                      <span className="text-sm text-gray-400 ml-2">
+                        (Available: {Math.abs(positionQuantity)})
+                      </span>
+                    )}
+                  </Label>
+                  <Input
+                    id="quantity"
+                    type="number"
+                    value={formData.quantity}
+                    onChange={(e) =>
+                      handleInputChange("quantity", e.target.value)
+                    }
+                    placeholder="Enter quantity"
+                    className="bg-slate-800 border-slate-700"
+                    min="1"
+                    step="1"
+                  />
+                  {errors.quantity && (
+                    <p className="text-red-400 text-sm flex items-center gap-1">
+                      <AlertCircle className="h-4 w-4" />
+                      {errors.quantity}
+                    </p>
                   )}
-                </Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  value={formData.quantity}
-                  onChange={(e) =>
-                    handleInputChange("quantity", e.target.value)
-                  }
-                  placeholder="Enter quantity"
-                  className="bg-slate-800 border-slate-700"
-                  min="1"
-                  step="1"
-                />
-                {errors.quantity && (
-                  <p className="text-red-400 text-sm flex items-center gap-1">
-                    <AlertCircle className="h-4 w-4" />
-                    {errors.quantity}
-                  </p>
-                )}
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* Price (for LIMIT orders) */}
-          {requiresPrice && formData.action && (
-            <div className="space-y-2">
-              <Label htmlFor="price">Limit Price</Label>
-              <Input
-                id="price"
-                type="number"
-                value={formData.price}
-                onChange={(e) => handleInputChange("price", e.target.value)}
-                placeholder="Enter limit price"
-                className="bg-slate-800 border-slate-700"
-                min="0"
-                step="0.01"
-              />
-              {errors.price && (
-                <p className="text-red-400 text-sm flex items-center gap-1">
-                  <AlertCircle className="h-4 w-4" />
-                  {errors.price}
-                </p>
+              {formData.order_type === "LIMIT" && (
+                <div className="space-y-2">
+                  <Label htmlFor="price">Limit Price</Label>
+                  <Input
+                    id="price"
+                    type="number"
+                    value={formData.price}
+                    onChange={(e) => handleInputChange("price", e.target.value)}
+                    placeholder="Enter limit price"
+                    className="bg-slate-800 border-slate-700"
+                    min="0"
+                    step="0.01"
+                  />
+                  {errors.price && (
+                    <p className="text-red-400 text-sm flex items-center gap-1">
+                      <AlertCircle className="h-4 w-4" />
+                      {errors.price}
+                    </p>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
 
           <Separator className="bg-slate-700" />
@@ -524,14 +431,14 @@ export default function ModifyPositionModal({
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-blue-400" />
-              <h3 className="font-semibold text-white">Risk Management</h3>
+              <h3 className="font-semibold text-white">
+                Risk Management (for entire position)
+              </h3>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="stop_loss" className="flex items-center gap-1">
-                  <Shield className="h-4 w-4 text-red-400" />
-                  Stop Loss
+                  <Shield className="h-4 w-4 text-red-400" /> Stop Loss
                 </Label>
                 <Input
                   id="stop_loss"
@@ -552,14 +459,12 @@ export default function ModifyPositionModal({
                   </p>
                 )}
               </div>
-
               <div className="space-y-2">
                 <Label
                   htmlFor="take_profit"
                   className="flex items-center gap-1"
                 >
-                  <Target className="h-4 w-4 text-emerald-400" />
-                  Take Profit
+                  <Target className="h-4 w-4 text-emerald-400" /> Take Profit
                 </Label>
                 <Input
                   id="take_profit"
@@ -581,8 +486,6 @@ export default function ModifyPositionModal({
                 )}
               </div>
             </div>
-
-            {/* Risk/Reward Ratio */}
             {riskReward.ratio > 0 && (
               <div className="bg-blue-900/20 p-3 rounded-lg border border-blue-700/30">
                 <div className="flex items-center gap-2 mb-2">
@@ -639,12 +542,11 @@ export default function ModifyPositionModal({
             <Button
               type="button"
               variant="outline"
-              onClick={handleCancel}
+              onClick={onClose}
               disabled={isSubmitting}
               className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white hover:border-slate-500"
             >
-              <X className="h-4 w-4 mr-2" />
-              Cancel
+              <X className="h-4 w-4 mr-2" /> Cancel
             </Button>
             <Button
               type="submit"
@@ -653,13 +555,12 @@ export default function ModifyPositionModal({
             >
               {isSubmitting ? (
                 <div className="flex items-center gap-2">
-                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />{" "}
                   Processing...
                 </div>
               ) : (
                 <>
-                  <Settings className="h-4 w-4 mr-2" />
-                  Place Order
+                  <Settings className="h-4 w-4 mr-2" /> Place Order
                 </>
               )}
             </Button>

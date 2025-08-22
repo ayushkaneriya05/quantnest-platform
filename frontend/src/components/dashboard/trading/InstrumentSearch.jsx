@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Search, PlusCircle, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
-import React from "react";
+
 export default function InstrumentSearch({
   onAddToWatchlist,
   existingWatchlistSymbols,
@@ -16,7 +16,7 @@ export default function InstrumentSearch({
   const { toast } = useToast();
   const searchRef = useRef(null); // Ref to detect outside clicks
 
-  // ** THE FIX: Detect clicks outside the component to close suggestions **
+  // Detect clicks outside the component to close the suggestions dropdown
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (searchRef.current && !searchRef.current.contains(event.target)) {
@@ -29,6 +29,7 @@ export default function InstrumentSearch({
     };
   }, []);
 
+  // Debounced search handler
   const handleSearch = useCallback(
     async (searchQuery) => {
       if (searchQuery.length < 2) {
@@ -66,7 +67,8 @@ export default function InstrumentSearch({
   }, [query, handleSearch]);
 
   const handleSelect = (instrument) => {
-    onAddToWatchlist(instrument.id);
+    // FIX: Pass the entire instrument object, not just the ID.
+    onAddToWatchlist(instrument);
     setQuery("");
     setResults([]);
     setIsOpen(false);
@@ -99,7 +101,6 @@ export default function InstrumentSearch({
                 <li
                   key={instrument.id}
                   className="px-3 py-2 hover:bg-gray-800/50 cursor-pointer flex justify-between items-center"
-                  // Now that we handle outside clicks, a simple onClick is reliable
                   onClick={() => !isInWatchlist && handleSelect(instrument)}
                 >
                   <div>

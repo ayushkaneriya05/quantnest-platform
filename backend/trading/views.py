@@ -1,78 +1,67 @@
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status, views
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import Instrument, Watchlist
-from .serializers import InstrumentSerializer, WatchlistSerializer
-from django.db import models
+
+from .models import Instrument, Watchlist, Account, Position, Order, TradeHistory
+from .serializers import (
+    InstrumentSerializer,
+    WatchlistSerializer,
+    AccountSerializer,
+    PositionSerializer,
+    OrderSerializer,
+    TradeHistorySerializer,
+)
+# --- Instrument and Watchlist Views ---
 
 class InstrumentSearchView(generics.ListAPIView):
-    """
-    Provides a search endpoint for instruments based on symbol or company name.
-    """
     serializer_class = InstrumentSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         query = self.request.query_params.get('query', '')
-        if query:
-            # Case-insensitive search on both symbol and company name
+        if len(query) >= 2:
             return Instrument.objects.filter(
-                models.Q(symbol__icontains=query) | models.Q(company_name__icontains=query)
-            )[:10] # Limit results to 10
+                Q(symbol__icontains=query) | Q(company_name__icontains=query)
+            )[:10]
         return Instrument.objects.none()
 
 class WatchlistView(views.APIView):
-    """
-    API View for retrieving, adding to, and removing from a user's watchlist.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         watchlist, _ = Watchlist.objects.get_or_create(user=request.user)
-        serializer = WatchlistSerializer(watchlist)
-        return Response(serializer.data)
+        return Response(WatchlistSerializer(watchlist).data)
 
     def post(self, request):
         instrument_id = request.data.get('instrument_id')
-        if not instrument_id:
-            return Response({"error": "instrument_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            instrument = Instrument.objects.get(id=instrument_id)
-        except Instrument.DoesNotExist:
-            return Response({"error": "Instrument not found"}, status=status.HTTP_404_NOT_FOUND)
-
+        instrument = get_object_or_404(Instrument, id=instrument_id)
         watchlist, _ = Watchlist.objects.get_or_create(user=request.user)
         watchlist.instruments.add(instrument)
-        
-        serializer = WatchlistSerializer(watchlist)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(WatchlistSerializer(watchlist).data, status=status.HTTP_200_OK)
 
     def delete(self, request):
         instrument_id = request.data.get('instrument_id')
-        if not instrument_id:
-            return Response({"error": "instrument_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
+        instrument = get_object_or_404(Instrument, id=instrument_id)
         watchlist, _ = Watchlist.objects.get_or_create(user=request.user)
-        watchlist.instruments.remove(instrument_id)
+        watchlist.instruments.remove(instrument)
+        return Response(WatchlistSerializer(watchlist).data, status=status.HTTP_200_OK)
 
-        serializer = WatchlistSerializer(watchlist)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-# ... (keep InstrumentSearchView and WatchlistView)
-from .models import Account, Position, Order, TradeHistory
-from .serializers import AccountSerializer, PositionSerializer, OrderSerializer, TradeHistorySerializer
+# --- Account, Position, and Order Views ---
 
 class AccountView(generics.RetrieveAPIView):
     serializer_class = AccountSerializer
     permission_classes = [IsAuthenticated]
+
     def get_object(self):
-        account, _ = Account.objects.get_or_create(user=self.request.user)
-        return account
+        return Account.objects.get_or_create(user=self.request.user)[0]
 
 class PositionView(generics.ListAPIView):
     serializer_class = PositionSerializer
     permission_classes = [IsAuthenticated]
+
     def get_queryset(self):
         account, _ = Account.objects.get_or_create(user=self.request.user)
         return Position.objects.filter(account=account)
@@ -88,15 +77,36 @@ class OrderView(generics.ListCreateAPIView):
     def get_serializer_context(self):
         return {'request': self.request}
 
+    def perform_create(self, serializer):
+        """
+        Creates the order with an 'OPEN' status.
+        The separate execution engine is responsible for processing it.
+        """
+        order = serializer.save()
+
+
 class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
 
     def get_queryset(self):
         account, _ = Account.objects.get_or_create(user=self.request.user)
         return Order.objects.filter(account=account, status='OPEN')
 
+    def perform_update(self, serializer):
+        # This handles the modification of an existing OPEN order (e.g., changing price/qty)
+        order = serializer.save()
+
     def perform_destroy(self, instance):
-        # Instead of deleting, we mark as cancelled
+        # This handles the cancellation of an OPEN order
         instance.status = 'CANCELLED'
         instance.save()
+
+class TradeHistoryView(generics.ListAPIView):
+    serializer_class = TradeHistorySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        account, _ = Account.objects.get_or_create(user=self.request.user)
+        return TradeHistory.objects.filter(order__account=account).order_by('-timestamp')

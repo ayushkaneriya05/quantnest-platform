@@ -1,4 +1,4 @@
-// websocket-context.jsx
+// frontend/src/contexts/websocket-context.jsx
 import React, {
   createContext,
   useContext,
@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import toast from "react-hot-toast";
 import sha1 from "crypto-js/sha1";
+import api from "@/services/api";
 
 const WebSocketContext = createContext();
 
@@ -26,29 +27,24 @@ export const WebSocketProvider = ({ children }) => {
   const [tickData, setTickData] = useState(new Map());
   const [orderUpdates, setOrderUpdates] = useState([]);
   const [positionUpdates, setPositionUpdates] = useState([]);
-  const [subscriptions, setSubscriptions] = useState(new Set());
 
   const ws = useRef(null);
+  const subscriptions = useRef(new Set());
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 3;
+  const maxReconnectAttempts = 5;
   const reconnectInterval = useRef(null);
 
-  // Map original symbol ↔ hashed symbol for backend
-  const symbolToHash = useRef(new Map());
-  const hashToSymbol = useRef(new Map());
-
-  // Map of symbol → Set of callbacks
   const subscriptionCallbacks = useRef(new Map());
+  const fetchingPrices = useRef(new Set());
 
-  // --- Helpers ---
   const getWebSocketUrl = () => {
     const token = localStorage.getItem("accessToken");
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.hostname;
-    const port = window.location.port ? `:${window.location.port}` : "";
-    return host.includes("localhost")
-      ? `ws://localhost:8000/ws/marketdata/?token=${token}`
-      : `${protocol}//${host}${port}/ws/marketdata/${token}`;
+    const host =
+      window.location.hostname === "localhost"
+        ? "localhost:8000"
+        : window.location.host;
+    return `${protocol}//${host}/ws/marketdata/?token=${token}`;
   };
 
   const sendMessage = useCallback((message) => {
@@ -65,49 +61,39 @@ export const WebSocketProvider = ({ children }) => {
     return false;
   }, []);
 
-  // --- Tick / Order / Position handlers ---
   const handleTickData = useCallback((data) => {
-    if (!data.symbol) return;
-    const symbol = hashToSymbol.current.get(data.symbol) || data.symbol;
+    if (!data.instrument) return;
+    const symbol = data.instrument.split(":")[1].split("-")[0];
 
-    setTickData((prev) => {
-      const next = new Map(prev);
-      next.set(symbol, { ...data, timestamp: Date.now() });
-      return next;
-    });
+    setTickData((prev) =>
+      new Map(prev).set(symbol, { ...data, timestamp: Date.now() })
+    );
 
-    // Call subscribed callbacks
     if (subscriptionCallbacks.current.has(symbol)) {
       subscriptionCallbacks.current.get(symbol).forEach((cb) => {
         try {
           cb(data);
         } catch (e) {
-          console.error("Callback error:", e);
+          console.error(`Error in subscription callback for ${symbol}:`, e);
         }
       });
     }
   }, []);
 
   const handleOrderUpdate = useCallback((data) => {
-    setOrderUpdates((prev) => [data, ...prev.slice(0, 99)]);
+    setOrderUpdates((prev) => [data, ...prev.slice(0, 99)]); // Keep last 100 updates
+    const instrumentSymbol = data.instrument?.symbol || "N/A";
+    toast.success(`Order Update: ${instrumentSymbol} ${data.status}`);
   }, []);
 
   const handlePositionUpdate = useCallback((data) => {
-    setPositionUpdates((prev) => [data, ...prev.slice(0, 99)]);
+    setPositionUpdates((prev) => [data, ...prev.slice(0, 99)]); // Keep last 100 updates
   }, []);
 
-  // --- Reconnect logic ---
-  const attemptReconnect = useCallback(() => {
-    if (reconnectAttempts.current >= maxReconnectAttempts) return;
-    reconnectAttempts.current++;
-    setConnectionStatus("reconnecting");
-    const delay = Math.min(2000 * reconnectAttempts.current, 10000);
-    reconnectInterval.current = setTimeout(connect, delay);
-  }, []);
-
-  // --- Connect / Disconnect ---
   const connect = useCallback(() => {
-    if (ws.current?.readyState === WebSocket.OPEN) return;
+    if (ws.current && ws.current.readyState !== WebSocket.CLOSED) {
+      return;
+    }
 
     try {
       setConnectionStatus("connecting");
@@ -117,80 +103,67 @@ export const WebSocketProvider = ({ children }) => {
       ws.current.onopen = () => {
         setIsConnected(true);
         setConnectionStatus("connected");
+        console.log("✅ WebSocket connected");
         reconnectAttempts.current = 0;
+        if (reconnectInterval.current) {
+          clearTimeout(reconnectInterval.current);
+          reconnectInterval.current = null;
+        }
 
-        // Resubscribe all symbols
-        subscriptions.forEach((symbol) => {
-          const hashed = symbolToHash.current.get(symbol);
-          if (hashed) sendMessage({ type: "subscribe", instrument: hashed });
+        subscriptions.current.forEach((symbol) => {
+          sendMessage({ type: "subscribe", instrument: `NSE:${symbol}-EQ` });
         });
 
-        toast.success("Live market data connected", { duration: 3000 });
+        toast.success("Live market data connected", { duration: 2000 });
       };
 
       ws.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           setLastMessage(data);
-
-          if (data.type === "tick" || data.symbol) handleTickData(data);
+          // console.log("WS message:", data);
+          if (data.type === "tick") handleTickData(data);
           else if (data.type === "order_update") handleOrderUpdate(data);
           else if (data.type === "position_update") handlePositionUpdate(data);
         } catch (e) {
-          console.error("WS parse error:", e);
+          console.error("WS message parse error:", e);
         }
       };
 
-      ws.current.onclose = (event) => {
+      ws.current.onclose = () => {
         setIsConnected(false);
         setConnectionStatus("disconnected");
 
-        if (
-          event.code !== 1000 &&
-          reconnectAttempts.current < maxReconnectAttempts
-        ) {
-          attemptReconnect();
-        } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-          toast.error("Live data unavailable", { duration: 4000 });
+        if (reconnectAttempts.current < maxReconnectAttempts) {
+          reconnectAttempts.current++;
+          const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 10000);
+          reconnectInterval.current = setTimeout(connect, delay);
+        } else {
+          toast.error("Could not connect to live data.", { duration: 4000 });
         }
       };
 
-      ws.current.onerror = () => {
+      ws.current.onerror = (err) => {
+        console.error("WebSocket error:", err);
         setConnectionStatus("error");
-        if (reconnectAttempts.current === 0) {
-          toast.error("Market data connection failed, will retry...", {
-            duration: 3000,
-          });
-        }
+        ws.current.close();
       };
     } catch (e) {
       console.error("WS setup error:", e);
       setConnectionStatus("error");
-      toast.error("Using simulated market data", { duration: 3000 });
     }
-  }, [
-    subscriptions,
-    sendMessage,
-    handleTickData,
-    handleOrderUpdate,
-    handlePositionUpdate,
-    attemptReconnect,
-  ]);
+  }, [handleTickData, handleOrderUpdate, handlePositionUpdate, sendMessage]);
 
   const disconnect = useCallback(() => {
     if (reconnectInterval.current) clearTimeout(reconnectInterval.current);
+    reconnectAttempts.current = maxReconnectAttempts;
     ws.current?.close(1000, "Manual disconnect");
-    ws.current = null;
-    setIsConnected(false);
-    setConnectionStatus("disconnected");
   }, []);
 
-  // --- Subscribe / Unsubscribe ---
   const subscribe = useCallback(
     (symbol, callback) => {
       if (!symbol) return () => {};
 
-      // Add callback
       if (callback) {
         if (!subscriptionCallbacks.current.has(symbol)) {
           subscriptionCallbacks.current.set(symbol, new Set());
@@ -198,35 +171,23 @@ export const WebSocketProvider = ({ children }) => {
         subscriptionCallbacks.current.get(symbol).add(callback);
       }
 
-      // Store subscription
-      setSubscriptions((prev) => new Set([...prev, symbol]));
-
-      // Hash symbol for backend
-      const hashed = sha1(symbol).toString();
-      symbolToHash.current.set(symbol, hashed);
-      hashToSymbol.current.set(hashed, symbol);
-
-      // Send subscribe message
-      if (ws.current?.readyState === WebSocket.OPEN) {
-        sendMessage({ type: "subscribe", instrument: hashed });
+      if (!subscriptions.current.has(symbol)) {
+        subscriptions.current.add(symbol);
+        sendMessage({ type: "subscribe", instrument: `NSE:${symbol}-EQ` });
       }
 
-      // Return unsubscribe function
       return () => {
         if (callback && subscriptionCallbacks.current.has(symbol)) {
-          subscriptionCallbacks.current.get(symbol).delete(callback);
-          if (subscriptionCallbacks.current.get(symbol).size === 0) {
+          const cbs = subscriptionCallbacks.current.get(symbol);
+          cbs.delete(callback);
+
+          if (cbs.size === 0) {
             subscriptionCallbacks.current.delete(symbol);
-            setSubscriptions((prev) => {
-              const next = new Set(prev);
-              next.delete(symbol);
-              return next;
+            subscriptions.current.delete(symbol);
+            sendMessage({
+              type: "unsubscribe",
+              instrument: `NSE:${symbol}-EQ`,
             });
-            if (ws.current?.readyState === WebSocket.OPEN) {
-              sendMessage({ type: "unsubscribe", instrument: hashed });
-              symbolToHash.current.delete(symbol);
-              hashToSymbol.current.delete(hashed);
-            }
           }
         }
       };
@@ -235,15 +196,50 @@ export const WebSocketProvider = ({ children }) => {
   );
 
   const getLatestPrice = useCallback(
-    (symbol) => tickData.get(symbol)?.price ?? null,
+    async (symbol) => {
+      if (!symbol) return null;
+
+      const liveTick = tickData.get(symbol);
+      if (liveTick) {
+        return liveTick.price;
+      }
+
+      if (!fetchingPrices.current.has(symbol)) {
+        fetchingPrices.current.add(symbol);
+        try {
+          const response = await api.get(
+            `/market/latest-tick/?instrument=${symbol}`
+          );
+          const lastKnownTick = response.data;
+
+          setTickData((prev) => {
+            const next = new Map(prev);
+            if (!next.has(symbol)) {
+              next.set(symbol, {
+                price: lastKnownTick.price,
+                timestamp: new Date(lastKnownTick.timestamp).getTime(),
+              });
+            }
+            return next;
+          });
+          fetchingPrices.current.delete(symbol);
+          return lastKnownTick.price;
+        } catch (err) {
+          console.error(`Failed to fetch latest price for ${symbol}:`, err);
+          fetchingPrices.current.delete(symbol);
+          return null;
+        }
+      }
+      return null;
+    },
     [tickData]
   );
+
   const getTickData = useCallback(
     (symbol) => tickData.get(symbol) ?? null,
     [tickData]
   );
 
-  // --- Auto-connect on mount ---
   useEffect(() => {
     connect();
     return () => disconnect();
@@ -258,7 +254,7 @@ export const WebSocketProvider = ({ children }) => {
         tickData,
         orderUpdates,
         positionUpdates,
-        subscriptions: Array.from(subscriptions),
+        subscriptions: Array.from(subscriptions.current),
         connect,
         disconnect,
         sendMessage,

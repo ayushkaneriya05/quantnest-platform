@@ -8,5 +8,5 @@ urlpatterns = [
     path("fyers/token/status/", views.fyers_token_status, name="fyers_token_status"),
     path("fyers/token/refresh/", views.fyers_token_refresh, name="fyers_token_refresh"),
     path("ohlc/", views.ohlc_data, name="ohlc_data"),
-
+    path("latest-tick/", views.latest_tick_data, name="latest_tick_data"),
 ]

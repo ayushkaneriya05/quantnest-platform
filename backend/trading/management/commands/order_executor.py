@@ -6,10 +6,12 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
+from django.db.models import Q
 import logging
 
 from marketdata.mongo_client import get_ticks_collection, get_db
-from trading.models import Account, Order, Position, TradeHistory, Instrument
+from trading.models import Account, Order, Position, TradeHistory
+from trading.signals import order_status_changed, position_changed
 
 # Set up a specific logger for this command for better monitoring
 logger = logging.getLogger(__name__)
@@ -20,10 +22,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("🚀 Starting order execution engine..."))
         
-        # Establish a persistent connection to MongoDB
         try:
             ticks_collection = get_ticks_collection()
-            # Ping the server to ensure the connection is live
             get_db().command('ping')
             self.stdout.write(self.style.SUCCESS("✅ MongoDB connection successful."))
         except Exception as e:
@@ -32,8 +32,6 @@ class Command(BaseCommand):
 
         while True:
             try:
-                # 1. Fetch the latest delayed ticks for all instruments
-                # This is more efficient than querying one-by-one inside the loop
                 market_prices = self.get_latest_market_prices(ticks_collection)
 
                 if not market_prices:
@@ -41,154 +39,154 @@ class Command(BaseCommand):
                     time.sleep(2)
                     continue
 
-                # 2. Fetch all open orders from PostgreSQL
-                # We select related account and instrument to reduce DB queries inside the loop
-                open_orders = Order.objects.filter(status='OPEN').select_related('account', 'instrument')
+                # 1. Check for position-level triggers (SL/TP)
+                self.check_position_triggers(market_prices)
 
+                # 2. Process all other open orders
+                open_orders = Order.objects.filter(status='OPEN').select_related('account', 'instrument')
                 for order in open_orders:
                     current_price = market_prices.get(order.instrument.symbol)
-
                     if not current_price:
-                        continue # No current price for this instrument, skip to the next order
-
-                    # 3. Determine if the order should be executed based on its type
+                        continue
                     self.process_order(order, current_price)
 
             except Exception as e:
                 self.stderr.write(self.style.ERROR(f"An error occurred in the execution loop: {e}"))
-                # In a real production scenario, you might want to alert an admin here
-
-            time.sleep(1) # Pause for 1 second before the next loop
+            
+            time.sleep(1)
 
     def get_latest_market_prices(self, ticks_collection):
-        """
-        Fetches the most recent price for each instrument from the delayed tick stream.
-        """
         fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
-        
         pipeline = [
             {'$match': {'timestamp': {'$lte': fifteen_minutes_ago}}},
             {'$sort': {'timestamp': -1}},
             {'$group': {
                 '_id': '$instrument',
                 'price': {'$first': '$price'},
-                'timestamp': {'$first': '$timestamp'}
             }}
         ]
-        
         latest_ticks = list(ticks_collection.aggregate(pipeline))
-        
-        # Fyers symbols are like 'NSE:RELIANCE-EQ', we want just 'RELIANCE'
         return {
             doc['_id'].split(':')[1].split('-')[0]: Decimal(str(doc['price']))
             for doc in latest_ticks
         }
 
-    def process_order(self, order, current_price):
-        """Checks an order against the current market price and executes it if conditions are met."""
-        execute_price = None
+    def check_position_triggers(self, market_prices):
+        positions = Position.objects.filter(Q(stop_loss__isnull=False) | Q(take_profit__isnull=False)).select_related('account', 'instrument')
         
-        try:
-            order_price = Decimal(order.price) if order.price is not None else None
-            trigger_price = Decimal(order.trigger_price) if order.trigger_price is not None else None
+        for position in positions:
+            current_price = market_prices.get(position.instrument.symbol)
+            if not current_price:
+                continue
 
-            # --- Order Logic ---
-            if order.order_type == 'MARKET':
-                execute_price = current_price
+            triggered = False
+            if position.stop_loss is not None:
+                if (position.quantity > 0 and current_price <= position.stop_loss) or \
+                   (position.quantity < 0 and current_price >= position.stop_loss):
+                    triggered = True
             
-            elif order.order_type == 'LIMIT':
-                if order.transaction_type == 'BUY' and current_price <= order_price:
-                    execute_price = current_price
-                elif order.transaction_type == 'SELL' and current_price >= order_price:
-                    execute_price = current_price
+            if not triggered and position.take_profit is not None:
+                if (position.quantity > 0 and current_price >= position.take_profit) or \
+                   (position.quantity < 0 and current_price <= position.take_profit):
+                    triggered = True
 
-            elif order.order_type == 'STOP':
-                if order.transaction_type == 'BUY' and current_price >= trigger_price:
-                    execute_price = current_price # Execute as a market order
-                elif order.transaction_type == 'SELL' and current_price <= trigger_price:
-                    execute_price = current_price # Execute as a market order
+            if triggered:
+                self.stdout.write(self.style.WARNING(f"Trigger hit for {position.instrument.symbol}. Creating closing order."))
+                Order.objects.create(
+                    account=position.account,
+                    instrument=position.instrument,
+                    order_type='MARKET',
+                    transaction_type='SELL' if position.quantity > 0 else 'BUY',
+                    quantity=abs(position.quantity),
+                    status='OPEN'
+                )
+                position.stop_loss = None
+                position.take_profit = None
+                position.save()
 
-            elif order.order_type == 'STOP_LIMIT':
-                if order.transaction_type == 'BUY' and current_price >= trigger_price:
-                    # The stop has been triggered, now it's a limit order
-                    execute_price = min(current_price, order_price)
-                elif order.transaction_type == 'SELL' and current_price <= trigger_price:
-                    # The stop has been triggered, now it's a limit order
-                    execute_price = max(current_price, order_price)
+    def process_order(self, order, current_price):
+        execute_price = None
+        order_price = Decimal(order.price) if order.price is not None else None
+        trigger_price = Decimal(order.trigger_price) if order.trigger_price is not None else None
 
-            if execute_price:
-                self.execute_trade(order, execute_price)
+        if order.order_type == 'MARKET':
+            execute_price = current_price
+        elif order.order_type == 'LIMIT':
+            if (order.transaction_type == 'BUY' and current_price <= order_price) or \
+               (order.transaction_type == 'SELL' and current_price >= order_price):
+                execute_price = current_price
+        elif order.order_type == 'STOP':
+            if (order.transaction_type == 'BUY' and current_price >= trigger_price) or \
+               (order.transaction_type == 'SELL' and current_price <= trigger_price):
+                execute_price = current_price
+        elif order.order_type == 'STOP_LIMIT':
+            if (order.transaction_type == 'BUY' and current_price >= trigger_price):
+                execute_price = min(current_price, order_price)
+            elif (order.transaction_type == 'SELL' and current_price <= trigger_price):
+                execute_price = max(current_price, order_price)
 
-        except (InvalidOperation, TypeError) as e:
-             self.stderr.write(self.style.ERROR(f"Could not process order {order.id} due to invalid price data: {e}"))
-
+        if execute_price:
+            self.execute_trade(order, execute_price)
 
     def execute_trade(self, order, execute_price):
-        """
-        Executes a trade within a database transaction to ensure data integrity.
-        """
         try:
             with transaction.atomic():
-                # Lock the account row to prevent race conditions (e.g., two trades executing simultaneously)
                 account = Account.objects.select_for_update().get(id=order.account.id)
-                
+                position, created = Position.objects.get_or_create(
+                    account=account, instrument=order.instrument,
+                    defaults={'quantity': 0, 'average_price': Decimal('0.0')}
+                )
+
                 trade_value = Decimal(order.quantity) * execute_price
+                current_quantity = Decimal(position.quantity)
+                order_quantity = Decimal(order.quantity)
 
                 if order.transaction_type == 'BUY':
-                    if account.balance < trade_value:
-                        logger.warning(f"Order {order.id} for user {account.user.id} failed: Insufficient funds.")
-                        # Optionally, you could cancel the order here
-                        # order.status = 'CANCELLED'
-                        # order.save()
-                        return
-
-                    # Update or create the position
-                    position, created = Position.objects.get_or_create(
-                        account=account,
-                        instrument=order.instrument,
-                        defaults={'quantity': 0, 'average_price': Decimal('0.0')}
-                    )
-                    
-                    new_quantity = position.quantity + order.quantity
-                    new_total_value = (Decimal(position.quantity) * position.average_price) + trade_value
-                    position.average_price = new_total_value / new_quantity
+                    if current_quantity < 0: # Covering a short
+                        pnl = (position.average_price - execute_price) * min(order_quantity, abs(current_quantity))
+                        account.realized_pnl += pnl
+                    new_total_value = (current_quantity * position.average_price) + trade_value
+                    new_quantity = current_quantity + order_quantity
+                    position.average_price = new_total_value / new_quantity if new_quantity != 0 else Decimal('0.0')
                     position.quantity = new_quantity
-                    position.save()
-
-                    # Update account balance
                     account.balance -= trade_value
-                    account.save()
-
                 elif order.transaction_type == 'SELL':
-                    position = Position.objects.filter(account=account, instrument=order.instrument).first()
-                    if not position or position.quantity < order.quantity:
-                        logger.warning(f"Order {order.id} for user {account.user.id} failed: Not enough shares to sell.")
-                        return
-
-                    position.quantity -= order.quantity
-                    if position.quantity == 0:
-                        position.delete()
-                    else:
-                        position.save()
-
+                    if current_quantity > 0: # Closing a long
+                        pnl = (execute_price - position.average_price) * min(order_quantity, current_quantity)
+                        account.realized_pnl += pnl
+                    new_total_value = (abs(current_quantity) * position.average_price) - trade_value
+                    new_quantity = current_quantity - order_quantity
+                    position.average_price = new_total_value / abs(new_quantity) if new_quantity != 0 else Decimal('0.0')
+                    position.quantity = new_quantity
                     account.balance += trade_value
-                    account.save()
 
-                # Mark order as executed and log the trade
-                order.status = 'EXECUTED'
+                position_to_send = None
+                if position.quantity == 0:
+                    # FIX: Prepare a payload for the signal before deleting the object
+                    position_to_send = {'id': position.id, 'quantity': 0, 'instrument': {'symbol': position.instrument.symbol}}
+                    position.delete()
+                else:
+                    position.save()
+                    position_to_send = position
+                
+                account.save()
+
+                order.status = 'COMPLETE'
                 order.executed_at = timezone.now()
                 order.save()
 
                 TradeHistory.objects.create(
-                    order=order,
-                    executed_price=execute_price,
-                    quantity=order.quantity,
-                    timestamp=order.executed_at
+                    order=order, executed_price=execute_price,
+                    quantity=order.quantity, timestamp=order.executed_at
                 )
-                logger.info(f"EXECUTED order {order.id}: {order.transaction_type} {order.quantity} {order.instrument.symbol} @ {execute_price}")
-                self.stdout.write(self.style.SUCCESS(f"Processed order {order.id}"))
+                
+                order_status_changed.send(sender=self.__class__, order=order)
+                if position_to_send:
+                    position_changed.send(sender=self.__class__, position=position_to_send, user_id=account.user.id)
 
-        except Account.DoesNotExist:
-            self.stderr.write(self.style.ERROR(f"CRITICAL: Account not found for order {order.id}. Skipping."))
+                self.stdout.write(self.style.SUCCESS(f"EXECUTED order {order.id}"))
         except Exception as e:
-            self.stderr.write(self.style.ERROR(f"Failed during transaction for order {order.id}: {e}"))
+            self.stderr.write(self.style.ERROR(f"Failed transaction for order {order.id}: {e}"))
+            order.status = 'REJECTED'
+            order.save()
+            order_status_changed.send(sender=self.__class__, order=order)

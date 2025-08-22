@@ -32,6 +32,7 @@ import { useWebSocket } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
 
+// Constants for order type selection
 const ORDER_TYPES = [
   {
     value: "MARKET",
@@ -55,7 +56,7 @@ const ORDER_TYPES = [
   },
 ];
 
-// Helper functions for safe number operations
+// Helper functions for safe number operations and formatting
 const safeNumber = (value, defaultValue = 0) => {
   if (value === null || value === undefined || value === "")
     return defaultValue;
@@ -78,6 +79,7 @@ export default function ModifyOrderModal({
   order,
   onOrderModified,
 }) {
+  // Component State
   const [formData, setFormData] = useState({
     order_type: "",
     quantity: "",
@@ -89,9 +91,10 @@ export default function ModifyOrderModal({
   const [currentMarketPrice, setCurrentMarketPrice] = useState(null);
   const [estimatedValue, setEstimatedValue] = useState(0);
 
-  const { getLatestPrice } = useWebSocket();
+  // WebSocket Context Hooks
+  const { getTickData, subscribe } = useWebSocket();
 
-  // Initialize form data when order changes
+  // Effect to reset form data when a new order is passed in
   useEffect(() => {
     if (order) {
       setFormData({
@@ -100,122 +103,102 @@ export default function ModifyOrderModal({
         price: safeNumber(order.price).toString() || "",
         trigger_price: safeNumber(order.trigger_price).toString() || "",
       });
-
-      // Get current market price
-      const marketPrice = getLatestPrice(order.instrument?.symbol) || 0;
-      setCurrentMarketPrice(marketPrice);
       setErrors({});
     }
-  }, [order, getLatestPrice]);
+  }, [order]);
 
-  // Calculate estimated value when form data changes
+  // Effect to subscribe to live price updates when the modal is open
   useEffect(() => {
-    if (!formData.quantity) {
-      setEstimatedValue(0);
+    if (!isOpen || !order?.instrument?.symbol) {
+      setCurrentMarketPrice(null); // Reset price when modal is closed
       return;
     }
+    const symbol = order.instrument.symbol;
 
+    // Get initial price from the context's cache
+    const initialTick = getTickData(symbol);
+    if (initialTick) {
+      setCurrentMarketPrice(initialTick.price);
+    }
+
+    // Subscribe to the symbol for real-time updates
+    const unsubscribe = subscribe(symbol, (tick) => {
+      setCurrentMarketPrice(tick.price);
+    });
+
+    // Cleanup subscription on unmount or when dependencies change
+    return () => unsubscribe();
+  }, [isOpen, order, getTickData, subscribe]);
+
+  // Effect to calculate the estimated order value
+  useEffect(() => {
     const quantity = safeNumber(formData.quantity);
     let price = 0;
-
     if (formData.order_type === "MARKET") {
-      price = currentMarketPrice || 2500; // Mock current price as fallback
+      price = currentMarketPrice || 0;
     } else if (formData.price) {
       price = safeNumber(formData.price);
     }
-
     setEstimatedValue(quantity * price);
   }, [formData, currentMarketPrice]);
 
+  // Form validation logic
   const validateForm = () => {
     const newErrors = {};
-
-    const quantity = safeNumber(formData.quantity);
-    if (quantity <= 0) {
+    if (safeNumber(formData.quantity) <= 0) {
       newErrors.quantity = "Quantity must be greater than 0";
     }
-
     if (
-      formData.order_type === "LIMIT" ||
-      formData.order_type === "STOP_LIMIT"
+      (formData.order_type === "LIMIT" ||
+        formData.order_type === "STOP_LIMIT") &&
+      safeNumber(formData.price) <= 0
     ) {
-      const price = safeNumber(formData.price);
-      if (price <= 0) {
-        newErrors.price = "Price must be greater than 0";
-      }
+      newErrors.price = "Price must be greater than 0";
     }
-
     if (
-      formData.order_type === "STOP" ||
-      formData.order_type === "STOP_LIMIT"
+      (formData.order_type === "STOP" ||
+        formData.order_type === "STOP_LIMIT") &&
+      safeNumber(formData.trigger_price) <= 0
     ) {
-      const triggerPrice = safeNumber(formData.trigger_price);
-      if (triggerPrice <= 0) {
-        newErrors.trigger_price = "Trigger price must be greater than 0";
-      }
+      newErrors.trigger_price = "Trigger price must be greater than 0";
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  // Form submission handler
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!validateForm()) return;
 
     setIsSubmitting(true);
-
     try {
       const updateData = {
         order_type: formData.order_type,
         quantity: safeNumber(formData.quantity),
+        price:
+          formData.order_type === "LIMIT" ||
+          formData.order_type === "STOP_LIMIT"
+            ? safeNumber(formData.price)
+            : null,
+        trigger_price:
+          formData.order_type === "STOP" || formData.order_type === "STOP_LIMIT"
+            ? safeNumber(formData.trigger_price)
+            : null,
       };
 
-      // Add price fields based on order type
-      if (
-        formData.order_type === "LIMIT" ||
-        formData.order_type === "STOP_LIMIT"
-      ) {
-        updateData.price = safeNumber(formData.price);
-      }
-
-      if (
-        formData.order_type === "STOP" ||
-        formData.order_type === "STOP_LIMIT"
-      ) {
-        updateData.trigger_price = safeNumber(formData.trigger_price);
-      }
-
+      // Correct API endpoint for updating an order
       const response = await api.put(
-        `/api/v1/trading/orders/${order.id}/`,
+        `/trading/orders/${order.id}/`,
         updateData
       );
-
       toast.success("Order modified successfully");
-
-      if (onOrderModified) {
-        onOrderModified(response.data);
-      }
-
+      if (onOrderModified) onOrderModified(response.data);
       onClose();
     } catch (err) {
+      const errorMsg = err.response?.data?.detail || "Failed to modify order.";
+      toast.error(errorMsg);
       console.error("Failed to modify order:", err);
-
-      if (err.response?.data?.error) {
-        toast.error(err.response.data.error);
-      } else if (err.response?.data) {
-        // Handle field-specific errors
-        const fieldErrors = {};
-        Object.keys(err.response.data).forEach((field) => {
-          if (Array.isArray(err.response.data[field])) {
-            fieldErrors[field] = err.response.data[field][0];
-          }
-        });
-        setErrors(fieldErrors);
-      } else {
-        toast.error("Failed to modify order. Please try again.");
-      }
     } finally {
       setIsSubmitting(false);
     }
@@ -223,49 +206,29 @@ export default function ModifyOrderModal({
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-
-    // Clear error when user starts typing
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: "" }));
-    }
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
   };
 
-  const handleCancel = () => {
-    setFormData({
-      order_type: "",
-      quantity: "",
-      price: "",
-      trigger_price: "",
-    });
-    setErrors({});
-    onClose();
-  };
+  if (!order) return null;
 
   const requiresPrice =
     formData.order_type === "LIMIT" || formData.order_type === "STOP_LIMIT";
   const requiresTriggerPrice =
     formData.order_type === "STOP" || formData.order_type === "STOP_LIMIT";
-
-  if (!order) return null;
-
   const timeSinceCreated = new Date() - new Date(order.created_at);
-  const hoursAgo = Math.floor(timeSinceCreated / (1000 * 60 * 60));
-  const minutesAgo = Math.floor(
-    (timeSinceCreated % (1000 * 60 * 60)) / (1000 * 60)
-  );
+  const hoursAgo = Math.floor(timeSinceCreated / 3600000);
+  const minutesAgo = Math.floor((timeSinceCreated % 3600000) / 60000);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[550px] bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-slate-800 [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-500">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
-            <Edit3 className="h-5 w-5 text-blue-400" />
-            Modify Order
+            <Edit3 className="h-5 w-5 text-blue-400" /> Modify Order
           </DialogTitle>
         </DialogHeader>
-
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Order Info */}
+          {/* Order Info Header */}
           <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700/50">
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -295,29 +258,31 @@ export default function ModifyOrderModal({
                 </div>
                 <div className="flex items-center gap-1 text-xs text-gray-500">
                   <Clock className="h-3 w-3" />
-                  {hoursAgo > 0 ? `${hoursAgo}h ` : ""}
+                  {hoursAgo > 0 && `${hoursAgo}h `}
                   {minutesAgo}m ago
                 </div>
               </div>
             </div>
-
-            {currentMarketPrice && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-400">Current Price:</span>
-                  <div className="font-mono text-white">
-                    ₹{currentMarketPrice.toFixed(2)}
-                  </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <span className="text-gray-400">Current Price:</span>
+                <div className="font-mono text-white">
+                  {currentMarketPrice
+                    ? formatCurrency(currentMarketPrice)
+                    : "Fetching..."}
                 </div>
-                <div>
-                  <span className="text-gray-400">Order Price:</span>
-                  <div className="font-mono text-white">
-                    {order.order_type === "MARKET"
-                      ? "Market"
-                      : `₹${order.price}`}
-                  </div>
+              </div>
+              <div>
+                <span className="text-gray-400">Order Price:</span>
+                <div className="font-mono text-white">
+                  {order.order_type === "MARKET"
+                    ? "Market"
+                    : formatCurrency(order.price)}
                 </div>
-                {order.price && order.order_type !== "MARKET" && (
+              </div>
+              {safeNumber(order.price) > 0 &&
+                order.order_type !== "MARKET" &&
+                currentMarketPrice && (
                   <div>
                     <span className="text-gray-400">Price Diff:</span>
                     <div
@@ -340,11 +305,10 @@ export default function ModifyOrderModal({
                     </div>
                   </div>
                 )}
-              </div>
-            )}
+            </div>
           </div>
 
-          {/* Order Type */}
+          {/* Form Inputs */}
           <div className="space-y-2">
             <Label htmlFor="order_type">Order Type</Label>
             <Select
@@ -372,8 +336,6 @@ export default function ModifyOrderModal({
               </SelectContent>
             </Select>
           </div>
-
-          {/* Quantity */}
           <div className="space-y-2">
             <Label htmlFor="quantity">Quantity</Label>
             <Input
@@ -393,10 +355,7 @@ export default function ModifyOrderModal({
               </p>
             )}
           </div>
-
-          {/* Price Fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Price (for LIMIT and STOP_LIMIT orders) */}
             {requiresPrice && (
               <div className="space-y-2">
                 <Label htmlFor="price">Limit Price</Label>
@@ -418,8 +377,6 @@ export default function ModifyOrderModal({
                 )}
               </div>
             )}
-
-            {/* Trigger Price (for STOP and STOP_LIMIT orders) */}
             {requiresTriggerPrice && (
               <div className="space-y-2">
                 <Label htmlFor="trigger_price">Stop/Trigger Price</Label>
@@ -455,7 +412,6 @@ export default function ModifyOrderModal({
                 Order Summary
               </span>
             </div>
-
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
               <div>
                 <div className="text-gray-400">Side</div>
@@ -482,7 +438,6 @@ export default function ModifyOrderModal({
                 </div>
               </div>
             </div>
-
             {estimatedValue > 0 && (
               <div className="mt-3 pt-3 border-t border-blue-700/30">
                 <div className="flex items-center justify-between">
@@ -490,7 +445,7 @@ export default function ModifyOrderModal({
                   <div className="flex items-center gap-1 text-blue-300">
                     <DollarSign className="h-4 w-4" />
                     <span className="font-mono font-bold">
-                      ₹{estimatedValue.toFixed(2)}
+                      {formatCurrency(estimatedValue)}
                     </span>
                   </div>
                 </div>
@@ -502,12 +457,11 @@ export default function ModifyOrderModal({
             <Button
               type="button"
               variant="outline"
-              onClick={handleCancel}
+              onClick={onClose}
               disabled={isSubmitting}
               className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white hover:border-slate-500"
             >
-              <X className="h-4 w-4 mr-2" />
-              Cancel
+              <X className="h-4 w-4 mr-2" /> Cancel
             </Button>
             <Button
               type="submit"
@@ -516,13 +470,12 @@ export default function ModifyOrderModal({
             >
               {isSubmitting ? (
                 <div className="flex items-center gap-2">
-                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />{" "}
                   Modifying...
                 </div>
               ) : (
                 <>
-                  <Edit3 className="h-4 w-4 mr-2" />
-                  Modify Order
+                  <Edit3 className="h-4 w-4 mr-2" /> Modify Order
                 </>
               )}
             </Button>

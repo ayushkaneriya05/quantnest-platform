@@ -49,3 +49,13 @@ python-dateutil
 apscheduler
 daphne  
 motor
+
+beautifulsoup4
+feedparser
+fake-useragent
+httpx
+lxml         
+transformers
+torch           
+sentencepiece   
+accelerate

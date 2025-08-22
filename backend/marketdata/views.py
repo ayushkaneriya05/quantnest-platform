@@ -1,23 +1,25 @@
 # backend/marketdata/views.py
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from decouple import config
 from django.conf import settings
 from django.shortcuts import redirect
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser, IsAuthenticatedOrReadOnly, AllowAny
+from rest_framework.permissions import IsAdminUser, IsAuthenticatedOrReadOnly, AllowAny,IsAuthenticated
 
 from .utils import refresh_fyers_token
 
 from .models import MarketDataToken
+from bson import ObjectId, json_util
+import json
 
 logger = logging.getLogger(__name__)
 
 # backend/marketdata/views.py
-from django.utils import timezone
-from .mongo_client import get_candles_collection
+# from django.utils import timezone
+from .mongo_client import get_candles_collection, get_ticks_collection
 
 # A dictionary to map resolution strings to MongoDB's date truncation units.
 # This makes the code cleaner and easier to extend.
@@ -32,6 +34,27 @@ RESOLUTION_MAP = {
 from bson import SON
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def latest_tick_data(request):
+    symbol = request.query_params.get('instrument')
+    if not symbol:
+        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+
+    instrument_symbol = f"NSE:{symbol.upper()}-EQ"
+    ticks_collection = get_ticks_collection()
+    
+    latest_tick = ticks_collection.find_one(
+        {"instrument": instrument_symbol},
+        sort=[("timestamp", -1)]
+    )
+    if latest_tick:
+        # Use json_util to handle BSON types like ObjectId and datetime
+        return JsonResponse(json.loads(json_util.dumps(latest_tick)))
+    else:
+        return JsonResponse({"error": "No data found for this instrument"}, status=404)
+
+
+@api_view(['GET'])
 @permission_classes([AllowAny])
 def ohlc_data(request):
     symbol = request.query_params.get('instrument')
@@ -39,14 +62,16 @@ def ohlc_data(request):
 
     if not symbol:
         return JsonResponse({"error": "Instrument symbol is required"}, status=400)
-    if resolution not in RESOLUTION_MAP:
-        return JsonResponse({"error": "Invalid resolution"}, status=400)
+    # This should reference your actual RESOLUTION_MAP dictionary
+    # if resolution not in RESOLUTION_MAP:
+    #     return JsonResponse({"error": "Invalid resolution"}, status=400)
 
     instrument_symbol = f"NSE:{symbol.upper()}-EQ"
     candles_collection = get_candles_collection()
-    fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
+    fifteen_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=15)
 
     if resolution == '1m':
+        # This block handles the 1-minute resolution specifically
         def fetch_candles():
             return list(candles_collection.find(
                 {
@@ -59,9 +84,13 @@ def ohlc_data(request):
 
         candles = fetch_candles()
         for candle in candles:
-            candle["time"] = int(candle.pop("timestamp").timestamp() * 1000)
+            # FIX: Make the naive datetime object from the DB timezone-aware (as UTC)
+            # before converting it to a correct UTC timestamp.
+            utc_datetime = candle.pop("timestamp").replace(tzinfo=timezone.utc)
+            candle["time"] = int(utc_datetime.timestamp() * 1000)
 
     else:
+        # This block handles all other resolutions via aggregation
         agg_params = RESOLUTION_MAP[resolution]
         unit_seconds = {
             "minute": 60,
@@ -80,7 +109,7 @@ def ohlc_data(request):
             {"$project": {
                 "timestamp": 1,
                 "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1,
-                "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970,1,1)]}, 1000]}}
+                "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970, 1, 1, tzinfo=timezone.utc)]}, 1000]}}
             }},
             {"$group": {
                 "_id": {"$multiply": [{"$floor": {"$divide": ["$epoch", unit_seconds]}}, unit_seconds]},
