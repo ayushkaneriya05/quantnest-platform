@@ -233,7 +233,7 @@
     left: 0;
     width: 30%;
     height: 2px;
-    background: linear-gradient(to right, var(--tw-colors-indigo-400), var(--tw-colors-purple-400));
+    background: linear-gradient(to right, rgb(239, 68, 68), rgb(59, 130, 246));
     transition: width 0.3s ease-in-out;
   }
 
