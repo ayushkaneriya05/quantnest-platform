@@ -363,7 +363,7 @@ export default function QuantNestLanding() {
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-red-500/10 rounded-3xl transform -rotate-1 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)]"></div>
                 <img
-                  src="/placeholder.svg?height=400&width=600&text=Algo+Trading+Flowchart"
+                  src="https://images.pexels.com/photos/3183170/pexels-photo-3183170.jpeg"
                   alt="Algo Trading Flowchart Interface"
                   width={600}
                   height={400}
