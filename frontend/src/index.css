@@ -217,8 +217,8 @@
     -webkit-background-clip: text;
     color: transparent;
     text-shadow:
-      0 0 5px rgba(99, 102, 241, 0.2), /* Indigo glow */
-      0 0 10px rgba(147, 51, 234, 0.2); /* Purple glow */
+      0 0 5px rgba(239, 68, 68, 0.2), /* Red glow */
+      0 0 10px rgba(59, 130, 246, 0.2); /* Blue glow */
   }
 
   .section-subtitle {
