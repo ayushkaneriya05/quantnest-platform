@@ -76,7 +76,7 @@ export default function QuantNestLanding() {
               <div className="mt-12 sm:mt-16 md:mt-20 lg:mt-24">
                 <div className="relative rounded-2xl sm:rounded-3xl bg-slate-800/30 p-2 sm:p-3 md:p-4 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800 backdrop-blur-sm max-w-6xl mx-auto">
                   <img
-                    src="/placeholder.svg"
+                    src="https://images.pexels.com/photos/4960630/pexels-photo-4960630.jpeg"
                     alt="QuantNest Professional Trading Platform"
                     width={1200}
                     height={600}
