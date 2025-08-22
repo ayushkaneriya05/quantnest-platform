@@ -381,7 +381,7 @@ export default function QuantNestLanding() {
               <div className="relative lg:order-first">
                 <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-blue-500/10 rounded-3xl transform rotate-1 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)]"></div>
                 <img
-                  src="/placeholder.svg?height=400&width=600&text=AI+Research+Assistant"
+                  src="https://images.pexels.com/photos/16629368/pexels-photo-16629368.jpeg"
                   alt="AI Research Assistant Interface"
                   width={600}
                   height={400}
