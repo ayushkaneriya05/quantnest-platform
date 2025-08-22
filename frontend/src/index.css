@@ -2,9 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Import advanced landing page animations */
-@import './styles/landing-animations.css';
-
 @layer base {
   :root {
     --background: 0 0% 100%;
