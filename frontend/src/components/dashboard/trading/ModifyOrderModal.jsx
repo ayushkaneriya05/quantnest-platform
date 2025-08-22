@@ -28,7 +28,7 @@ import {
   Clock,
   Info,
 } from "lucide-react";
-import { useWebSocketContext } from "@/contexts/websocket-context";
+import { useWebSocket } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
 
@@ -89,7 +89,7 @@ export default function ModifyOrderModal({
   const [currentMarketPrice, setCurrentMarketPrice] = useState(null);
   const [estimatedValue, setEstimatedValue] = useState(0);
 
-  const { getLatestPrice } = useWebSocketContext();
+  const { getLatestPrice } = useWebSocket();
 
   // Initialize form data when order changes
   useEffect(() => {

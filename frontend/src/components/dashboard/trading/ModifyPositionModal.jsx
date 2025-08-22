@@ -30,7 +30,7 @@ import {
   Calculator,
   Info,
 } from "lucide-react";
-import { useWebSocketContext } from "@/contexts/websocket-context";
+import { useWebSocket } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
 
@@ -86,7 +86,7 @@ export default function ModifyPositionModal({
     ratio: 0,
   });
 
-  const { getLatestPrice } = useWebSocketContext();
+  const { getLatestPrice } = useWebSocket();
 
   // Initialize form data and calculations when position changes
   useEffect(() => {

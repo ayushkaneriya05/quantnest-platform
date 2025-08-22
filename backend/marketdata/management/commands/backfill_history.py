@@ -28,7 +28,7 @@ class Command(BaseCommand):
     help = 'Fetches historical 1-minute candle data for Nifty 100 stocks in chunks.'
 
     def add_arguments(self, parser):
-        parser.add_argument(
+        parser.add_argument(    
             '--days', type=int, default=365,
             help='Number of days of historical data to backfill.'
         )

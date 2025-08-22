@@ -79,8 +79,9 @@ class Command(BaseCommand):
                 }
                 
                 # Insert the single document into MongoDB
+                # ticks_collection.update_one({"instrument": tick.get('symbol'),"timestamp": datetime.fromtimestamp(tick.get('last_traded_time'), tz=timezone.utc)},{"$set":document_to_insert} ,upsert=True)
                 ticks_collection.insert_one(document_to_insert)
-                logger.info(f"Inserted tick for {tick.get('symbol')} @ {tick.get('ltp')}")
+                logger.info(f"Insert tick for {tick.get('symbol')} @ {tick.get('ltp')}")
 
             except Exception as e:
                 logger.error(f"Error processing a single full-mode tick: {tick}. Error: {e}")
@@ -98,7 +99,30 @@ class Command(BaseCommand):
             logger.warning(f"WebSocket connection closed: {message}")
 
         def on_error(message):
-            self.stderr.write(self.style.ERROR(f"WebSocket error received: {message}"))
+            """
+            Callback when WebSocket receives an error.
+            If the token is expired, refresh it and reconnect.
+            """
+            logger.error(f"WebSocket error received: {message}")
+            
+            # Check if the error is a token expiration
+            if isinstance(message, dict) and message.get('code') == -99 and message.get('message') == "Token is expired":
+                self.stderr.write(self.style.WARNING("Fyers access token expired. Refreshing token..."))
+                
+                # Refresh access token
+                new_access_token = get_active_fyers_access_token(force_refresh=True)
+                if not new_access_token:
+                    self.stderr.write(self.style.ERROR("Failed to refresh Fyers access token. Exiting."))
+                    fyers_socket.close()
+                    return
+                
+                # Update the websocket token
+                fyers_socket.access_token = f"{client_id}:{new_access_token}"
+                self.stdout.write(self.style.SUCCESS("Reconnecting WebSocket with refreshed token..."))
+                
+                # Reconnect
+                fyers_socket.connect()
+
 
         # --- Initialize and Connect WebSocket ---
         fyers_socket = data_ws.FyersDataSocket(

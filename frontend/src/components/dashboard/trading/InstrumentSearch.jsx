@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/services/api";
-
+import React from "react";
 export default function InstrumentSearch({
   onAddToWatchlist,
   existingWatchlistSymbols,

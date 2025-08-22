@@ -54,6 +54,6 @@ class Command(BaseCommand):
     help = 'Starts the candle aggregation scheduler'
     def handle(self, *args, **options):
         scheduler = BlockingScheduler()
-        scheduler.add_job(aggregate_job, 'cron', second='5') # Run 5s past the minute
+        scheduler.add_job(aggregate_job, 'cron', second='5')
         self.stdout.write("Starting candle aggregation scheduler...")
         scheduler.start()

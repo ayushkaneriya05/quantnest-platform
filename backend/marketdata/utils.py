@@ -59,8 +59,15 @@ def refresh_fyers_token(token_row: MarketDataToken) -> bool:
     return True
 
 
-def get_active_fyers_access_token():
+def get_active_fyers_access_token(force_refresh=False):
     """Get a valid Fyers access token, refreshing if needed."""
+    if force_refresh:
+        token_row = MarketDataToken.objects.filter(is_active=True).first()
+        print(token_row.access_token)
+        if token_row and refresh_fyers_token(token_row):
+            print(token_row.access_token)
+            return token_row.access_token
+        return None
     token_row = MarketDataToken.objects.filter(is_active=True).first()
     if not token_row:
         return None

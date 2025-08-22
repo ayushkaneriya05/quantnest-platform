@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import ModifyOrderModal from "./ModifyOrderModal";
 import ModifyPositionModal from "./ModifyPositionModal";
-import { useWebSocketContext } from "@/contexts/websocket-context";
+import { useWebSocket } from "@/contexts/websocket-context";
 import api from "@/services/api";
 import toast from "react-hot-toast";
 
@@ -101,16 +101,7 @@ export default function PortfolioDisplay() {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
 
-  const { getLatestPrice } = useWebSocketContext();
-
-  // Mock live prices for demo
-  const mockLivePrices = {
-    RELIANCE: 2458.5,
-    TCS: 3245.8,
-    INFY: 1456.3,
-    HDFCBANK: 1678.9,
-    ICICIBANK: 934.2,
-  };
+  const { getLatestPrice } = useWebSocket();
 
   const fetchData = useCallback(async () => {
     try {
@@ -120,6 +111,7 @@ export default function PortfolioDisplay() {
       ]);
 
       if (posRes.data && Array.isArray(posRes.data)) {
+        console.log("Positions fetched:", posRes.data);
         setPositions(posRes.data);
       } else {
         setPositions([]);
@@ -127,6 +119,7 @@ export default function PortfolioDisplay() {
 
       if (ordRes.data && Array.isArray(ordRes.data)) {
         setOrders(ordRes.data.filter((o) => o.status === "OPEN"));
+        console.log("Orders fetched:", ordRes.data);
       } else {
         setOrders([]);
       }
@@ -199,7 +192,8 @@ export default function PortfolioDisplay() {
   };
 
   const getCurrentPrice = (symbol) => {
-    return getLatestPrice(symbol) || mockLivePrices[symbol] || 0;
+    console.log("Fetching current price for:", symbol);
+    return getLatestPrice(symbol) || 0;
   };
 
   const calculateTotalPnl = () => {

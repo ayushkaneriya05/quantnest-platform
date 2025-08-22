@@ -16,12 +16,6 @@ import {
 } from "../../ui/select";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../../ui/tooltip";
-import {
   TrendingUp,
   TrendingDown,
   BarChart3,
@@ -40,10 +34,9 @@ import {
   HistogramSeries,
 } from "lightweight-charts";
 import api from "@/services/api";
-import { useWebSocketContext as useWebSocket } from "../../../contexts/websocket-context";
+import { useWebSocket } from "../../../contexts/websocket-context";
 import { toast } from "react-hot-toast";
 import { cn } from "../../../lib/utils";
-import DevelopmentNotice from "../../ui/development-notice";
 
 const TIMEFRAMES = [
   { value: "1m", label: "1M", interval: 60 * 1000 },
@@ -76,7 +69,6 @@ const ChartView = ({
   const [error, setError] = useState(null);
   const [lastPrice, setLastPrice] = useState(null);
   const [priceChange, setPriceChange] = useState(null);
-  const [volume, setVolume] = useState(null);
   const [showVolume, setShowVolume] = useState(true);
 
   const chartContainerRef = useRef(null);
@@ -86,12 +78,7 @@ const ChartView = ({
   const volumeSeriesRef = useRef(null);
   const lastCandleRef = useRef(null);
 
-  const {
-    isConnected,
-    subscribeToInstrument,
-    addMarketDataListener,
-    unsubscribeFromInstrument,
-  } = useWebSocket();
+  const { isConnected, subscribe } = useWebSocket();
 
   const normalizedInstrument = useMemo(() => {
     if (instrument) return instrument;
@@ -194,7 +181,6 @@ const ChartView = ({
       if (transformed.length > 0) {
         lastCandleRef.current = transformed[transformed.length - 1];
         setLastPrice(lastCandleRef.current.close);
-        setVolume(lastCandleRef.current.volume);
         if (transformed.length > 1) {
           const prev = transformed[transformed.length - 2];
           const change = lastCandleRef.current.close - prev.close;
@@ -235,76 +221,49 @@ const ChartView = ({
 
   // WebSocket Logic Effect
   useEffect(() => {
-    if (!normalizedInstrument?.symbol || !isConnected || isLoading) return;
+    if (!normalizedInstrument?.symbol) return;
 
-    subscribeToInstrument(normalizedInstrument.symbol);
+    const unsubscribe = subscribe(normalizedInstrument.symbol, (tick) => {
+      if (!tick || !candlestickSeriesRef.current || !lastCandleRef.current)
+        return;
 
-    const unsubscribe = addMarketDataListener(
-      normalizedInstrument.symbol,
-      (tick) => {
-        if (!tick || !candlestickSeriesRef.current || !lastCandleRef.current)
-          return;
+      const tf = TIMEFRAMES.find((tf) => tf.value === selectedTimeframe);
+      if (!tf) return;
+      const bucket = tf.interval / 1000;
+      const tickTime = Math.floor(new Date(tick.timestamp).getTime() / 1000);
+      const alignedTime = Math.floor(tickTime / bucket) * bucket;
 
-        const timeframe = TIMEFRAMES.find(
-          (tf) => tf.value === selectedTimeframe
-        );
-        if (!timeframe) return;
-
-        const bucket = timeframe.interval / 1000;
-        const tickTime = Math.floor(new Date(tick.timestamp).getTime() / 1000);
-        const alignedTime = Math.floor(tickTime / bucket) * bucket;
-
-        let currentCandle = { ...lastCandleRef.current };
-
-        if (alignedTime === currentCandle.time) {
-          currentCandle.high = Math.max(currentCandle.high, tick.price);
-          currentCandle.low = Math.min(currentCandle.low, tick.price);
-          currentCandle.close = tick.price;
-          currentCandle.volume = tick.volume_traded_today;
-        } else if (alignedTime > currentCandle.time) {
-          currentCandle = {
-            time: alignedTime,
-            open: tick.price,
-            high: tick.price,
-            low: tick.price,
-            close: tick.price,
-            volume: tick.volume_traded_today,
-          };
-        }
-
-        lastCandleRef.current = currentCandle;
-        candlestickSeriesRef.current.update(currentCandle);
-        lineSeriesRef.current.update({
-          time: currentCandle.time,
-          value: currentCandle.close,
-        });
-        volumeSeriesRef.current.update({
-          time: currentCandle.time,
-          value: currentCandle.volume,
-          color:
-            currentCandle.close >= currentCandle.open
-              ? "#22c55e40"
-              : "#ef444440",
-        });
-
-        setLastPrice(currentCandle.close);
-        setVolume(currentCandle.volume);
+      let candle = { ...lastCandleRef.current };
+      if (alignedTime === candle.time) {
+        candle.high = Math.max(candle.high, tick.price);
+        candle.low = Math.min(candle.low, tick.price);
+        candle.close = tick.price;
+        candle.volume = tick.volume_traded_today;
+      } else if (alignedTime > candle.time) {
+        candle = {
+          time: alignedTime,
+          open: tick.price,
+          high: tick.price,
+          low: tick.price,
+          close: tick.price,
+          volume: tick.volume_traded_today,
+        };
       }
-    );
 
-    return () => {
-      unsubscribe();
-      unsubscribeFromInstrument(normalizedInstrument.symbol);
-    };
-  }, [
-    normalizedInstrument,
-    isConnected,
-    isLoading,
-    selectedTimeframe,
-    subscribeToInstrument,
-    addMarketDataListener,
-    unsubscribeFromInstrument,
-  ]);
+      lastCandleRef.current = candle;
+      candlestickSeriesRef.current.update(candle);
+      lineSeriesRef.current.update({ time: candle.time, value: candle.close });
+      volumeSeriesRef.current.update({
+        time: candle.time,
+        value: candle.volume,
+        color: candle.close >= candle.open ? "#22c55e40" : "#ef444440",
+      });
+
+      setLastPrice(candle.close);
+    });
+
+    return () => unsubscribe();
+  }, [normalizedInstrument, selectedTimeframe, subscribe]);
 
   // Chart Type Visibility Effect
   useEffect(() => {
@@ -330,14 +289,6 @@ const ChartView = ({
   }, [showVolume]);
 
   const formatPrice = (p) => (p ? `₹${parseFloat(p).toFixed(2)}` : "--");
-  const formatVolume = (vol) => {
-    if (!vol) return "--";
-    if (vol >= 10000000) return `${(vol / 10000000).toFixed(1)}Cr`;
-    if (vol >= 100000) return `${(vol / 100000).toFixed(1)}L`;
-    if (vol >= 1000) return `${(vol / 1000).toFixed(1)}K`;
-    return vol.toString();
-  };
-
   return (
     <Card className={cn("w-full bg-[#0d1117] border-[#4e5260]", className)}>
       {showControls && (
