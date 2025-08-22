@@ -56,6 +56,10 @@ export default {
         'qn-dark-blue': '#0A0A1A', // A very dark blue-gray for subtle background variation
         'qn-light-cyan': '#67E8F9', // A bright, but not neon, cyan for highlights
         'qn-muted-gray': '#334155', // A slightly lighter gray for borders/dividers
+        'qn-red': '#EF4444', // Primary red color
+        'qn-blue': '#3B82F6', // Primary blue color
+        'qn-red-dark': '#DC2626', // Darker red for hover states
+        'qn-blue-dark': '#2563EB', // Darker blue for hover states
       },
       borderRadius: {
         lg: "var(--radius)",
