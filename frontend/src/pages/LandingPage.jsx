@@ -61,7 +61,7 @@ export default function QuantNestLanding() {
                 <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-slate-100 mb-4 sm:mb-6 md:mb-8 font-heading leading-[1.1] sm:leading-tight">
                   Professional
                   <span className="block text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 text-gradient-depth py-1 sm:py-2">
-                    Paper Trading
+                    Virtual Trading
                   </span>
                   <span className="block text-slate-200">Platform</span>
                 </h1>
