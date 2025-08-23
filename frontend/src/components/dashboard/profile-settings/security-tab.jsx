@@ -59,8 +59,8 @@ export default function SecurityTab() {
       setIsTwoFAEnabled(twoFAResponse.data.is_2fa_enabled);
 
       // Load active sessions
-      const sessionsResponse = await api.get("/users/auth/sessions/");
-      setActiveSessions(sessionsResponse.data.sessions || []);
+      // const sessionsResponse = await api.get("/users/auth/sessions/");
+      // setActiveSessions(sessionsResponse.data.sessions || []);
     } catch (err) {
       console.error("Failed to load security data:", err);
       setMessage({

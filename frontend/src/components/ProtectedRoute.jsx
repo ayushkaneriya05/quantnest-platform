@@ -2,14 +2,13 @@ import { useSelector } from "react-redux";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-
+import React from "react";
 function ProtectedRoute() {
   const { accessToken, isAuthenticated, isLoading } = useSelector(
     (state) => state.auth
   );
   const location = useLocation();
 
-  // Show loading state while checking authentication
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-black">
@@ -23,7 +22,6 @@ function ProtectedRoute() {
     );
   }
 
-  // Check if user is authenticated
   if (!accessToken && !isAuthenticated) {
     // If the user is not authenticated, redirect them to the login page.
     // We also pass the original location they were trying to access,
@@ -31,8 +29,6 @@ function ProtectedRoute() {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // If the user is authenticated, render the child component(s)
-  // that are nested inside this route (e.g., dashboard pages).
   return <Outlet />;
 }
 

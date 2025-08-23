@@ -13,4 +13,6 @@ urlpatterns = [
     # FIX: Changed <int:pk> to <int:id> to match the lookup_field in OrderDetailView
     path('orders/<int:id>/', views.OrderDetailView.as_view(), name='order-detail'),
     path('history/', views.TradeHistoryView.as_view(), name='trade-history'),
+    path('account/summary/', views.AccountSummaryView.as_view(), name='account-summary'),
+
 ]

@@ -164,7 +164,7 @@ const ChartView = ({
     return () => {
       resizeObserver.disconnect();
       chart.remove();
-      chartRef.current = null; // Prevent access to disposed object
+      chartRef.current = null;
     };
   }, [height]);
 
@@ -312,7 +312,6 @@ const ChartView = ({
     return () => unsubscribe();
   }, [normalizedInstrument, selectedTimeframe, subscribe, isConnected]);
 
-  // --- UI Effects for Toggling Chart Features ---
   useEffect(() => {
     if (!chartRef.current) return;
     candlestickSeriesRef.current.applyOptions({

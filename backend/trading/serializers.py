@@ -51,10 +51,7 @@ class OrderSerializer(serializers.ModelSerializer):
     """
     instrument = InstrumentSerializer(read_only=True)
     instrument_symbol = serializers.CharField(write_only=True, required=False)
-    # FIX: Made transaction_type optional at the serializer level.
-    # It will now be validated manually in the `create` method.
     transaction_type = serializers.ChoiceField(choices=Order.TRANSACTION_TYPES, required=False)
-
 
     class Meta:
         model = Order
@@ -66,9 +63,6 @@ class OrderSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'instrument', 'status', 'created_at', 'executed_at']
 
     def create(self, validated_data):
-        """
-        Handles the creation of a new order, ensuring required fields are present.
-        """
         instrument_symbol = validated_data.pop('instrument_symbol', None)
         transaction_type = validated_data.get('transaction_type', None)
 
@@ -102,3 +96,23 @@ class TradeHistorySerializer(serializers.ModelSerializer):
             'executed_price', 'quantity', 'timestamp'
         ]
         read_only_fields = fields
+
+class AccountSummarySerializer(serializers.ModelSerializer):
+    """
+    Serializes comprehensive data for the account summary page, including
+    trade history and positions for frontend calculations.
+    """
+    positions = PositionSerializer(many=True, read_only=True)
+    history = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Account
+        fields = [
+            'id', 'user', 'balance', 'margin',
+            'realized_pnl', 'unrealized_pnl', 'created_at',
+            'positions', 'history'
+        ]
+
+    def get_history(self, obj):
+        trade_history = TradeHistory.objects.filter(order__account=obj).order_by('-timestamp')
+        return TradeHistorySerializer(trade_history, many=True).data

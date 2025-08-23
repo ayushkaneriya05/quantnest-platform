@@ -123,7 +123,7 @@ export default function OrderTicket({
         className: "bg-[#161b22] border-gray-700 text-white",
       });
       onOrderPlaced();
-      onClose(); // Close modal on success
+      onClose();
     } catch (error) {
       const errorMsg = error.response?.data?.detail || "Failed to place order.";
       toast({

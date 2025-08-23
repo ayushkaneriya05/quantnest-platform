@@ -13,7 +13,9 @@ from .serializers import (
     PositionSerializer,
     OrderSerializer,
     TradeHistorySerializer,
+    AccountSummarySerializer,
 )
+
 # --- Instrument and Watchlist Views ---
 
 class InstrumentSearchView(generics.ListAPIView):
@@ -78,12 +80,7 @@ class OrderView(generics.ListCreateAPIView):
         return {'request': self.request}
 
     def perform_create(self, serializer):
-        """
-        Creates the order with an 'OPEN' status.
-        The separate execution engine is responsible for processing it.
-        """
         order = serializer.save()
-
 
 class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = OrderSerializer
@@ -95,11 +92,9 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Order.objects.filter(account=account, status='OPEN')
 
     def perform_update(self, serializer):
-        # This handles the modification of an existing OPEN order (e.g., changing price/qty)
         order = serializer.save()
 
     def perform_destroy(self, instance):
-        # This handles the cancellation of an OPEN order
         instance.status = 'CANCELLED'
         instance.save()
 
@@ -110,3 +105,17 @@ class TradeHistoryView(generics.ListAPIView):
     def get_queryset(self):
         account, _ = Account.objects.get_or_create(user=self.request.user)
         return TradeHistory.objects.filter(order__account=account).order_by('-timestamp')
+
+class AccountSummaryView(generics.RetrieveAPIView):
+    """
+    Provides a consolidated summary of the user's trading account,
+    including current balance, P&L, positions, and complete trade history.
+    """
+    serializer_class = AccountSummarySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        account, _ = Account.objects.prefetch_related(
+            'positions__instrument'
+        ).get_or_create(user=self.request.user)
+        return account
