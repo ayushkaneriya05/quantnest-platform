@@ -8,6 +8,7 @@ import {
   setLoading,
   fetchUserProfile,
 } from "@/store/authSlice";
+import React from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,7 +38,8 @@ export default function LoginPage() {
   const { is2FARequired, isLoading } = useSelector((state) => state.auth);
 
   // Get the page they were trying to visit, or default to dashboard
-  const from = location.state?.from?.pathname || "/dashboard";
+  const from =
+    location.state?.from?.pathname || "/dashboard/trading/paper-trading";
 
   // Show success message from registration or password reset
   const successMessage = location.state?.message;

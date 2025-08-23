@@ -30,7 +30,7 @@ import {
 import api from "@/services/api";
 import { logout, logoutUser } from "@/store/authSlice";
 import { useNavigate } from "react-router-dom";
-
+import React from "react";
 export default function AccountTab() {
   const { user } = useSelector((state) => state.auth);
   const dispatch = useDispatch();

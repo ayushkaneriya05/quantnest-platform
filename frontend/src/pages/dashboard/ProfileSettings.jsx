@@ -1,10 +1,10 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card } from "@/components/ui/card"
-import ProfileTab from "@/components/dashboard/profile-settings/profile-tab"
-import AccountTab from "@/components/dashboard/profile-settings/account-tab"
-import SecurityTab from "@/components/dashboard/profile-settings/security-tab"
-import { User, CreditCard, Shield } from 'lucide-react'
-
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card } from "@/components/ui/card";
+import ProfileTab from "@/components/dashboard/profile-settings/profile-tab";
+import AccountTab from "@/components/dashboard/profile-settings/account-tab";
+import SecurityTab from "@/components/dashboard/profile-settings/security-tab";
+import { User, CreditCard, Shield } from "lucide-react";
+import React from "react";
 export default function ProfileSettings() {
   return (
     <div className="container-padding py-4 sm:py-6 lg:py-8 max-w-5xl mx-auto">
@@ -54,5 +54,5 @@ export default function ProfileSettings() {
         </Tabs>
       </Card>
     </div>
-  )
+  );
 }

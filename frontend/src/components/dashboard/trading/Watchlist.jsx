@@ -18,7 +18,7 @@ export default function Watchlist({ onSymbolSelect, activeSymbol }) {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const { subscribe, tickData, isConnected } = useWebSocket();
+  const { subscribe, tickData, isConnected, getLatestPrice } = useWebSocket();
 
   const fetchWatchlist = useCallback(async () => {
     setLoading(true);
@@ -96,7 +96,14 @@ export default function Watchlist({ onSymbolSelect, activeSymbol }) {
     () => watchlist.map((item) => item.symbol),
     [watchlist]
   );
-
+  useEffect(() => {
+    if (watchlist.length === 0) return;
+    watchlist.forEach((watchlist) => {
+      if (watchlist.symbol && !tickData.has(watchlist.symbol)) {
+        getLatestPrice(watchlist.symbol);
+      }
+    });
+  }, [watchlist, tickData, getLatestPrice]);
   return (
     <div className="p-4 bg-gray-950/70 border border-gray-800/50 rounded-lg h-full flex flex-col">
       <h2 className="text-lg font-semibold text-white flex items-center gap-2 p-3">

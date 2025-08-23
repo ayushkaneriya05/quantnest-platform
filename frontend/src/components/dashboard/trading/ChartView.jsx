@@ -72,7 +72,7 @@ const ChartView = ({
   const [error, setError] = useState(null);
   const [lastPrice, setLastPrice] = useState(null);
   const [priceChange, setPriceChange] = useState(null);
-  const [showVolume, setShowVolume] = useState(true);
+  const [showVolume, setShowVolume] = useState(false);
   const [ohlc, setOhlc] = useState(null);
 
   // Refs for chart elements and data
@@ -83,7 +83,7 @@ const ChartView = ({
   const volumeSeriesRef = useRef(null);
   const lastCandleRef = useRef(null);
 
-  const { isConnected, subscribe, getLatestPrice } = useWebSocket();
+  const { isConnected, subscribe, getLatestPrice, tickData } = useWebSocket();
 
   const normalizedInstrument = useMemo(() => {
     if (instrument) return instrument;
@@ -164,14 +164,14 @@ const ChartView = ({
     return () => {
       resizeObserver.disconnect();
       chart.remove();
-      // FIX: Set ref to null immediately to prevent access to disposed object
-      chartRef.current = null;
+      chartRef.current = null; // Prevent access to disposed object
     };
   }, [height]);
 
   // --- Historical Data Fetching ---
   const fetchHistoricalData = useCallback(
     async (abortSignal) => {
+      // Accept signal
       if (!normalizedInstrument?.symbol || !candlestickSeriesRef.current)
         return;
       setIsLoading(true);
@@ -180,7 +180,7 @@ const ChartView = ({
         const response = await api.get(
           `/market/ohlc/?instrument=${normalizedInstrument.symbol}&resolution=${selectedTimeframe}`,
           { signal: abortSignal }
-        );
+        ); // Pass signal
         const transformed = response.data
           .map((c) => ({
             time: Math.floor(new Date(c.time).getTime() / 1000),
@@ -193,7 +193,7 @@ const ChartView = ({
           .sort((a, b) => a.time - b.time);
 
         if (chartRef.current) {
-          // Check if chart still exists before updating
+          // Check if chart still exists
           candlestickSeriesRef.current.setData(transformed);
           lineSeriesRef.current.setData(
             transformed.map((d) => ({ time: d.time, value: d.close }))
@@ -239,8 +239,8 @@ const ChartView = ({
           }
         }
       } catch (err) {
-        // FIX: Don't show an error toast if the request was intentionally cancelled
         if (err.name !== "CanceledError") {
+          // Don't show error for cancellations
           setError("Failed to load chart data. Please try again.");
           toast.error("Failed to load chart data.");
         }
@@ -252,12 +252,11 @@ const ChartView = ({
   );
 
   useEffect(() => {
-    // FIX: Implement AbortController to cancel API requests when the component unmounts
     const controller = new AbortController();
     fetchHistoricalData(controller.signal);
 
     return () => {
-      controller.abort(); // Cancel the request on cleanup
+      controller.abort(); // Cancel the request when the component unmounts
     };
   }, [fetchHistoricalData]);
 

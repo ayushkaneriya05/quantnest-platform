@@ -113,12 +113,12 @@ function AppContent() {
                   </WebSocketProvider>
                 }
               >
-                <Route index element={<Dashboard />} />
-                <Route path="search" element={<Search />} />
+                {/* <Route index element={<Dashboard />} /> */}
+                {/* <Route path="search" element={<Search />} /> */}
                 <Route path="profile-settings" element={<ProfileSettings />} />
 
                 {/* Analysis routes */}
-                <Route
+                {/* <Route
                   path="analysis/ai-research-assistant"
                   element={<AIResearchAssistant />}
                 />
@@ -129,10 +129,10 @@ function AppContent() {
                 <Route
                   path="analysis/market-screener"
                   element={<MarketScreener />}
-                />
+                /> */}
 
                 {/* Community routes */}
-                <Route
+                {/* <Route
                   path="community/leaderboards"
                   element={<Leaderboards />}
                 />
@@ -140,7 +140,7 @@ function AppContent() {
                   path="community/learning-center"
                   element={<LearningCenter />}
                 />
-                <Route path="community/social-hub" element={<SocialHub />} />
+                <Route path="community/social-hub" element={<SocialHub />} /> */}
 
                 {/* Portfolio routes */}
                 <Route

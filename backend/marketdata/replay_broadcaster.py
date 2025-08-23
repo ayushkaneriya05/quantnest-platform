@@ -26,16 +26,17 @@ def _to_group_name(instrument: str) -> str:
     return re.sub(r"[^a-zA-Z0-9\-_.]", "_", inst)
 
 async def replay_loop():
-    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-    db = client[DB_NAME]
-    ticks_collection = db[COLLECTION_NAME]
-    channel_layer = get_channel_layer()
-
+    # 👈 Move client creation inside try so it's managed correctly
+    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI) 
     print("Starting 15-minute delay broadcaster (in-process)...")
-
-    last_broadcast_time = datetime.now(timezone.utc) - timedelta(minutes=15)
-
+    
     try:
+        db = client[DB_NAME]
+        ticks_collection = db[COLLECTION_NAME]
+        channel_layer = get_channel_layer()
+
+        last_broadcast_time = datetime.now(timezone.utc) - timedelta(minutes=15)
+
         while True:
             start_time = last_broadcast_time
             end_time = datetime.now(timezone.utc) - timedelta(minutes=15)
@@ -51,8 +52,7 @@ async def replay_loop():
                     group = _to_group_name(tick.get("instrument", ""))
                     if not group:
                         continue
-
-                    # Make payload browser-friendly
+                    
                     val = dict(tick)
                     val["_id"] = str(val.get("_id", ""))
                     ts = val.get("timestamp")
@@ -64,18 +64,21 @@ async def replay_loop():
                         group,
                         {"type": "marketdata.message", "message": val},
                     )
-                    # print(f"[broadcaster] → {group}")
-
+                
                 last_broadcast_time = end_time
 
             await asyncio.sleep(1)
 
     except asyncio.CancelledError:
-        print("Broadcaster stopped.")
+        print("Broadcaster task is being cancelled.")
     except Exception as e:
         import traceback
         print(f"Broadcaster error: {e}\n{traceback.format_exc()}")
-
+        
+    finally:
+        # 👈 FINALLY block to ensure cleanup
+        print("Closing MongoDB connection and shutting down broadcaster.")
+        client.close() # 👈 Close the client connection
 # Singleton task control so we only start once per process
 _broadcaster_task = None
 _task_lock = asyncio.Lock()

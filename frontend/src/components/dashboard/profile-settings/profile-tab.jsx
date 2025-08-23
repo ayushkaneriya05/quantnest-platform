@@ -13,19 +13,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Twitter,
-  Linkedin,
-  Github,
-  User,
-  Upload,
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-} from "lucide-react";
+import { User, Upload, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import api from "@/services/api";
 import { updateUser } from "@/store/authSlice";
 import axios from "axios";
+import React from "react";
 
 export default function ProfileTab() {
   const { user } = useSelector((state) => state.auth);
@@ -458,7 +450,7 @@ export default function ProfileTab() {
           </div>
 
           {/* Social Links */}
-          <div className="space-y-4 sm:space-y-6">
+          {/* <div className="space-y-4 sm:space-y-6">
             <h3 className="text-lg sm:text-xl font-bold text-slate-100">
               Social Links
             </h3>
@@ -538,7 +530,7 @@ export default function ProfileTab() {
                 )}
               </div>
             </div>
-          </div>
+          </div> */}
 
           {/* Submit Button */}
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-800/50">

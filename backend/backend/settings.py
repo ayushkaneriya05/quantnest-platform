@@ -40,7 +40,6 @@ INSTALLED_APPS = [
     "users",
     "trading",
     "marketdata",
-    'pulse',
 ]
 
 MIDDLEWARE = [
@@ -69,15 +68,7 @@ CHANNEL_LAYERS = {
     }
 }
 
-PULSE_CFG = {
-  'CACHE_TTL_SEC': 1800,                 # 30 min
-  'MAX_HEADLINES': 25,
-  'SCRAPE_TIMEOUT': 12,
-  'ENABLE_GOOGLE_NEWS_RSS': True,
-  'GOOGLE_NEWS_RSS_Q': 'markets India site:moneycontrol.com OR site:economictimes.com',
-  'SUMMARY_MODEL': 'facebook/bart-large-cnn', 
-  'SENTIMENT_MODEL': 'ProsusAI/finbert',
-}
+
 SITE_ID = 5
 AUTH_USER_MODEL = "users.User"
 

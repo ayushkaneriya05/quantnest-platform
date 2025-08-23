@@ -216,8 +216,7 @@ export const WebSocketProvider = ({ children }) => {
             const next = new Map(prev);
             if (!next.has(symbol)) {
               next.set(symbol, {
-                price: lastKnownTick.price,
-                timestamp: new Date(lastKnownTick.timestamp).getTime(),
+                ...lastKnownTick,
               });
             }
             return next;

@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { Chrome, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import MainHeader from "@/components/layout/main-header";
@@ -46,7 +47,7 @@ export default function SocialLoginHandler() {
           await dispatch(fetchUserProfile());
 
           setTimeout(() => {
-            navigate("/dashboard");
+            navigate("/dashboard/trading/paper-trading");
           }, 1000);
         })
         .catch((error) => {
