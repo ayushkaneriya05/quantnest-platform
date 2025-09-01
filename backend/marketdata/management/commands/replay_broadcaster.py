@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import re
 from channels.layers import get_channel_layer
-import motor.motor_asyncio  # Async MongoDB driver
+import motor.motor_asyncio  
 from decouple import config
 
 # MongoDB settings

@@ -23,8 +23,8 @@ class MyAppConfig(AppConfig):
     
         def run_startup_commands_1():
             try:
-                call_command("aggregate_candles")
-                logger.info("✅ aggregate_candles executed successfully at startup.")                
+                call_command("fetch_candles")
+                logger.info("✅ fetch_candles executed successfully at startup.")                
             except Exception as e:
                 logger.error(f"❌ Error running startup commands: {e}")
                 
