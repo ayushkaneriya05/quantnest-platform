@@ -76,21 +76,19 @@ async def replay_loop():
         print(f"Broadcaster error: {e}\n{traceback.format_exc()}")
         
     finally:
-        # 👈 FINALLY block to ensure cleanup
         print("Closing MongoDB connection and shutting down broadcaster.")
         client.close() # 👈 Close the client connection
-# Singleton task control so we only start once per process
-_broadcaster_task = None
-_task_lock = asyncio.Lock()
 
-async def ensure_broadcaster_running():
-    global _broadcaster_task
-    async with _task_lock:
-        if _broadcaster_task is None or _broadcaster_task.done():
-            _broadcaster_task = asyncio.create_task(replay_loop())
-            print("Broadcaster task started in-process.")
+# _broadcaster_task = None
+# _task_lock = asyncio.Lock()
 
-# --- Management command still supported (optional) ---
+# async def ensure_broadcaster_running():
+#     global _broadcaster_task
+#     async with _task_lock:
+#         if _broadcaster_task is None or _broadcaster_task.done():
+#             _broadcaster_task = asyncio.create_task(replay_loop())
+#             print("Broadcaster task started in-process.")
+
 from django.core.management.base import BaseCommand
 
 class Command(BaseCommand):

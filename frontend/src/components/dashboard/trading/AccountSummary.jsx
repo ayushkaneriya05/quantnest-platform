@@ -369,8 +369,8 @@ export default function AccountSummary() {
         />
         <StatCard
           icon={TrendingUp}
-          title="Unrealized P&L"
-          value={formatCurrency(summary.unrealized_pnl)}
+          title="Realized P&L"
+          value={formatCurrency(summary.realized_pnl)}
           subtitle="Open positions"
           change="+0 today"
           variant="positive"

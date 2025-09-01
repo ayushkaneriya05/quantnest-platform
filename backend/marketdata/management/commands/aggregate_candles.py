@@ -1,59 +1,96 @@
-# backend/marketdata/management/commands/aggregate_candles.py
-from django.core.management.base import BaseCommand
+import json
+import logging
+import os
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
-from datetime import datetime,timedelta , timezone
-from marketdata.mongo_client import get_ticks_collection, get_candles_collection
+from django.core.management.base import BaseCommand
+from django.conf import settings
+from fyers_apiv3 import fyersModel
 
-def aggregate_job():
-    print("Running 1-minute candle aggregation job...")
-    ticks_collection = get_ticks_collection()
+from marketdata.mongo_client import get_candles_collection
+from marketdata.utils import get_active_fyers_access_token
+
+logger = logging.getLogger(__name__)
+
+# Load Nifty 100 symbols
+try:
+    # Build the path to the data file relative to the project's base directory
+    nifty100_path = Path(settings.BASE_DIR) / 'data' / 'nifty100_symbols.json'
+    nifty100_data = json.loads(nifty100_path.read_text())
+except FileNotFoundError:
+    nifty100_data = []
+    logger.error("FATAL: nifty100_symbols.json not found in the 'data' directory. The service cannot start.")
+
+# Convert into Fyers format: NSE:<symbol>-EQ
+symbol_list = [f"NSE:{s['symbol']}-EQ" for s in nifty100_data]
+
+
+def fetch_and_store_candles():
+    print("Fetching 1-minute candles for Nifty 100 from Fyers API...")
+
+    access_token = get_active_fyers_access_token()
+    if not access_token:
+        print("No valid Fyers access token")
+        return
+
+    fyers = fyersModel.FyersModel(
+        client_id=settings.FYERS_CLIENT_ID,
+        token=access_token,
+        log_path=os.path.join(settings.BASE_DIR, 'logs/')
+    )
+
     candles_collection = get_candles_collection()
-
     now = datetime.now(timezone.utc)
     one_minute_ago = now - timedelta(minutes=1)
-    
-    pipeline = [
-        {"$match": {"timestamp": {"$gte": one_minute_ago, "$lt": now}}},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {
-                "instrument": "$instrument",
-                "timestamp": {"$dateTrunc": {"date": "$timestamp", "unit": "minute"}}
-            },
-            "open": {"$first": "$price"},
-            "high": {"$max": "$price"},
-            "low": {"$min": "$price"},
-            "close": {"$last": "$price"},
-            "volume": {"$sum": "$volume"}
-        }},
-        {"$project": {
-            "_id": 0,
-            "instrument": "$_id.instrument",
-            "timestamp": "$_id.timestamp",
-            "resolution": "1m",
-            "open": "$open",
-            "high": "$high",
-            "low": "$low",
-            "close": "$close",
-            "volume": "$volume"
-        }}
-    ]
-    
-    new_candles = list(ticks_collection.aggregate(pipeline))
-    if new_candles:
-        for candle in new_candles:
+
+    for symbol in symbol_list:
+        data = {
+            "symbol": symbol,
+            "resolution": "1",   # 1-minute candles
+            "date_format": "0",  # epoch timestamps
+            "range_from": int(one_minute_ago.timestamp()),
+            "range_to": int(now.timestamp()),
+            "cont_flag": "1"
+        }
+
+        try:
+            resp = fyers.history(data)
+        except Exception as e:
+            print(f"Error fetching {symbol}: {e}")
+            continue
+        if resp.get("s") != "ok":
+            print(f"Fyers API error for {symbol}: {resp}")
+            continue
+
+        candles = resp.get("candles", [])
+        for c in candles:
+            ts, o, h, l, close, vol = c
+            candle_doc = {
+                "instrument": symbol,
+                "timestamp": datetime.fromtimestamp(ts, tz=timezone.utc),
+                "resolution": "1m",
+                "open": o,
+                "high": h,
+                "low": l,
+                "close": close,
+                "volume": vol
+            }
             candles_collection.update_one(
-                {"instrument": candle["instrument"], "timestamp": candle["timestamp"], "resolution": "1m"},
-                {"$set": candle},
+                {"instrument": symbol, "timestamp": candle_doc["timestamp"], "resolution": "1m"},
+                {"$set": candle_doc},
                 upsert=True
             )
-        print(f"Upserted {len(new_candles)} 1-minute candles.")
+        if candles:
+            print(f"Upserted {len(candles)} candles for {symbol}")
 
 
 class Command(BaseCommand):
-    help = 'Starts the candle aggregation scheduler'
+    help = 'Fetches 1-minute candles for Nifty 100 stocks from Fyers API'
+
     def handle(self, *args, **options):
         scheduler = BlockingScheduler()
-        scheduler.add_job(aggregate_job, 'cron', second='5')
-        self.stdout.write("Starting candle aggregation scheduler...")
+        # Run every minute at 5 seconds (after the candle closes)
+        scheduler.add_job(fetch_and_store_candles, 'cron', second='5')
+        self.stdout.write("Starting Nifty100 candle fetch scheduler...")
         scheduler.start()

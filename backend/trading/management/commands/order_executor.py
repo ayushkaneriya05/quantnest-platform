@@ -1,3 +1,5 @@
+# backend/trading/management/commands/order_executor.py
+
 import time
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -142,21 +144,15 @@ class Command(BaseCommand):
                 order_quantity = Decimal(order.quantity)
 
                 if order.transaction_type == 'BUY':
-                    if current_quantity < 0: # Covering a short
-                        pnl = (position.average_price - execute_price) * min(order_quantity, abs(current_quantity))
-                        account.realized_pnl += pnl
                     new_total_value = (current_quantity * position.average_price) + trade_value
                     new_quantity = current_quantity + order_quantity
                     position.average_price = new_total_value / new_quantity if new_quantity != 0 else Decimal('0.0')
                     position.quantity = new_quantity
                     account.balance -= trade_value
                 elif order.transaction_type == 'SELL':
-                    if current_quantity > 0: # Closing a long
-                        pnl = (execute_price - position.average_price) * min(order_quantity, current_quantity)
-                        account.realized_pnl += pnl
-                    new_total_value = (abs(current_quantity) * position.average_price) - trade_value
+                    pnl = (execute_price - position.average_price) * min(order_quantity, current_quantity)
+                    account.realized_pnl += pnl
                     new_quantity = current_quantity - order_quantity
-                    position.average_price = new_total_value / abs(new_quantity) if new_quantity != 0 else Decimal('0.0')
                     position.quantity = new_quantity
                     account.balance += trade_value
 

@@ -4,17 +4,15 @@ import re
 import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
 
-# ⬇️ new: import the helper we just added
-from .replay_broadcaster import ensure_broadcaster_running
 
 class MarketDataConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         # ⬇️ ensure the in-process broadcaster is running
-        try:
-            await ensure_broadcaster_running()
-        except Exception as e:
-            # non-fatal; you still can accept the socket, but log it
-            print(f"Broadcaster start failed: {e}")
+        # try:
+        #     await ensure_broadcaster_running()
+        # except Exception as e:
+        #     # non-fatal; you still can accept the socket, but log it
+        #     print(f"Broadcaster start failed: {e}")
 
         user = self.scope["user"]
         if user.is_anonymous:
