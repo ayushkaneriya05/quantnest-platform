@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pymongo
+python-dotenv
+requests
+beautifulsoup4
+pandas
+pandas-ta
+yfinance
+transformers
+tenacity
+apscheduler
+python-multipart
+python-slugify

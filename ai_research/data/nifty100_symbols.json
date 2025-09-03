@@ -1,0 +1,502 @@
+[
+  {
+    "symbol": "ABB",
+    "company_name": "ABB India Ltd.",
+    "industry": "Capital Goods"
+  },
+  {
+    "symbol": "ADANIENSOL",
+    "company_name": "Adani Energy Solutions Ltd.",
+    "industry": "Power"
+  },
+  {
+    "symbol": "ADANIENT",
+    "company_name": "Adani Enterprises Ltd.",
+    "industry": "Metals & Mining"
+  },
+  {
+    "symbol": "ADANIGREEN",
+    "company_name": "Adani Green Energy Ltd.",
+    "industry": "Power"
+  },
+  {
+    "symbol": "ADANIPORTS",
+    "company_name": "Adani Ports and Special Economic Zone Ltd.",
+    "industry": "Services"
+  },
+  {
+    "symbol": "ADANIPOWER",
+    "company_name": "Adani Power Ltd.",
+    "industry": "Power"
+  },
+  {
+    "symbol": "AMBUJACEM",
+    "company_name": "Ambuja Cements Ltd.",
+    "industry": "Construction Materials"
+  },
+  {
+    "symbol": "APOLLOHOSP",
+    "company_name": "Apollo Hospitals Enterprise Ltd.",
+    "industry": "Healthcare"
+  },
+  {
+    "symbol": "ASIANPAINT",
+    "company_name": "Asian Paints Ltd.",
+    "industry": "Consumer Durables"
+  },
+  {
+    "symbol": "DMART",
+    "company_name": "Avenue Supermarts Ltd.",
+    "industry": "Consumer Services"
+  },
+  {
+    "symbol": "AXISBANK",
+    "company_name": "Axis Bank Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "BAJAJ-AUTO",
+    "company_name": "Bajaj Auto Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "BAJFINANCE",
+    "company_name": "Bajaj Finance Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "BAJAJFINSV",
+    "company_name": "Bajaj Finserv Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "BAJAJHLDNG",
+    "company_name": "Bajaj Holdings & Investment Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "BAJAJHFL",
+    "company_name": "Bajaj Housing Finance Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "BANKBARODA",
+    "company_name": "Bank of Baroda",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "BEL",
+    "company_name": "Bharat Electronics Ltd.",
+    "industry": "Capital Goods"
+  },
+  {
+    "symbol": "BPCL",
+    "company_name": "Bharat Petroleum Corporation Ltd.",
+    "industry": "Oil Gas & Consumable Fuels"
+  },
+  {
+    "symbol": "BHARTIARTL",
+    "company_name": "Bharti Airtel Ltd.",
+    "industry": "Telecommunication"
+  },
+  {
+    "symbol": "BOSCHLTD",
+    "company_name": "Bosch Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "BRITANNIA",
+    "company_name": "Britannia Industries Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "CGPOWER",
+    "company_name": "CG Power Industrial Solutions Ltd.",
+    "industry": "Capital Goods"
+  },
+  {
+    "symbol": "CANBK",
+    "company_name": "Canara Bank",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "CHOLAFIN",
+    "company_name": "Cholamandalam Investment Finance Company Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "CIPLA",
+    "company_name": "Cipla Ltd.",
+    "industry": "Healthcare"
+  },
+  {
+    "symbol": "COALINDIA",
+    "company_name": "Coal India Ltd.",
+    "industry": "Oil Gas & Consumable Fuels"
+  },
+  {
+    "symbol": "DLF",
+    "company_name": "DLF Ltd.",
+    "industry": "Realty"
+  },
+  {
+    "symbol": "DABUR",
+    "company_name": "Dabur India Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "DIVISLAB",
+    "company_name": "Divi's Laboratories Ltd.",
+    "industry": "Healthcare"
+  },
+  {
+    "symbol": "DRREDDY",
+    "company_name": "Dr. Reddy's Laboratories Ltd.",
+    "industry": "Healthcare"
+  },
+  {
+    "symbol": "EICHERMOT",
+    "company_name": "Eicher Motors Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "ETERNAL",
+    "company_name": "Eternal Ltd.",
+    "industry": "Consumer Services"
+  },
+  {
+    "symbol": "GAIL",
+    "company_name": "GAIL (India) Ltd.",
+    "industry": "Oil Gas & Consumable Fuels"
+  },
+  {
+    "symbol": "GODREJCP",
+    "company_name": "Godrej Consumer Products Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "GRASIM",
+    "company_name": "Grasim Industries Ltd.",
+    "industry": "Construction Materials"
+  },
+  {
+    "symbol": "HCLTECH",
+    "company_name": "HCL Technologies Ltd.",
+    "industry": "Information Technology"
+  },
+  {
+    "symbol": "HDFCBANK",
+    "company_name": "HDFC Bank Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "HDFCLIFE",
+    "company_name": "HDFC Life Insurance Company Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "HAVELLS",
+    "company_name": "Havells India Ltd.",
+    "industry": "Consumer Durables"
+  },
+  {
+    "symbol": "HEROMOTOCO",
+    "company_name": "Hero MotoCorp Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "HINDALCO",
+    "company_name": "Hindalco Industries Ltd.",
+    "industry": "Metals & Mining"
+  },
+  {
+    "symbol": "HAL",
+    "company_name": "Hindustan Aeronautics Ltd.",
+    "industry": "Capital Goods"
+  },
+  {
+    "symbol": "HINDUNILVR",
+    "company_name": "Hindustan Unilever Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "HYUNDAI",
+    "company_name": "Hyundai Motor India Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "ICICIBANK",
+    "company_name": "ICICI Bank Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "ICICIGI",
+    "company_name": "ICICI Lombard General Insurance co. Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "ICICIPRULI",
+    "company_name": "ICICI Prudential Life Insurance Company Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "ITC",
+    "company_name": "ITC Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "INDHOTEL",
+    "company_name": "The Indian Hotels Company Ltd.",
+    "industry": "Consumer Services"
+  },
+  {
+    "symbol": "IOC",
+    "company_name": "Indian Oil Corporation Ltd.",
+    "industry": "Oil Gas & Consumable Fuels"
+  },
+  {
+    "symbol": "IRFC",
+    "company_name": "Indian Railway Finance Corporation Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "INDUSINDBK",
+    "company_name": "IndusInd Bank Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "NAUKRI",
+    "company_name": "Info Edge (India) Ltd.",
+    "industry": "Consumer Services"
+  },
+  {
+    "symbol": "INFY",
+    "company_name": "Infosys Ltd.",
+    "industry": "Information Technology"
+  },
+  {
+    "symbol": "INDIGO",
+    "company_name": "InterGlobe Aviation Ltd.",
+    "industry": "Services"
+  },
+  {
+    "symbol": "JSWENERGY",
+    "company_name": "JSW Energy Ltd.",
+    "industry": "Power"
+  },
+  {
+    "symbol": "JSWSTEEL",
+    "company_name": "JSW Steel Ltd.",
+    "industry": "Metals & Mining"
+  },
+  {
+    "symbol": "JINDALSTEL",
+    "company_name": "Jindal Steel & Power Ltd.",
+    "industry": "Metals & Mining"
+  },
+  {
+    "symbol": "JIOFIN",
+    "company_name": "Jio Financial Services Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "KOTAKBANK",
+    "company_name": "Kotak Mahindra Bank Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "LTIM",
+    "company_name": "LTIMindtree Ltd.",
+    "industry": "Information Technology"
+  },
+  {
+    "symbol": "LT",
+    "company_name": "Larsen & Toubro Ltd.",
+    "industry": "Construction"
+  },
+  {
+    "symbol": "LICI",
+    "company_name": "Life Insurance Corporation of India",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "LODHA",
+    "company_name": "Lodha Developers Ltd.",
+    "industry": "Realty"
+  },
+  {
+    "symbol": "M&M",
+    "company_name": "Mahindra & Mahindra Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "MARUTI",
+    "company_name": "Maruti Suzuki India Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "NTPC",
+    "company_name": "NTPC Ltd.",
+    "industry": "Power"
+  },
+  {
+    "symbol": "NESTLEIND",
+    "company_name": "Nestle India Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "ONGC",
+    "company_name": "Oil & Natural Gas Corporation Ltd.",
+    "industry": "Oil Gas & Consumable Fuels"
+  },
+  {
+    "symbol": "PIDILITIND",
+    "company_name": "Pidilite Industries Ltd.",
+    "industry": "Chemicals"
+  },
+  {
+    "symbol": "PFC",
+    "company_name": "Power Finance Corporation Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "POWERGRID",
+    "company_name": "Power Grid Corporation of India Ltd.",
+    "industry": "Power"
+  },
+  {
+    "symbol": "PNB",
+    "company_name": "Punjab National Bank",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "RECLTD",
+    "company_name": "REC Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "RELIANCE",
+    "company_name": "Reliance Industries Ltd.",
+    "industry": "Oil Gas & Consumable Fuels"
+  },
+  {
+    "symbol": "SBILIFE",
+    "company_name": "SBI Life Insurance Company Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "MOTHERSON",
+    "company_name": "Samvardhana Motherson International Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "SHREECEM",
+    "company_name": "Shree Cement Ltd.",
+    "industry": "Construction Materials"
+  },
+  {
+    "symbol": "SHRIRAMFIN",
+    "company_name": "Shriram Finance Ltd.",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "SIEMENS",
+    "company_name": "Siemens Ltd.",
+    "industry": "Capital Goods"
+  },
+  {
+    "symbol": "SBIN",
+    "company_name": "State Bank of India",
+    "industry": "Financial Services"
+  },
+  {
+    "symbol": "SUNPHARMA",
+    "company_name": "Sun Pharmaceutical Industries Ltd.",
+    "industry": "Healthcare"
+  },
+  {
+    "symbol": "SWIGGY",
+    "company_name": "Swiggy Ltd.",
+    "industry": "Consumer Services"
+  },
+  {
+    "symbol": "TVSMOTOR",
+    "company_name": "TVS Motor Company Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "TCS",
+    "company_name": "Tata Consultancy Services Ltd.",
+    "industry": "Information Technology"
+  },
+  {
+    "symbol": "TATACONSUM",
+    "company_name": "Tata Consumer Products Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "TATAMOTORS",
+    "company_name": "Tata Motors Ltd.",
+    "industry": "Automobile and Auto Components"
+  },
+  {
+    "symbol": "TATAPOWER",
+    "company_name": "Tata Power Company Ltd.",
+    "industry": "Power"
+  },
+  {
+    "symbol": "TATASTEEL",
+    "company_name": "Tata Steel Ltd.",
+    "industry": "Metals & Mining"
+  },
+  {
+    "symbol": "TECHM",
+    "company_name": "Tech Mahindra Ltd.",
+    "industry": "Information Technology"
+  },
+  {
+    "symbol": "TITAN",
+    "company_name": "Titan Company Ltd.",
+    "industry": "Consumer Durables"
+  },
+  {
+    "symbol": "TORNTPHARM",
+    "company_name": "Torrent Pharmaceuticals Ltd.",
+    "industry": "Healthcare"
+  },
+  {
+    "symbol": "TRENT",
+    "company_name": "Trent Ltd.",
+    "industry": "Consumer Services"
+  },
+  {
+    "symbol": "ULTRACEMCO",
+    "company_name": "UltraTech Cement Ltd.",
+    "industry": "Construction Materials"
+  },
+  {
+    "symbol": "UNITDSPR",
+    "company_name": "United Spirits Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "VBL",
+    "company_name": "Varun Beverages Ltd.",
+    "industry": "Fast Moving Consumer Goods"
+  },
+  {
+    "symbol": "VEDL",
+    "company_name": "Vedanta Ltd.",
+    "industry": "Metals & Mining"
+  },
+  {
+    "symbol": "WIPRO",
+    "company_name": "Wipro Ltd.",
+    "industry": "Information Technology"
+  },
+  {
+    "symbol": "ZYDUSLIFE",
+    "company_name": "Zydus Lifesciences Ltd.",
+    "industry": "Healthcare"
+  }   
+]
