@@ -61,6 +61,7 @@ ASGI_APPLICATION = "backend.asgi.application"
 FYERS_CLIENT_ID = config("FYERS_CLIENT_ID", default="")
 FYERS_SECRET = config("FYERS_SECRET", default="")
 FYERS_REDIRECT_URI = config("FYERS_REDIRECT_URI", default="http://localhost:8000/api/v1/market/fyers/callback/")
+FYERS_PIN=config("FYERS_PIN", default="")
 
 CHANNEL_LAYERS = {
     "default": {

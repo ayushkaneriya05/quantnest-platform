@@ -14,7 +14,7 @@ class Command(BaseCommand):
         file_path = Path(settings.BASE_DIR) / 'data' / 'nifty100_symbols.json'
         with open(file_path, 'r') as f:
             instruments_data = json.load(f)
-
+        
         instruments_to_create = []
         for item in instruments_data:
             instruments_to_create.append(
