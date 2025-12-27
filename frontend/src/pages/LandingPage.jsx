@@ -1,13 +1,13 @@
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/shared/components/ui/button";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+} from "@/shared/components/ui/card";
+import { Badge } from "@/shared/components/ui/badge";
 import {
   TrendingUp,
   Code2,
@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import MainHeader from "@/components/layout/main-header";
+import MainHeader from "@/shared/components/layout/main-header";
 
 export default function QuantNestLanding() {
   const navigate = useNavigate();

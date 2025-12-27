@@ -1,0 +1,93 @@
+{
+  "horizon": 3,
+  "threshold": 0.0025,
+  "trained_at": "2025-09-06T19:33:37.145584+00:00",
+  "buy": {
+    "best_fold_meta": {
+      "fold": 5,
+      "pr_auc": 0.5352820083099364,
+      "f1": 0.5701150390460996,
+      "threshold": 0.3450329005718231,
+      "classification_report": "              precision    recall  f1-score   support\n\n           0       0.79      0.52      0.63     66248\n           1       0.46      0.75      0.57     36238\n\n    accuracy                           0.60    102486\n   macro avg       0.63      0.63      0.60    102486\nweighted avg       0.67      0.60      0.61    102486\n",
+      "confusion_matrix": [
+        [
+          34372,
+          31876
+        ],
+        [
+          9080,
+          27158
+        ]
+      ],
+      "class_balance_test": {
+        "1": 36238,
+        "0": 66248
+      }
+    },
+    "f1": 0.5701150390460996,
+    "threshold": 0.3450329005718231,
+    "model_path": "E:\\QuantNest\\ai-research-assistant\\ai_signal\\models\\current_buy.xgb"
+  },
+  "sell": {
+    "best_fold_meta": {
+      "fold": 5,
+      "pr_auc": 0.526225574035321,
+      "f1": 0.5601013136429982,
+      "threshold": 0.35742244124412537,
+      "classification_report": "              precision    recall  f1-score   support\n\n           0       0.78      0.53      0.63     66589\n           1       0.46      0.73      0.56     35897\n\n    accuracy                           0.60    102486\n   macro avg       0.62      0.63      0.60    102486\nweighted avg       0.67      0.60      0.61    102486\n",
+      "confusion_matrix": [
+        [
+          35404,
+          31185
+        ],
+        [
+          9803,
+          26094
+        ]
+      ],
+      "class_balance_test": {
+        "0": 66589,
+        "1": 35897
+      }
+    },
+    "f1": 0.5601013136429982,
+    "threshold": 0.35742244124412537,
+    "model_path": "E:\\QuantNest\\ai-research-assistant\\ai_signal\\models\\current_sell.xgb"
+  },
+  "feature_columns": [
+    "instrument",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "return",
+    "sma_5",
+    "ema_10",
+    "rsi",
+    "macd",
+    "macd_signal",
+    "macd_diff",
+    "stoch_k",
+    "stoch_d",
+    "obv",
+    "adx",
+    "cci",
+    "williams_r",
+    "bb_upper",
+    "bb_lower",
+    "bb_percent",
+    "atr",
+    "volatility",
+    "lag_return_1",
+    "lag_return_2",
+    "lag_return_3",
+    "vol_ratio_5",
+    "vol_ratio_20",
+    "vol_spike",
+    "candle_body",
+    "candle_range",
+    "hammer",
+    "bullish_engulfing",
+    "bearish_engulfing"
+  ]
+}

@@ -94,4 +94,4 @@ class Command(BaseCommand):
         # Run every minute at 5 seconds (after the candle closes)
         scheduler.add_job(fetch_and_store_candles, 'cron', second='5')
         self.stdout.write("Starting Nifty100 candle fetch scheduler...")
-        scheduler.start()
+        # scheduler.start()

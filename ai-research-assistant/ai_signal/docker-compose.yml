@@ -1,0 +1,30 @@
+version: '3.8'
+services:
+  mongo:
+    image: mongo:6.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+  fastapi-signal:
+    build: .
+    environment:
+      MONGO_URI: "mongodb://mongo:27017"
+      MONGO_DB: "quantnest"
+      REDIS_URL: "redis://redis:6379/0"
+      MODEL_PATH: "/app/models/current.xgb"
+      MODEL_VERSION: "v1.0.0"
+      SERVICE_API_KEY: "dev-secret"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+      - redis
+    volumes:
+      - ./models:/app/models
+volumes:
+  mongodata:

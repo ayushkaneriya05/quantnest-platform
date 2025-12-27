@@ -41,7 +41,6 @@ def refresh_fyers_token(token_row: MarketDataToken) -> bool:
 
     try:
         resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
-        print(resp)
         data = resp.json()
     except Exception as exc:
         logger.exception("Error refreshing token: %s", exc)
@@ -49,6 +48,8 @@ def refresh_fyers_token(token_row: MarketDataToken) -> bool:
 
     if data.get("s") != "ok":
         logger.error("Token refresh failed: %s", data)
+        import backend.run_fyers_client as fyers_client_main
+        fyers_client_main.main()
         return False
 
     # Update token row

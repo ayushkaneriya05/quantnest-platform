@@ -1,0 +1,32 @@
+# === Core Frameworks ===
+fastapi
+uvicorn
+pydantic
+Django
+djangorestframework
+celery
+
+# === MongoDB (Async + Sync) ===
+pymongo
+motor
+
+# === Machine Learning / AI ===
+xgboost
+scikit-learn
+pandas
+numpy
+joblib
+tensorflow
+
+# === Technical Indicators ===
+ta
+
+# === NLP / Transformers ===
+transformers
+torch
+sentencepiece
+
+# === Utilities ===
+python-dotenv
+requests
+loguru
