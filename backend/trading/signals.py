@@ -1,3 +1,5 @@
+# backend/trading/signals.py
+
 from django.dispatch import Signal
 
 # Signal sent when an order's status changes (e.g., created, executed, cancelled).

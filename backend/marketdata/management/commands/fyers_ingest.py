@@ -81,7 +81,7 @@ class Command(BaseCommand):
                 # Insert the single document into MongoDB
                 # ticks_collection.update_one({"instrument": tick.get('symbol'),"timestamp": datetime.fromtimestamp(tick.get('last_traded_time'), tz=timezone.utc)},{"$set":document_to_insert} ,upsert=True)
                 ticks_collection.insert_one(document_to_insert)
-                logger.info(f"Insert tick for {tick.get('symbol')} @ {tick.get('ltp')}")
+                # logger.info(f"Insert tick for {tick.get('symbol')} @ {tick.get('ltp')}")
 
             except Exception as e:
                 logger.error(f"Error processing a single full-mode tick: {tick}. Error: {e}")

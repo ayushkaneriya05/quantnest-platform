@@ -32,7 +32,7 @@ class Command(BaseCommand):
             '--days', type=int, default=365,
             help='Number of days of historical data to backfill.'
         )
-
+    
     def handle(self, *args, **options):
         if not nifty100_data:
             self.stderr.write(self.style.ERROR("Cannot start backfill: nifty100_symbols.json is missing or empty."))
@@ -54,7 +54,7 @@ class Command(BaseCommand):
             return
         
         fyers = fyersModel.FyersModel(client_id=client_id, is_async=False, token=access_token, log_path=os.path.join(settings.BASE_DIR, 'logs/'))
-        candles_collection = get_candles_collection()
+        candles_collection = get_candles_collection()   
 
         total_start_date = (datetime.now(timezone.utc) - timedelta(days=days_to_backfill)).date()
         today = datetime.now(timezone.utc).date()
@@ -69,7 +69,7 @@ class Command(BaseCommand):
             while chunk_start_date < today:
                 chunk_end_date = chunk_start_date + timedelta(days=90)
                 if chunk_end_date >= today:
-                    chunk_end_date = today - timedelta(days=1)
+                    chunk_end_date = today - timedelta(days=0)
 
                 self.stdout.write(f"  Fetching from {chunk_start_date} to {chunk_end_date}...")
 
@@ -103,12 +103,11 @@ class Command(BaseCommand):
                             result = candles_collection.bulk_write(operations)
                             self.stdout.write(self.style.SUCCESS(f"    -> Synced {result.upserted_count + result.modified_count} candles."))
                     
-                    # API rate limit delay is crucial
                     time.sleep(0.5)
 
                 except Exception as e:
                     self.stderr.write(self.style.ERROR(f"    -> An unexpected error occurred: {e}"))
-                    time.sleep(2) # Wait longer on error
+                    time.sleep(2)
                 
                 # Move to the next chunk
                 chunk_start_date = chunk_end_date + timedelta(days=1)

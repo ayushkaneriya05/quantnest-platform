@@ -25,4 +25,4 @@ class TradingConfig(AppConfig):
         # Prevent duplicate runs (e.g., autoreload in dev mode)
         if not hasattr(self, "already_ran"):
             self.already_ran = True
-            threading.Thread(target=run_startup_commands).start()
+            # threading.Thread(target=run_startup_commands).start()

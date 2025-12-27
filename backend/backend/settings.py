@@ -61,7 +61,7 @@ ASGI_APPLICATION = "backend.asgi.application"
 FYERS_CLIENT_ID = config("FYERS_CLIENT_ID", default="")
 FYERS_SECRET = config("FYERS_SECRET", default="")
 FYERS_REDIRECT_URI = config("FYERS_REDIRECT_URI", default="http://localhost:8000/api/v1/market/fyers/callback/")
-FYERS_PIN=config("FYERS_PIN", default="")
+FYERS_PIN = config("FYERS_PIN", default="")
 
 CHANNEL_LAYERS = {
     "default": {
@@ -70,7 +70,7 @@ CHANNEL_LAYERS = {
 }
 
 
-SITE_ID = 5
+SITE_ID = 6
 AUTH_USER_MODEL = "users.User"
 
 SOCIALACCOUNT_PROVIDERS = {
@@ -86,7 +86,6 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
-
 CORS_ALLOWED_ORIGINS = [
     config("FRONTEND_URL"),
 ]
@@ -94,6 +93,7 @@ CORS_ALLOWED_ORIGINS = [
 CSRF_TRUSTED_ORIGINS = [
     config("FRONTEND_URL"),
 ]
+
 # Set these in production to redirect all traffic to HTTPS
 SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
@@ -120,7 +120,6 @@ REST_FRAMEWORK = {
         'anon': '100/hour',  # For anonymous users
         'user': '3600/hour' # For authenticated users
     }
-    
 }
 
 REST_AUTH = {
@@ -132,9 +131,11 @@ REST_AUTH = {
     "LOGIN_SERIALIZER": "dj_rest_auth.serializers.LoginSerializer",
     "TOKEN_SERIALIZER": "dj_rest_auth.serializers.TokenSerializer",
 }
+
 REST_AUTH_REGISTER_SERIALIZERS = {
     "REGISTER_SERIALIZER": "users.serializers.CustomRegisterSerializer",
-}  
+}
+  
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",

@@ -1,51 +1,46 @@
 import React, { useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
-import { fetchUserProfile, initializeAuth } from "@/store/authSlice";
-import { SidebarProvider } from "@/contexts/sidebar-context";
-import ErrorBoundary from "@/components/ErrorBoundary";
+import { fetchUserProfile, initializeAuth } from "@/shared/store/authSlice";
+import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
-import {
-  NotificationContainer,
-  useNotifications,
-} from "@/components/ui/notification";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import { NotificationContainer } from "@/shared/components/ui/notification";
+import ProtectedRoute from "@/shared/components/ProtectedRoute";
 
 // Pages
 import LandingPage from "@/pages/LandingPage";
-import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
-import DashboardLayout from "@/layouts/DashboardLayout";
-import Dashboard from "@/pages/dashboard/Dashboard";
+import LoginPage from "@/features/auth/pages/LoginPage";
+import RegisterPage from "@/features/auth/pages/RegisterPage";
+import DashboardLayout from "@/shared/components/layout/DashboardLayout";
+import Dashboard from "@/features/dashboard/pages/Dashboard";
 
 // Authentication pages
-import SocialLoginHandler from "@/pages/SocialLoginHandler";
-import PasswordResetRequestPage from "@/pages/PasswordResetRequestPage";
-import PasswordResetConfirmPage from "@/pages/PasswordResetConfirmPage";
+import SocialLoginHandler from "@/features/auth/pages/SocialLoginHandler";
+import PasswordResetRequestPage from "@/features/auth/pages/PasswordResetRequestPage";
+import PasswordResetConfirmPage from "@/features/auth/pages/PasswordResetConfirmPage";
 
 // Dashboard pages
-import AIResearchAssistant from "@/pages/dashboard/analysis/AIResearchAssistant";
-import AlternativeDataHub from "@/pages/dashboard/analysis/AlternativeDataHub";
-import MarketScreener from "@/pages/dashboard/analysis/MarketScreener";
-import Leaderboards from "@/pages/dashboard/community/Leaderboards";
-import LearningCenter from "@/pages/dashboard/community/LearningCenter";
-import SocialHub from "@/pages/dashboard/community/SocialHub";
-import AdvancedRiskHub from "@/pages/dashboard/portfolio/AdvancedRiskHub";
-import TaxCenter from "@/pages/dashboard/portfolio/TaxCenter";
-import TradeJournal from "@/pages/dashboard/portfolio/TradeJournal";
-import ProfileSettings from "@/pages/dashboard/ProfileSettings";
-import Search from "@/pages/dashboard/Search";
-import BacktestingHub from "@/pages/dashboard/strategy/BacktestingHub";
-import MyLiveAlgos from "@/pages/dashboard/strategy/MyLiveAlgos";
-import StrategyBuilder from "@/pages/dashboard/strategy/StrategyBuilder";
-import StrategyMarketplace from "@/pages/dashboard/strategy/StrategyMarketplace";
-import BrokerConnections from "@/pages/dashboard/trading/BrokerConnections";
-import PaperTrading from "@/pages/dashboard/trading/PaperTrading";
-import TradeTerminal from "@/pages/dashboard/trading/TradeTerminal";
+import AIResearchAssistant from "@/features/dashboard/pages/analysis/AIResearchAssistant";
+import AlternativeDataHub from "@/features/dashboard/pages/analysis/AlternativeDataHub";
+import MarketScreener from "@/features/dashboard/pages/analysis/MarketScreener";
+import Leaderboards from "@/features/dashboard/pages/community/Leaderboards";
+import LearningCenter from "@/features/dashboard/pages/community/LearningCenter";
+import SocialHub from "@/features/dashboard/pages/community/SocialHub";
+import AdvancedRiskHub from "@/features/dashboard/pages/portfolio/AdvancedRiskHub";
+import TaxCenter from "@/features/dashboard/pages/portfolio/TaxCenter";
+import TradeJournal from "@/features/dashboard/pages/portfolio/TradeJournal";
+import ProfileSettings from "@/features/dashboard/pages/ProfileSettings";
+import Search from "@/features/dashboard/pages/Search";
+import BacktestingHub from "@/features/dashboard/pages/strategy/BacktestingHub";
+import MyLiveAlgos from "@/features/dashboard/pages/strategy/MyLiveAlgos";
+import StrategyBuilder from "@/features/dashboard/pages/strategy/StrategyBuilder";
+import StrategyMarketplace from "@/features/dashboard/pages/strategy/StrategyMarketplace";
+import BrokerConnections from "@/features/dashboard/pages/trading/BrokerConnections";
+import PaperTrading from "@/features/dashboard/pages/trading/PaperTrading";
+import TradeTerminal from "@/features/dashboard/pages/trading/TradeTerminal";
 
 // Create notification context
-import { NotificationContext } from "@/contexts/notification-context";
-import { WebSocketProvider } from "@/contexts/websocket-context";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 
 function AppContent() {
   const dispatch = useDispatch();
@@ -85,40 +80,28 @@ function AppContent() {
   }, [notifications.notify]);
 
   return (
-    <NotificationContext.Provider value={notifications}>
-      <SidebarProvider>
-        <div className="min-h-screen bg-black">
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route
-              path="/password-reset"
-              element={<PasswordResetRequestPage />}
-            />
-            <Route
-              path="/password-reset/confirm/:uid/:token"
-              element={<PasswordResetConfirmPage />}
-            />
-            <Route path="/google-callback" element={<SocialLoginHandler />} />
+    <div className="min-h-screen bg-black">
+      <Routes>
+        {/* Public routes */}
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/password-reset" element={<PasswordResetRequestPage />} />
+        <Route
+          path="/password-reset/confirm/:uid/:token"
+          element={<PasswordResetConfirmPage />}
+        />
+        <Route path="/google-callback" element={<SocialLoginHandler />} />
 
-            {/* Protected Dashboard routes */}
-            <Route element={<ProtectedRoute />}>
-              <Route
-                path="/dashboard"
-                element={
-                  <WebSocketProvider>
-                    <DashboardLayout />
-                  </WebSocketProvider>
-                }
-              >
-                {/* <Route index element={<Dashboard />} /> */}
-                {/* <Route path="search" element={<Search />} /> */}
-                <Route path="profile-settings" element={<ProfileSettings />} />
+        {/* Protected Dashboard routes */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="search" element={<Search />} />
+            <Route path="profile-settings" element={<ProfileSettings />} />
 
-                {/* Analysis routes */}
-                {/* <Route
+            {/* Analysis routes */}
+            {/* <Route
                   path="analysis/ai-research-assistant"
                   element={<AIResearchAssistant />}
                 />
@@ -131,8 +114,8 @@ function AppContent() {
                   element={<MarketScreener />}
                 /> */}
 
-                {/* Community routes */}
-                {/* <Route
+            {/* Community routes */}
+            {/* <Route
                   path="community/leaderboards"
                   element={<Leaderboards />}
                 />
@@ -142,63 +125,49 @@ function AppContent() {
                 />
                 <Route path="community/social-hub" element={<SocialHub />} /> */}
 
-                {/* Portfolio routes */}
-                <Route
-                  path="portfolio/advanced-risk-hub"
-                  element={<AdvancedRiskHub />}
-                />
-                <Route path="portfolio/tax-center" element={<TaxCenter />} />
-                <Route
-                  path="portfolio/trade-journal"
-                  element={<TradeJournal />}
-                />
+            {/* Portfolio routes */}
+            {/* <Route
+              path="portfolio/advanced-risk-hub"
+              element={<AdvancedRiskHub />}
+            />
+            <Route path="portfolio/tax-center" element={<TaxCenter />} />
+            <Route path="portfolio/trade-journal" element={<TradeJournal />} /> */}
 
-                {/* Strategy routes */}
-                <Route
-                  path="strategy/backtesting-hub"
-                  element={<BacktestingHub />}
-                />
-                <Route
-                  path="strategy/my-live-algos"
-                  element={<MyLiveAlgos />}
-                />
-                <Route
-                  path="strategy/strategy-builder"
-                  element={<StrategyBuilder />}
-                />
-                <Route
-                  path="strategy/strategy-marketplace"
-                  element={<StrategyMarketplace />}
-                />
+            {/* Strategy routes */}
+            <Route
+              path="strategy/backtesting-hub"
+              element={<BacktestingHub />}
+            />
+            <Route path="strategy/my-live-algos" element={<MyLiveAlgos />} />
+            <Route
+              path="strategy/strategy-builder"
+              element={<StrategyBuilder />}
+            />
+            <Route
+              path="strategy/strategy-marketplace"
+              element={<StrategyMarketplace />}
+            />
 
-                {/* Trading routes */}
-                <Route
-                  path="trading/broker-connections"
-                  element={<BrokerConnections />}
-                />
-                <Route
-                  path="trading/paper-trading"
-                  element={<PaperTrading />}
-                />
-                <Route
-                  path="trading/trade-terminal"
-                  element={<TradeTerminal />}
-                />
-              </Route>
-            </Route>
+            {/* Trading routes */}
+            <Route
+              path="trading/broker-connections"
+              element={<BrokerConnections />}
+            />
+            <Route path="trading/paper-trading" element={<PaperTrading />} />
+            <Route path="trading/trade-terminal" element={<TradeTerminal />} />
+          </Route>
+        </Route>
 
-            {/* Catch all route - redirect to landing page */}
-            <Route path="*" element={<LandingPage />} />
-          </Routes>
-        </div>
+        {/* Catch all route - redirect to landing page */}
+        <Route path="*" element={<LandingPage />} />
+      </Routes>
 
-        {/* Global Notification System */}
-        <NotificationContainer
-          notifications={notifications.notifications}
-          onClose={notifications.removeNotification}
-        />
-      </SidebarProvider>
-    </NotificationContext.Provider>
+      {/* Global Notification System */}
+      <NotificationContainer
+        notifications={notifications.notifications}
+        onClose={notifications.removeNotification}
+      />
+    </div>
   );
 }
 
