@@ -3,7 +3,7 @@ import api from "../services/api";
 
 export const fetchUserProfile = createAsyncThunk(
   "auth/fetchUserProfile",
-  async (_, { dispatch, rejectWithValue }) => {
+  async (_, { rejectWithValue }) => {
     try {
       const response = await api.get("/users/profile/");
       console.log("fetch user profile : ", response);
@@ -16,11 +16,11 @@ export const fetchUserProfile = createAsyncThunk(
 
 export const logoutUser = createAsyncThunk(
   "auth/logout",
-  async (_, { getState, rejectWithValue }) => {
+  async (_, { getState }) => {
     const { refreshToken } = getState().auth;
     try {
       console.log("Logging out with refresh token:", refreshToken);
-      await api.post("users/auth/logout/", { refresh: refreshToken });
+      await api.post("/users/auth/logout/", { refresh: refreshToken });
     } catch (error) {
       console.error(
         "Server-side logout failed, proceeding with client-side logout.",
@@ -36,7 +36,7 @@ export const refreshAccessToken = createAsyncThunk(
   async (_, { getState, rejectWithValue }) => {
     const { refreshToken } = getState().auth;
     try {
-      const response = await api.post("users/auth/token/refresh/", {
+      const response = await api.post("/users/auth/token/refresh/", {
         refresh: refreshToken,
       });
       return response.data;

@@ -16,6 +16,9 @@ api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("accessToken");
     console.log("API Request - token : ", token);
+    if (typeof config.url === "string" && config.url.startsWith("/")) {
+      config.url = config.url.slice(1);
+    }
     if (token) {
       config.headers["Authorization"] = `Bearer ${token}`;
     }
@@ -61,8 +64,12 @@ api.interceptors.response.use(
 
         console.log("Attempting to refresh token...");
 
+        const baseUrl = (import.meta.env.VITE_REACT_APP_API_URL || "").replace(
+          /\/$/,
+          ""
+        );
         const response = await axios.post(
-          `${import.meta.env.VITE_REACT_APP_API_URL}users/auth/token/refresh/`,
+          `${baseUrl}/users/auth/token/refresh/`,
           { refresh: refreshToken },
           {
             withCredentials: true,
