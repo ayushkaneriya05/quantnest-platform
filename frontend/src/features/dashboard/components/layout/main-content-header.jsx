@@ -7,6 +7,7 @@ export default function MainContentHeader({
   title = "Dashboard",
   subtitle,
   actions,
+  customContent,
 }) {
   const { toggle, isOpen } = useSidebar();
 
@@ -43,16 +44,23 @@ export default function MainContentHeader({
             <PanelLeft className="h-4 w-4 sm:h-5 sm:w-5 transition-transform group-hover:scale-110" />
           )}
         </Button>
-        <div className="flex flex-col min-w-0 flex-1">
-          <h1 className="text-base sm:text-lg md:text-xl font-semibold text-slate-100 truncate">
-            {title}
-          </h1>
-          {subtitle && (
-            <p className="text-xs sm:text-sm text-slate-400 mt-0.5 sm:mt-1 truncate">
-              {subtitle}
-            </p>
-          )}
-        </div>
+        
+        {customContent ? (
+          <div className="flex-1 min-w-0">
+            {customContent}
+          </div>
+        ) : (
+          <div className="flex flex-col min-w-0 flex-1">
+            <h1 className="text-base sm:text-lg md:text-xl font-semibold text-slate-100 truncate">
+              {title}
+            </h1>
+            {subtitle && (
+              <p className="text-xs sm:text-sm text-slate-400 mt-0.5 sm:mt-1 truncate">
+                {subtitle}
+              </p>
+            )}
+          </div>
+        )}
       </div>
       {actions && (
         <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-2">

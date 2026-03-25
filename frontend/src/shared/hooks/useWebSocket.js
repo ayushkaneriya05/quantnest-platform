@@ -30,11 +30,18 @@ export function useWebSocket() {
   } = useSelector((state) => state.websocket);
 
   const ws = useRef(null);
-  const reconnectInterval = useRef(null);
+  const reconnectTimer = useRef(null);
   const subscriptionCallbacks = useRef(new Map());
   const subscriptionsRef = useRef(subscriptions);
   const fetchingPrices = useRef(new Set());
+  // Keep mutable refs for values used inside connect so the callback is stable
+  const reconnectAttemptsRef = useRef(reconnectAttempts);
+  const maxReconnectAttemptsRef = useRef(maxReconnectAttempts);
+  const intentionalClose = useRef(false);
+
   subscriptionsRef.current = subscriptions;
+  reconnectAttemptsRef.current = reconnectAttempts;
+  maxReconnectAttemptsRef.current = maxReconnectAttempts;
 
   const getWebSocketUrl = () => {
     const token = localStorage.getItem("accessToken");
@@ -96,12 +103,19 @@ export function useWebSocket() {
     [dispatch]
   );
 
+  // ── Stable connect — no reactive deps that change every render ──
   const connect = useCallback(() => {
-    if (ws.current && ws.current.readyState !== WebSocket.CLOSED) {
+    // Don't open a second socket if one is already alive or connecting
+    if (
+      ws.current &&
+      (ws.current.readyState === WebSocket.OPEN ||
+        ws.current.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
     try {
+      intentionalClose.current = false;
       dispatch(setConnectionStatus("connecting"));
       const wsUrl = getWebSocketUrl();
       ws.current = new WebSocket(wsUrl);
@@ -111,12 +125,13 @@ export function useWebSocket() {
         dispatch(setConnectionStatus("connected"));
         dispatch(resetReconnectAttempts());
         console.log("✅ WebSocket connected");
-        if (reconnectInterval.current) {
-          clearTimeout(reconnectInterval.current);
-          reconnectInterval.current = null;
+
+        if (reconnectTimer.current) {
+          clearTimeout(reconnectTimer.current);
+          reconnectTimer.current = null;
         }
 
-        // Subscribe to all current subscriptions
+        // Re-subscribe to all current subscriptions
         subscriptionsRef.current.forEach((symbol) => {
           sendMessage({ type: "subscribe", instrument: `NSE:${symbol}-EQ` });
         });
@@ -128,7 +143,6 @@ export function useWebSocket() {
         try {
           const data = JSON.parse(event.data);
           dispatch(setLastMessage(data));
-          // console.log("WS message:", data);
           if (data.type === "tick") handleTickData(data);
           else if (data.type === "order_update") handleOrderUpdate(data);
           else if (data.type === "position_update") handlePositionUpdate(data);
@@ -141,39 +155,55 @@ export function useWebSocket() {
         dispatch(setConnected(false));
         dispatch(setConnectionStatus("disconnected"));
 
-        if (reconnectAttempts < maxReconnectAttempts) {
-          dispatch(incrementReconnectAttempts());
-          const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000);
-          reconnectInterval.current = setTimeout(connect, delay);
-        } else {
-          toast.error("Could not connect to live data.", { duration: 4000 });
+        // Only auto-reconnect if the close was not intentional
+        if (!intentionalClose.current) {
+          const attempts = reconnectAttemptsRef.current;
+          const maxAttempts = maxReconnectAttemptsRef.current;
+
+          if (attempts < maxAttempts) {
+            dispatch(incrementReconnectAttempts());
+            const delay = Math.min(1000 * 2 ** attempts, 30000);
+            console.log(
+              `🔄 WebSocket reconnecting in ${delay}ms (attempt ${attempts + 1}/${maxAttempts})`
+            );
+            reconnectTimer.current = setTimeout(() => {
+              connect();
+            }, delay);
+          } else {
+            toast.error("Could not connect to live data.", { duration: 4000 });
+          }
         }
       };
 
       ws.current.onerror = (err) => {
         console.error("WebSocket error:", err);
         dispatch(setConnectionStatus("error"));
-        ws.current.close();
+        // onclose will fire after this, so reconnect logic lives there
       };
     } catch (e) {
       console.error("WS setup error:", e);
       dispatch(setConnectionStatus("error"));
     }
-  }, [
-    dispatch,
-    reconnectAttempts,
-    maxReconnectAttempts,
-    sendMessage,
-    handleTickData,
-    handleOrderUpdate,
-    handlePositionUpdate,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch, sendMessage, handleTickData, handleOrderUpdate, handlePositionUpdate]);
 
   const disconnect = useCallback(() => {
-    if (reconnectInterval.current) clearTimeout(reconnectInterval.current);
-    reconnectInterval.current = maxReconnectAttempts;
-    ws.current?.close(1000, "Manual disconnect");
-  }, [maxReconnectAttempts]);
+    intentionalClose.current = true;
+    if (reconnectTimer.current) {
+      clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+    }
+    if (ws.current) {
+      ws.current.close(1000, "Manual disconnect");
+    }
+  }, []);
+
+  // ── Mount / unmount only — no dependency on connect/disconnect identity ──
+  useEffect(() => {
+    connect();
+    return () => disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const subscribe = useCallback(
     (symbol, callback) => {
@@ -186,7 +216,8 @@ export function useWebSocket() {
         subscriptionCallbacks.current.get(symbol).add(callback);
       }
 
-      if (!subscriptions.includes(symbol)) {
+      // Use the ref to avoid re-creating this callback when subscriptions change
+      if (!subscriptionsRef.current.includes(symbol)) {
         dispatch(addSubscription(symbol));
         sendMessage({ type: "subscribe", instrument: `NSE:${symbol}-EQ` });
       }
@@ -245,11 +276,6 @@ export function useWebSocket() {
     (symbol) => tickData[symbol] ?? null,
     [tickData]
   );
-
-  useEffect(() => {
-    connect();
-    return () => disconnect();
-  }, [connect, disconnect]);
 
   return {
     isConnected,

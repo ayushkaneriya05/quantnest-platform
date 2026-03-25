@@ -1,0 +1,151 @@
+/**
+ * Strategy API service - handles all strategy-related API calls
+ */
+import api from './api';
+
+const STRATEGIES_URL = '/strategies/';
+
+// Strategy CRUD
+export const strategyApi = {
+  // Get all strategies
+  getAll: async () => {
+    const response = await api.get(`${STRATEGIES_URL}strategies/`);
+    return response.data;
+  },
+
+  // Get single strategy
+  getById: async (id) => {
+    const response = await api.get(`${STRATEGIES_URL}strategies/${id}/`);
+    return response.data;
+  },
+
+  // Create new strategy
+  create: async (data) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/`, data);
+    return response.data;
+  },
+
+  // Update strategy
+  update: async (id, data) => {
+    const response = await api.patch(`${STRATEGIES_URL}strategies/${id}/`, data);
+    return response.data;
+  },
+
+  // Delete strategy
+  delete: async (id) => {
+    await api.delete(`${STRATEGIES_URL}strategies/${id}/`);
+  },
+
+  // Clone strategy
+  clone: async (id) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/clone/`);
+    return response.data;
+  },
+
+  // Activate strategy
+  activate: async (id) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/activate/`);
+    return response.data;
+  },
+
+  // Archive strategy
+  archive: async (id) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/archive/`);
+    return response.data;
+  },
+
+  // Pause active strategy
+  pause: async (id) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/pause/`);
+    return response.data;
+  },
+
+  // Unarchive strategy back to draft
+  unarchive: async (id) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/unarchive/`);
+    return response.data;
+  },
+
+  // Get versions
+  getVersions: async (id) => {
+    const response = await api.get(`${STRATEGIES_URL}strategies/${id}/versions/`);
+    return response.data;
+  },
+
+  // Create version snapshot
+  createVersion: async (id, notes) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/create-version/`, { notes });
+    return response.data;
+  },
+
+  // Rollback to version
+  rollback: async (id, versionId) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/rollback/`, { version_id: versionId });
+    return response.data;
+  },
+};
+
+// Strategy Tags
+export const tagsApi = {
+  getAll: async () => {
+    const response = await api.get(`${STRATEGIES_URL}tags/`);
+    return response.data;
+  },
+};
+
+// Entry Order Config
+export const entryConfigApi = {
+  get: async (id) => {
+    const response = await api.get(`${STRATEGIES_URL}entry-configs/${id}/`);
+    return response.data;
+  },
+
+  create: async (data) => {
+    const response = await api.post(`${STRATEGIES_URL}entry-configs/`, data);
+    return response.data;
+  },
+
+  update: async (id, data) => {
+    const response = await api.patch(`${STRATEGIES_URL}entry-configs/${id}/`, data);
+    return response.data;
+  },
+};
+
+// Exit Order Config
+export const exitConfigApi = {
+  get: async (id) => {
+    const response = await api.get(`${STRATEGIES_URL}exit-configs/${id}/`);
+    return response.data;
+  },
+
+  update: async (id, data) => {
+    const response = await api.patch(`${STRATEGIES_URL}exit-configs/${id}/`, data);
+    return response.data;
+  },
+};
+
+// Re-entry Rules
+export const reentryRuleApi = {
+  get: async (id) => {
+    const response = await api.get(`${STRATEGIES_URL}reentry-rules/${id}/`);
+    return response.data;
+  },
+
+  update: async (id, data) => {
+    const response = await api.patch(`${STRATEGIES_URL}reentry-rules/${id}/`, data);
+    return response.data;
+  },
+};
+
+// Tags logic attached to strategyApi
+strategyApi.getTags = async () => {
+  const response = await api.get(`${STRATEGIES_URL}tags/`);
+  return response.data;
+};
+
+strategyApi.createTag = async (data) => {
+  const response = await api.post(`${STRATEGIES_URL}tags/`, data);
+  return response.data;
+};
+
+export default strategyApi;

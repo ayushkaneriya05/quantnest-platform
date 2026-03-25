@@ -1,0 +1,108 @@
+"""
+Common app - view to serve all enum choices as a JSON API.
+Used by the frontend to avoid hardcoding choice values.
+"""
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+
+from .enums import (
+    StrategyType, MarketType, Exchange, InstrumentType, OptionType,
+    OrderType, ProductType, StrategyStatus, StrategyVisibility,
+    CandleTimeframe, CandleCompletionRule, CandlePart, MarketSession,
+    LogicalOperator, RuleType, RuleCategory,
+    IndicatorType, PriceActionType, VolumeConditionType,
+    ComparisonOperator, StopLossType, TargetType,
+    QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
+    EntryPriceLogic, HaltConditionType, AutoDisableTriggerType,
+    ViolationType, ViolationAction, Severity,
+    TransactionType, RebalanceFrequency,
+)
+
+
+def _choices_to_list(choices):
+    """Convert Django TextChoices / list-of-tuples into [{value, label}, ...]."""
+    if hasattr(choices, 'choices'):
+        # TextChoices enum
+        return [{'value': v, 'label': l} for v, l in choices.choices]
+    
+    # Handle plain list of tuples
+    try:
+        if isinstance(choices, (list, tuple)):
+            return [{'value': v, 'label': l} for v, l in choices]
+    except Exception:
+        pass
+        
+    return []
+
+
+# Map of enum name → source
+_ENUM_SOURCES = {
+    # Strategy classification
+    'StrategyType': StrategyType,
+    'MarketType': MarketType,
+    'Exchange': Exchange,
+    'InstrumentType': InstrumentType,
+    'OptionType': OptionType,
+    'OrderType': OrderType,
+    'ProductType': ProductType,
+
+    # Strategy lifecycle
+    'StrategyStatus': StrategyStatus,
+    'StrategyVisibility': StrategyVisibility,
+
+    # Candle / time
+    'CandleTimeframe': CandleTimeframe,
+    'CandleCompletionRule': CandleCompletionRule,
+    'CandlePart': CandlePart,
+    'MarketSession': MarketSession,
+
+    # Rules
+    'LogicalOperator': LogicalOperator,
+    'RuleType': RuleType,
+    'RuleCategory': RuleCategory,
+    'IndicatorType': IndicatorType,
+    'PriceActionType': PriceActionType,
+    'VolumeConditionType': VolumeConditionType,
+    'ComparisonOperator': ComparisonOperator,
+
+    # Stop-loss / target
+    'StopLossType': StopLossType,
+    'TargetType': TargetType,
+
+    # Position sizing
+    'QuantityType': QuantityType,
+    'CapitalAllocationType': CapitalAllocationType,
+
+    # Options
+    'StrikeSelectionLogic': StrikeSelectionLogic,
+    'ExpiryType': ExpiryType,
+
+    # Entry config
+    'EntryPriceLogic': EntryPriceLogic,
+
+    # Risk management
+    'HaltConditionType': HaltConditionType,
+    'AutoDisableTriggerType': AutoDisableTriggerType,
+    'ViolationType': ViolationType,
+    'ViolationAction': ViolationAction,
+    'Severity': Severity,
+
+    # Portfolio
+    'TransactionType': TransactionType,
+    'RebalanceFrequency': RebalanceFrequency,
+
+    # Debug
+    'DebugEnum': [('TEST', 'Test Choice')],
+}
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def enum_choices(request):
+    """Return all enum choices as {EnumName: [{value, label}, ...]}."""
+    data = {}
+    for name, source in _ENUM_SOURCES.items():
+        data[name] = _choices_to_list(source)
+        
+    return Response(data)

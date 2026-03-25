@@ -37,9 +37,22 @@ INSTALLED_APPS = [
     "cloudinary",
     "cloudinary_storage",
     "channels", 
+    # Existing apps
     "users",
     "trading",
     "marketdata",
+    # Algo Trading apps (Phase 1)
+    "common",
+    "strategies",
+    "instruments",
+    "rules_engine",
+    # Algo Trading apps (Phase 2)
+    "risk_management",
+    "portfolio",
+    # Algo Trading apps (Phase 3)
+    "backtesting",
+    # Algo Trading apps (Phase 4)
+    "paper_trading",
 ]
 
 MIDDLEWARE = [

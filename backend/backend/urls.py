@@ -32,5 +32,18 @@ urlpatterns = [
     path("api/v1/users/", include("users.urls")),
     path("health/", health_check, name="health_check"),
     path("api/v1/market/", include("marketdata.urls")), 
-    path("api/v1/trading/", include("trading.urls")),   
+    path("api/v1/trading/", include("trading.urls")),
+    # Common APIs (enums, etc.)
+    path("api/v1/common/", include("common.urls")),
+    # Algo Trading APIs (Phase 1)
+    path("api/v1/strategies/", include("strategies.urls")),
+    path("api/v1/instruments/", include("instruments.urls")),
+    path("api/v1/rules/", include("rules_engine.urls")),
+    # Algo Trading APIs (Phase 2)
+    path("api/v1/risk/", include("risk_management.urls")),
+    path("api/v1/portfolio/", include("portfolio.urls")),
+    # Algo Trading APIs (Phase 3)
+    path("api/v1/backtest/", include("backtesting.urls")),
+    # Algo Trading APIs (Phase 4)
+    path("api/v1/paper/", include("paper_trading.urls")),
 ]
