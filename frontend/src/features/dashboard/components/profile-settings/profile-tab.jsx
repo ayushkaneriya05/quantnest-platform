@@ -29,9 +29,6 @@ export default function ProfileTab() {
     username: "",
     email: "",
     bio: "",
-    twitter_url: "",
-    linkedin_url: "",
-    github_url: "",
     avatar: "",
     newAvatar: "",
   });
@@ -51,9 +48,6 @@ export default function ProfileTab() {
         username: user.username || "",
         email: user.email || "",
         bio: user.bio || "",
-        twitter_url: user.profile?.twitter_url || "",
-        linkedin_url: user.profile?.linkedin_url || "",
-        github_url: user.profile?.github_url || "",
         avatar: user.avatar || "",
         newAvatar: user.avatar || "",
       });
@@ -142,21 +136,6 @@ export default function ProfileTab() {
     }
   };
 
-  // Add this function in your component file
-  async function uploadToCloudinary(file) {
-    const data = new FormData();
-    data.append("file", file);
-    data.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET); // Set this in Cloudinary settings
-
-    const res = await axios.post(
-      `https://api.cloudinary.com/v1_1/${
-        import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
-      }/image/upload`,
-      data
-    );
-    const image = await res.data;
-    return image.secure_url;
-  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -180,13 +159,7 @@ export default function ProfileTab() {
 
       // Add avatar if selected
       if (formData.newAvatar) {
-        try {
-          // submitData.append("avatar", formData.avatar);
-          const url = await uploadToCloudinary(formData.newAvatar);
-          submitData.append("avatar", url);
-        } catch (err) {
-          setMessage("Failed to upload avatar.");
-        }
+        submitData.append("avatar", formData.newAvatar);
       } else if (!formData.newAvatar && formData.avatar) {
         await api.post("/users/avatar/delete/");
         submitData.append("avatar", "");
@@ -242,315 +215,193 @@ export default function ProfileTab() {
   };
 
   return (
-    <Card className="bg-gray-900/50 border border-gray-800/50 rounded-xl p-4 sm:p-6">
-      <CardHeader className="mb-4 sm:mb-6 px-0 pt-0">
-        <CardTitle className="text-xl sm:text-2xl font-bold text-slate-100">
-          Profile Information
-        </CardTitle>
-        <CardDescription className="text-slate-400 text-sm sm:text-base">
-          Manage your personal and public-facing details.
-        </CardDescription>
-      </CardHeader>
+    <div className="w-full space-y-6 max-w-full overflow-hidden pb-10">
+      {/* Dynamic Status Message - Top-level alert */}
+      {message && (
+        <div
+          className={`flex-1 xl:flex-none px-4 py-3 rounded-2xl border ${
+            message.type === "success"
+              ? "bg-green-900/40 border-green-800/50 text-green-300"
+              : "bg-red-900/40 border-red-800/50 text-red-300"
+          } flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-4 duration-300 shadow-lg mb-2`}
+        >
+          {message.type === "success" ? (
+            <CheckCircle className="h-5 w-5 shrink-0" />
+          ) : (
+            <AlertCircle className="h-5 w-5 shrink-0" />
+          )}
+          <span className="font-medium">{message.text}</span>
+        </div>
+      )}
 
-      <CardContent className="space-y-6 sm:space-y-8 px-0 pb-0">
-        {/* Message Display */}
-        {message && (
-          <div
-            className={`p-3 rounded-lg border ${
-              message.type === "success"
-                ? "bg-green-900/50 border-green-800 text-green-300"
-                : "bg-red-900/50 border-red-800 text-red-300"
-            } flex items-center gap-2 text-sm`}
-          >
-            {message.type === "success" ? (
-              <CheckCircle className="h-4 w-4" />
-            ) : (
-              <AlertCircle className="h-4 w-4" />
-            )}
-            {message.text}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
-          {/* Avatar Section */}
-          <div className="space-y-4 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <Avatar className="w-20 h-20 sm:w-24 sm:h-24 border border-gray-700">
-                <AvatarImage
-                  src={
-                    avatarPreview ||
-                    "/placeholder.svg?height=96&width=96&text=Avatar"
-                  }
-                  alt="User Avatar"
-                  className="object-cover"
-                />
-                <AvatarFallback className="bg-gray-800 text-slate-300">
-                  <User className="h-8 w-8 sm:h-10 sm:w-10" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="space-y-2">
-                <Label htmlFor="avatar-upload" className="cursor-pointer">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-10">
+        {/* Left Column: Avatar & Quick Info (Sticky on Desktop) */}
+        <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-6">
+          <Card className="bg-gray-900/50 border-gray-800/50 overflow-hidden">
+            <CardHeader className="border-b border-gray-800/50 pb-4">
+              <CardTitle className="text-lg font-semibold text-slate-200">Avatar</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6 flex flex-col items-center text-center">
+              <div className="relative group">
+                <Avatar className="w-32 h-32 border-2 border-indigo-500/30 group-hover:border-indigo-500 transition-colors duration-300">
+                  <AvatarImage
+                    src={avatarPreview || "/placeholder.svg?height=128&width=128&text=Avatar"}
+                    className="object-cover"
+                  />
+                  <AvatarFallback className="bg-gray-800 text-slate-300">
+                    <User className="h-12 w-12" />
+                  </AvatarFallback>
+                </Avatar>
+                <Label
+                  htmlFor="avatar-upload"
+                  className="absolute bottom-0 right-0 p-2 bg-indigo-600 rounded-full cursor-pointer shadow-lg hover:bg-indigo-700 transition-transform active:scale-95 border-2 border-gray-900"
+                >
+                  <Upload className="h-4 w-4 text-white" />
+                  <Input id="avatar-upload" type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
+                </Label>
+              </div>
+              <div className="mt-4 space-y-2">
+                <h3 className="font-bold text-slate-100">{formData.first_name || "New"}{" "}{formData.last_name || "User"}</h3>
+                <p className="text-sm text-slate-400">@{formData.username || "username"}</p>
+                {getFieldError("avatar") && <p className="text-red-400 text-xs mt-2">{getFieldError("avatar")}</p>}
+                <div className="pt-4">
                   <Button
                     type="button"
-                    variant="outline"
-                    className="bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50 text-sm"
-                    asChild
+                    variant="ghost"
+                    onClick={handleRemoveAvatar}
+                    disabled={isLoading || !avatarPreview}
+                    className="text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
                   >
-                    <span>
-                      <Upload className="h-4 w-4 mr-2" />
-                      Change Avatar
-                    </span>
+                    Remove Profile Picture
                   </Button>
-                </Label>
-                <Input
-                  id="avatar-upload"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarChange}
-                  className="hidden"
-                />
-                {getFieldError("avatar") && (
-                  <p className="text-red-400 text-xs">
-                    {getFieldError("avatar")}
-                  </p>
-                )}
+                </div>
               </div>
-              <Button
-                type="button"
-                variant="destructive"
-                className="mt-2"
-                onClick={handleRemoveAvatar}
-                disabled={isLoading}
-              >
-                Remove Avatar
-              </Button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          {/* Basic Information */}
-          <div className="grid gap-4 sm:gap-6 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label
-                htmlFor="first_name"
-                className="text-slate-200 text-sm sm:text-base"
-              >
-                First Name
-              </Label>
-              <Input
-                id="first_name"
-                name="first_name"
-                value={formData.first_name}
-                onChange={handleInputChange}
-                className="bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500"
-                placeholder="Enter your first name"
-              />
-              {getFieldError("first_name") && (
-                <p className="text-red-400 text-xs">
-                  {getFieldError("first_name")}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="last_name"
-                className="text-slate-200 text-sm sm:text-base"
-              >
-                Last Name
-              </Label>
-              <Input
-                id="last_name"
-                name="last_name"
-                value={formData.last_name}
-                onChange={handleInputChange}
-                className="bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500"
-                placeholder="Enter your last name"
-              />
-              {getFieldError("last_name") && (
-                <p className="text-red-400 text-xs">
-                  {getFieldError("last_name")}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="username"
-                className="text-slate-200 text-sm sm:text-base"
-              >
-                Username
-              </Label>
-              <Input
-                id="username"
-                name="username"
-                value={formData.username}
-                onChange={handleInputChange}
-                className="bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500"
-                placeholder="Enter your username"
-              />
-              {getFieldError("username") && (
-                <p className="text-red-400 text-xs">
-                  {getFieldError("username")}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="email"
-                className="text-slate-200 text-sm sm:text-base"
-              >
-                Email
-              </Label>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  disabled
-                  className="bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 disabled:opacity-100 flex-1"
-                />
+          <Card className="bg-gray-900/50 border-gray-800/50">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Account Type</span>
+                <Badge variant="outline" className="bg-indigo-500/10 text-indigo-300 border-indigo-500/20">Starter</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Member Since</span>
+                <span className="text-sm text-slate-200">Apr 2024</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Verified</span>
                 {user?.is_email_verified ? (
-                  <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs sm:text-sm shrink-0">
-                    Verified
-                  </Badge>
+                  <CheckCircle className="h-4 w-4 text-emerald-400" />
                 ) : (
-                  <Badge className="bg-orange-500/20 text-orange-300 border border-orange-500/30 text-xs sm:text-sm shrink-0">
-                    Unverified
-                  </Badge>
+                  <AlertCircle className="h-4 w-4 text-orange-400" />
                 )}
               </div>
-              {getFieldError("email") && (
-                <p className="text-red-400 text-xs">{getFieldError("email")}</p>
-              )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
+        </div>
 
-          {/* Bio Section */}
-          <div className="space-y-2">
-            <Label
-              htmlFor="bio"
-              className="text-slate-200 text-sm sm:text-base"
-            >
-              Bio
-            </Label>
-            <Textarea
-              id="bio"
-              name="bio"
-              value={formData.bio}
-              onChange={handleInputChange}
-              placeholder="Tell us about yourself..."
-              className="min-h-[80px] sm:min-h-[100px] bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 text-sm sm:text-base"
-            />
-            {getFieldError("bio") && (
-              <p className="text-red-400 text-xs">{getFieldError("bio")}</p>
-            )}
-          </div>
-
-          {/* Social Links */}
-          {/* <div className="space-y-4 sm:space-y-6">
-            <h3 className="text-lg sm:text-xl font-bold text-slate-100">
-              Social Links
-            </h3>
-            <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 xl:grid-cols-3">
-              <div className="space-y-2">
-                <Label
-                  htmlFor="twitter_url"
-                  className="text-slate-200 text-sm sm:text-base"
-                >
-                  Twitter
-                </Label>
-                <div className="relative">
-                  <Twitter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        {/* Right Column: Form Fields */}
+        <div className="lg:col-span-8 space-y-6">
+          <Card className="bg-gray-900/50 border-gray-800/50">
+            <CardHeader className="border-b border-gray-800/50">
+              <CardTitle className="text-lg font-semibold text-slate-200">Basic Information</CardTitle>
+              <CardDescription className="text-slate-400">Your first and last names will be used for official communications.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="first_name" className="text-slate-300">First Name</Label>
                   <Input
-                    id="twitter_url"
-                    name="twitter_url"
-                    value={formData.twitter_url}
+                    id="first_name"
+                    name="first_name"
+                    value={formData.first_name}
                     onChange={handleInputChange}
-                    placeholder="https://twitter.com/yourhandle"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 text-sm sm:text-base"
+                    className="bg-gray-800/40 border-gray-700/50 focus:border-indigo-500/50 text-slate-100"
+                    placeholder="John"
                   />
+                  {getFieldError("first_name") && <p className="text-red-400 text-xs">{getFieldError("first_name")}</p>}
                 </div>
-                {getFieldError("twitter_url") && (
-                  <p className="text-red-400 text-xs">
-                    {getFieldError("twitter_url")}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label
-                  htmlFor="linkedin_url"
-                  className="text-slate-200 text-sm sm:text-base"
-                >
-                  LinkedIn
-                </Label>
-                <div className="relative">
-                  <Linkedin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <div className="space-y-2">
+                  <Label htmlFor="last_name" className="text-slate-300">Last Name</Label>
                   <Input
-                    id="linkedin_url"
-                    name="linkedin_url"
-                    value={formData.linkedin_url}
+                    id="last_name"
+                    name="last_name"
+                    value={formData.last_name}
                     onChange={handleInputChange}
-                    placeholder="https://linkedin.com/in/yourprofile"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 text-sm sm:text-base"
+                    className="bg-gray-800/40 border-gray-700/50 focus:border-indigo-500/50 text-slate-100"
+                    placeholder="Doe"
                   />
+                  {getFieldError("last_name") && <p className="text-red-400 text-xs">{getFieldError("last_name")}</p>}
                 </div>
-                {getFieldError("linkedin_url") && (
-                  <p className="text-red-400 text-xs">
-                    {getFieldError("linkedin_url")}
-                  </p>
-                )}
               </div>
 
-              <div className="space-y-2">
-                <Label
-                  htmlFor="github_url"
-                  className="text-slate-200 text-sm sm:text-base"
-                >
-                  GitHub
-                </Label>
-                <div className="relative">
-                  <Github className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="username" className="text-slate-300">Username</Label>
                   <Input
-                    id="github_url"
-                    name="github_url"
-                    value={formData.github_url}
+                    id="username"
+                    name="username"
+                    value={formData.username}
                     onChange={handleInputChange}
-                    placeholder="https://github.com/yourusername"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 text-sm sm:text-base"
+                    className="bg-gray-800/40 border-gray-700/50 focus:border-indigo-500/50 text-slate-100"
+                    placeholder="johndoe"
                   />
+                  {getFieldError("username") && <p className="text-red-400 text-xs">{getFieldError("username")}</p>}
                 </div>
-                {getFieldError("github_url") && (
-                  <p className="text-red-400 text-xs">
-                    {getFieldError("github_url")}
-                  </p>
-                )}
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-slate-300">Email Address</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    disabled
+                    className="bg-gray-800/20 border-gray-700/30 text-slate-500 opacity-80"
+                  />
+                  <p className="text-[10px] text-slate-500 italic">Contact support to change your verified email.</p>
+                </div>
               </div>
-            </div>
-          </div> */}
+            </CardContent>
+          </Card>
 
-          {/* Submit Button */}
-          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-800/50">
+          <Card className="bg-gray-900/50 border-gray-800/50">
+            <CardHeader className="border-b border-gray-800/50">
+              <CardTitle className="text-lg font-semibold text-slate-200">Biography</CardTitle>
+              <CardDescription className="text-slate-400">A brief description about yourself to share with the community.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="space-y-2">
+                <Textarea
+                  id="bio"
+                  name="bio"
+                  value={formData.bio}
+                  onChange={handleInputChange}
+                  placeholder="Tell us about your trading journey..."
+                  className="min-h-[150px] bg-gray-800/40 border-gray-700/50 focus:border-indigo-500/50 text-slate-100 resize-none"
+                />
+                {getFieldError("bio") && <p className="text-red-400 text-xs">{getFieldError("bio")}</p>}
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end pt-4">
             <Button
               type="submit"
               disabled={isLoading}
-              className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] rounded-xl border-0 w-full sm:w-auto px-6 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white min-w-[160px] h-12 rounded-xl border-0 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all"
             >
               {isLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving Changes...
+                  Saving Changes
                 </>
               ) : (
                 "Save Changes"
               )}
             </Button>
           </div>
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+      </form>
+    </div>
   );
 }

@@ -2,60 +2,49 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Email Confirmation - QuantNest</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        background-color: #0e0e0e;
-        color: #ffffff;
-        padding: 20px;
-      }
-      .container {
-        color: #ffffff;
-        background-color: #1a1a1a;
-        border-radius: 8px;
-        padding: 20px;
-        max-width: 600px;
-        margin: auto;
-      }
-      h1 {
-        color: #ffcc00;
-      }
-      a.button {
-        display: inline-block;
-        background-color: #ffcc00;
-        color: #000000;
-        padding: 12px 24px;
-        margin-top: 20px;
-        border-radius: 5px;
-        text-decoration: none;
-        font-weight: bold;
-      }
-      a.button:hover {
-        background-color: #e6b800;
-      }
-      .footer {
-        margin-top: 30px;
-        font-size: 12px;
-        color: #bbbbbb;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verify Your Email - QuantNest</title>
   </head>
-  <body>
-    <div class="container">
-      <h1>Confirm Your Email Address</h1>
-      <p>Hi {{ user.first_name }},</p>
-      <p>
-        Thank you for signing up for <strong>QuantNest</strong>! Please confirm
-        your email by clicking the button below:
-      </p>
-      <a href="{{ activate_url }}" class="button">Confirm Email</a>
-      <p>
-        If you didn’t create this account, you can safely ignore this email.
-      </p>
-      <div class="footer">
-        <p>© {{ now|date:"Y" }} QuantNest. All rights reserved.</p>
-      </div>
-    </div>
+  <body style="margin:0; padding:0; background:#050505; color:#f8fafc; font-family:Arial, Helvetica, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#050505; padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;">
+            <tr>
+              <td style="padding:0 0 18px 0;">
+                <div style="font-size:24px; font-weight:700; letter-spacing:-0.03em; color:#f0d676;">
+                  <span style="display:inline-block; width:38px; height:34px; line-height:34px; margin-right:10px; border-radius:12px; background:#1b1405; border:1px solid #5f4817; text-align:center; color:#e5c461; font-size:14px; font-weight:800; letter-spacing:-0.05em;">QN</span>
+                  QuantNest
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="border:1px solid #1f2937; border-radius:28px; overflow:hidden; background:#0b0d12;">
+                <div style="height:5px; background:#e5c461;"></div>
+                <div style="padding:34px 30px 30px 30px;">
+                  <p style="margin:0 0 14px 0; color:#e5c461; font-size:12px; font-weight:700; letter-spacing:0.18em; text-transform:uppercase;">Account activation</p>
+                  <h1 style="margin:0 0 14px 0; color:#ffffff; font-size:30px; line-height:1.15; letter-spacing:-0.04em;">Verify your email to open QuantNest.</h1>
+                  <p style="margin:0 0 18px 0; color:#94a3b8; font-size:15px; line-height:1.7;">Hi {{ user.first_name|default:user.username }},</p>
+                  <p style="margin:0 0 28px 0; color:#cbd5e1; font-size:15px; line-height:1.7;">
+                    Welcome to QuantNest. Confirm this email address so your trading workspace can be activated for AI research, strategy testing, paper trading, and live deployment workflows.
+                  </p>
+                  <a href="{{ activate_url }}" style="display:inline-block; background:#e5c461; color:#111111; padding:14px 28px; border-radius:999px; text-decoration:none; font-size:15px; font-weight:700;">Verify email address</a>
+                  <div style="margin-top:30px; padding-top:22px; border-top:1px solid #1f2937;">
+                    <p style="margin:0; color:#64748b; font-size:13px; line-height:1.6;">
+                      If you did not create a QuantNest account, you can safely ignore this email.
+                    </p>
+                  </div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:22px 10px 0 10px; color:#475569; font-size:12px; line-height:1.6;">
+                &copy; {{ now|date:"Y" }} QuantNest. All rights reserved.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>

@@ -1,1350 +1,748 @@
+/* eslint-disable react/prop-types */
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { Button } from "@/shared/components/ui/button";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/shared/components/ui/card";
-import { Badge } from "@/shared/components/ui/badge";
-import {
-  TrendingUp,
-  Code2,
-  TestTube2,
-  Rocket,
-  Plug,
-  Shield,
-  BarChart3,
-  Zap,
-  Users,
-  CheckCircle,
-  Star,
-  ArrowRight,
-  Play,
-  Target,
-  Brain,
   Activity,
-  Globe,
-  Lock,
-  Clock,
-  EyeOff,
-  Lightbulb,
-  Handshake,
-  Award,
+  ArrowRight,
+  BookOpenCheck,
+  BrainCircuit,
+  Check,
+  ChevronRight,
+  ClipboardCheck,
+  FlaskConical,
+  Gauge,
+  GraduationCap,
+  Layers3,
+  LineChart,
+  LockKeyhole,
+  Radio,
+  Rocket,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Store,
+  Terminal,
+  Users,
 } from "lucide-react";
-import React from "react";
-import { useNavigate } from "react-router-dom";
+
 import MainHeader from "@/shared/components/layout/main-header";
+import { Button } from "@/shared/components/ui/button";
+
+const workflow = [
+  {
+    number: "01",
+    icon: BrainCircuit,
+    title: "Research with AI",
+    description:
+      "Ask questions, screen the market, compare symbols, and collect context before you build a strategy.",
+    benefit: "Go from scattered market ideas to a clear trading thesis.",
+  },
+  {
+    number: "02",
+    icon: SlidersHorizontal,
+    title: "Make the strategy",
+    description:
+      "Define entries, exits, time windows, instruments, position sizing, stop-loss, targets, and risk rules.",
+    benefit: "Turn your idea into rules you can inspect and improve.",
+  },
+  {
+    number: "03",
+    icon: FlaskConical,
+    title: "Backtest before risking capital",
+    description:
+      "Run the strategy on historical candles, review trades, equity, drawdown, metrics, and Monte Carlo scenarios.",
+    benefit: "Understand how the strategy behaves before you deploy it.",
+  },
+  {
+    number: "04",
+    icon: Activity,
+    title: "Deploy to paper trading",
+    description:
+      "Run the strategy in a simulated portfolio and track positions, orders, capital, and performance.",
+    benefit: "Practice execution with market-like workflow and zero real capital risk.",
+  },
+  {
+    number: "05",
+    icon: Rocket,
+    title: "Move to live trading",
+    description:
+      "Connect broker accounts, allocate capital, monitor live sessions, inspect logs, and use emergency controls.",
+    benefit: "Operate live strategies with visibility and risk controls.",
+  },
+];
+
+const platformFeatures = [
+  {
+    icon: Search,
+    eyebrow: "AI research",
+    title: "Find better trading ideas",
+    description:
+      "Use AI-assisted research, market screening, live quotes, and alternative data to decide what is worth testing.",
+    accent: "from-violet-500/20 to-indigo-500/5",
+    iconColor: "text-violet-300",
+  },
+  {
+    icon: SlidersHorizontal,
+    eyebrow: "Strategy builder",
+    title: "Build without guessing",
+    description:
+      "Create structured rules for when to enter, when to exit, how much to trade, and when to stop the strategy.",
+    accent: "from-indigo-500/20 to-purple-500/5",
+    iconColor: "text-indigo-300",
+  },
+  {
+    icon: LineChart,
+    eyebrow: "Backtesting",
+    title: "Test the plan first",
+    description:
+      "See trade-by-trade results, equity curve, drawdown, risk metrics, and Monte Carlo analysis before deployment.",
+    accent: "from-sky-500/20 to-cyan-500/5",
+    iconColor: "text-sky-300",
+  },
+  {
+    icon: Activity,
+    eyebrow: "Paper strategy deployment",
+    title: "Run strategies safely",
+    description:
+      "Deploy strategies to paper accounts, follow orders and positions, manage capital, and review performance.",
+    accent: "from-emerald-500/20 to-teal-500/5",
+    iconColor: "text-emerald-300",
+  },
+  {
+    icon: Radio,
+    eyebrow: "Live trading and brokers",
+    title: "Go live with controls",
+    description:
+      "Connect broker credentials, create live sessions, manage allocations, pause or stop strategies, and inspect execution logs.",
+    accent: "from-rose-500/20 to-red-500/5",
+    iconColor: "text-rose-300",
+  },
+  {
+    icon: Terminal,
+    eyebrow: "Manual paper terminal",
+    title: "Practice manual trades too",
+    description:
+      "Use the trading terminal for watchlists, charts, order tickets, positions, and manual paper trading.",
+    accent: "from-amber-500/20 to-orange-500/5",
+    iconColor: "text-amber-300",
+  },
+];
+
+const intelligenceFeatures = [
+  {
+    icon: BrainCircuit,
+    title: "Strategy advisor",
+    text: "Get AI recommendations tied to a strategy, then choose what to apply or dismiss.",
+  },
+  {
+    icon: Gauge,
+    title: "Health scoring",
+    text: "See whether a strategy looks healthy, weak, or needs attention.",
+  },
+  {
+    icon: Layers3,
+    title: "Market regime",
+    text: "Understand whether the market environment may suit or hurt a strategy.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Overfit checks",
+    text: "Spot when a strategy may be too perfect on history and fragile in real markets.",
+  },
+];
+
+const ecosystemFeatures = [
+  {
+    icon: Store,
+    title: "Marketplace",
+    text: "Explore, publish, subscribe to, review, and monetize strategies.",
+  },
+  {
+    icon: BookOpenCheck,
+    title: "Journal and reports",
+    text: "Track trades, mistakes, insights, daily reports, and performance snapshots.",
+  },
+  {
+    icon: Users,
+    title: "Community and proof",
+    text: "Share posts, strategy rooms, trade replays, reputation, and verified work.",
+  },
+  {
+    icon: GraduationCap,
+    title: "Learning center",
+    text: "Follow courses, lessons, quizzes, assignments, certificates, and recommendations.",
+  },
+  {
+    icon: ClipboardCheck,
+    title: "Governance",
+    text: "Use approvals, audit logs, compliance checks, notifications, and security tools.",
+  },
+];
+
+const lifecycleLabels = [
+  "AI Research",
+  "Strategy",
+  "Backtest",
+  "Paper",
+  "Live",
+  "Review",
+];
+
+const themeMap = {
+  dark: {
+    page: "bg-[#050505] text-white selection:bg-[#e5c461] selection:text-black",
+    hero: "bg-[#050505]",
+    section: "bg-[#050505]",
+    alt: "bg-[#090909]",
+    card: "border-white/10 bg-[#0b0b0b] text-white",
+    cardSoft: "border-white/10 bg-[#0f1117]/90",
+    panel: "border-white/10 bg-[#0a0a0a]/90",
+    text: "text-white",
+    muted: "text-zinc-400",
+    subtle: "text-zinc-500",
+    border: "border-white/10",
+    badge: "border-[#e5c461]/20 bg-[#e5c461]/[0.07] text-[#f2da8e]",
+    ghost:
+      "border-white/15 bg-white/[0.03] text-zinc-200 hover:border-white/30 hover:bg-white/[0.07] hover:text-white",
+    ctaGhost: "border-white/15 bg-black/20 text-white hover:bg-white/[0.06]",
+  },
+  light: {
+    page: "bg-[#fffaf0] text-[#19140a] selection:bg-[#d8b557] selection:text-black",
+    hero: "bg-[#fffaf0]",
+    section: "bg-[#fffaf0]",
+    alt: "bg-[#f7f0df]",
+    card: "border-amber-900/10 bg-white/75 text-[#19140a]",
+    cardSoft: "border-amber-900/10 bg-white/80",
+    panel: "border-amber-900/10 bg-white/82",
+    text: "text-[#19140a]",
+    muted: "text-stone-600",
+    subtle: "text-stone-500",
+    border: "border-amber-900/10",
+    badge: "border-[#b68b34]/25 bg-[#d8b557]/15 text-[#8a6724]",
+    ghost:
+      "border-amber-900/15 bg-white/60 text-stone-800 hover:border-[#b68b34]/40 hover:bg-[#fff3c8] hover:text-[#8a6724]",
+    ctaGhost: "border-amber-900/15 bg-white/60 text-stone-800 hover:bg-[#fff3c8]",
+  },
+};
+
+function SectionHeading({ eyebrow, title, description, align = "center", theme }) {
+  const alignment =
+    align === "left" ? "max-w-3xl" : "mx-auto max-w-3xl text-center";
+
+  return (
+    <div className={alignment}>
+      <div
+        className={`mb-4 flex items-center gap-3 ${
+          align === "center" ? "justify-center" : ""
+        }`}
+      >
+        <span className="h-px w-8 bg-[#d8b557]" />
+        <span className="text-xs font-semibold uppercase tracking-[0.24em] text-[#caa64f]">
+          {eyebrow}
+        </span>
+        {align === "center" && <span className="h-px w-8 bg-[#d8b557]" />}
+      </div>
+      <h2 className={`text-3xl font-semibold tracking-[-0.04em] sm:text-4xl lg:text-5xl ${theme.text}`}>
+        {title}
+      </h2>
+      <p className={`mt-4 text-base leading-8 sm:text-lg ${theme.muted}`}>
+        {description}
+      </p>
+    </div>
+  );
+}
 
 export default function QuantNestLanding() {
-  const navigate = useNavigate();
+  const [themeName, setThemeName] = useState("dark");
+  const theme = themeMap[themeName];
+  const isLight = themeName === "light";
+
+  const toggleTheme = () => {
+    setThemeName((current) => (current === "dark" ? "light" : "dark"));
+  };
+
   return (
-    <div className="flex flex-col min-h-screen bg-black font-sans">
-      {/* Header */}
-      <MainHeader /> {/* Use the new MainHeader component */}
-      <main className="flex-1">
-        {/* Hero Section */}
-        <section className="relative overflow-hidden py-12 sm:py-16 md:py-20 lg:py-24 xl:py-32">
-          <div className="absolute inset-0 bg-gradient-to-br from-black via-gray-900/20 to-black" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(99,102,241,0.1),transparent_50%)]" />
-          <div className="relative">
-            <div className="container px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-              <div className="mx-auto max-w-4xl text-center">
-                <div className="mb-4 sm:mb-6 inline-flex items-center rounded-full bg-slate-800/50 px-3 py-1.5 sm:px-4 sm:py-2 md:px-6 md:py-3 shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] border border-gray-700/50">
-                  <Zap className="mr-1.5 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4 text-indigo-400" />
-                  <span className="text-xs sm:text-sm font-medium text-slate-300">
-                    Trusted by 50,000+ Professional Traders
-                  </span>
-                </div>
+    <div
+      data-landing-theme={themeName}
+      className={`qn-landing min-h-screen overflow-x-clip ${theme.page}`}
+    >
+      <MainHeader theme={themeName} onThemeToggle={toggleTheme} />
 
-                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold tracking-tight text-slate-100 mb-4 sm:mb-6 md:mb-8 font-heading leading-[1.1] sm:leading-tight">
-                  Professional
-                  <span className="block text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 text-gradient-depth py-1 sm:py-2">
-                    Virtual Trading
-                  </span>
-                  <span className="block text-slate-200">Platform</span>
-                </h1>
+      <main>
+        <section className={`relative isolate overflow-hidden ${theme.hero}`}>
+          <div className="landing-market-animation absolute inset-0 -z-30" />
+          <div className="landing-grid absolute inset-0 -z-20 opacity-40" />
+          <div className="landing-sparkline absolute inset-x-0 top-20 -z-10 h-80 opacity-60" />
+          <div className="absolute inset-x-0 top-0 -z-10 mx-auto h-[620px] max-w-6xl bg-[radial-gradient(circle_at_50%_0%,rgba(220,183,83,0.18),transparent_62%)]" />
+          <div className="landing-orb absolute -left-40 top-44 -z-10 h-80 w-80 rounded-full bg-violet-600/10 blur-[100px]" />
+          <div className="landing-orb landing-orb-delay absolute -right-36 top-28 -z-10 h-96 w-96 rounded-full bg-amber-500/10 blur-[120px]" />
 
-                <p className="mt-4 sm:mt-6 text-base sm:text-lg lg:text-xl leading-6 sm:leading-7 lg:leading-8 text-slate-400 max-w-2xl lg:max-w-3xl mx-auto">
-                  Hone your trading strategies with live, institutional-grade
-                  data in a zero-risk environment. QuantNest's paper trading
-                  platform is your professional sandbox for building, testing,
-                  and perfecting your approach before deploying real capital.
-                </p>
-
-                <div className="mt-6 sm:mt-8 md:mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 md:gap-6">
-                  <Button
-                    size="lg"
-                    className="w-full sm:w-auto bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_12px_40px_rgba(99,102,241,0.4)] px-6 py-2.5 sm:px-8 sm:py-3 md:px-10 md:py-4 text-sm sm:text-base md:text-lg font-semibold rounded-2xl border-0"
-                    onClick={() => {
-                      navigate("/register");
-                    }}
-                  >
-                    Start for Free
-                    <ArrowRight className="ml-2 h-4 w-4 sm:h-5 sm:w-5" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    className="w-full sm:w-auto text-slate-300 border-slate-600/50 hover:bg-slate-800/50 hover:text-slate-100 bg-slate-800/30 px-6 py-2.5 sm:px-8 sm:py-3 md:px-10 md:py-4 text-sm sm:text-base md:text-lg font-semibold rounded-2xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)]"
-                  >
-                    <Play className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-                    Watch Demo
-                  </Button>
-                </div>
-
-                <div className="mt-8 sm:mt-10 md:mt-12 flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-8 text-xs sm:text-sm text-slate-500">
-                  <div className="flex items-center">
-                    <Shield className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    <span>Enterprise Security</span>
-                  </div>
-                  <div className="flex items-center">
-                    <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    <span>No Credit Card Required</span>
-                  </div>
-                  <div className="flex items-center">
-                    <Clock className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    <span>Setup in Minutes</span>
-                  </div>
-                </div>
+          <div className="mx-auto max-w-7xl px-4 pb-16 pt-16 sm:px-6 sm:pt-20 lg:px-8 lg:pb-20 lg:pt-24">
+            <div className="mx-auto max-w-5xl text-center">
+              <div
+                className={`mb-6 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:text-sm ${theme.badge}`}
+              >
+                <Sparkles className="h-4 w-4" />
+                AI research to live trading, in one place
               </div>
 
-              <div className="mt-12 sm:mt-16 md:mt-20 lg:mt-24">
-                <div className="relative rounded-2xl sm:rounded-3xl bg-slate-800/30 p-2 sm:p-3 md:p-4 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800 backdrop-blur-sm max-w-6xl mx-auto">
+              <h1 className={`text-balance text-4xl font-semibold leading-[1.05] tracking-[-0.055em] sm:text-6xl lg:text-[78px] ${theme.text}`}>
+                Build, test, and run trading strategies with confidence.
+              </h1>
+
+              <p className={`mx-auto mt-6 max-w-3xl text-base leading-8 sm:text-lg lg:text-xl ${theme.muted}`}>
+                QuantNest helps you research ideas with AI, create rule-based
+                strategies, backtest them, try them in paper trading, and move
+                selected strategies to live trading with broker connections and
+                risk controls.
+              </p>
+
+              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <Button
+                  asChild
+                  size="lg"
+                  className="h-11 w-auto rounded-full border border-[#f2da8e]/40 bg-[#e5c461] px-6 text-sm font-semibold text-black shadow-[0_12px_50px_rgba(229,196,97,0.2)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#f2da8e]"
+                >
+                  <Link to="/register">
+                    Create your workspace
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  variant="outline"
+                  size="lg"
+                  className={`h-11 w-auto rounded-full px-6 text-sm transition-all duration-300 hover:-translate-y-0.5 ${theme.ghost}`}
+                >
+                  <Link to="/login">
+                    Sign in to QuantNest
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+
+              <div className={`mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-xs sm:text-sm ${theme.subtle}`}>
+                <span className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-[#d8b557]" />
+                  AI research
+                </span>
+                <span className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-[#d8b557]" />
+                  Strategy backtesting
+                </span>
+                <span className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-[#d8b557]" />
+                  Paper and live deployment
+                </span>
+              </div>
+            </div>
+
+            <div className="relative mx-auto mt-12 max-w-7xl lg:mt-14">
+              <div className="absolute -inset-8 -z-10 bg-[radial-gradient(circle_at_50%_30%,rgba(229,196,97,0.12),transparent_60%)] blur-2xl" />
+              <div
+                className={`relative rounded-[28px] border p-2 shadow-[0_35px_100px_rgba(0,0,0,0.35),0_0_0_1px_rgba(229,196,97,0.04)] sm:p-3 ${theme.panel}`}
+              >
+                <div className={`flex items-center justify-between border-b px-3 py-2 sm:px-4 ${theme.border}`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#e95c5c]" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#e5c461]" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#45c18a]" />
+                  </div>
+                  <span className={`text-[10px] font-medium uppercase tracking-[0.22em] sm:text-xs ${theme.subtle}`}>
+                    QuantNest trading workspace
+                  </span>
+                  <div className="w-10" />
+                </div>
+                <div className="overflow-hidden rounded-[20px]">
                   <img
                     src="/dashboard.png"
-                    alt="QuantNest Professional Trading Platform"
-                    width={1200}
-                    height={600}
-                    className="rounded-xl sm:rounded-2xl shadow-2xl w-full h-auto"
+                    alt="QuantNest trading terminal with watchlist and live chart"
+                    width="1912"
+                    height="866"
+                    className="h-auto w-full"
+                    loading="eager"
                   />
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
 
-        {/* Stats Section */}
-        <section className="py-12 sm:py-16 md:py-20 bg-gray-900/30">
-          <div className="container px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-            <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 md:gap-8">
-              <div className="text-center p-4 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl bg-gray-900/50 shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-indigo-300 font-heading">
-                  $2.5B+
-                </div>
-                <div className="text-xs sm:text-sm font-medium text-slate-400 mt-1 sm:mt-2">
-                  Assets Under Management
-                </div>
-              </div>
-              <div className="text-center p-4 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl bg-gray-900/50 shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-purple-300 font-heading">
-                  50K+
-                </div>
-                <div className="text-xs sm:text-sm font-medium text-slate-400 mt-1 sm:mt-2">
-                  Active Traders
-                </div>
-              </div>
-              <div className="text-center p-4 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl bg-gray-900/50 shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-pink-300 font-heading">
-                  99.99%
-                </div>
-                <div className="text-xs sm:text-sm font-medium text-slate-400 mt-1 sm:mt-2">
-                  System Uptime
-                </div>
-              </div>
-              <div className="text-center p-4 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl bg-gray-900/50 shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-cyan-300 font-heading">
-                  15+
-                </div>
-                <div className="text-xs sm:text-sm font-medium text-slate-400 mt-1 sm:mt-2">
-                  Broker Integrations
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Features Overview */}
-        <section id="features" className="section-padding-lg bg-black">
-          <div className="container container-padding max-w-7xl mx-auto">
-            <div className="mx-auto max-w-3xl text-center mb-12 sm:mb-16 md:mb-20">
-              <h2 className="text-sm font-semibold leading-7 text-indigo-400 uppercase tracking-wide mb-3 sm:mb-4 section-subtitle">
-                Complete Trading Suite
-              </h2>
-              <p className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight text-slate-100 mb-4 sm:mb-6 font-heading">
-                Everything you need for algorithmic trading
-              </p>
-              <p className="text-base leading-7 text-slate-400 sm:text-lg sm:leading-8">
-                Professional-grade tools designed for traders, by traders. From
-                strategy development to live execution with institutional-level
-                infrastructure.
-              </p>
-            </div>
-
-            <div className="mx-auto max-w-7xl">
-              <div className="grid grid-cols-1 gap-6 sm:gap-8 md:max-w-2xl md:mx-auto lg:max-w-none lg:grid-cols-3 xl:gap-10">
-                <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                  <div className="flex items-center justify-between mb-4 sm:mb-6">
-                    <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)]">
-                      <Target className="h-6 w-6 sm:h-7 sm:w-7 text-emerald-400" />
-                    </div>
-                    <div className="rounded-full bg-emerald-500/20 px-2 py-1 text-xs font-medium text-emerald-300 border border-emerald-500/30">
-                      Risk-Free
-                    </div>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-2 sm:text-xl sm:mb-3 font-heading">
-                    Paper Trading
-                  </h3>
-                  <p className="text-sm text-slate-400 sm:text-base">
-                    Master your strategies with unlimited paper trading using
-                    real-time market data and realistic execution modeling.
-                  </p>
-                </div>
-
-                <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                  <div className="flex items-center justify-between mb-4 sm:mb-6">
-                    <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)]">
-                      <Code2 className="h-6 w-6 sm:h-7 sm:w-7 text-purple-400" />
-                    </div>
-                    <div className="rounded-full bg-purple-500/20 px-2 py-1 text-xs font-medium text-purple-300 border border-purple-500/30">
-                      AI-Powered
-                    </div>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-2 sm:text-xl sm:mb-3 font-heading">
-                    Strategy Builder
-                  </h3>
-                  <p className="text-sm text-slate-400 sm:text-base">
-                    Build sophisticated algorithms with visual tools or code in
-                    Python, JavaScript, and Pine Script with AI assistance.
-                  </p>
-                </div>
-
-                <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                  <div className="flex items-center justify-between mb-4 sm:mb-6">
-                    <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500/20 to-red-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)]">
-                      <TestTube2 className="h-6 w-6 sm:h-7 sm:w-7 text-orange-400" />
-                    </div>
-                    <div className="rounded-full bg-orange-500/20 px-2 py-1 text-xs font-medium text-orange-300 border border-orange-500/30">
-                      Institutional
-                    </div>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-2 sm:text-xl sm:mb-3 font-heading">
-                    Advanced Backtesting
-                  </h3>
-                  <p className="text-sm text-slate-400 sm:text-base">
-                    Validate strategies with tick-level precision, realistic
-                    costs, and comprehensive risk analytics across years of
-                    data.
-                  </p>
-                </div>
-
-                <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                  <div className="flex items-center justify-between mb-4 sm:mb-6">
-                    <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)]">
-                      <Rocket className="h-6 w-6 sm:h-7 sm:w-7 text-green-400" />
-                    </div>
-                    <div className="rounded-full bg-green-500/20 px-2 py-1 text-xs font-medium text-green-300 border border-green-500/30">
-                      Live
-                    </div>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-2 sm:text-xl sm:mb-3 font-heading">
-                    Live Deployment
-                  </h3>
-                  <p className="text-sm text-slate-400 sm:text-base">
-                    Deploy proven strategies to live markets with one-click
-                    execution, real-time monitoring, and automatic risk
-                    management.
-                  </p>
-                </div>
-
-                <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                  <div className="flex items-center justify-between mb-4 sm:mb-6">
-                    <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)]">
-                      <Plug className="h-6 w-6 sm:h-7 sm:w-7 text-blue-400" />
-                    </div>
-                    <div className="rounded-full bg-blue-500/20 px-2 py-1 text-xs font-medium text-blue-300 border border-blue-500/30">
-                      Multi-Broker
-                    </div>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-2 sm:text-xl sm:mb-3 font-heading">
-                    Broker Integration
-                  </h3>
-                  <p className="text-sm text-slate-400 sm:text-base">
-                    Connect to 15+ major brokers including Interactive Brokers,
-                    TD Ameritrade, and Alpaca with secure API connections.
-                  </p>
-                </div>
-
-                <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                  <div className="flex items-center justify-between mb-4 sm:mb-6">
-                    <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)]">
-                      <BarChart3 className="h-6 w-6 sm:h-7 sm:w-7 text-indigo-400" />
-                    </div>
-                    <div className="rounded-full bg-indigo-500/20 px-2 py-1 text-xs font-medium text-indigo-300 border border-indigo-500/30">
-                      Analytics
-                    </div>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-2 sm:text-xl sm:mb-3 font-heading">
-                    Performance Analytics
-                  </h3>
-                  <p className="text-sm text-slate-400 sm:text-base">
-                    Comprehensive performance tracking with Sharpe ratio,
-                    drawdown analysis, alpha, beta, and custom risk metrics.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* How It Works Section */}
-        <section className="py-20 sm:py-24 lg:py-32 bg-gray-900/30">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl text-center mb-16 sm:mb-20">
-              <h2 className="text-sm font-semibold leading-7 text-indigo-400 uppercase tracking-wide mb-3 sm:mb-4 section-subtitle">
-                Simple Process
-              </h2>
-              <p className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl lg:text-5xl mb-4 sm:mb-6 font-heading">
-                How It Works
-              </p>
-              <p className="text-base leading-7 text-slate-400 sm:text-lg sm:leading-8">
-                Get started with algorithmic trading in three simple steps. No
-                complex setup required.
-              </p>
-            </div>
-
-            <div className="mx-auto max-w-5xl flex flex-col">
-              <div className="grid max-w-xl grid-cols-1 gap-8 lg:max-w-none lg:grid-cols-3 sm:gap-12 mx-auto">
-                {/* Step 1 */}
-                <div className="relative text-center p-4">
-                  <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 shadow-[inset_0_4px_8px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] border border-indigo-500/30 mx-auto mb-6 sm:mb-8">
-                    <Brain className="h-8 w-8 sm:h-10 sm:w-10 text-indigo-400" />
-                  </div>
-                  <div className="absolute -top-2 -right-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold rounded-full w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center">
-                    1
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-100 mb-3 sm:text-2xl sm:mb-4 font-heading">
-                    Discover with AI
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-lg">
-                    Get personalized stock picks, news summaries, and market
-                    analysis from your personal AI research assistant.
-                  </p>
-                </div>
-
-                {/* Step 2 */}
-                <div className="relative text-center p-4">
-                  <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 shadow-[inset_0_4px_8px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] border border-emerald-500/30 mx-auto mb-6 sm:mb-8">
-                    <Code2 className="h-8 w-8 sm:h-10 sm:w-10 text-emerald-400" />
-                  </div>
-                  <div className="absolute -top-2 -right-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-bold rounded-full w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center">
-                    2
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-100 mb-3 sm:text-2xl sm:mb-4 font-heading">
-                    Build & Backtest
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-lg">
-                    Use our simple drag-and-drop interface to build a trading
-                    strategy based on indicators and logic. No coding required.
-                    Backtest it instantly on historical data.
-                  </p>
-                </div>
-
-                {/* Step 3 */}
-                <div className="relative text-center p-4">
-                  <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-orange-500/20 to-red-600/20 shadow-[inset_0_4px_8px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] border border-orange-500/30 mx-auto mb-6 sm:mb-8">
-                    <Rocket className="h-8 w-8 sm:h-10 sm:w-10 text-orange-400" />
-                  </div>
-                  <div className="absolute -top-2 -right-2 bg-gradient-to-r from-orange-500 to-red-600 text-white text-sm font-bold rounded-full w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center">
-                    3
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-100 mb-3 sm:text-2xl sm:mb-4 font-heading">
-                    Deploy with Confidence
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-lg">
-                    Practice your strategy in our risk-free paper trading
-                    environment with real-time market data. When you're ready,
-                    connect your broker and deploy it live.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Detailed Feature: Algo Trading */}
-        <section className="py-20 sm:py-24 lg:py-32 bg-black">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto grid max-w-2xl grid-cols-1 gap-y-12 sm:gap-y-16 lg:mx-0 lg:max-w-none lg:grid-cols-2 lg:items-center lg:gap-x-8">
-              <div className="lg:pr-8 lg:pt-4">
-                <div className="lg:max-w-lg">
-                  <h2 className="text-sm font-semibold leading-7 text-purple-400 uppercase tracking-wide mb-3 sm:mb-4 section-subtitle">
-                    Automated Excellence
-                  </h2>
-                  <p className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl mb-4 sm:mb-6 font-heading">
-                    Automate Your Trading with Algo Trading
-                  </p>
-                  <p className="text-base leading-7 text-slate-400 mb-8 sm:mb-10 sm:text-lg">
-                    With QuantNest's Algo Trading feature, you can create and
-                    deploy automated trading strategies that execute trades on
-                    your behalf, ensuring you never miss an opportunity.
-                  </p>
-
-                  <dl className="space-y-6 text-sm leading-6 sm:space-y-8 sm:text-base sm:leading-7">
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Code2 className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-purple-400" />
-                        Customizable Algorithms
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        Tailor your trading algorithms to fit your unique
-                        strategy and risk tolerance with our intuitive builder.
-                      </dd>
-                    </div>
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Zap className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-purple-400" />
-                        Real-Time Execution
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        Ensure your trades are executed instantly based on
-                        market conditions, maximizing your potential gains.
-                      </dd>
-                    </div>
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <TestTube2 className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-purple-400" />
-                        Backtesting Capabilities
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        Test your algorithms against historical data to refine
-                        your strategies before going live.
-                      </dd>
-                    </div>
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <BarChart3 className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-purple-400" />
-                        Performance Analytics
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        Monitor the performance of your algorithms with detailed
-                        analytics to make informed adjustments.
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <div className="mt-8 sm:mt-10">
-                    <Button className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white shadow-[0_8px_32px_rgba(147,51,234,0.3)] rounded-2xl px-8 py-3 text-base">
-                      Build Your First Algorithm
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 rounded-3xl transform -rotate-1 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)]"></div>
-                <img
-                  src="/algotrading.png"
-                  alt="Algo Trading Flowchart Interface"
-                  width={600}
-                  height={400}
-                  className="relative w-full max-w-none rounded-2xl shadow-2xl border border-gray-800 h-auto"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Detailed Feature: AI Research Assistant */}
-        <section className="py-20 sm:py-24 lg:py-32 bg-gray-900/30">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto grid max-w-2xl grid-cols-1 gap-y-12 sm:gap-y-16 lg:mx-0 lg:max-w-none lg:grid-cols-2 lg:items-center lg:gap-x-8">
-              <div className="relative lg:order-first">
-                <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-cyan-500/10 rounded-3xl transform rotate-1 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)]"></div>
-                <img
-                  src="/airesearch.png"
-                  alt="AI Research Assistant Interface"
-                  width={600}
-                  height={400}
-                  className="relative w-full max-w-none rounded-2xl shadow-2xl border border-gray-800 h-auto"
-                />
-              </div>
-              <div className="lg:pl-8 lg:pt-4">
-                <div className="lg:max-w-lg">
-                  <h2 className="text-sm font-semibold leading-7 text-indigo-400 uppercase tracking-wide mb-3 sm:mb-4 section-subtitle">
-                    AI-Powered Intelligence
-                  </h2>
-                  <p className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl mb-4 sm:mb-6 font-heading">
-                    Your Personal AI Research Assistant
-                  </p>
-                  <p className="text-base leading-7 text-slate-400 mb-8 sm:mb-10 sm:text-lg">
-                    Leverage the power of AI to enhance your trading decisions
-                    with intelligent insights and data-driven recommendations
-                    tailored to your trading style.
-                  </p>
-
-                  <dl className="space-y-6 text-sm leading-6 sm:space-y-8 sm:text-base sm:leading-7">
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Target className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-indigo-400" />
-                        Personalized Insights
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        Receive tailored stock picks and market analysis based
-                        on your trading preferences and history.
-                      </dd>
-                    </div>
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Globe className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-indigo-400" />
-                        News Summaries
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        Stay updated with concise summaries of market news that
-                        impact your trading strategies.
-                      </dd>
-                    </div>
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Activity className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-indigo-400" />
-                        Data-Driven Recommendations
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        Get actionable insights derived from millions of data
-                        points, helping you make informed trading decisions.
-                      </dd>
-                    </div>
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Brain className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-indigo-400" />
-                        Continuous Learning
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        The AI adapts and improves its recommendations based on
-                        your trading behavior and market changes.
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <div className="mt-8 sm:mt-10">
-                    <Button className="bg-gradient-to-r from-indigo-500 to-cyan-600 hover:from-indigo-600 hover:to-cyan-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] rounded-2xl px-8 py-3 text-base">
-                      Try AI Assistant
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Detailed Feature: Paper Trading */}
-        <section className="py-20 sm:py-24 lg:py-32 bg-gray-900/30">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto grid max-w-2xl grid-cols-1 gap-y-12 sm:gap-y-16 lg:mx-0 lg:max-w-none lg:grid-cols-2 lg:items-center lg:gap-x-8">
-              <div className="lg:pr-8 lg:pt-4">
-                <div className="lg:max-w-lg">
-                  <h2 className="text-sm font-semibold leading-7 text-emerald-400 uppercase tracking-wide mb-3 sm:mb-4 section-subtitle">
-                    Risk-Free Learning
-                  </h2>
-                  <p className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl mb-4 sm:mb-6 font-heading">
-                    Master Paper Trading
-                  </p>
-                  <p className="text-base leading-7 text-slate-400 mb-8 sm:mb-10 sm:text-lg">
-                    Perfect your trading strategies without risking real
-                    capital. Our paper trading environment provides real-time
-                    market data with institutional-grade execution simulation.
-                  </p>
-
-                  <dl className="space-y-6 text-sm leading-6 sm:space-y-8 sm:text-base sm:leading-7">
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Globe className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-emerald-400" />
-                        Real-time global data
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        from 50+ exchanges worldwide with microsecond precision.
-                      </dd>
-                    </div>
-                    <div className="relative pl-8 sm:pl-9">
-                      <dt className="inline font-semibold text-slate-200">
-                        <Activity className="absolute left-0 top-0 h-4 w-4 sm:h-5 sm:w-5 text-emerald-400" />
-                        Realistic execution
-                      </dt>
-                      <dd className="inline text-slate-400">
-                        {" "}
-                        with advanced slippage modeling and latency simulation.
-                      </dd>
-                    </div>
-                    <li className="flex items-start">
-                      <BarChart3 className="h-5 w-5 text-emerald-400 mr-3 flex-shrink-0 mt-1" />
-                      <span className="text-slate-300 text-base">
-                        Portfolio analytics with detailed P&L tracking and risk
-                        attribution analysis.
-                      </span>
-                    </li>
-                  </dl>
-
-                  <div className="mt-8 sm:mt-10">
-                    <Button className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-[0_8px_32px_rgba(16,185,129,0.3)] rounded-2xl px-8 py-3 text-base">
-                      Start Paper Trading
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 rounded-3xl transform rotate-1 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)]"></div>
-                <img
-                  src="/papertrading.png"
-                  alt="Paper Trading Interface"
-                  width={600}
-                  height={400}
-                  className="relative w-full max-w-none rounded-2xl shadow-2xl border border-gray-800 h-auto"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Pricing Section */}
-        <section id="pricing" className="py-20 sm:py-24 lg:py-32 bg-black">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl text-center mb-16 sm:mb-20">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl lg:text-5xl mb-4 sm:mb-6 font-heading">
-                Professional Pricing Plans
-              </h2>
-              <p className="text-base leading-7 text-slate-400 sm:text-lg sm:leading-8">
-                Choose the plan that fits your trading needs. All plans include
-                our core features with different limits and capabilities.
-              </p>
-            </div>
-
-            <div className="mx-auto grid max-w-lg grid-cols-1 gap-6 lg:max-w-6xl lg:grid-cols-3 sm:gap-8">
-              <div className="flex flex-col justify-between rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                <div className="pb-6 sm:pb-8">
-                  <h3 className="text-xl font-bold text-slate-100 mb-2 sm:text-2xl font-heading">
-                    Starter
-                  </h3>
-                  <p className="text-sm text-slate-400 mb-6 sm:mb-8">
-                    Perfect for learning and experimentation
-                  </p>
-                  <div className="mb-6 sm:mb-8">
-                    <span className="text-4xl font-bold text-slate-100 sm:text-5xl font-heading">
-                      ₹0
-                    </span>
-                    <span className="text-base font-semibold text-slate-400 sm:text-lg">
-                      /month
-                    </span>
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <ul className="space-y-3 text-sm mb-6 sm:mb-8">
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Unlimited paper trading
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Basic backtesting (1 year data)
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        5 strategies maximum
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">Community support</span>
-                    </li>
-                  </ul>
-                  <Button className="w-full bg-slate-700/50 text-slate-200 hover:bg-slate-700 border border-slate-600/50 rounded-2xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] text-base">
-                    Get Started Free
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-between rounded-3xl bg-gradient-to-br from-indigo-500/10 to-purple-600/10 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-indigo-500/30 p-6 sm:p-8 relative">
-                <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-3 py-1 rounded-full text-xs font-medium sm:px-4 sm:py-1 sm:text-sm">
-                    Most Popular
-                  </div>
-                </div>
-                <div className="pb-6 sm:pb-8">
-                  <h3 className="text-xl font-bold text-slate-100 mb-2 sm:text-2xl font-heading">
-                    Professional
-                  </h3>
-                  <p className="text-sm text-slate-400 mb-6 sm:mb-8">
-                    For serious traders and small teams
-                  </p>
-                  <div className="mb-6 sm:mb-8">
-                    <span className="text-4xl font-bold text-slate-100 sm:text-5xl font-heading">
-                      ₹499
-                    </span>
-                    <span className="text-base font-semibold text-slate-400 sm:text-lg">
-                      /month
-                    </span>
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <ul className="space-y-3 text-sm mb-6 sm:mb-8">
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Everything in Starter
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Live trading (1 broker)
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Advanced backtesting (10 years)
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        50 strategies maximum
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">Priority support</span>
-                    </li>
-                  </ul>
-                  <Button className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] rounded-2xl text-base">
-                    Start Free Trial
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-between rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                <div className="pb-6 sm:pb-8">
-                  <h3 className="text-xl font-bold text-slate-100 mb-2 sm:text-2xl font-heading">
-                    Enterprise
-                  </h3>
-                  <p className="text-sm text-slate-400 mb-6 sm:mb-8">
-                    For institutions and large teams
-                  </p>
-                  <div className="mb-6 sm:mb-8">
-                    <span className="text-4xl font-bold text-slate-100 sm:text-5xl font-heading">
-                      ₹1499
-                    </span>
-                    <span className="text-base font-semibold text-slate-400 sm:text-lg">
-                      /month
-                    </span>
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <ul className="space-y-3 text-sm mb-6 sm:mb-8">
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Everything in Professional
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Multiple broker connections
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Unlimited strategies
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">
-                        Custom integrations
-                      </span>
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-emerald-400 mr-2 sm:h-5 sm:w-5 sm:mr-3" />
-                      <span className="text-slate-300">Dedicated support</span>
-                    </li>
-                  </ul>
-                  <Button className="w-full bg-slate-700/50 text-slate-200 hover:bg-slate-700 border border-slate-600/50 rounded-2xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] text-base">
-                    Contact Sales
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Testimonials */}
-        <section className="py-20 sm:py-24 lg:py-32 bg-gray-900/30">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl text-center mb-16 sm:mb-20">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl lg:text-5xl mb-4 sm:mb-6 font-heading">
-                Trusted by professionals worldwide
-              </h2>
-              <p className="text-base leading-7 text-slate-400 sm:text-lg sm:leading-8">
-                See what traders and institutions are saying about QuantNest
-              </p>
-            </div>
-
-            <div className="mx-auto grid max-w-2xl grid-cols-1 gap-6 lg:mx-0 lg:max-w-none lg:grid-cols-3 sm:gap-8">
-              <div className="rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                <div className="flex items-center mb-4 sm:mb-6">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className="h-4 w-4 sm:h-5 sm:w-5 fill-yellow-400 text-yellow-400"
-                    />
-                  ))}
-                </div>
-                <p className="text-base text-slate-300 mb-4 sm:mb-6 sm:text-lg leading-relaxed testimonial-quote">
-                  "QuantNest's backtesting engine is incredibly sophisticated.
-                  The tick-level precision and realistic cost modeling helped me
-                  optimize my strategies before going live."
-                </p>
-                <div className="flex items-center">
-                  <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-600/20 flex items-center justify-center text-white font-semibold shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] text-sm sm:text-base">
-                    SC
-                  </div>
-                  <div className="ml-3 sm:ml-4">
-                    <p className="text-sm font-semibold text-slate-200">
-                      Sarah Chen
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      Senior Quantitative Trader, Citadel
+              <div
+                className={`landing-float absolute -left-10 top-[20%] hidden rounded-2xl border p-3 shadow-2xl backdrop-blur-xl xl:block 2xl:-left-16 ${theme.cardSoft}`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/15">
+                    <Activity className="h-4 w-4 text-emerald-300" />
+                  </span>
+                  <div>
+                    <p className={`text-[11px] ${theme.subtle}`}>Live status</p>
+                    <p className={`mt-0.5 text-xs font-medium ${theme.text}`}>
+                      Monitored in real time
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                <div className="flex items-center mb-4 sm:mb-6">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className="h-4 w-4 sm:h-5 sm:w-5 fill-yellow-400 text-yellow-400"
-                    />
-                  ))}
+              <div
+                className={`landing-float landing-float-delay absolute -right-10 bottom-[14%] hidden w-48 rounded-2xl border border-[#e5c461]/20 p-3 shadow-2xl backdrop-blur-xl xl:block 2xl:-right-16 ${theme.cardSoft}`}
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <span className={`text-[11px] ${theme.subtle}`}>Risk controls</span>
+                  <ShieldCheck className="h-4 w-4 text-[#d8b557]" />
                 </div>
-                <p className="text-base text-slate-300 mb-4 sm:mb-6 sm:text-lg leading-relaxed testimonial-quote">
-                  "The broker integrations are seamless and the execution is
-                  lightning fast. We've deployed multiple strategies across
-                  different asset classes without any issues."
-                </p>
-                <div className="flex items-center">
-                  <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-600/20 flex items-center justify-center text-white font-semibold shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] text-sm sm:text-base">
-                    MR
-                  </div>
-                  <div className="ml-3 sm:ml-4">
-                    <p className="text-sm font-semibold text-slate-200">
-                      Michael Rodriguez
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      Portfolio Manager, Two Sigma
-                    </p>
-                  </div>
+                <div className="space-y-1.5">
+                  {["Sizing rules", "Capital limits", "Emergency stop"].map(
+                    (label) => (
+                      <div
+                        key={label}
+                        className={`flex items-center gap-2 text-[11px] ${theme.muted}`}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#e5c461]" />
+                        {label}
+                      </div>
+                    ),
+                  )}
                 </div>
               </div>
+            </div>
 
-              <div className="rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50 p-6 sm:p-8">
-                <div className="flex items-center mb-4 sm:mb-6">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className="h-4 w-4 sm:h-5 sm:w-5 fill-yellow-400 text-yellow-400"
-                    />
-                  ))}
-                </div>
-                <p className="text-base text-slate-300 mb-4 sm:mb-6 sm:text-lg leading-relaxed testimonial-quote">
-                  "Started with paper trading and now managing a profitable
-                  portfolio. The learning curve was smooth thanks to the
-                  intuitive interface and excellent documentation."
-                </p>
-                <div className="flex items-center">
-                  <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-600/20 flex items-center justify-center text-white font-semibold shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] text-sm sm:text-base">
-                    DK
-                  </div>
-                  <div className="ml-3 sm:ml-4">
-                    <p className="text-sm font-semibold text-slate-200">
-                      David Kim
-                    </p>
-                    <p className="text-xs text-slate-400">Independent Trader</p>
-                  </div>
-                </div>
+            <div className={`mt-10 overflow-hidden border-y py-4 ${theme.border}`}>
+              <div className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs font-medium uppercase tracking-[0.18em] sm:gap-x-5 ${theme.subtle}`}>
+                {lifecycleLabels.map((label, index) => (
+                  <React.Fragment key={label}>
+                    <span>{label}</span>
+                    {index < lifecycleLabels.length - 1 && (
+                      <ArrowRight className="h-3.5 w-3.5 text-[#8d773d]" />
+                    )}
+                  </React.Fragment>
+                ))}
               </div>
             </div>
           </div>
         </section>
 
-        {/* Security & Trust Section */}
-        <section className="py-20 sm:py-24 lg:py-32 bg-black">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl text-center mb-16 sm:mb-20">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl lg:text-5xl mb-4 sm:mb-6 font-heading">
-                Security Isn't a Feature. It's Our Foundation.
-              </h2>
-              <p className="text-base leading-7 text-slate-400 sm:text-lg sm:leading-8">
-                We use bank-grade security and industry best practices to
-                protect your data and your privacy.
-              </p>
-            </div>
-
-            <div className="mx-auto max-w-6xl flex flex-col">
-              <div className="grid max-w-xl grid-cols-1 gap-6 lg:max-w-none lg:grid-cols-3 sm:gap-8 mx-auto">
-                {/* Broker-Level Security */}
-                <div className="text-center p-6 sm:p-8 rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                  <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] mx-auto mb-4 sm:mb-6">
-                    <Shield className="h-7 w-7 sm:h-8 sm:w-8 text-blue-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-3 sm:text-xl sm:mb-4 font-heading">
-                    Broker-Level Security
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-base">
-                    We never store your broker credentials. Your account is
-                    connected via a secure, encrypted API token using the
-                    official broker-provided login process.
-                  </p>
-                </div>
-
-                {/* Data Encryption */}
-                <div className="text-center p-6 sm:p-8 rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                  <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] mx-auto mb-4 sm:mb-6">
-                    <Lock className="h-7 w-7 sm:h-8 sm:w-8 text-green-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-3 sm:text-xl sm:mb-4 font-heading">
-                    Data Encryption
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-base">
-                    All your personal data and trading strategies are protected
-                    with AES-256 encryption, both in transit and at rest.
-                  </p>
-                </div>
-
-                {/* Strict Privacy */}
-                <div className="text-center p-6 sm:p-8 rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                  <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] mx-auto mb-4 sm:mb-6">
-                    <EyeOff className="h-7 w-7 sm:h-8 sm:w-8 text-purple-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-3 sm:text-xl sm:mb-4 font-heading">
-                    Strict Privacy
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-base">
-                    We will never sell your personal data or your trading data
-                    to third parties. Your strategies are your intellectual
-                    property, period.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Behind the Nest Section */}
-        <section className="py-20 sm:py-24 lg:py-32 bg-gray-900/30">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-4xl">
-              <div className="text-center mb-10 sm:mb-12">
-                <h2 className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl lg:text-5xl mb-4 sm:mb-6 font-heading">
-                  Built in Ahmedabad, for the Indian Trader
-                </h2>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 sm:gap-12 items-center">
-                <div className="lg:col-span-1">
-                  <div className="w-40 h-40 sm:w-48 sm:h-48 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] border border-gray-800/50 flex items-center justify-center">
-                    <Users className="h-20 w-20 sm:h-24 sm:w-24 text-indigo-400" />
-                  </div>
-                </div>
-
-                <div className="lg:col-span-2">
-                  <div className="text-base text-slate-300 leading-relaxed space-y-4 sm:space-y-6 sm:text-lg">
-                    <p>
-                      QuantNest wasn't born in a boardroom. It was born from our
-                      own trading experiences right here in India. As a solo
-                      founder and an active trader, I grew frustrated with the
-                      lack of institutional-grade tools available to retail
-                      investors.
-                    </p>
-                    <p>
-                      I wanted a platform that was intelligent, data-driven, and
-                      built specifically for the nuances of our market. Our
-                      mission is simple: to empower every Indian trader with the
-                      technology and insights they need to compete and succeed.
-                    </p>
-                    <p>
-                      We're building QuantNest to be the platform we always
-                      wanted for ourselves, and we're excited to have you on
-                      this journey with us.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* About Us Section */}
-        <section id="about" className="py-20 sm:py-24 lg:py-32 bg-black">
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl text-center mb-16 sm:mb-20">
-              <h2 className="text-sm font-semibold leading-7 text-emerald-400 uppercase tracking-wide mb-3 sm:mb-4 section-subtitle">
-                Our Story
-              </h2>
-              <p className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl lg:text-5xl mb-4 sm:mb-6 font-heading">
-                About QuantNest
-              </p>
-              <p className="text-base leading-7 text-slate-400 sm:text-lg sm:leading-8">
-                At QuantNest, we are driven by a passion for empowering traders
-                with{" "}
-                <span className="text-indigo-300 font-medium">
-                  cutting-edge technology
-                </span>{" "}
-                and unparalleled insights. Our journey began with a simple idea:
-                to democratize{" "}
-                <span className="text-purple-300 font-medium">
-                  sophisticated algorithmic trading tools
-                </span>
-                , making them accessible to everyone from individual traders to
-                large institutions.
-              </p>
-            </div>
-
-            <div className="mx-auto max-w-6xl flex flex-col">
-              <div className="grid max-w-xl grid-cols-1 gap-6 lg:max-w-none lg:grid-cols-3 sm:gap-8 mx-auto">
-                <div className="text-center p-6 sm:p-8 rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                  <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] mx-auto mb-4 sm:mb-6">
-                    <Lightbulb className="h-7 w-7 sm:h-8 sm:w-8 text-blue-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-3 sm:text-xl sm:mb-4 font-heading">
-                    Our Vision
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-base">
-                    To be the leading platform for algorithmic trading,
-                    fostering innovation and success for traders worldwide.
-                  </p>
-                </div>
-
-                <div className="text-center p-6 sm:p-8 rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                  <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] mx-auto mb-4 sm:mb-6">
-                    <Handshake className="h-7 w-7 sm:h-8 sm:w-8 text-green-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-3 sm:text-xl sm:mb-4 font-heading">
-                    Our Mission
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-base">
-                    To empower traders with intuitive, powerful, and secure
-                    tools that simplify complex strategies and maximize
-                    potential returns.
-                  </p>
-                </div>
-
-                <div className="text-center p-6 sm:p-8 rounded-3xl bg-gray-900/50 shadow-[inset_0_4px_8px_rgba(255,255,255,0.05),inset_0_-4px_8px_rgba(0,0,0,0.3)] border border-gray-800/50">
-                  <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] mx-auto mb-4 sm:mb-6">
-                    <Award className="h-7 w-7 sm:h-8 sm:w-8 text-purple-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100 mb-3 sm:text-xl sm:mb-4 font-heading">
-                    Our Values
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed sm:text-base">
-                    Innovation, Security, Transparency, and User Empowerment are
-                    at the core of everything we do.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* CTA Section */}
         <section
-          id="contact"
-          className="py-20 sm:py-24 lg:py-32 bg-gradient-to-br from-indigo-900/50 to-purple-900/50"
+          id="workflow"
+          className={`scroll-mt-24 border-t py-16 sm:py-20 lg:py-24 ${theme.alt} ${theme.border}`}
         >
-          <div className="container px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-3xl text-center">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl lg:text-5xl mb-4 sm:mb-6 font-heading">
-                Ready to transform your trading?
-              </h2>
-              <p className="text-base leading-7 text-slate-300 mb-8 sm:mb-12 sm:text-lg">
-                Join thousands of professional traders who trust QuantNest for
-                their algorithmic trading needs. Start your free trial today and
-                experience the difference.
-              </p>
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <SectionHeading
+              theme={theme}
+              eyebrow="Main workflow"
+              title="A clear path from idea to execution."
+              description="QuantNest is built around the way a trader actually works: research first, build rules, test them, paper trade, then go live only when the process is ready."
+            />
 
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mb-8 sm:mb-12">
-                <Button
-                  size="lg"
-                  onClick={() => {
-                    navigate("/register");
-                  }}
-                  className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_12px_40px_rgba(99,102,241,0.4)] px-8 py-3 text-base font-semibold rounded-2xl sm:px-10 sm:py-4 sm:text-lg"
-                >
-                  Start for Free
-                  <ArrowRight className="ml-2 h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="text-slate-200 border-slate-500/50 hover:bg-slate-800/50 hover:text-slate-100 bg-slate-800/30 px-8 py-3 text-base font-semibold rounded-2xl shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)] sm:px-10 sm:py-4 sm:text-lg"
-                >
-                  Schedule Demo
-                </Button>
+            <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              {workflow.map((step) => {
+                const Icon = step.icon;
+                return (
+                  <article
+                    key={step.number}
+                    className={`group relative overflow-hidden rounded-3xl border p-5 transition-all duration-500 hover:-translate-y-1 hover:border-[#e5c461]/40 ${theme.card}`}
+                  >
+                    <div className="absolute right-4 top-4 text-4xl font-semibold tracking-[-0.06em] opacity-[0.05]">
+                      {step.number}
+                    </div>
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
+                      <Icon className="h-5 w-5 text-[#d8b557]" />
+                    </div>
+                    <h3 className={`mt-5 text-lg font-semibold tracking-tight ${theme.text}`}>
+                      {step.title}
+                    </h3>
+                    <p className={`mt-3 text-sm leading-6 ${theme.muted}`}>
+                      {step.description}
+                    </p>
+                    <p className="mt-4 rounded-2xl border border-[#e5c461]/20 bg-[#e5c461]/10 p-3 text-xs leading-5 text-[#caa64f]">
+                      {step.benefit}
+                    </p>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="platform"
+          className={`scroll-mt-24 py-16 sm:py-20 lg:py-24 ${theme.section}`}
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <SectionHeading
+              theme={theme}
+              eyebrow="Platform"
+              title="What each part helps you do."
+              description="Every feature has a simple job: help you make better decisions, test them properly, and trade with more control."
+            />
+
+            <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {platformFeatures.map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <article
+                    key={feature.title}
+                    className={`group relative min-h-[260px] overflow-hidden rounded-3xl border p-6 transition-all duration-500 hover:border-[#e5c461]/30 ${theme.card}`}
+                  >
+                    <div
+                      className={`absolute inset-0 bg-gradient-to-br ${feature.accent} opacity-0 transition-opacity duration-500 group-hover:opacity-100`}
+                    />
+                    <div className="relative">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-semibold uppercase tracking-[0.2em] ${theme.subtle}`}>
+                          {feature.eyebrow}
+                        </span>
+                        <Icon className={`h-6 w-6 ${feature.iconColor}`} />
+                      </div>
+                      <h3 className={`mt-12 max-w-xs text-2xl font-semibold tracking-[-0.035em] ${theme.text}`}>
+                        {feature.title}
+                      </h3>
+                      <p className={`mt-4 text-sm leading-7 ${theme.muted}`}>
+                        {feature.description}
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className={`border-y py-16 sm:py-20 lg:py-24 ${theme.alt} ${theme.border}`}>
+          <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14 lg:px-8">
+            <div>
+              <SectionHeading
+                theme={theme}
+                align="left"
+                eyebrow="Manual paper trading"
+                title="Use the terminal when you want to trade manually."
+                description="The trading terminal is for manual paper trading. Watch symbols, read charts, place orders, and learn execution without putting real money at risk."
+              />
+
+              <div className="mt-7 space-y-3">
+                {[
+                  "Build watchlists and search instruments",
+                  "Read live candles across timeframes",
+                  "Place paper buy and sell orders manually",
+                  "Track account, positions, orders, and history",
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className={`flex items-start gap-3 text-sm leading-6 ${theme.muted}`}
+                  >
+                    <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/15">
+                      <Check className="h-3 w-3 text-emerald-300" />
+                    </span>
+                    {item}
+                  </div>
+                ))}
               </div>
 
-              <div className="flex flex-wrap items-center justify-center space-x-4 text-xs text-slate-400 sm:space-x-8 sm:text-sm">
-                <div className="flex items-center">
-                  <Lock className="h-3 w-3 mr-1 sm:h-4 sm:w-4 sm:mr-2" />
-                  Enterprise Security
-                </div>
-                <div className="flex items-center">
-                  <CheckCircle className="h-3 w-3 mr-1 sm:h-4 w-4 sm:mr-2" />
-                  No Credit Card Required
-                </div>
-                <div className="flex items-center">
-                  <Users className="h-3 w-3 mr-1 sm:h-4 w-4 sm:mr-2" />
-                  24/7 Expert Support
+              <Button
+                asChild
+                variant="outline"
+                className={`mt-8 h-11 rounded-full px-6 ${theme.ghost}`}
+              >
+                <Link to="/register">
+                  Try manual paper trading
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+
+            <div className="relative">
+              <div className="absolute -inset-8 bg-[radial-gradient(circle_at_50%_50%,rgba(26,132,255,0.12),transparent_65%)] blur-2xl" />
+              <div className={`relative overflow-hidden rounded-[26px] border p-2 shadow-[0_30px_90px_rgba(0,0,0,0.35)] ${theme.panel}`}>
+                <img
+                  src="/dashboard.png"
+                  alt="QuantNest watchlist, candlestick chart, and trading controls"
+                  width="1912"
+                  height="866"
+                  loading="lazy"
+                  className="h-full min-h-[320px] w-full rounded-[20px] object-center"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="intelligence"
+          className={`scroll-mt-24 relative overflow-hidden py-16 sm:py-20 lg:py-24 ${theme.section}`}
+        >
+          <div className="absolute left-1/2 top-0 h-[420px] w-[760px] -translate-x-1/2 rounded-full bg-violet-600/[0.08] blur-[140px]" />
+          <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="grid items-start gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14">
+              <div className="lg:sticky lg:top-28">
+                <SectionHeading
+                  theme={theme}
+                  align="left"
+                  eyebrow="Intelligence"
+                  title="AI Engine helps you improve strategies."
+                  description="This part of QuantNest is strategy-focused. It does not replace your decision, but it helps you review strategy quality, market fit, and risk."
+                />
+                <div className="mt-7 rounded-2xl border border-[#e5c461]/20 bg-[#e5c461]/[0.08] p-5">
+                  <div className="flex items-start gap-3">
+                    <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-[#d8b557]" />
+                    <p className={`text-sm leading-6 ${theme.muted}`}>
+                      AI suggestions are reviewable. Applying a change remains
+                      a deliberate user action.
+                    </p>
+                  </div>
                 </div>
               </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {intelligenceFeatures.map((feature, index) => {
+                  const Icon = feature.icon;
+                  return (
+                    <article
+                      key={feature.title}
+                      className={`rounded-3xl border p-6 ${
+                        index % 2 === 1 ? "sm:translate-y-6" : ""
+                      } ${theme.card}`}
+                    >
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/10 ring-1 ring-violet-400/20">
+                        <Icon className="h-5 w-5 text-violet-300" />
+                      </div>
+                      <h3 className={`mt-7 text-xl font-semibold ${theme.text}`}>
+                        {feature.title}
+                      </h3>
+                      <p className={`mt-3 text-sm leading-7 ${theme.muted}`}>
+                        {feature.text}
+                      </p>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="ecosystem"
+          className={`scroll-mt-24 border-y py-16 sm:py-20 lg:py-24 ${theme.alt} ${theme.border}`}
+        >
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <SectionHeading
+              theme={theme}
+              eyebrow="Ecosystem"
+              title="A platform for improving the trader, not only the trade."
+              description="These features support learning, sharing, reporting, verification, and governance so the platform can grow with the trader."
+            />
+
+            <div className={`mt-10 grid gap-px overflow-hidden rounded-3xl border md:grid-cols-2 lg:grid-cols-5 ${theme.border}`}>
+              {ecosystemFeatures.map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <article
+                    key={feature.title}
+                    className={`p-6 transition-colors duration-300 ${isLight ? "bg-white/70 hover:bg-white" : "bg-[#0b0b0b] hover:bg-[#10100e]"}`}
+                  >
+                    <Icon className="h-6 w-6 text-[#d8b557]" />
+                    <h3 className={`mt-8 text-lg font-semibold ${theme.text}`}>
+                      {feature.title}
+                    </h3>
+                    <p className={`mt-3 text-sm leading-7 ${theme.muted}`}>
+                      {feature.text}
+                    </p>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className={`relative overflow-hidden py-16 sm:py-20 lg:py-24 ${theme.section}`}>
+          <div className="landing-market-animation absolute inset-0 opacity-70" />
+          <div className="landing-grid absolute inset-0 opacity-20" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(229,196,97,0.14),transparent_48%)]" />
+          <div className="relative mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8">
+            <img
+              src="/logo_1-wordmark.png"
+              alt="QuantNest"
+              className="mx-auto h-12 w-auto object-contain sm:h-14"
+              loading="lazy"
+            />
+            <h2 className={`mt-8 text-3xl font-semibold tracking-[-0.045em] sm:text-5xl lg:text-6xl ${theme.text}`}>
+              Build the process before you risk the capital.
+            </h2>
+            <p className={`mx-auto mt-5 max-w-2xl text-base leading-8 sm:text-lg ${theme.muted}`}>
+              Start with research, test your strategy, run it on paper, and
+              move to live trading only when the workflow gives you enough
+              confidence.
+            </p>
+            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+              <Button
+                asChild
+                size="lg"
+                className="h-[52px] rounded-full bg-[#e5c461] px-8 font-semibold text-black hover:bg-[#f2da8e]"
+              >
+                <Link to="/register">
+                  Start building
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                size="lg"
+                className={`h-[52px] rounded-full px-8 ${theme.ctaGhost}`}
+              >
+                <Link to="/login">Access your account</Link>
+              </Button>
             </div>
           </div>
         </section>
       </main>
-      {/* Footer */}
-      <footer className="border-t border-gray-800 bg-black">
-        <div className="container px-4 py-12 sm:px-6 lg:px-8 sm:py-16">
-          <div className="grid grid-cols-2 gap-8 lg:grid-cols-6 justify-center items-start">
-            <div className="col-span-2">
-              <div className="flex items-center space-x-2 mb-3 sm:mb-4">
-                <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)]">
-                  <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-400" />
-                </div>
-                <span className="font-bold text-lg sm:text-xl text-slate-100 font-heading">
-                  QuantNest
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 max-w-xs mb-4 sm:mb-6 sm:text-sm">
-                The most advanced algorithmic trading platform for professional
-                traders and institutions.
+
+      <footer className={`border-t ${theme.border} ${isLight ? "bg-[#fffaf0]" : "bg-black"}`}>
+        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-sm">
+              <img
+                src="/logo_1-wordmark.png"
+                alt="QuantNest"
+                className="h-9 w-auto object-contain"
+                loading="lazy"
+              />
+              <p className={`mt-5 text-sm leading-7 ${theme.muted}`}>
+                AI research, strategy creation, backtesting, paper trading,
+                live trading, and review tools in one connected platform.
               </p>
-              <div className="flex space-x-3 sm:space-x-4">
-                <Link
-                  to="#"
-                  className="text-slate-500 hover:text-slate-300 transition-colors"
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-10 gap-y-5 text-sm sm:grid-cols-4">
+              {[
+                ["Workflow", "workflow"],
+                ["Platform", "platform"],
+                ["Intelligence", "intelligence"],
+                ["Ecosystem", "ecosystem"],
+              ].map(([label, target]) => (
+                <button
+                  key={target}
+                  type="button"
+                  onClick={() =>
+                    document
+                      .getElementById(target)
+                      ?.scrollIntoView({ behavior: "smooth" })
+                  }
+                  className={`text-left transition-colors hover:text-[#b68b34] ${theme.subtle}`}
                 >
-                  <span className="sr-only">Twitter</span>
-                  <svg
-                    className="h-5 w-5 sm:h-6 sm:w-6"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path d="M8.29 20.251c7.547 0 11.675-6.253 11.675-11.675 0-.178 0-.355-.012-.53A8.348 8.348 0 0022 5.92a8.19 8.19 0 01-2.357.646 4.118 4.118 0 001.804-2.27 8.224 8.224 0 01-2.605.996 4.107 4.107 0 00-6.993 3.743 11.65 11.65 0 01-8.457-4.287 4.106 4.106 0 002.8 9.713v.052a4.105 4.105 0 003.292 4.022 4.095 4.095 0 01-1.853.07 4.108 4.108 0 003.834 2.85A8.233 8.233 0 012 18.407a11.616 11.616 0 006.29 1.84" />
-                  </svg>
-                </Link>
-                <Link
-                  to="#"
-                  className="text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  <span className="sr-only">LinkedIn</span>
-                  <svg
-                    className="h-5 w-5 sm:h-6 sm:w-6"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-                  </svg>
-                </Link>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide mb-3 sm:mb-4 font-heading">
-                Product
-              </h3>
-              <ul className="space-y-2 text-xs text-slate-400 sm:text-sm">
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Features
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Pricing
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    API Documentation
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Integrations
-                  </Link>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide mb-3 sm:mb-4 font-heading">
-                Company
-              </h3>
-              <ul className="space-y-2 text-xs text-slate-400 sm:text-sm">
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    About Us
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Blog
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Careers
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Contact
-                  </Link>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide mb-3 sm:mb-4 font-heading">
-                Resources
-              </h3>
-              <ul className="space-y-2 text-xs text-slate-400 sm:text-sm">
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Documentation
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Help Center
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Community
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    System Status
-                  </Link>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide mb-3 sm:mb-4 font-heading">
-                Legal
-              </h3>
-              <ul className="space-y-2 text-xs text-slate-400 sm:text-sm">
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Privacy Policy
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Terms of Service
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Security
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="#"
-                    className="hover:text-slate-200 transition-colors"
-                  >
-                    Compliance
-                  </Link>
-                </li>
-              </ul>
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="mt-10 border-t border-gray-800 pt-6 flex flex-col sm:flex-row justify-between items-center sm:pt-8">
-            <p className="text-xs text-slate-400 sm:text-sm">
-              © {new Date().getFullYear()} QuantNest Technologies Inc. All
-              rights reserved.
+          <div className={`mt-10 flex flex-col gap-4 border-t pt-7 text-xs leading-6 lg:flex-row lg:items-end lg:justify-between ${theme.border} ${theme.subtle}`}>
+            <p>
+              Copyright {new Date().getFullYear()} QuantNest. All rights
+              reserved.
             </p>
-            <p className="mt-3 sm:mt-0 text-xs text-slate-500">
-              Trading involves risk. Past performance does not guarantee future
-              results.
+            <p className="max-w-3xl lg:text-right">
+              QuantNest provides software for trading research and execution
+              workflows. It does not provide investment advice. Trading and
+              investing involve risk, including possible loss of capital. Past
+              or simulated performance does not guarantee future results.
             </p>
           </div>
         </div>

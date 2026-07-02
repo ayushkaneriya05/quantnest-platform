@@ -4,7 +4,6 @@ djangorestframework
 
 # Database
 psycopg2-binary
-pymongo
 dj-database-url
 
 # Configuration
@@ -21,16 +20,12 @@ dj-rest-auth
 cryptography
 
 # File Storage
-cloudinary
-django-cloudinary-storage
 pillow
 
 # Deployment
 gunicorn
 whitenoise
 
-# Utilities
-dnspython
 
 django-otp
 qrcode
@@ -38,7 +33,7 @@ qrcode
 channels
 channels_redis
 celery
-httpx
+
 websockets
 python-dotenv
 pyarrow
@@ -48,15 +43,5 @@ fyers-apiv3
 python-dateutil
 apscheduler
 daphne  
-motor
 
-beautifulsoup4
-feedparser
-fake-useragent
-httpx
-lxml         
-transformers
-torch           
-sentencepiece   
-accelerate
 pandas-ta

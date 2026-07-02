@@ -21,10 +21,16 @@ class EntryOrderConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = EntryOrderConfig
         fields = [
-            'id', 'strategy', 'entry_group_operator', 'order_type', 'entry_price_logic', 'price_offset',
-            'slippage_tolerance_pct', 'allow_partial_entry',
-            'entry_cooldown_seconds', 'max_entry_attempts'
+            'id', 'strategy', 'entry_side', 'entry_group_operator', 'order_type', 'entry_price_logic', 'price_offset',
+            'allow_partial_entry', 'entry_cooldown_seconds'
         ]
+
+    def validate(self, attrs):
+        cooldown = attrs.get('entry_cooldown_seconds', getattr(self.instance, 'entry_cooldown_seconds', None))
+
+        if cooldown is not None and cooldown < 0:
+            raise serializers.ValidationError({'entry_cooldown_seconds': 'Entry cooldown cannot be negative.'})
+        return attrs
 
 
 class ExitOrderConfigSerializer(serializers.ModelSerializer):
@@ -41,6 +47,21 @@ class ReEntryRuleSerializer(serializers.ModelSerializer):
             'allow_reverse_entry', 
             'loss_recovery_mode', 'loss_recovery_multiplier'
         ]
+
+    def validate(self, attrs):
+        allow_reentry = attrs.get('allow_reentry', getattr(self.instance, 'allow_reentry', True))
+        max_reentries = attrs.get('max_reentries', getattr(self.instance, 'max_reentries', None))
+        cooldown = attrs.get('reentry_cooldown_seconds', getattr(self.instance, 'reentry_cooldown_seconds', None))
+        loss_recovery = attrs.get('loss_recovery_mode', getattr(self.instance, 'loss_recovery_mode', False))
+        multiplier = attrs.get('loss_recovery_multiplier', getattr(self.instance, 'loss_recovery_multiplier', None))
+
+        if allow_reentry and (max_reentries is None or max_reentries < 0 or max_reentries > 20):
+            raise serializers.ValidationError({'max_reentries': 'Max re-entries must be between 0 and 20.'})
+        if cooldown is not None and cooldown < 0:
+            raise serializers.ValidationError({'reentry_cooldown_seconds': 'Re-entry cooldown cannot be negative.'})
+        if loss_recovery and (multiplier is None or multiplier < 1 or multiplier > 3):
+            raise serializers.ValidationError({'loss_recovery_multiplier': 'Loss-recovery multiplier must be between 1 and 3.'})
+        return attrs
 
 
 class StrategyDetailSerializer(serializers.ModelSerializer):
@@ -78,16 +99,7 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
         validated_data['user'] = self.context['request'].user
         strategy = Strategy.objects.create(**validated_data)
         strategy.tags.set(tags)
-        
-        # Create default configs
-        EntryOrderConfig.objects.create(strategy=strategy)
-        ExitOrderConfig.objects.create(strategy=strategy)
-        ReEntryRule.objects.create(strategy=strategy)
-
         return strategy
-
-
-
 
 
 class StrategyVersionSerializer(serializers.ModelSerializer):
@@ -135,12 +147,6 @@ class StrategyCreateSerializer(serializers.ModelSerializer):
         validated_data['user'] = self.context['request'].user
         validated_data['status'] = 'DRAFT'
         strategy = Strategy.objects.create(**validated_data)
-        
-        # Create default configs
-        EntryOrderConfig.objects.create(strategy=strategy)
-        ExitOrderConfig.objects.create(strategy=strategy)
-        ReEntryRule.objects.create(strategy=strategy)
-        
         return strategy
 
 

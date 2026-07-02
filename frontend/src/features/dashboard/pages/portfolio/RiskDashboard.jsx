@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import { ShieldAlert, CheckCircle2, AlertTriangle, AlertOctagon, Clock, Loader2 } from 'lucide-react';
 import { riskApi } from '@/shared/services/portfolioApi';
-import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
+import { useLiveTradingWebSocket } from '@/shared/hooks/useLiveTradingWebSocket';
 import { formatDistanceToNow, format } from 'date-fns';
 import PortfolioRiskNav from './PortfolioRiskNav';
 
@@ -15,7 +15,6 @@ export default function RiskDashboard() {
   const { notify } = useNotifications();
   const { setPageHeader } = usePageActions();
   const [violations, setViolations] = useState([]);
-  const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
   
   useEffect(() => {
@@ -26,6 +25,15 @@ export default function RiskDashboard() {
   const [resolvingId, setResolvingId] = useState(null);
   const [resolutionNotes, setResolutionNotes] = useState('');
 
+  const handleLiveUpdate = useCallback((payload) => {
+    if (payload?.event_type === 'RISK_VIOLATION' || payload?.event_type === 'AUTO_DISABLE') {
+      fetchData();
+      notify.warning('New risk violation detected', { duration: 5000 });
+    }
+  }, [notify]);
+
+  useLiveTradingWebSocket(handleLiveUpdate);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -33,12 +41,8 @@ export default function RiskDashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [violRes, stratRes] = await Promise.all([
-        riskApi.getViolations(),
-        strategyApi.getAll()
-      ]);
+      const [violRes] = await Promise.all([riskApi.getViolations()]);
       setViolations(violRes.data || []);
-      setStrategies(stratRes || []);
     } catch (error) {
       notify.error('Failed to load risk violations');
     } finally {
@@ -58,18 +62,11 @@ export default function RiskDashboard() {
     }
   };
 
-  const getStrategyName = (id) => {
-    if (!id) return 'Portfolio Level';
-    const strat = strategies.find(s => s.id === id);
-    return strat ? strat.name : 'Unknown Strategy';
-  };
-
   const getSeverityColor = (severity) => {
     switch (severity) {
       case 'CRITICAL': return 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
-      case 'HIGH': return 'bg-orange-500/20 text-orange-400 border border-orange-500/30';
-      case 'MEDIUM': return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
-      case 'LOW': return 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+      case 'WARNING': return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+      case 'INFO': return 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
       default: return 'bg-gray-500/20 text-gray-400 border border-gray-500/30';
     }
   };
@@ -77,8 +74,7 @@ export default function RiskDashboard() {
   const getSeverityIcon = (severity) => {
     switch (severity) {
       case 'CRITICAL': return <AlertOctagon className="h-4 w-4 text-rose-500" />;
-      case 'HIGH': return <AlertTriangle className="h-4 w-4 text-orange-500" />;
-      case 'MEDIUM': return <AlertTriangle className="h-4 w-4 text-amber-500" />;
+      case 'WARNING': return <AlertTriangle className="h-4 w-4 text-amber-500" />;
       default: return <ShieldAlert className="h-4 w-4 text-blue-500" />;
     }
   };
@@ -102,7 +98,7 @@ export default function RiskDashboard() {
             <ShieldAlert className="h-6 w-6 text-indigo-400" />
             Risk Compliance Dashboard
           </h1>
-          <p className="text-gray-400 mt-1 text-sm">Monitor and resolve system risk violations and limit breaches.</p>
+          <p className="text-gray-400 mt-1 text-sm">Monitor account-wide risk breaches and strategy safeguard events.</p>
         </div>
       </div>
 
@@ -118,7 +114,7 @@ export default function RiskDashboard() {
         <div className="space-y-4">
           <h2 className="text-lg font-medium text-white px-1">Active Alerts ({activeViolations.length})</h2>
           {activeViolations.map(v => (
-            <Card key={v.id} className="bg-gray-900 border-gray-800 lg:border-l-4" style={{borderLeftColor: v.severity === 'CRITICAL' ? '#f43f5e' : v.severity === 'HIGH' ? '#f97316' : '#fbbf24'}}>
+            <Card key={v.id} className="bg-gray-900 border-gray-800 lg:border-l-4" style={{borderLeftColor: v.severity === 'CRITICAL' ? '#f43f5e' : v.severity === 'WARNING' ? '#fbbf24' : '#3b82f6'}}>
               <CardContent className="p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row gap-4 justify-between sm:items-start">
                   <div className="space-y-2 flex-1">
@@ -128,16 +124,16 @@ export default function RiskDashboard() {
                         {v.severity}
                       </Badge>
                       <span className="text-sm font-medium text-gray-300">
-                        {getStrategyName(v.strategy)}
+                        {v.strategy_name || 'Portfolio Level'}
                       </span>
                       <span className="text-xs text-gray-500 flex items-center gap-1 ml-auto sm:ml-2">
                         <Clock className="h-3 w-3" />
-                        {formatDistanceToNow(new window.Date(v.timestamp), {addSuffix: true})}
+                        {formatDistanceToNow(new window.Date(v.created_at), {addSuffix: true})}
                       </span>
                     </div>
                     
                     <h3 className="text-base text-white font-medium">{v.violation_type.replace(/_/g, ' ')}</h3>
-                    <p className="text-sm text-gray-400 max-w-2xl">{v.description}</p>
+                    <p className="text-sm text-gray-400 max-w-2xl">{v.message}</p>
                   </div>
 
                   {resolvingId === v.id ? (
@@ -184,7 +180,7 @@ export default function RiskDashboard() {
                   {resolvedViolations.map(v => (
                     <tr key={v.id} className="hover:bg-gray-800/30">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {format(new window.Date(v.timestamp), "MMM d, HH:mm")}
+                        {format(new window.Date(v.created_at), "MMM d, HH:mm")}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${getSeverityColor(v.severity)}`}>
@@ -192,8 +188,8 @@ export default function RiskDashboard() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-400">{v.violation_type.replace(/_/g, ' ')}</td>
-                      <td className="px-4 py-3 truncate max-w-[150px]" title={getStrategyName(v.strategy)}>
-                        {getStrategyName(v.strategy)}
+                      <td className="px-4 py-3 truncate max-w-[150px]" title={v.strategy_name || 'Portfolio Level'}>
+                        {v.strategy_name || 'Portfolio Level'}
                       </td>
                       <td className="px-4 py-3 text-gray-400 italic truncate max-w-[200px]" title={v.resolution_notes}>
                         {v.resolution_notes || '-'}

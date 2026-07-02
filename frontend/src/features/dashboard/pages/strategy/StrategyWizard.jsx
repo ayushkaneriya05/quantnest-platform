@@ -66,12 +66,13 @@ export default function StrategyWizard() {
   }, [id]);
 
   // Set Navigation in Header (Edit Mode Only)
+  // StrategyConfigNav only reads strategy.status — no need to re-render on every keystroke
   useEffect(() => {
     if (isEdit) {
-      setPageHeader(<StrategyConfigNav strategy={{ id, ...formData }} />);
+      setPageHeader(<StrategyConfigNav strategy={{ id, status: formData.status }} />);
     }
     return () => setPageHeader(null);
-  }, [isEdit, id, setPageHeader, formData]);
+  }, [isEdit, id, setPageHeader, formData.status]);
 
   const fetchTags = async () => {
       try {

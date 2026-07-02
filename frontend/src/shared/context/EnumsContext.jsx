@@ -21,6 +21,7 @@ export function EnumsProvider({ children }) {
       const data = await enumsApi.getAll();
       setEnums(data);
       setError(null);
+      setLoading(false);
     } catch (err) {
       console.error(`Failed to fetch enums (attempt ${retryCount + 1}):`, err);
       setError(err);
@@ -29,9 +30,9 @@ export function EnumsProvider({ children }) {
       if (retryCount < 3) {
         const timeout = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
         setTimeout(() => fetchEnums(retryCount + 1), timeout);
+      } else {
+        setLoading(false);
       }
-    } finally {
-      if (retryCount === 3 || !error) setLoading(false);
     }
   };
 

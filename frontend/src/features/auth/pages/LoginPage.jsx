@@ -1,14 +1,20 @@
-import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import React, { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
-import api from "@/shared/services/api";
 import {
-  loginSuccess,
-  set2FARequired,
-  setLoading,
-  fetchUserProfile,
-} from "@/shared/store/authSlice";
-import React from "react";
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+} from "lucide-react";
+
+import TwoFAModal from "@/features/auth/components/two-fa-modal";
+import GoogleLoginButton, {
+  GoogleLoginFallback,
+} from "@/features/auth/components/GoogleLoginButton";
+import MainHeader from "@/shared/components/layout/main-header";
 import { Button } from "@/shared/components/ui/button";
 import {
   Card,
@@ -19,17 +25,19 @@ import {
 } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { Mail, Lock } from "lucide-react";
-import TwoFAModal from "@/features/auth/components/two-fa-modal";
-import GoogleLoginButton, {
-  GoogleLoginFallback,
-} from "@/features/auth/components/GoogleLoginButton";
-import MainHeader from "@/shared/components/layout/main-header";
+import api from "@/shared/services/api";
+import {
+  fetchUserProfile,
+  loginSuccess,
+  set2FARequired,
+  setLoading,
+} from "@/shared/store/authSlice";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [userId, setUserId] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginToken, setLoginToken] = useState("");
   const [error, setError] = useState("");
   const [twoFAError, setTwoFAError] = useState("");
   const dispatch = useDispatch();
@@ -37,11 +45,7 @@ export default function LoginPage() {
   const location = useLocation();
   const { is2FARequired, isLoading } = useSelector((state) => state.auth);
 
-  // Get the page they were trying to visit, or default to dashboard
-  const from =
-    location.state?.from?.pathname || "/dashboard/trading/paper-trading";
-
-  // Show success message from registration or password reset
+  const from = location.state?.from?.pathname || "/dashboard";
   const successMessage = location.state?.message;
 
   const handleSubmit = async (e) => {
@@ -50,20 +54,18 @@ export default function LoginPage() {
     dispatch(setLoading(true));
 
     try {
-      const payload = { username, password };
-      const response = await api.post("/users/auth/login/", payload);
+      const response = await api.post("/users/auth/login/", {
+        username,
+        password,
+      });
 
-      if (
-        response.status === 200 &&
-        response.data.access &&
-        response.data.refresh
-      ) {
+      if (response.status === 200 && response.data.is_2fa_required) {
+        setLoginToken(response.data.login_token);
+        dispatch(set2FARequired(true));
+      } else if (response.status === 200) {
         dispatch(loginSuccess(response.data));
         await dispatch(fetchUserProfile());
         navigate(from, { replace: true });
-      } else if (response.status === 200 && response.data.is_2fa_required) {
-        setUserId(response.data.user_id);
-        dispatch(set2FARequired(true));
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Login failed.");
@@ -78,19 +80,12 @@ export default function LoginPage() {
     dispatch(setLoading(true));
 
     try {
-      const payload = {
-        username,
-        password,
+      const response = await api.post("/users/auth/verify-2fa/", {
+        login_token: loginToken,
         otp_token: otpToken,
-        user_id: userId,
-      };
-      const response = await api.post("/users/auth/verify-2fa/", payload);
+      });
 
-      if (
-        response.status === 200 &&
-        response.data.access &&
-        response.data.refresh
-      ) {
+      if (response.status === 200) {
         dispatch(loginSuccess(response.data));
         dispatch(set2FARequired(false));
         navigate(from, { replace: true });
@@ -106,7 +101,7 @@ export default function LoginPage() {
   const handle2FAClose = () => {
     dispatch(set2FARequired(false));
     setTwoFAError("");
-    setUserId("");
+    setLoginToken("");
   };
 
   const handleGoogleError = (errorMessage) => {
@@ -116,21 +111,25 @@ export default function LoginPage() {
   const googleClientId = import.meta.env.VITE_REACT_APP_GOOGLE_CLIENT_ID;
 
   return (
-    <div className="flex flex-col min-h-screen bg-black">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-[#050505] text-white">
+      <div className="landing-market-animation absolute inset-0 opacity-70" />
+      <div className="landing-grid absolute inset-0 opacity-25" />
       <MainHeader />
-      <div className="flex flex-1 items-center justify-center container-padding py-6 sm:py-8 md:py-12 lg:py-16">
-        <Card className="w-full max-w-md bg-gray-900/50 border border-gray-800/50 shadow-lg rounded-xl p-4 sm:p-6">
-          <CardHeader className="text-center pb-6">
-            <CardTitle className="text-2xl sm:text-3xl font-bold text-slate-100">
-              Welcome Back to QuantNest
+
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 py-3">
+        <Card className="w-full max-w-[420px] overflow-hidden rounded-3xl border border-white/10 bg-[#0b0d12]/90 p-4 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <CardHeader className="px-0 pb-2 text-center">
+            <img src="/favicon.png" alt="QuantNest" className="mx-auto mb-2 h-12 w-12 sm:h-14 sm:w-14" />
+            <CardTitle className="text-[1.65rem] font-semibold leading-tight tracking-[-0.035em] text-white">
+              Welcome back
             </CardTitle>
-            <CardDescription className="text-slate-400 mt-2">
-              Sign in to your account to continue trading.
+            <CardDescription className="mt-1 text-xs leading-5 text-slate-400">
+              Continue researching, testing, and managing your strategies.
             </CardDescription>
           </CardHeader>
-          <CardContent className="content-spacing px-0">
-            {/* Google login section */}
-            <div className="space-y-3 sm:space-y-4">
+
+          <CardContent className="px-0">
+            <div className="space-y-3">
               {googleClientId ? (
                 <GoogleLoginButton
                   onError={handleGoogleError}
@@ -142,36 +141,36 @@ export default function LoginPage() {
               )}
             </div>
 
-            <div className="relative flex items-center my-6">
-              <div className="flex-grow border-t border-gray-700" />
-              <span className="mx-4 flex-shrink text-slate-400 text-sm">
+            <div className="relative my-3 flex items-center">
+              <div className="flex-grow border-t border-white/10" />
+              <span className="mx-4 flex-shrink text-sm text-slate-400">
                 OR
               </span>
-              <div className="flex-grow border-t border-gray-700" />
+              <div className="flex-grow border-t border-white/10" />
             </div>
 
             {successMessage && (
-              <div className="mb-4 p-3 bg-green-900/50 border border-green-800 rounded-lg text-green-300 text-sm">
+              <div className="mb-3 rounded-lg border border-green-800 bg-green-900/50 p-2.5 text-sm text-green-300">
                 {successMessage}
               </div>
             )}
 
-            <form className="text-spacing" onSubmit={handleSubmit}>
-              <div className="text-spacing-sm">
+            <form className="space-y-2.5" onSubmit={handleSubmit}>
+              <div className="space-y-1">
                 <Label
                   htmlFor="username"
-                  className="text-slate-200 text-sm font-medium"
+                  className="text-xs font-medium text-slate-200"
                 >
-                  Username or Email
+                  Username or email
                 </Label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <Input
                     id="username"
                     name="username"
                     type="text"
                     placeholder="username or email"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
+                    className="h-10 border-white/10 bg-white/[0.06] pl-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     required
@@ -179,39 +178,54 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
-              <div className="text-spacing-sm">
+
+              <div className="space-y-1.5">
                 <Label
                   htmlFor="password"
-                  className="text-slate-200 text-sm font-medium"
+                  className="text-xs font-medium text-slate-200"
                 >
                   Password
                 </Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <Input
                     id="password"
                     name="password"
-                    type="password"
-                    placeholder="••••••••"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter password"
+                    className="h-10 border-white/10 bg-white/[0.06] pl-10 pr-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     autoComplete="current-password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-200 focus:outline-none"
+                    aria-label={
+                      showPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
-                <div className="text-right mt-2">
+                <div className="text-right">
                   <Link
                     to="/password-reset"
-                    className="text-sm text-indigo-400 hover:text-indigo-300 underline"
+                    className="text-xs text-[#e5c461] underline hover:text-[#f2da8e]"
                   >
-                    Forgot Password?
+                    Forgot password?
                   </Link>
                 </div>
               </div>
 
               {error && (
-                <div className="mb-4 p-3 bg-red-900/50 border border-red-800 rounded-lg text-red-300 text-sm">
+                <div className="rounded-lg border border-red-800 bg-red-900/50 p-2.5 text-sm text-red-300">
                   {error}
                 </div>
               )}
@@ -219,18 +233,27 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] h-11 mt-6 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="mt-2 h-10 w-full rounded-xl bg-[#e5c461] font-semibold text-black shadow-[0_12px_40px_rgba(229,196,97,0.18)] hover:bg-[#f2da8e] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoading ? "Signing In..." : "Log In"}
+                {isLoading ? "Signing in..." : "Log in"}
+                {!isLoading && <ArrowRight className="h-4 w-4" />}
               </Button>
             </form>
-            <div className="text-center text-sm text-slate-400 pt-4 border-t border-gray-800/50">
-              Don't have an account?{" "}
+
+            <div className="mt-3 border-t border-white/10 pt-3 text-center text-sm text-slate-400">
+              Don&apos;t have an account?{" "}
               <Link
                 to="/register"
-                className="underline text-indigo-400 hover:text-indigo-300 font-medium"
+                className="font-medium text-[#e5c461] underline hover:text-[#f2da8e]"
               >
-                Sign Up
+                Create one
+              </Link>
+              <Link
+                to="/"
+                className="mx-auto mt-2 flex w-fit items-center gap-1.5 text-xs text-slate-500 transition-colors hover:text-[#f2da8e]"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to landing page
               </Link>
             </div>
           </CardContent>

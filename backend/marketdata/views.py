@@ -1,139 +1,185 @@
-# backend/marketdata/views.py
 import logging
-from datetime import datetime, timedelta,timezone
+from datetime import datetime, timedelta, timezone
+
+import pytz
 from decouple import config
 from django.conf import settings
+from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect
-from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser, IsAuthenticatedOrReadOnly, AllowAny,IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated, IsAuthenticatedOrReadOnly
 
-from .utils import refresh_fyers_token
-
-from .models import MarketDataToken
-from bson import ObjectId, json_util
-import json
+from .calendar_service import EventCalendarService
+from .live_feed import LiveMarketDataRegistry
+from .models import MarketDataToken, MarketEvent
+from .services import HistoricalCandleService, MarketDataService
+from .streaming import MarketDataStreamer
+from .utils import refresh_fyers_token, _get_token_row, _get_today_eod
+from instruments.models import Instrument
 
 logger = logging.getLogger(__name__)
 
-# backend/marketdata/views.py
-# from django.utils import timezone
-from .mongo_client import get_candles_collection, get_ticks_collection
 
-# A dictionary to map resolution strings to MongoDB's date truncation units.
-# This makes the code cleaner and easier to extend.
-RESOLUTION_MAP = {
-    '1m': {'unit': 'minute', 'binSize': 1},
-    '5m': {'unit': 'minute', 'binSize': 5},
-    '15m': {'unit': 'minute', 'binSize': 15},
-    '1h': {'unit': 'hour', 'binSize': 1},
-    '1D': {'unit': 'day', 'binSize': 1},
-    '1W': {'unit': 'week', 'binSize': 1},
-}
-from bson import SON
+def _empty_quote_payload(symbol):
+    return {
+        "symbol": symbol,
+        "price": None,
+        "open": None,
+        "high": None,
+        "low": None,
+        "close": None,
+        "volume": 0,
+        "change": None,
+        "change_percent": None,
+        "timestamp": None,
+        "available": False,
+    }
 
-@api_view(['GET'])
+
+@api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def latest_tick_data(request):
-    symbol = request.query_params.get('instrument')
+    symbol = request.query_params.get("instrument")
     if not symbol:
         return JsonResponse({"error": "Instrument symbol is required"}, status=400)
 
-    instrument_symbol = f"NSE:{symbol.upper()}-EQ"
-    ticks_collection = get_ticks_collection()
-    
-    latest_tick = ticks_collection.find_one(
-        {"instrument": instrument_symbol},
-        sort=[("timestamp", -1)]
+    normalized = MarketDataService.normalize_symbol(symbol)
+    quote = (
+        MarketDataStreamer.get_cached_quote(normalized)
+        or MarketDataStreamer.poll_latest_candle_quote(normalized)
     )
-    if latest_tick:
-        # Use json_util to handle BSON types like ObjectId and datetime
-        return JsonResponse(json.loads(json_util.dumps(latest_tick)))
+    if not quote:
+        return JsonResponse(_empty_quote_payload(normalized))
+    return JsonResponse({**quote, "available": True})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def live_quote(request):
+    symbol = request.query_params.get("instrument")
+    if not symbol:
+        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+
+    normalized = MarketDataService.normalize_symbol(symbol)
+    LiveMarketDataRegistry.add_symbols([normalized])
+    quote = MarketDataStreamer.get_cached_quote(normalized) or MarketDataStreamer.poll_latest_candle_quote(normalized)
+    if not quote:
+        return JsonResponse({"error": "Quote unavailable"}, status=404)
+    return JsonResponse(quote)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def live_indices(request):
+    indices = {
+        "NIFTY 50": "NSE:NIFTY50-INDEX",
+        "BANK NIFTY": "NSE:NIFTYBANK-INDEX",
+        "SENSEX": "BSE:SENSEX-INDEX",
+    }
+    payload = []
+    for name, symbol in indices.items():
+        quote = MarketDataStreamer.get_cached_quote(symbol) or MarketDataStreamer.poll_latest_candle_quote(symbol)
+        if quote:
+            payload.append(
+                {
+                    "name": name,
+                    "symbol": symbol,
+                    "price": quote.get("price", 0),
+                    "timestamp": quote.get("timestamp"),
+                }
+            )
+    return JsonResponse(payload, safe=False)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def market_events(request):
+    start = request.query_params.get("start")
+    end = request.query_params.get("end")
+    if start and end:
+        queryset = EventCalendarService.get_events(start, end)
     else:
-        return JsonResponse({"error": "No data found for this instrument"}, status=404)
+        today = datetime.now().date()
+        queryset = MarketEvent.objects.filter(event_date__gte=today).select_related("instrument")[:100]
+
+    data = [
+        {
+            "id": event.id,
+            "event_type": event.event_type,
+            "event_date": event.event_date.isoformat(),
+            "event_time": event.event_time.isoformat() if event.event_time else None,
+            "title": event.title,
+            "description": event.description,
+            "impact": event.impact,
+            "source": event.source,
+            "instrument": event.instrument.symbol if event.instrument else None,
+        }
+        for event in queryset
+    ]
+    return JsonResponse(data, safe=False)
 
 
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([AllowAny])
 def ohlc_data(request):
-    symbol = request.query_params.get('instrument')
-    resolution = request.query_params.get('resolution', '1D')
-
+    symbol = request.query_params.get("instrument")
+    resolution = request.query_params.get("resolution", "1D")
     if not symbol:
         return JsonResponse({"error": "Instrument symbol is required"}, status=400)
-    # This should reference your actual RESOLUTION_MAP dictionary
-    # if resolution not in RESOLUTION_MAP:
-    #     return JsonResponse({"error": "Invalid resolution"}, status=400)
 
-    instrument_symbol = f"NSE:{symbol.upper()}-EQ"
-    candles_collection = get_candles_collection()
-    fifteen_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=15)
+    try:
+        candles_data = HistoricalCandleService.list_candles(
+            symbol=MarketDataService.normalize_symbol(symbol),
+            resolution=resolution,
+            limit=500,
+        )
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
 
-    if resolution == '1m':
-        # This block handles the 1-minute resolution specifically
-        def fetch_candles():
-            return list(candles_collection.find(
-                {
-                    "instrument": instrument_symbol,
-                    "resolution": "1m",
-                    "timestamp": {"$lte": fifteen_minutes_ago}
-                },
-                {"_id": 0, "instrument": 0, "resolution": 0}
-            ).sort("timestamp", 1))
+    payload = [{**candle, "time": candle["time"] * 1000} for candle in candles_data]
+    return JsonResponse(payload, safe=False)
 
-        candles = fetch_candles()
-        for candle in candles:
-            # FIX: Make the naive datetime object from the DB timezone-aware (as UTC)
-            # before converting it to a correct UTC timestamp.
-            utc_datetime = candle.pop("timestamp").replace(tzinfo=timezone.utc)
-            candle["time"] = int(utc_datetime.timestamp() * 1000)
 
-    else:
-        # This block handles all other resolutions via aggregation
-        agg_params = RESOLUTION_MAP[resolution]
-        unit_seconds = {
-            "minute": 60,
-            "hour": 3600,
-            "day": 86400,
-            "week": 604800,
-        }[agg_params["unit"]] * agg_params["binSize"]
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def candles(request):
+    instrument_id = request.query_params.get("instrument_id")
+    symbol = request.query_params.get("symbol") or request.query_params.get("instrument")
+    resolution = request.query_params.get("interval", "1m")
+    limit = request.query_params.get("limit", 200)
+    before = request.query_params.get("before")
 
-        pipeline = [
-            {"$match": {
-                "instrument": instrument_symbol,
-                "resolution": "1m",
-                "timestamp": {"$lte": fifteen_minutes_ago}
-            }},
-            {"$sort": {"timestamp": 1}},
-            {"$project": {
-                "timestamp": 1,
-                "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1,
-                "epoch": {"$toLong": {"$divide": [{"$subtract": ["$timestamp", datetime(1970, 1, 1, tzinfo=timezone.utc)]}, 1000]}}
-            }},
-            {"$group": {
-                "_id": {"$multiply": [{"$floor": {"$divide": ["$epoch", unit_seconds]}}, unit_seconds]},
-                "open": {"$first": "$open"},
-                "high": {"$max": "$high"},
-                "low": {"$min": "$low"},
-                "close": {"$last": "$close"},
-                "volume": {"$sum": "$volume"}
-            }},
-            {"$project": {
-                "_id": 0,
-                "time": {"$multiply": ["$_id", 1000]},
-                "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1
-            }},
-            {"$sort": SON([("time", 1)])}
-        ]
+    if instrument_id:
+        instrument = Instrument.objects.filter(id=instrument_id).first()
+        if not instrument:
+            return JsonResponse({"detail": "instrument_id is invalid"}, status=400)
+        symbol = instrument.sym_ticker or instrument.symbol
 
-        def aggregate_candles():
-            return list(candles_collection.aggregate(pipeline))
+    if not symbol:
+        return JsonResponse({"detail": "symbol is required"}, status=400)
 
-        candles = aggregate_candles()
+    try:
+        payload = HistoricalCandleService.chart_window(
+            symbol=symbol,
+            resolution=resolution,
+            limit=limit,
+            before=before,
+        )
+        logger.info(
+            "Retrieved %d chart candles for %s (%s), fetched=%d",
+            len(payload["candles"]),
+            symbol,
+            resolution,
+            payload["source"]["fetched_count"],
+        )
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
+    except Exception as exc:
+        logger.exception("Failed loading candles for %s %s: %s", symbol, resolution, exc)
+        return JsonResponse({"detail": "Unable to load candles"}, status=500)
 
-    return JsonResponse(candles, safe=False)
-
+    return JsonResponse(payload)
 
 
 try:
@@ -142,17 +188,10 @@ except Exception as exc:
     logger.exception("fyers_apiv3.accessToken import failed: %s", exc)
     fyersModel = None
 
-def _get_or_create_token_row():
-    obj, _ = MarketDataToken.objects.get_or_create(pk=1)
-    return obj
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticatedOrReadOnly])
+@permission_classes([AllowAny])
 def fyers_login(request):
-    """
-    Redirect the client to Fyers authorization URL.
-    The generated URL will redirect to FYERS_REDIRECT_URI with ?auth_code=...
-    """
     if fyersModel is None:
         return JsonResponse({"error": "fyers_apiv3 not installed on server"}, status=500)
 
@@ -162,34 +201,20 @@ def fyers_login(request):
     if not client_id or not secret_key or not redirect_uri:
         return JsonResponse({"error": "FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured"}, status=500)
 
-    # prepare session model for authcode generation
     session = fyersModel.SessionModel(
         client_id=client_id,
         secret_key=secret_key,
         redirect_uri=redirect_uri,
         response_type="code",
-        grant_type="authorization_code"
+        grant_type="authorization_code",
     )
-    auth_url = session.generate_authcode()
-    return redirect(auth_url)
+    return redirect(session.generate_authcode())
 
-from datetime import datetime, timedelta
-import pytz
-
-# Assume IST timezone
-ist = pytz.timezone("Asia/Kolkata")
-
-# Fyers tokens always expire at EOD IST
-today_eod = datetime.now(ist).replace(hour=23, minute=59, second=59, microsecond=0)
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticatedOrReadOnly])
+@permission_classes([AllowAny])
 @csrf_exempt
 def fyers_callback(request):
-    """
-    Endpoint that Fyers will redirect to with ?auth_code=...
-    Exchanges auth_code for access_token and saves it to MarketDataToken (id=1).
-    """
     if fyersModel is None:
         return JsonResponse({"error": "fyers_apiv3 not installed on server"}, status=500)
 
@@ -208,9 +233,9 @@ def fyers_callback(request):
         secret_key=secret_key,
         redirect_uri=redirect_uri,
         response_type="code",
-        grant_type="authorization_code"
+        grant_type="authorization_code",
     )
-    # Exchange
+
     try:
         session.set_token(auth_code)
         token_resp = session.generate_token()
@@ -218,56 +243,49 @@ def fyers_callback(request):
         logger.exception("Error exchanging auth_code for token: %s", exc)
         return JsonResponse({"error": "token exchange failed", "detail": str(exc)}, status=500)
 
-    # token_resp expected to contain keys: access_token, refresh_token, expires_in
     access_token = token_resp.get("access_token") or token_resp.get("accessToken")
     refresh_token = token_resp.get("refresh_token") or token_resp.get("refreshToken")
     expires_in = token_resp.get("expires_in") or token_resp.get("expiresIn") or None
 
-    token_row = _get_or_create_token_row()
+    token_row = _get_token_row()
     token_row.access_token = access_token
     token_row.refresh_token = refresh_token
     token_row.token_type = token_resp.get("token_type", token_row.token_type)
-    token_row.expires_at = today_eod
+    token_row.expires_at = _get_today_eod()
     if expires_in:
         try:
-            expires_seconds = int(expires_in)
-            token_row.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_seconds)
+            token_row.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
         except Exception:
             token_row.expires_at = None
     token_row.save()
 
-    # For convenience, redirect to a simple success page or return JSON.
-    # If callback is called server-side (not via browser), return JSON.
     if request.headers.get("Accept", "").startswith("application/json") or request.GET.get("json"):
         return JsonResponse({"status": "ok", "token_saved": True})
-    # else redirect to a simple page (update to your frontend URL if needed)
     return redirect(config("FRONTEND_URL"))
+
 
 @api_view(["GET"])
 @permission_classes([IsAdminUser])
 def fyers_token_status(request):
-    """
-    Admin endpoint: show current token metadata
-    """
-    token_row = _get_or_create_token_row()
-    data = {
-        "has_token": bool(token_row.access_token),
-        "is_valid": token_row.is_valid(),
-        "expires_at": token_row.expires_at,
-        "updated_at": token_row.updated_at,
-    }
-    return JsonResponse(data)
+    token_row = _get_token_row()
+    return JsonResponse(
+        {
+            "has_token": bool(token_row.access_token),
+            "is_valid": token_row.is_valid(),
+            "expires_at": token_row.expires_at,
+            "updated_at": token_row.updated_at,
+        }
+    )
+
 
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 def fyers_token_refresh(request):
-    """API endpoint: manually refresh token"""
-    token_row = MarketDataToken.objects.filter(is_active=True).first()
+    token_row = _get_token_row()
     if not token_row:
         return JsonResponse({"error": "No active token row"}, status=400)
 
     refreshed = refresh_fyers_token(token_row)
     if not refreshed:
         return JsonResponse({"error": "refresh_failed"}, status=500)
-
     return JsonResponse({"status": "ok", "expires_at": token_row.expires_at})

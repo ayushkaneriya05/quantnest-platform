@@ -3,8 +3,10 @@ from django.dispatch import receiver
 from django.utils import timezone
 from datetime import timedelta
 from .models import Strategy, EntryOrderConfig, ReEntryRule, ExitOrderConfig, StrategyVersion
+from risk_management.models import PositionSizingRule, StrategyAutoDisable
 from rules_engine.models import RuleGroup, Rule, StopLossRule, TargetRule, TimeRule, SpecialEventFilter
 from .services import StrategySnapshotService
+from django.core.cache import cache
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,7 @@ def create_strategy_configs(sender, instance, created, **kwargs):
         EntryOrderConfig.objects.create(strategy=instance)
         ReEntryRule.objects.create(strategy=instance)
         ExitOrderConfig.objects.create(strategy=instance)
+        PositionSizingRule.objects.create(strategy=instance)
 
 @receiver(post_save, sender=Strategy)
 @receiver(post_save, sender=EntryOrderConfig)
@@ -26,10 +29,13 @@ def create_strategy_configs(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Rule)
 @receiver(post_save, sender=StopLossRule)
 @receiver(post_save, sender=TargetRule)
+@receiver(post_save, sender=PositionSizingRule)
+@receiver(post_save, sender=StrategyAutoDisable)
 @receiver(post_delete, sender=RuleGroup)
 @receiver(post_delete, sender=Rule)
 @receiver(post_delete, sender=StopLossRule)
 @receiver(post_delete, sender=TargetRule)
+@receiver(post_delete, sender=StrategyAutoDisable)
 def auto_create_version(sender, instance, **kwargs):
     """
     Automatically create a version snapshot on save/delete, with debouncing.
@@ -50,11 +56,18 @@ def auto_create_version(sender, instance, **kwargs):
     if sender == Strategy and kwargs.get('created', False):
         return
 
-    # 2. Check if auto-versioning is enabled
+    # 2. Update cache for the execution engine immediately, independent of versioning.
+    try:
+        cache.set(f"strategy_config_{strategy.id}", strategy.to_execution_dict(), timeout=None)
+        logger.info(f"Updated execution cache for strategy {strategy.id}")
+    except Exception as e:
+        logger.error(f"Failed to update cache for strategy {strategy.id}: {e}")
+
+    # 3. Check if auto-versioning is enabled
     if not strategy.auto_version_enabled:
         return
 
-    # 3. Check last version time (Debounce)
+    # 4. Check last version time (Debounce for snapshots)
     # Reduced to 10 seconds for easier testing and more frequent checkpoints
     last_version = strategy.versions.order_by('-created_at').first()
     
@@ -63,7 +76,7 @@ def auto_create_version(sender, instance, **kwargs):
         if time_since_last < timedelta(seconds=10):
             return
 
-    # 3. Create Snapshot
+    # 5. Create Snapshot
     try:
         StrategySnapshotService.create_snapshot(
             strategy, 

@@ -1,12 +1,30 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-} from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  AlertCircle,
+  BarChart3,
+  Eye,
+  EyeOff,
+  Loader2,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import {
+  CandlestickSeries,
+  ColorType,
+  createChart,
+  CrosshairMode,
+  HistogramSeries,
+  LineSeries,
+} from "lightweight-charts";
+
 import { Button } from "@/shared/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/shared/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -15,516 +33,546 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
-import {
-  TrendingUp,
-  TrendingDown,
-  BarChart3,
-  Activity,
-  AlertCircle,
-  Loader2,
-  Eye,
-  EyeOff,
-  Clock,
-} from "lucide-react";
-import {
-  createChart,
-  ColorType,
-  CrosshairMode,
-  CandlestickSeries,
-  LineSeries,
-  HistogramSeries,
-} from "lightweight-charts";
-import api from "@/shared/services/api";
-import { useWebSocket } from "@/shared/hooks/useWebSocket";
-import { toast } from "react-hot-toast";
 import { cn } from "@/shared/lib/utils";
 
-// Constants for chart configuration
+import useRealtimeCandles from "../hooks/useRealtimeCandles";
+
 const TIMEFRAMES = [
-  { value: "1m", label: "1M", interval: 60 * 1000 },
-  { value: "5m", label: "5M", interval: 5 * 60 * 1000 },
-  { value: "15m", label: "15M", interval: 15 * 60 * 1000 },
-  { value: "1h", label: "1H", interval: 60 * 60 * 1000 },
-  { value: "1D", label: "1D", interval: 24 * 60 * 60 * 1000 },
-  { value: "1W", label: "1W", interval: 7 * 24 * 60 * 60 * 1000 },
+  { value: "1m", label: "1M" },
+  { value: "5m", label: "5M" },
+  { value: "15m", label: "15M" },
+  { value: "1h", label: "1H" },
+  { value: "1D", label: "1D" },
+  { value: "1W", label: "1W" },
 ];
 
 const CHART_TYPES = [
-  { value: "candles", label: "Candlesticks", icon: BarChart3 },
+  { value: "candles", label: "Candles", icon: BarChart3 },
   { value: "line", label: "Line", icon: Activity },
 ];
 
-const ChartView = ({
-  instrument,
+const IST_TIME_ZONE = "Asia/Kolkata";
+
+const parseUnixTime = (value) => {
+  if (value == null || value === "") return null;
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) {
+    return Math.floor(
+      numericValue > 1_000_000_000_000 ? numericValue / 1000 : numericValue,
+    );
+  }
+  const parsedDate = Date.parse(value);
+  return Number.isFinite(parsedDate) ? Math.floor(parsedDate / 1000) : null;
+};
+
+const formatChartTimeIST = (time, withDate = false) => {
+  const unixSeconds =
+    typeof time === "object" && time?.timestamp ? time.timestamp : Number(time);
+  if (!Number.isFinite(unixSeconds)) return "";
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: IST_TIME_ZONE,
+    day: withDate ? "2-digit" : undefined,
+    month: withDate ? "short" : undefined,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(unixSeconds * 1000));
+};
+
+const isValidChartCandle = (item) =>
+  item &&
+  Number.isFinite(Number(item.time)) &&
+  Number.isFinite(Number(item.open)) &&
+  Number.isFinite(Number(item.high)) &&
+  Number.isFinite(Number(item.low)) &&
+  Number.isFinite(Number(item.close));
+
+const normalizeChartCandles = (items = []) => {
+  const byTime = new Map();
+  items.forEach((item) => {
+    if (!isValidChartCandle(item)) return;
+    const time = Number(item.time);
+    byTime.set(time, {
+      time,
+      open: Number(item.open),
+      high: Number(item.high),
+      low: Number(item.low),
+      close: Number(item.close),
+      volume: Number.isFinite(Number(item.volume)) ? Number(item.volume) : 0,
+    });
+  });
+  return Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+};
+
+const formatCurrency = (value) =>
+  value == null
+    ? "--"
+    : new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Number(value));
+
+export default function ChartView({
   symbol,
-  className,
-  height = 500,
-  showControls = true,
-  defaultTimeframe = "1D",
-  defaultChartType = "candles",
+  instrumentId,
   onBuyClick,
   onSellClick,
-}) => {
-  // State Management
-  const [selectedTimeframe, setSelectedTimeframe] = useState(defaultTimeframe);
-  const [selectedChartType, setSelectedChartType] = useState(defaultChartType);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [lastPrice, setLastPrice] = useState(null);
-  const [priceChange, setPriceChange] = useState(null);
+  className,
+}) {
+  const [selectedTimeframe, setSelectedTimeframe] = useState("1m");
+  const [selectedChartType, setSelectedChartType] = useState("candles");
   const [showVolume, setShowVolume] = useState(false);
-  const [ohlc, setOhlc] = useState(null);
+  const [hoveredCandle, setHoveredCandle] = useState(null);
 
-  // Refs for chart elements and data
-  const chartContainerRef = useRef(null);
+  const containerRef = useRef(null);
   const chartRef = useRef(null);
-  const candlestickSeriesRef = useRef(null);
+  const candleSeriesRef = useRef(null);
   const lineSeriesRef = useRef(null);
   const volumeSeriesRef = useRef(null);
-  const lastCandleRef = useRef(null);
+  const loadOlderRef = useRef(null);
+  const isLoadingOlderRef = useRef(false);
+  const hasMoreHistoryRef = useRef(false);
+  const shouldFitContentRef = useRef(true);
+  const userNavigatedHistoryRef = useRef(false);
 
-  const { isConnected, subscribe, getLatestPrice, tickData } = useWebSocket();
+  const {
+    candles,
+    latestTick,
+    status,
+    isLoadingOlder,
+    hasMoreHistory,
+    loadOlder,
+  } = useRealtimeCandles(symbol, selectedTimeframe, instrumentId);
 
-  const normalizedInstrument = useMemo(() => {
-    if (instrument) return instrument;
-    if (symbol) return { symbol, company_name: symbol };
-    return null;
-  }, [instrument, symbol]);
+  const chartCandles = useMemo(() => normalizeChartCandles(candles), [candles]);
 
-  // --- Chart Initialization Effect ---
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    loadOlderRef.current = loadOlder;
+    isLoadingOlderRef.current = isLoadingOlder;
+    hasMoreHistoryRef.current = hasMoreHistory;
+  }, [hasMoreHistory, isLoadingOlder, loadOlder]);
 
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        textColor: "#d1d4dc",
-        background: { type: ColorType.Solid, color: "#0d1117" },
-        fontSize: 12,
-      },
-      grid: {
-        vertLines: { color: "#363a45" },
-        horzLines: { color: "#363a45" },
-      },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#4e5260" },
-      timeScale: {
-        borderColor: "#4e5260",
-        timeVisible: true,
-        localization: {
-          timeFormatter: (timestamp) => {
-            const date = new Date(timestamp * 1000);
-            return date.toLocaleTimeString("en-IN", {
-              timeZone: "Asia/Kolkata",
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            });
-          },
-        },
-      },
-      width: chartContainerRef.current.clientWidth,
-      height,
-    });
-    chartRef.current = chart;
+  useEffect(() => {
+    shouldFitContentRef.current = true;
+    userNavigatedHistoryRef.current = false;
+    setHoveredCandle(null);
+  }, [selectedTimeframe, symbol]);
 
-    candlestickSeriesRef.current = chart.addSeries(CandlestickSeries, {
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      borderVisible: false,
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
-    });
-    lineSeriesRef.current = chart.addSeries(LineSeries, {
-      color: "#2196f3",
-      lineWidth: 2,
-      visible: false,
-    });
-    volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: "volume" },
-      priceScaleId: "",
-      scaleMargins: { top: 0.8, bottom: 0 },
-    });
-
-    chart.subscribeCrosshairMove((param) => {
-      if (param.time && param.seriesData.get(candlestickSeriesRef.current)) {
-        setOhlc(param.seriesData.get(candlestickSeriesRef.current));
-      } else {
-        setOhlc(lastCandleRef.current);
-      }
-    });
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      if (entries[0]) {
-        const { width } = entries[0].contentRect;
-        chart.applyOptions({ width });
-      }
-    });
-    resizeObserver.observe(chartContainerRef.current);
-
-    return () => {
-      resizeObserver.disconnect();
-      chart.remove();
-      chartRef.current = null;
-    };
-  }, [height]);
-
-  // --- Historical Data Fetching ---
-  const fetchHistoricalData = useCallback(
-    async (abortSignal) => {
-      // Accept signal
-      if (!normalizedInstrument?.symbol || !candlestickSeriesRef.current)
-        return;
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await api.get(
-          `/market/ohlc/?instrument=${normalizedInstrument.symbol}&resolution=${selectedTimeframe}`,
-          { signal: abortSignal }
-        ); // Pass signal
-        const transformed = response.data
-          .map((c) => ({
-            time: Math.floor(new Date(c.time).getTime() / 1000),
-            open: parseFloat(c.open),
-            high: parseFloat(c.high),
-            low: parseFloat(c.low),
-            close: parseFloat(c.close),
-            volume: parseInt(c.volume || 0, 10),
-          }))
-          .sort((a, b) => a.time - b.time);
-
-        if (chartRef.current) {
-          // Check if chart still exists
-          candlestickSeriesRef.current.setData(transformed);
-          lineSeriesRef.current.setData(
-            transformed.map((d) => ({ time: d.time, value: d.close }))
-          );
-          volumeSeriesRef.current.setData(
-            transformed.map((d) => ({
-              time: d.time,
-              value: d.volume,
-              color: d.close >= d.open ? "#22c55e40" : "#ef444440",
-            }))
-          );
-
-          if (transformed.length > 0) {
-            const lastCandle = transformed[transformed.length - 1];
-            lastCandleRef.current = lastCandle;
-            setOhlc(lastCandle);
-
-            if (!isConnected) {
-              const lastTickResponse = await api.get(
-                `/market/latest-tick/?instrument=${normalizedInstrument.symbol}`,
-                { signal: abortSignal }
-              );
-              const lastTick = lastTickResponse.data;
-              if (lastTick) {
-                setLastPrice(lastTick.price);
-                const change = lastTick.price - lastTick.prev_close;
-                const changePercent = (change / lastTick.prev_close) * 100;
-                setPriceChange({
-                  change: change.toFixed(2),
-                  changePercent: isNaN(changePercent)
-                    ? "0.00"
-                    : changePercent.toFixed(2),
-                  isPositive: change >= 0,
-                });
-              }
-            }
-            chartRef.current.timeScale().fitContent();
-          } else {
-            const lastKnownPrice = await getLatestPrice(
-              normalizedInstrument.symbol
-            );
-            if (lastKnownPrice) setLastPrice(lastKnownPrice);
-          }
-        }
-      } catch (err) {
-        if (err.name !== "CanceledError") {
-          // Don't show error for cancellations
-          setError("Failed to load chart data. Please try again.");
-          toast.error("Failed to load chart data.");
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [normalizedInstrument, selectedTimeframe, isConnected, getLatestPrice]
+  const latestCandle =
+    hoveredCandle ?? chartCandles[chartCandles.length - 1] ?? null;
+  const latestTickTime = parseUnixTime(
+    latestTick?.timestamp ?? latestTick?.updated_at,
   );
+  const latestTickPrice = Number(latestTick?.price);
+  const isLatestTickUsable =
+    Number.isFinite(latestTickPrice) &&
+    latestTickPrice > 0 &&
+    (!latestCandle?.time ||
+      !latestTickTime ||
+      latestTickTime >= Number(latestCandle.time) - 60);
+  const displayPrice = isLatestTickUsable
+    ? latestTickPrice
+    : latestCandle?.close;
+
+  const priceChange = useMemo(() => {
+    if (!isLatestTickUsable) return null;
+    if (!latestTick?.change && latestTick?.change !== 0) return null;
+    return {
+      change: Number(latestTick.change),
+      changePercent: Number(latestTick.change_percent ?? 0),
+    };
+  }, [isLatestTickUsable, latestTick]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetchHistoricalData(controller.signal);
+    let chart;
+    let observer;
+    let visibleRangeHandler;
+    let markUserNavigation;
+
+    const initChart = () => {
+      if (!containerRef.current) return;
+      const container = containerRef.current;
+
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      markUserNavigation = () => {
+        userNavigatedHistoryRef.current = true;
+      };
+      container.addEventListener("wheel", markUserNavigation, {
+        passive: true,
+      });
+      container.addEventListener("pointerdown", markUserNavigation);
+
+      chart = createChart(container, {
+        layout: {
+          background: { type: ColorType.Solid, color: "#020617" },
+          textColor: "#ffffff",
+          fontSize: 12,
+          fontFamily: "Inter, sans-serif",
+        },
+        grid: {
+          vertLines: { color: "#1e293b", style: 1 },
+          horzLines: { color: "#1e293b", style: 1 },
+        },
+        crosshair: { mode: CrosshairMode.Normal },
+        width: width || 800,
+        height: height || 400,
+        timeScale: {
+          borderColor: "#334155",
+          borderVisible: true,
+          timeVisible: true,
+          secondsVisible: false,
+          barSpacing: 10,
+          rightOffset: 5,
+          tickMarkFormatter: (time) => formatChartTimeIST(time),
+        },
+        localization: {
+          locale: "en-IN",
+          timeFormatter: (time) => formatChartTimeIST(time, true),
+        },
+        rightPriceScale: {
+          borderColor: "#334155",
+          borderVisible: true,
+          scaleMargins: { top: 0.1, bottom: 0.25 },
+        },
+        handleScroll: true,
+        handleScale: true,
+      });
+
+      chartRef.current = chart;
+      candleSeriesRef.current = chart.addSeries(CandlestickSeries, {
+        upColor: "#10b981",
+        downColor: "#f43f5e",
+        borderVisible: false,
+        wickUpColor: "#10b981",
+        wickDownColor: "#f43f5e",
+      });
+      lineSeriesRef.current = chart.addSeries(LineSeries, {
+        color: "#38bdf8",
+        lineWidth: 2,
+        visible: false,
+      });
+      volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "",
+        scaleMargins: { top: 0.8, bottom: 0.05 },
+        color: "#334155",
+        visible: showVolume,
+      });
+
+      chart.subscribeCrosshairMove((param) => {
+        if (!param.time) {
+          setHoveredCandle(null);
+          return;
+        }
+
+        const mainData =
+          param.seriesData.get(candleSeriesRef.current) ??
+          param.seriesData.get(lineSeriesRef.current);
+
+        const volumeData = param.seriesData.get(volumeSeriesRef.current);
+
+        if (mainData) {
+          setHoveredCandle({
+            ...mainData,
+            volume: volumeData?.value ?? 0,
+          });
+        } else {
+          setHoveredCandle(null);
+        }
+      });
+
+      visibleRangeHandler = (logicalRange) => {
+        if (
+          !logicalRange ||
+          !userNavigatedHistoryRef.current ||
+          !hasMoreHistoryRef.current ||
+          isLoadingOlderRef.current
+        ) {
+          return;
+        }
+        if (logicalRange.from < 25) {
+          loadOlderRef.current?.();
+        }
+      };
+      chart.timeScale().subscribeVisibleLogicalRangeChange(visibleRangeHandler);
+
+      observer = new ResizeObserver(() => {
+        if (!containerRef.current || !chartRef.current) return;
+        const newWidth = containerRef.current.clientWidth;
+        const newHeight = containerRef.current.clientHeight;
+        if (newWidth === 0 || newHeight === 0) return;
+
+        chartRef.current.applyOptions({
+          width: newWidth,
+          height: newHeight,
+        });
+        if (shouldFitContentRef.current) {
+          chartRef.current.timeScale().fitContent();
+        }
+      });
+
+      observer.observe(containerRef.current);
+    };
+
+    const frameId = requestAnimationFrame(initChart);
 
     return () => {
-      controller.abort(); // Cancel the request when the component unmounts
-    };
-  }, [fetchHistoricalData]);
-
-  // --- Live WebSocket Tick Handling ---
-  useEffect(() => {
-    if (!normalizedInstrument?.symbol || !isConnected) return;
-    const unsubscribe = subscribe(normalizedInstrument.symbol, (tick) => {
-      if (!tick || !chartRef.current) return; // Check if chart still exists
-      const tf = TIMEFRAMES.find((t) => t.value === selectedTimeframe);
-      if (!tf) return;
-
-      const bucket = tf.interval / 1000;
-      const tickTime = Math.floor(new Date(tick.timestamp).getTime() / 1000);
-      const alignedTime = Math.floor(tickTime / bucket) * bucket;
-
-      let candle = lastCandleRef.current
-        ? { ...lastCandleRef.current }
-        : { time: 0 };
-
-      if (alignedTime === candle.time) {
-        candle.high = Math.max(candle.high, tick.price);
-        candle.low = Math.min(candle.low, tick.price);
-        candle.close = tick.price;
-        candle.volume = (candle.volume || 0) + (tick.last_traded_qty || 0);
-      } else if (alignedTime > candle.time) {
-        candle = {
-          time: alignedTime,
-          open: tick.price,
-          high: tick.price,
-          low: tick.price,
-          close: tick.price,
-          volume: tick.last_traded_qty || 0,
-        };
+      cancelAnimationFrame(frameId);
+      if (observer) observer.disconnect();
+      if (containerRef.current && markUserNavigation) {
+        containerRef.current.removeEventListener("wheel", markUserNavigation);
+        containerRef.current.removeEventListener(
+          "pointerdown",
+          markUserNavigation,
+        );
       }
-
-      lastCandleRef.current = candle;
-      candlestickSeriesRef.current.update(candle);
-      lineSeriesRef.current.update({ time: candle.time, value: candle.close });
-      volumeSeriesRef.current.update({
-        time: candle.time,
-        value: candle.volume,
-        color: candle.close >= candle.open ? "#22c55e40" : "#ef444440",
-      });
-
-      setLastPrice(tick.price);
-      setOhlc(candle);
-      setPriceChange({
-        change: tick.change.toFixed(2),
-        changePercent: tick.change_percent.toFixed(2),
-        isPositive: tick.change >= 0,
-      });
-    });
-    return () => unsubscribe();
-  }, [normalizedInstrument, selectedTimeframe, subscribe, isConnected]);
+      if (chart) {
+        if (visibleRangeHandler) {
+          chart
+            .timeScale()
+            .unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);
+        }
+        chart.remove();
+        chartRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
-    if (!chartRef.current) return;
-    candlestickSeriesRef.current.applyOptions({
+    if (
+      !chartRef.current ||
+      !candleSeriesRef.current ||
+      !lineSeriesRef.current
+    ) {
+      return;
+    }
+
+    candleSeriesRef.current.setData(chartCandles);
+    lineSeriesRef.current.setData(
+      chartCandles.map((item) => ({ time: item.time, value: item.close })),
+    );
+    volumeSeriesRef.current?.setData(
+      chartCandles.map((item) => ({
+        time: item.time,
+        value: item.volume,
+        color: item.close >= item.open ? "#10b98155" : "#f43f5e55",
+      })),
+    );
+
+    if (shouldFitContentRef.current && chartCandles.length) {
+      chartRef.current.timeScale().fitContent();
+      shouldFitContentRef.current = false;
+    }
+  }, [chartCandles]);
+
+  useEffect(() => {
+    candleSeriesRef.current?.applyOptions({
       visible: selectedChartType === "candles",
     });
-    lineSeriesRef.current.applyOptions({
-      visible: selectedChartType !== "candles",
+    lineSeriesRef.current?.applyOptions({
+      visible: selectedChartType === "line",
     });
   }, [selectedChartType]);
 
   useEffect(() => {
-    if (!chartRef.current) return;
-    volumeSeriesRef.current.applyOptions({ visible: showVolume });
-    chartRef.current.priceScale("right").applyOptions({
+    volumeSeriesRef.current?.applyOptions({ visible: showVolume });
+    chartRef.current?.priceScale("right").applyOptions({
       scaleMargins: { top: 0.1, bottom: showVolume ? 0.25 : 0.05 },
     });
   }, [showVolume]);
 
-  const formatPrice = (p) => (p ? `₹${parseFloat(p).toFixed(2)}` : "--");
-
   return (
     <Card
       className={cn(
-        "w-full bg-[#0d1117] border-[#4e5260] flex flex-col",
-        className
+        "flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-3xl border border-slate-800 bg-slate-950/80",
+        className,
       )}
     >
-      {showControls && (
-        <CardHeader className="p-3 bg-[#0d1117] border-b border-[#4e5260]">
-          {/* Top Row: Symbol, Price, Change */}
-          <div className="flex items-start justify-between">
-            <div className="flex flex-col items-start gap-1">
-              <div className="flex items-center gap-4">
-                <CardTitle className="text-xl text-[#d1d4dc]">
-                  {normalizedInstrument?.symbol || "Select Instrument"}
-                </CardTitle>
-                <div className="flex items-center gap-2">
+      <CardHeader className="border-b border-slate-800 px-4 py-4 shrink-0">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-baseline gap-4 mb-1">
+              <CardTitle className="text-2xl font-bold text-white uppercase tracking-tight">
+                {symbol}
+              </CardTitle>
+
+              <div className="flex items-baseline gap-3">
+                <span className="text-2xl font-bold text-white tabular-nums">
+                  {formatCurrency(displayPrice)}
+                </span>
+
+                {priceChange && (
                   <div
                     className={cn(
-                      "h-2 w-2 rounded-full",
-                      isConnected ? "bg-[#22c55e]" : "bg-[#ef4444]"
+                      "flex items-center gap-1 text-sm font-semibold",
+                      priceChange.change >= 0
+                        ? "text-emerald-400"
+                        : "text-rose-400",
                     )}
-                  />
-                  <span className="text-xs text-[#758696]">
-                    {isConnected ? "Live" : "Offline"}
-                  </span>
-                  <div className="flex items-center gap-1 text-xs text-yellow-400/80 bg-yellow-900/30 px-1.5 py-0.5 rounded-sm">
-                    <Clock className="h-3 w-3" />
-                    <span>15-Min Delayed</span>
+                  >
+                    {priceChange.change >= 0 ? (
+                      <TrendingUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5" />
+                    )}
+                    <span>
+                      {priceChange.change >= 0 ? "+" : ""}
+                      {priceChange.change.toFixed(2)} (
+                      {priceChange.changePercent.toFixed(2)}%)
+                    </span>
                   </div>
-                </div>
+                )}
               </div>
-              {lastPrice && (
-                <div className="flex items-baseline gap-3">
-                  <span className="text-2xl font-bold text-[#d1d4dc]">
-                    {formatPrice(lastPrice)}
-                  </span>
-                  {priceChange && (
-                    <div
-                      className={cn(
-                        "flex items-baseline gap-1 font-medium",
-                        priceChange.isPositive
-                          ? "text-[#22c55e]"
-                          : "text-[#ef4444]"
-                      )}
-                    >
-                      {priceChange.isPositive ? (
-                        <TrendingUp className="h-4 w-4" />
-                      ) : (
-                        <TrendingDown className="h-4 w-4" />
-                      )}
-                      <span>
-                        {priceChange.change} ({priceChange.changePercent}%)
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
-            {(onBuyClick || onSellClick) && (
-              <div className="flex gap-2">
-                {onBuyClick && (
-                  <Button
-                    onClick={onBuyClick}
-                    size="lg"
-                    className="bg-green-600 hover:bg-green-700 text-white font-semibold"
-                  >
-                    Buy
-                  </Button>
-                )}
-                {onSellClick && (
-                  <Button
-                    onClick={onSellClick}
-                    size="lg"
-                    className="bg-red-600 hover:bg-red-700 text-white font-semibold"
-                  >
-                    Sell
-                  </Button>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* OHLC Display */}
-          {ohlc && (
-            <div className="flex items-center gap-4 text-xs text-gray-400 mt-2">
-              <span>
-                O <span className="text-gray-200">{ohlc.open?.toFixed(2)}</span>
-              </span>
-              <span>
-                H <span className="text-gray-200">{ohlc.high?.toFixed(2)}</span>
-              </span>
-              <span>
-                L <span className="text-gray-200">{ohlc.low?.toFixed(2)}</span>
-              </span>
-              <span>
-                C{" "}
-                <span className="text-gray-200">{ohlc.close?.toFixed(2)}</span>
-              </span>
-            </div>
-          )}
-
-          {/* Bottom Row: Timeframe, Chart Type */}
-          <div className="flex items-center justify-between mt-2">
-            <Tabs
-              value={selectedTimeframe}
-              onValueChange={setSelectedTimeframe}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={onBuyClick}
+              className="bg-emerald-600 text-white hover:bg-emerald-500 font-bold px-6 rounded-xl"
             >
-              <TabsList className="h-8 bg-[#2a2e39] border-[#4e5260]">
-                {TIMEFRAMES.map((t) => (
-                  <TabsTrigger
-                    key={t.value}
-                    value={t.value}
-                    className="text-xs px-2.5 text-[#d1d4dc] data-[state=active]:bg-[#4e5260] data-[state=active]:text-white hover:text-white"
-                  >
-                    {t.label}
-                  </TabsTrigger>
+              Buy
+            </Button>
+            <Button
+              size="sm"
+              onClick={onSellClick}
+              className="bg-rose-600 text-white hover:bg-rose-500 font-bold px-6 rounded-xl"
+            >
+              Sell
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-2 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <Tabs value={selectedTimeframe} onValueChange={setSelectedTimeframe}>
+            <TabsList className="h-9 bg-slate-900">
+              {TIMEFRAMES.map((item) => (
+                <TabsTrigger
+                  key={item.value}
+                  value={item.value}
+                  className="px-3 text-xs data-[state=active]:bg-sky-500 data-[state=active]:text-slate-950"
+                >
+                  {item.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowVolume((current) => !current)}
+              className="text-slate-400 hover:bg-slate-900 hover:text-white"
+            >
+              {showVolume ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </Button>
+            <Select
+              value={selectedChartType}
+              onValueChange={setSelectedChartType}
+            >
+              <SelectTrigger className="h-9 w-36 border-slate-800 bg-slate-900 text-slate-200">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="border-slate-800 bg-slate-900 text-slate-200">
+                {CHART_TYPES.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    <div className="flex items-center gap-2">
+                      <type.icon className="h-4 w-4" />
+                      {type.label}
+                    </div>
+                  </SelectItem>
                 ))}
-              </TabsList>
-            </Tabs>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowVolume(!showVolume)}
-                className="text-slate-400 hover:text-white hover:bg-gray-700/50"
-              >
-                {showVolume ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </Button>
-              <Select
-                value={selectedChartType}
-                onValueChange={setSelectedChartType}
-              >
-                <SelectTrigger className="w-36 bg-[#2a2e39] border-[#4e5260] text-[#d1d4dc] h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#2a2e39] border-[#4e5260]">
-                  {CHART_TYPES.map((type) => (
-                    <SelectItem
-                      key={type.value}
-                      value={type.value}
-                      className="text-[#d1d4dc] hover:text-white hover:bg-[#4e5260]"
-                    >
-                      <div className="flex items-center gap-2">
-                        <type.icon className="h-4 w-4" />
-                        {type.label}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {latestCandle && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] font-medium text-slate-500 border-t border-slate-800/50 pt-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-600">O</span>
+              <span className="text-slate-300 tabular-nums">
+                {Number(latestCandle.open).toFixed(2)}
+              </span>
             </div>
-          </div>
-        </CardHeader>
-      )}
-      <CardContent className="p-0 flex-grow relative overflow-hidden">
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0d1117]">
-            <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
-          </div>
-        )}
-        {error && !isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0d1117]">
-            <div className="text-center text-red-400">
-              <AlertCircle className="h-12 w-12 mx-auto mb-4" />
-              <p>{error}</p>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-600">H</span>
+              <span className="text-emerald-400 tabular-nums">
+                {Number(latestCandle.high).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-600">L</span>
+              <span className="text-rose-400 tabular-nums">
+                {Number(latestCandle.low).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-600">C</span>
+              <span className="text-slate-300 tabular-nums">
+                {Number(latestCandle.close).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-600">V</span>
+              <span className="text-slate-400 tabular-nums">
+                {Number(latestCandle.volume ?? 0).toLocaleString("en-IN")}
+              </span>
             </div>
           </div>
         )}
-        <div
-          ref={chartContainerRef}
-          className={cn(
-            "w-full h-full",
-            isLoading || error ? "invisible" : "visible"
-          )}
-        />
-        {!normalizedInstrument && !isLoading && !error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0d1117]">
-            <div className="text-center">
-              <BarChart3 className="h-12 w-12 text-[#758696] mx-auto mb-4" />
-              <p className="text-[#758696]">
-                Select an instrument to view chart
-              </p>
+      </CardHeader>
+
+      <CardContent className="relative flex-1 p-0 min-h-0 min-w-0 overflow-hidden">
+        {status === "loading" && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-sm transition-all">
+            <Loader2 className="h-10 w-10 animate-spin text-sky-500" />
+            <p className="mt-4 text-sm font-medium text-slate-300">
+              Loading chart data...
+            </p>
+          </div>
+        )}
+
+        {isLoadingOlder && (
+          <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/90 px-3 py-2 text-xs font-semibold text-slate-300 shadow-lg">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />
+            Loading history
+          </div>
+        )}
+
+        {status === "ready" && !chartCandles.length && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/60 transition-all text-slate-400">
+            <BarChart3 className="h-12 w-12 mb-4 opacity-20" />
+            <p>No historical data available for this symbol.</p>
+          </div>
+        )}
+
+        {status === "error" && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/80">
+            <div className="text-center text-slate-300">
+              <AlertCircle className="mx-auto mb-3 h-10 w-10 text-rose-400" />
+              <p>Unable to load candles for this symbol.</p>
             </div>
           </div>
+        )}
+
+        {!symbol ? (
+          <div className="flex h-full items-center justify-center text-slate-500">
+            Select a symbol to load the trading terminal.
+          </div>
+        ) : (
+          <div ref={containerRef} className="h-full w-full" />
         )}
       </CardContent>
     </Card>
   );
-};
-
-export default ChartView;
+}

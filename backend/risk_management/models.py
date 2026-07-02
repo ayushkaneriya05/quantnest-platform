@@ -8,7 +8,7 @@ from django.db import models
 from django.conf import settings
 from common.models import BaseTimestampModel
 from common.enums import (
-    QuantityType, HaltConditionType, AutoDisableTriggerType,
+    QuantityType, AutoDisableTriggerType,
     ViolationType, ViolationAction, Severity
 )
 
@@ -89,25 +89,9 @@ class PortfolioRiskProfile(BaseTimestampModel):
         max_digits=5, decimal_places=2, default=5.00,
         help_text="Maximum daily loss as % of capital"
     )
-    max_daily_trades = models.PositiveIntegerField(
-        default=50,
-        help_text="Maximum trades per day across all strategies"
-    )
-    
-    # Position limits
-    max_open_positions = models.PositiveIntegerField(
-        default=10,
-        help_text="Maximum concurrent open positions"
-    )
     max_exposure_percentage = models.DecimalField(
         max_digits=5, decimal_places=2, default=80.00,
         help_text="Maximum portfolio exposure as % of capital"
-    )
-    
-    # Per-strategy limits
-    max_per_strategy_allocation = models.DecimalField(
-        max_digits=5, decimal_places=2, default=25.00,
-        help_text="Maximum capital allocated to a single strategy"
     )
     
     # Per-instrument limits
@@ -121,15 +105,10 @@ class PortfolioRiskProfile(BaseTimestampModel):
         max_digits=5, decimal_places=2, default=15.00,
         help_text="Maximum portfolio drawdown before halt"
     )
-    trailing_drawdown_reset = models.BooleanField(
-        default=True,
-        help_text="Reset drawdown counter on new high"
-    )
     
     # Notifications
     alert_on_breach = models.BooleanField(default=True)
-    halt_on_breach = models.BooleanField(default=False)
-    
+
     class Meta:
         db_table = 'risk_portfolio_profile'
         verbose_name = 'Portfolio Risk Profile'
@@ -137,55 +116,6 @@ class PortfolioRiskProfile(BaseTimestampModel):
 
     def __str__(self):
         return f"Risk Profile for {self.user.username}"
-
-
-class TradeHaltCondition(BaseTimestampModel):
-    """
-    Conditions that trigger a trading halt.
-    Can be global or strategy-specific.
-    """
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='halt_conditions'
-    )
-
-    
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-    
-    # Condition type
-    condition_type = models.CharField(
-        max_length=20,
-        choices=HaltConditionType.choices
-    )
-    
-    # Threshold values
-    threshold_value = models.DecimalField(
-        max_digits=15, decimal_places=4, default=0, null=True, blank=True
-    )
-    threshold_count = models.PositiveIntegerField(default=0, null=True, blank=True)
-    
-    # Actions
-    halt_duration_minutes = models.PositiveIntegerField(
-        default=60,
-        help_text="Duration of halt in minutes (0 = until EOD)"
-    )
-    close_open_positions = models.BooleanField(
-        default=False,
-        help_text="Close all positions when halt triggered"
-    )
-    send_notification = models.BooleanField(default=True)
-    
-    is_active = models.BooleanField(default=True)
-    
-    class Meta:
-        db_table = 'risk_halt_condition'
-        verbose_name = 'Trade Halt Condition'
-        verbose_name_plural = 'Trade Halt Conditions'
-
-    def __str__(self):
-        return f"{self.name} (Portfolio)"
 
 
 class StrategyAutoDisable(BaseTimestampModel):

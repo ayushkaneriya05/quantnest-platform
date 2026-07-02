@@ -8,14 +8,32 @@ import {
 } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import { Label } from "@/shared/components/ui/label";
+import { Input } from "@/shared/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
 import { 
   Plus, Play, Pause, Archive, Copy, 
   TrendingUp, Clock, Zap, Target, Edit, Trash2, TestTube,
-  Loader2, Sparkles, RotateCcw
+  Loader2, Sparkles, RotateCcw, FlaskConical, Rocket
 } from 'lucide-react';
 import { strategyApi } from '@/shared/services/strategyApi';
+import { brokersApi } from '@/shared/services/brokersApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
+import { customConfirm } from '@/shared/components/ui/custom-dialog';
 
 const STATUS_CONFIG = {
   DRAFT: { label: 'Draft', className: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
@@ -44,14 +62,22 @@ export default function StrategyList() {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [deployingId, setDeployingId] = useState(null);
+  const [liveDeployOpen, setLiveDeployOpen] = useState(false);
+  const [liveDeployStrategy, setLiveDeployStrategy] = useState(null);
+  const [brokerOptions, setBrokerOptions] = useState([]);
+  const [selectedBroker, setSelectedBroker] = useState("");
+  const [allocationMode, setAllocationMode] = useState("FIXED");
+  const [allocationAmount, setAllocationAmount] = useState("");
+  const [allocationPercentage, setAllocationPercentage] = useState("");
 
   const fetchStrategies = async () => {
     try {
       setLoading(true);
       const data = await strategyApi.getAll();
-      setStrategies(data);
+      setStrategies(Array.isArray(data) ? data : (data?.results || []));
     } catch (error) {
-      notify.error('Failed to load strategies');
+      notify.error("Failed to load strategies");
       console.error(error);
     } finally {
       setLoading(false);
@@ -63,7 +89,7 @@ export default function StrategyList() {
   }, []);
 
   const handleCreate = () => {
-    navigate('/dashboard/strategy/create');
+    navigate("/dashboard/strategy/create");
   };
 
   // Set page actions in header
@@ -82,6 +108,74 @@ export default function StrategyList() {
 
   const handleBacktest = (id) => {
     navigate(`/dashboard/backtest/setup?strategy=${id}`);
+  };
+
+  const loadBrokerOptions = async () => {
+    const catalog = await brokersApi.getCatalog();
+    const rows = Array.isArray(catalog.data) ? catalog.data : [];
+    const connected = rows.filter((item) => item.enabled && item.is_verified);
+    setBrokerOptions(connected);
+    const active = connected.find((item) => item.is_active) || connected[0];
+    setSelectedBroker(active?.credential_id ? String(active.credential_id) : "");
+    return connected;
+  };
+
+  const handleDeployPaper = async (strategy) => {
+    try {
+      setDeployingId(strategy.id);
+      const result = await strategyApi.deployPaper(strategy.id);
+      notify.success(result.message || 'Strategy deployed to paper trading');
+      await fetchStrategies();
+      navigate('/dashboard/paper');
+    } catch (error) {
+      notify.error(error?.response?.data?.error || 'Failed to deploy to paper trading');
+    } finally {
+      setDeployingId(null);
+    }
+  };
+
+  const openLiveDeploy = async (strategy) => {
+    try {
+      setDeployingId(strategy.id);
+      const brokers = await loadBrokerOptions();
+      if (!brokers.length) {
+        notify.error('Connect and verify a broker account before deploying live');
+        return;
+      }
+      setLiveDeployStrategy(strategy);
+      setAllocationMode("FIXED");
+      setAllocationAmount("");
+      setAllocationPercentage("");
+      setLiveDeployOpen(true);
+    } catch (error) {
+      notify.error('Failed to load connected broker accounts');
+    } finally {
+      setDeployingId(null);
+    }
+  };
+
+  const handleConfirmLiveDeploy = async () => {
+    if (!liveDeployStrategy) return;
+    try {
+      setDeployingId(liveDeployStrategy.id);
+      const result = await strategyApi.deployLive(
+        liveDeployStrategy.id,
+        {
+          brokerCredential: selectedBroker ? Number(selectedBroker) : null,
+          allocationAmount: allocationMode === "FIXED" && allocationAmount ? Number(allocationAmount) : null,
+          allocationPercentage: allocationMode === "PERCENTAGE" && allocationPercentage ? Number(allocationPercentage) : null,
+        },
+      );
+      notify.success(result.message || 'Strategy deployed to live trading');
+      setLiveDeployOpen(false);
+      setLiveDeployStrategy(null);
+      await fetchStrategies();
+      navigate('/dashboard/live/strategies');
+    } catch (error) {
+      notify.error(error?.response?.data?.error || 'Failed to deploy to live trading');
+    } finally {
+      setDeployingId(null);
+    }
   };
 
   const handleClone = async (id) => {
@@ -135,7 +229,8 @@ export default function StrategyList() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this strategy? This cannot be undone.')) return;
+    const confirmed = await customConfirm('Are you sure you want to delete this strategy? This cannot be undone.');
+    if (!confirmed) return;
     try {
       await strategyApi.delete(id);
       notify.success('Strategy deleted');
@@ -285,14 +380,38 @@ export default function StrategyList() {
                     >
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => handleBacktest(strategy.id)}
                       className="text-gray-500 hover:text-indigo-400 hover:bg-indigo-500/10 h-8 w-8 p-0"
                       title="Backtest strategy"
                     >
                       <TestTube className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeployPaper(strategy)}
+                      className="text-gray-500 hover:text-cyan-400 hover:bg-cyan-500/10 h-8 w-8 p-0"
+                      title="Deploy to paper trading"
+                      disabled={deployingId === strategy.id}
+                    >
+                      {deployingId === strategy.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FlaskConical className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openLiveDeploy(strategy)}
+                      className="text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
+                      title="Deploy to connected broker"
+                      disabled={deployingId === strategy.id}
+                    >
+                      <Rocket className="h-3.5 w-3.5" />
                     </Button>
                     {strategy.status === 'DRAFT' && (
                       <Button 
@@ -365,6 +484,99 @@ export default function StrategyList() {
           })}
         </div>
       )}
+
+      <Dialog open={liveDeployOpen} onOpenChange={setLiveDeployOpen}>
+        <DialogContent className="bg-gray-950 border-gray-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Deploy Strategy Live</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-gray-400">
+              {liveDeployStrategy
+                ? `Choose the connected broker account for ${liveDeployStrategy.name}.`
+                : "Choose a broker account."}
+            </div>
+            <div className="space-y-2">
+              <Label className="text-gray-300">Connected Broker</Label>
+              <Select value={selectedBroker} onValueChange={setSelectedBroker}>
+                <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
+                  <SelectValue placeholder="Select broker account" />
+                </SelectTrigger>
+                <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                  {brokerOptions.map((broker) => (
+                    <SelectItem key={broker.credential_id} value={String(broker.credential_id)}>
+                      {broker.display_name} - {broker.account_name || broker.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-gray-300">Allocation Mode</Label>
+                <Select value={allocationMode} onValueChange={setAllocationMode}>
+                  <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                    <SelectItem value="FIXED">Fixed Capital</SelectItem>
+                    <SelectItem value="PERCENTAGE">Percentage of Broker Equity</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-gray-300">
+                  {allocationMode === "FIXED" ? "Allocated Capital (Rs)" : "Allocated Percentage (%)"}
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step={allocationMode === "FIXED" ? "1" : "0.5"}
+                  value={allocationMode === "FIXED" ? allocationAmount : allocationPercentage}
+                  onChange={(e) => {
+                    if (allocationMode === "FIXED") {
+                      setAllocationAmount(e.target.value);
+                    } else {
+                      setAllocationPercentage(e.target.value);
+                    }
+                  }}
+                  className="bg-gray-900 border-gray-700 text-white"
+                  placeholder={allocationMode === "FIXED" ? "50000" : "10"}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              This live allocation acts as the strategy wallet on the broker account. New entries are blocked once the strategy wallet or broker margin is exhausted.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-gray-700 text-gray-100"
+              onClick={() => setLiveDeployOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-500"
+              onClick={handleConfirmLiveDeploy}
+              disabled={
+                !selectedBroker
+                || deployingId === liveDeployStrategy?.id
+                || (allocationMode === "FIXED" && !allocationAmount)
+                || (allocationMode === "PERCENTAGE" && !allocationPercentage)
+              }
+            >
+              {deployingId === liveDeployStrategy?.id ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Rocket className="h-4 w-4 mr-2" />
+              )}
+              Deploy Live
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

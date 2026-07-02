@@ -1,6 +1,21 @@
-import { useState } from "react";
+/* eslint-disable react/prop-types */
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import api from "@/shared/services/api";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  User,
+} from "lucide-react";
+
+import EmailVerificationModal from "@/features/auth/components/email-verification-modal";
+import GoogleLoginButton, {
+  GoogleLoginFallback,
+} from "@/features/auth/components/GoogleLoginButton";
+import MainHeader from "@/shared/components/layout/main-header";
 import { Button } from "@/shared/components/ui/button";
 import {
   Card,
@@ -9,15 +24,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/components/ui/card";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { Checkbox } from "@/shared/components/ui/checkbox";
-import { User, Mail, Lock, ArrowLeft } from "lucide-react";
-import EmailVerificationModal from "@/features/auth/components/email-verification-modal";
-import GoogleLoginButton, {
-  GoogleLoginFallback,
-} from "@/features/auth/components/GoogleLoginButton";
-import MainHeader from "@/shared/components/layout/main-header";
+import api from "@/shared/services/api";
+
+const workflowSteps = [
+  "AI research",
+  "Backtest",
+  "Paper trade",
+  "Go live",
+];
 
 export default function RegisterPage() {
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -33,7 +50,34 @@ export default function RegisterPage() {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+
+  const getPasswordStrength = (pwd) => {
+    let strength = 0;
+    if (pwd.length >= 8) strength += 25;
+    if (/[A-Z]/.test(pwd)) strength += 25;
+    if (/[a-z]/.test(pwd)) strength += 25;
+    if (/[0-9]/.test(pwd) || /[^A-Za-z0-9]/.test(pwd)) strength += 25;
+    return strength;
+  };
+
+  const passwordStrength = getPasswordStrength(formData.password1);
+
+  const getStrengthColor = () => {
+    if (passwordStrength < 50) return "bg-red-500";
+    if (passwordStrength < 75) return "bg-amber-400";
+    if (passwordStrength < 100) return "bg-blue-400";
+    return "bg-emerald-500";
+  };
+
+  const getStrengthText = () => {
+    if (formData.password1.length === 0) return "";
+    if (passwordStrength < 50) return "Weak";
+    if (passwordStrength < 75) return "Fair";
+    if (passwordStrength < 100) return "Good";
+    return "Strong";
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -73,7 +117,6 @@ export default function RegisterPage() {
         password2,
       });
 
-      // Show email verification modal
       setRegisteredEmail(email);
       setIsEmailModalOpen(true);
     } catch (err) {
@@ -112,21 +155,52 @@ export default function RegisterPage() {
   const googleClientId = import.meta.env.VITE_REACT_APP_GOOGLE_CLIENT_ID;
 
   return (
-    <div className="flex flex-col min-h-screen bg-black">
-      <MainHeader />
-      <div className="flex flex-1 items-center justify-center container-padding py-6 sm:py-8 md:py-12 lg:py-16">
-        <Card className="w-full max-w-md bg-gray-900/50 border border-gray-800/50 shadow-lg rounded-xl p-4 sm:p-6">
-          <CardHeader className="text-center pb-6">
-            <CardTitle className="text-2xl sm:text-3xl font-bold text-slate-100 leading-tight">
-              Create Your QuantNest Account
-            </CardTitle>
-            <CardDescription className="text-slate-400 mt-2">
-              Join the future of intelligent trading today.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="content-spacing px-0">
-            {/* Google registration section */}
-            <div className="space-y-3 sm:space-y-4">
+    <div className="relative flex min-h-screen flex-col overflow-y-auto bg-[#050505] text-white lg:h-screen lg:overflow-hidden">
+      <div className="landing-market-animation absolute inset-0 opacity-70" />
+      <div className="landing-grid absolute inset-0 opacity-25" />
+      <MainHeader authPage="register" />
+
+      <div className="relative flex min-h-0 flex-1 items-start justify-center px-4 py-4 sm:items-center lg:py-3">
+        <Card className="grid w-full max-w-4xl overflow-hidden rounded-3xl border border-white/10 bg-[#0b0d12]/90 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl lg:grid-cols-[0.82fr_1.18fr]">
+          <div className="relative overflow-hidden border-b border-white/10 bg-[#111318]/80 p-5 lg:border-b-0 lg:border-r lg:p-6">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(229,196,97,0.13),transparent_40%)]" />
+            <div className="relative flex h-full flex-col justify-center gap-5">
+              <CardHeader className="px-0 pb-0 pt-0">
+                <img src="/favicon.png" alt="QuantNest" className="mb-3 h-12 w-12 sm:h-14 sm:w-14 self-center" />
+                <CardTitle className="max-w-sm text-[1.7rem] font-semibold leading-tight tracking-[-0.04em] text-white">
+                  Create your QuantNest workspace
+                </CardTitle>
+                <CardDescription className="mt-2 max-w-sm text-sm leading-6 text-slate-400">
+                  Create one account for AI research, strategy testing, paper
+                  trading, and live deployment.
+                </CardDescription>
+              </CardHeader>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2">
+                {workflowSteps.map((step, index) => (
+                  <div
+                    key={step}
+                    className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2"
+                  >
+                    <div className="text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-[#e5c461]">
+                      0{index + 1}
+                    </div>
+                    <div className="mt-0.5 text-sm font-medium text-slate-200">
+                      {step}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-2xl border border-[#e5c461]/15 bg-[#e5c461]/[0.06] p-3 text-xs leading-5 text-slate-300">
+                Start safely in paper trading, then connect brokers only when
+                your strategy and risk rules are ready.
+              </div>
+            </div>
+          </div>
+
+          <CardContent className="p-5 lg:p-6">
+            <div className="mb-3">
               {googleClientId ? (
                 <GoogleLoginButton
                   onError={handleGoogleError}
@@ -138,169 +212,130 @@ export default function RegisterPage() {
               )}
             </div>
 
-            <div className="relative flex items-center my-6">
-              <div className="flex-grow border-t border-gray-700" />
-              <span className="mx-4 flex-shrink text-slate-400 text-sm">
+            <div className="relative mb-3 flex items-center">
+              <div className="flex-grow border-t border-white/10" />
+              <span className="mx-3 flex-shrink text-xs text-slate-500">
                 OR
               </span>
-              <div className="flex-grow border-t border-gray-700" />
+              <div className="flex-grow border-t border-white/10" />
             </div>
 
-            <form className="text-spacing" onSubmit={handleSubmit}>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="text-spacing-sm">
-                  <Label
-                    htmlFor="firstName"
-                    className="text-slate-200 text-sm font-medium"
-                  >
-                    First Name
-                  </Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="firstName"
-                      name="firstName"
-                      type="text"
-                      placeholder="John"
-                      className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                      value={formData.firstName}
-                      onChange={handleChange}
-                      required
+            <form className="space-y-2.5" onSubmit={handleSubmit}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field
+                  id="firstName"
+                  label="First name"
+                  icon={User}
+                  placeholder="John"
+                  value={formData.firstName}
+                  onChange={handleChange}
+                />
+                <Field
+                  id="lastName"
+                  label="Last name"
+                  icon={User}
+                  placeholder="Doe"
+                  value={formData.lastName}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field
+                  id="username"
+                  label="Username"
+                  icon={User}
+                  placeholder="quant_trader"
+                  value={formData.username}
+                  onChange={handleChange}
+                />
+                <Field
+                  id="email"
+                  label="Email"
+                  icon={Mail}
+                  type="email"
+                  placeholder="you@example.com"
+                  value={formData.email}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <PasswordField
+                  id="password"
+                  name="password1"
+                  label="Password"
+                  value={formData.password1}
+                  onChange={handleChange}
+                  showPassword={showPassword}
+                  setShowPassword={setShowPassword}
+                />
+                <PasswordField
+                  id="confirmPassword"
+                  name="password2"
+                  label="Confirm password"
+                  value={formData.password2}
+                  onChange={handleChange}
+                  showPassword={showPassword}
+                  setShowPassword={setShowPassword}
+                />
+              </div>
+
+              {formData.password1.length > 0 && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-2">
+                  <div className="mb-1.5 flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Password strength</span>
+                    <span
+                      className={`font-medium ${
+                        passwordStrength < 50
+                          ? "text-red-400"
+                          : passwordStrength < 75
+                            ? "text-amber-400"
+                            : passwordStrength < 100
+                              ? "text-blue-400"
+                              : "text-emerald-400"
+                      }`}
+                    >
+                      {getStrengthText()}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-800">
+                    <div
+                      className={`h-full transition-all duration-300 ${getStrengthColor()}`}
+                      style={{ width: `${passwordStrength}%` }}
                     />
                   </div>
+                  <p className="mt-1 text-xs leading-4 text-slate-500">
+                    Use 8+ characters with uppercase, lowercase, number, or
+                    symbol.
+                  </p>
                 </div>
-                <div className="text-spacing-sm">
-                  <Label
-                    htmlFor="lastName"
-                    className="text-slate-200 text-sm font-medium"
-                  >
-                    Last Name
-                  </Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="lastName"
-                      name="lastName"
-                      type="text"
-                      placeholder="Doe"
-                      className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                      value={formData.lastName}
-                      onChange={handleChange}
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="text-spacing-sm">
-                <Label
-                  htmlFor="username"
-                  className="text-slate-200 text-sm font-medium"
-                >
-                  Username
-                </Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="username"
-                    name="username"
-                    type="text"
-                    placeholder="quant_trader"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                    value={formData.username}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="text-spacing-sm">
-                <Label
-                  htmlFor="email"
-                  className="text-slate-200 text-sm font-medium"
-                >
-                  Email
-                </Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                    value={formData.email}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="text-spacing-sm">
-                <Label
-                  htmlFor="password"
-                  className="text-slate-200 text-sm font-medium"
-                >
-                  Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="password"
-                    name="password1"
-                    type="password"
-                    placeholder="••••••••"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                    value={formData.password1}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                  Password must be at least 8 characters long, include an
-                  uppercase letter, a lowercase letter, a number, and a symbol.
-                </p>
-              </div>
-              <div className="text-spacing-sm">
-                <Label
-                  htmlFor="confirmPassword"
-                  className="text-slate-200 text-sm font-medium"
-                >
-                  Confirm Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="confirmPassword"
-                    name="password2"
-                    type="password"
-                    placeholder="••••••••"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                    value={formData.password2}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="flex items-start space-x-3 py-2">
+              )}
+
+              <div className="flex items-start gap-3">
                 <Checkbox
                   id="terms"
                   checked={agreeToTerms}
-                  onCheckedChange={setAgreeToTerms}
-                  className="border-gray-600 data-[state=checked]:bg-indigo-500 data-[state=checked]:text-white mt-0.5"
+                  onCheckedChange={(value) => setAgreeToTerms(Boolean(value))}
+                  className="mt-0.5 border-gray-600 data-[state=checked]:bg-[#e5c461] data-[state=checked]:text-black"
                 />
                 <Label
                   htmlFor="terms"
-                  className="text-sm text-slate-300 leading-relaxed"
+                  className="text-xs leading-5 text-slate-300"
                 >
                   I agree to the{" "}
                   <Link
-                    to="#"
-                    className="underline text-indigo-400 hover:text-indigo-300"
+                    to="/terms-of-service"
+                    target="_blank"
+                    className="text-[#e5c461] underline hover:text-[#f2da8e]"
                   >
                     Terms of Service
                   </Link>{" "}
                   and{" "}
                   <Link
-                    to="#"
-                    className="underline text-indigo-400 hover:text-indigo-300"
+                    to="/privacy-policy"
+                    target="_blank"
+                    className="text-[#e5c461] underline hover:text-[#f2da8e]"
                   >
                     Privacy Policy
                   </Link>
@@ -309,7 +344,7 @@ export default function RegisterPage() {
               </div>
 
               {error && (
-                <div className="mb-4 p-3 bg-red-900/50 border border-red-800 rounded-lg text-red-300 text-sm">
+                <div className="rounded-lg border border-red-800 bg-red-900/50 p-2.5 text-sm text-red-300">
                   {error.detail}
                 </div>
               )}
@@ -317,27 +352,27 @@ export default function RegisterPage() {
               <Button
                 type="submit"
                 disabled={isLoading || !agreeToTerms}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] h-11 mt-6 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="mt-1 h-10 w-full rounded-xl bg-[#e5c461] font-semibold text-black shadow-[0_12px_40px_rgba(229,196,97,0.18)] hover:bg-[#f2da8e] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoading ? "Creating Account..." : "Create Account"}
+                {isLoading ? "Creating account..." : "Create account"}
+                {!isLoading && <ArrowRight className="h-4 w-4" />}
               </Button>
             </form>
-            <div className="text-center text-sm text-slate-400 pt-4 border-t border-gray-800/50">
+
+            <div className="mt-3 border-t border-white/10 pt-3 text-center text-sm text-slate-400">
               Already have an account?{" "}
               <Link
                 to="/login"
-                className="underline text-indigo-400 hover:text-indigo-300 font-medium"
+                className="font-medium text-[#e5c461] underline hover:text-[#f2da8e]"
               >
-                Log In
+                Log in
               </Link>
-            </div>
-            <div className="text-center text-sm pt-3">
               <Link
                 to="/"
-                className="text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1 transition-colors"
+                className="mx-auto mt-2 flex w-fit items-center gap-1.5 text-xs text-slate-500 transition-colors hover:text-[#f2da8e]"
               >
-                <ArrowLeft className="h-4 w-4" />
-                Back to Landing Page
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back to landing page
               </Link>
             </div>
           </CardContent>
@@ -349,6 +384,80 @@ export default function RegisterPage() {
         onClose={handleEmailVerificationComplete}
         email={registeredEmail}
       />
+    </div>
+  );
+}
+
+function Field({
+  id,
+  label,
+  icon: Icon,
+  type = "text",
+  placeholder,
+  value,
+  onChange,
+}) {
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id} className="text-xs font-medium text-slate-200">
+        {label}
+      </Label>
+      <div className="relative">
+        <Icon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input
+          id={id}
+          name={id}
+          type={type}
+          placeholder={placeholder}
+          className="h-10 border-white/10 bg-white/[0.06] pl-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
+          value={value}
+          onChange={onChange}
+          required
+        />
+      </div>
+    </div>
+  );
+}
+
+function PasswordField({
+  id,
+  name,
+  label,
+  value,
+  onChange,
+  showPassword,
+  setShowPassword,
+}) {
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id} className="text-xs font-medium text-slate-200">
+        {label}
+      </Label>
+      <div className="relative">
+        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input
+          id={id}
+          name={name}
+          type={showPassword ? "text" : "password"}
+          placeholder="Enter password"
+          className="h-10 border-white/10 bg-white/[0.06] pl-10 pr-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
+          value={value}
+          onChange={onChange}
+          required
+        />
+        <button
+          type="button"
+          onClick={() => setShowPassword(!showPassword)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-200 focus:outline-none"
+          aria-label={showPassword ? "Hide password" : "Show password"}
+        >
+          {showPassword ? (
+            <EyeOff className="h-4 w-4" />
+          ) : (
+            <Eye className="h-4 w-4" />
+          )}
+        </button>
+      </div>
     </div>
   );
 }

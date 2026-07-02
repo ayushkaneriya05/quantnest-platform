@@ -1,30 +1,23 @@
-/**
- * Paper Positions - view and manage open positions
- */
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { useEffect, useMemo, useState } from "react";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import { 
-  ChevronLeft, X, RefreshCw, TrendingUp, TrendingDown, Layers
-} from 'lucide-react';
-import { paperApi } from '@/shared/services/paperApi';
-import { useNotifications } from '@/shared/hooks/useNotifications';
-import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
+import { Layers, RefreshCw, TrendingDown, TrendingUp, X } from "lucide-react";
+import { paperApi } from "@/shared/services/paperApi";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 
-export default function PaperPositions() {
-  const navigate = useNavigate();
+export default function PaperPositions({ selectedAccountId }) {
   const { notify } = useNotifications();
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchPositions = async () => {
     try {
-      const response = await paperApi.getPositions();
-      setPositions(response.data);
+      const positionsRes = await paperApi.getPositions();
+      setPositions(positionsRes.data || []);
     } catch (error) {
-      notify.error('Failed to load positions');
+      notify.error("Failed to load positions");
     } finally {
       setLoading(false);
     }
@@ -37,134 +30,156 @@ export default function PaperPositions() {
   }, []);
 
   const handleClose = async (positionId) => {
-    if (!confirm('Close this position at market price?')) return;
-    try {
-      const response = await paperApi.closePosition(positionId);
-      notify.success(`Position closed. P&L: ₹${response.data.pnl.toFixed(2)}`);
-      fetchPositions();
-    } catch (error) {
-      notify.error('Failed to close position');
-    }
+    notify.error("Position closing is managed by trading strategies only");
   };
 
-  // Set page actions in header
-  const pageActions = useMemo(() => (
-    <Button variant="outline" size="sm" onClick={fetchPositions} className="border-gray-700">
-      <RefreshCw className="h-4 w-4" />
-    </Button>
-  ), []);
+  const filteredPositions = useMemo(
+    () =>
+      positions.filter(
+        (position) => String(position.account) === String(selectedAccountId),
+      ),
+    [positions, selectedAccountId],
+  );
 
-  useSetPageActions(pageActions);
+  const formatCurrency = (value) =>
+    new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(value || 0);
 
-  const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-IN', { 
-      style: 'currency', currency: 'INR', maximumFractionDigits: 0 
-    }).format(val || 0);
-  };
+  const totalValue = filteredPositions.reduce(
+    (sum, position) => sum + parseFloat(position.current_value || 0),
+    0,
+  );
+  const totalUnrealizedPnl = filteredPositions.reduce(
+    (sum, position) => sum + parseFloat(position.unrealized_pnl || 0),
+    0,
+  );
 
-  // Calculate totals
-  const totalValue = positions.reduce((sum, p) => sum + parseFloat(p.current_value || 0), 0);
-  const totalUnrealizedPnl = positions.reduce((sum, p) => sum + parseFloat(p.unrealized_pnl || 0), 0);
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   return (
-    <div className="container-padding py-6 lg:py-8 space-y-6">
-      {/* Summary */}
+    <div className="space-y-6 animate-in fade-in duration-300">
       <div className="grid grid-cols-3 gap-4">
         <Card className="bg-gray-900/50 border-gray-800">
           <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-white">{positions.length}</p>
+            <p className="text-2xl font-bold text-white">
+              {filteredPositions.length}
+            </p>
             <p className="text-xs text-gray-400">Open Positions</p>
           </CardContent>
         </Card>
         <Card className="bg-gray-900/50 border-gray-800">
           <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-white">{formatCurrency(totalValue)}</p>
+            <p className="text-2xl font-bold text-white">
+              {formatCurrency(totalValue)}
+            </p>
             <p className="text-xs text-gray-400">Total Value</p>
           </CardContent>
         </Card>
         <Card className="bg-gray-900/50 border-gray-800">
           <CardContent className="py-4 text-center">
-            <p className={`text-2xl font-bold ${totalUnrealizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {totalUnrealizedPnl >= 0 ? '+' : ''}{formatCurrency(totalUnrealizedPnl)}
+            <p
+              className={`text-2xl font-bold ${totalUnrealizedPnl >= 0 ? "text-green-400" : "text-red-400"}`}
+            >
+              {totalUnrealizedPnl >= 0 ? "+" : ""}
+              {formatCurrency(totalUnrealizedPnl)}
             </p>
             <p className="text-xs text-gray-400">Unrealized P&L</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Positions List */}
-      {positions.length === 0 ? (
+      {filteredPositions.length === 0 ? (
         <Card className="bg-gray-900/50 border-gray-800">
           <CardContent className="py-12 text-center">
             <Layers className="h-10 w-10 text-gray-600 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-300">No open positions</h3>
-            <p className="text-gray-500">Place orders to open new positions</p>
+            <h3 className="text-lg font-medium text-gray-300">
+              No open positions
+            </h3>
+            <p className="text-gray-500 text-sm">
+              Place orders in this account to open positions.
+            </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
-          {positions.map((pos) => (
-            <Card key={pos.id} className="bg-gray-900/50 border-gray-800">
+          {filteredPositions.map((position) => (
+            <Card key={position.id} className="bg-gray-900/50 border-gray-800 hover:border-gray-700 transition-colors">
               <CardContent className="py-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-lg ${pos.side === 'BUY' ? 'bg-green-900/30' : 'bg-red-900/30'}`}>
-                      {pos.side === 'BUY' ? 
-                        <TrendingUp className="h-6 w-6 text-green-400" /> :
-                        <TrendingDown className="h-6 w-6 text-red-400" />
-                      }
+                    <div
+                      className={`p-3 rounded-lg ${position.side === "BUY" ? "bg-emerald-500/10" : "bg-rose-500/10"}`}
+                    >
+                      {position.side === "BUY" ? (
+                        <TrendingUp className="h-6 w-6 text-emerald-400" />
+                      ) : (
+                        <TrendingDown className="h-6 w-6 text-rose-400" />
+                      )}
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-white">{pos.instrument_symbol}</h3>
+                      <h3 className="text-lg font-bold text-white">
+                        {position.instrument_symbol}
+                      </h3>
                       <div className="flex items-center gap-2 mt-1">
-                        <Badge className={pos.side === 'BUY' ? 'bg-green-600' : 'bg-red-600'}>
-                          {pos.side}
+                        <Badge
+                          className={
+                            position.side === "BUY"
+                              ? "bg-emerald-600"
+                              : "bg-rose-600"
+                          }
+                        >
+                          {position.side}
                         </Badge>
-                        {pos.strategy_name && (
-                          <Badge variant="outline" className="border-gray-600">{pos.strategy_name}</Badge>
+                        {position.strategy_name && (
+                          <Badge variant="outline" className="border-gray-700 text-gray-400">
+                            {position.strategy_name}
+                          </Badge>
                         )}
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-8">
                     <div className="text-right">
-                      <p className="text-sm text-gray-400">Quantity</p>
-                      <p className="text-white font-medium">{pos.quantity}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-400">Avg Price</p>
-                      <p className="text-white font-medium">₹{parseFloat(pos.avg_price).toFixed(2)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-400">Current</p>
-                      <p className="text-white font-medium">₹{parseFloat(pos.current_price).toFixed(2)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-400">P&L</p>
-                      <p className={`font-bold ${parseFloat(pos.unrealized_pnl) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {formatCurrency(pos.unrealized_pnl)}
+                      <p className="text-xs text-gray-500">Quantity</p>
+                      <p className="text-white font-medium">
+                        {position.quantity}
                       </p>
-                      <p className="text-xs text-gray-500">
-                        ({parseFloat(pos.unrealized_pnl_pct).toFixed(2)}%)
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Avg Price</p>
+                      <p className="text-white font-medium text-sm">
+                        ₹{parseFloat(position.avg_price).toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Current</p>
+                      <p className="text-white font-medium text-sm">
+                        ₹{parseFloat(position.current_price).toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="text-right min-w-[100px]">
+                      <p className="text-xs text-gray-500">P&L</p>
+                      <p
+                        className={`font-bold ${parseFloat(position.unrealized_pnl) >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+                      >
+                        {formatCurrency(position.unrealized_pnl)}
+                      </p>
+                      <p className="text-[10px] text-gray-500">
+                        ({parseFloat(position.unrealized_pnl_pct).toFixed(2)}%)
                       </p>
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleClose(pos.id)}
-                      className="border-red-800 text-red-400 hover:bg-red-900/30"
+                      onClick={() => handleClose(position.id)}
+                      className="border-gray-700 text-gray-500 cursor-not-allowed text-xs h-8"
+                      disabled
                     >
-                      <X className="h-4 w-4 mr-1" />
-                      Close
+                      Managed
                     </Button>
                   </div>
                 </div>

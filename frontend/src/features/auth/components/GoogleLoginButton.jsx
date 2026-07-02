@@ -1,105 +1,61 @@
-import React from 'react';
+import { useState } from 'react';
 import { useNavigate } from "react-router-dom";
+import { useDispatch } from 'react-redux';
 import { useGoogleLogin } from '@react-oauth/google';
 import { Button } from "@/shared/components/ui/button";
-import { Chrome, AlertCircle } from 'lucide-react';
+import { Chrome, AlertCircle, Loader2 } from 'lucide-react';
+import api from "@/shared/services/api";
+import { loginSuccess, fetchUserProfile } from "@/shared/store/authSlice";
 
-// Error boundary specifically for Google OAuth
-class GoogleOAuthErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error) {
-    // Check if it's specifically a Google OAuth provider error
-    if (error.message && error.message.includes('GoogleOAuthProvider')) {
-      return { hasError: true };
-    }
-    return { hasError: false };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error('Google OAuth Error:', error, errorInfo);
-    if (this.props.onError) {
-      this.props.onError('Google authentication is not properly configured.');
-    }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback || <GoogleLoginFallback type={this.props.type} />;
-    }
-
-    return this.props.children;
-  }
-}
-
-// Actual Google login component
-function GoogleLoginComponent({ onError, isLoading, type = 'login' }) {
+export default function GoogleLoginButton({ onError, isLoading: parentLoading, type = 'login' }) {
+  const [isProcessing, setIsProcessing] = useState(false);
   const navigate = useNavigate();
+  const dispatch = useDispatch();
 
   const googleLogin = useGoogleLogin({
-    onSuccess: (tokenResponse) => {
-      console.log('Google OAuth Success:', tokenResponse);
-      navigate(`/google-callback?access_token=${tokenResponse.access_token}`);
+    onSuccess: async (tokenResponse) => {
+      setIsProcessing(true);
+      try {
+        const response = await api.post("users/auth/google/", {
+          access_token: tokenResponse.access_token,
+        });
+        dispatch(loginSuccess(response.data));
+        await dispatch(fetchUserProfile());
+        navigate("/dashboard");
+      } catch (err) {
+        onError(err.response?.data?.detail || `Google ${type} failed. Please try again.`);
+      } finally {
+        setIsProcessing(false);
+      }
     },
-    onError: (error) => {
-      console.error('Google OAuth Error:', error);
-      onError(`Google ${type} failed. Please try again.`);
-    },
+    onError: () => onError(`Google ${type} failed. Please try again.`),
   });
 
-  const handleClick = () => {
-    try {
-      googleLogin();
-    } catch (error) {
-      console.error('Google login execution error:', error);
-      onError(`Google ${type} failed.`);
-    }
-  };
+  const disabled = parentLoading || isProcessing;
 
   return (
     <Button
       variant="outline"
       className="w-full flex items-center justify-center gap-2 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50 hover:text-slate-100 border-gray-700/50 py-2.5"
-      onClick={handleClick}
+      onClick={() => googleLogin()}
       type="button"
-      disabled={isLoading}
+      disabled={disabled}
     >
-      <Chrome className="h-5 w-5" />
-      Continue with Google
+      {isProcessing ? (
+        <Loader2 className="h-5 w-5 animate-spin" />
+      ) : (
+        <Chrome className="h-5 w-5" />
+      )}
+      {isProcessing ? 'Authenticating...' : 'Continue with Google'}
     </Button>
   );
 }
 
-// Main component with error boundary
-export default function GoogleLoginButton({ onError, isLoading, type = 'login' }) {
-  return (
-    <GoogleOAuthErrorBoundary
-      onError={onError}
-      type={type}
-      fallback={<GoogleLoginFallback type={type} />}
-    >
-      <GoogleLoginComponent
-        onError={onError}
-        isLoading={isLoading}
-        type={type}
-      />
-    </GoogleOAuthErrorBoundary>
-  );
-}
-
-// Fallback component when Google OAuth is not configured
+// Fallback when VITE_REACT_APP_GOOGLE_CLIENT_ID is not set
 export function GoogleLoginFallback({ type = 'login' }) {
   return (
     <>
-      <Button
-        variant="outline"
-        className="w-full flex items-center justify-center gap-2 bg-slate-800/50 text-slate-200 border-gray-700/50 py-2.5 opacity-50 cursor-not-allowed"
-        disabled
-        type="button"
-      >
+      <Button variant="outline" className="w-full flex items-center justify-center gap-2 bg-slate-800/50 text-slate-200 border-gray-700/50 py-2.5 opacity-50 cursor-not-allowed" disabled type="button">
         <Chrome className="h-5 w-5" />
         Continue with Google
       </Button>

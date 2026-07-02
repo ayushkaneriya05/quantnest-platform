@@ -15,19 +15,14 @@ export const backtestApi = {
   
   // Run actions
   startRun: (id) => axiosInstance.post(`${BASE_URL}/runs/${id}/start/`),
+  rerunRun: (id) => axiosInstance.post(`${BASE_URL}/runs/${id}/rerun/`),
   cancelRun: (id) => axiosInstance.post(`${BASE_URL}/runs/${id}/cancel/`),
   
   // Run data
   getRunTrades: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/trades/`),
   getRunMetrics: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/metrics/`),
   getRunEquityCurve: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/equity_curve/`),
-  
-  // Optimization
-  getOptimizations: () => axiosInstance.get(`${BASE_URL}/optimization/`),
-  getOptimization: (id) => axiosInstance.get(`${BASE_URL}/optimization/${id}/`),
-  createOptimization: (data) => axiosInstance.post(`${BASE_URL}/optimization/`, data),
-  startOptimization: (id) => axiosInstance.post(`${BASE_URL}/optimization/${id}/start/`),
-  getOptimizationResults: (id) => axiosInstance.get(`${BASE_URL}/optimization/${id}/results/`),
+  getRunAnalytics: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/analytics/`),
   
   // Monte Carlo
   getMonteCarloRuns: () => axiosInstance.get(`${BASE_URL}/montecarlo/`),

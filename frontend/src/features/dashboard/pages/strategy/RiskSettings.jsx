@@ -12,8 +12,7 @@ import { Switch } from "@/shared/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { Slider } from "@/shared/components/ui/slider";
 import { 
-  Save, Shield, DollarSign, AlertTriangle, 
-  Loader2, Gauge, RefreshCw
+  DollarSign, Loader2, Gauge, RefreshCw
 } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';
@@ -53,9 +52,7 @@ export default function RiskSettings() {
     fixed_quantity: 1,
     capital_percentage: 10,
     risk_amount: 1000,
-    slippage_tolerance_pct: 0.1,
     allow_partial_entry: false,
-    max_entry_attempts: 3,
     entry_cooldown_seconds: 60,
     max_open_positions: 5,
     max_daily_trades: 10,
@@ -95,9 +92,7 @@ export default function RiskSettings() {
           order_type: c.order_type || 'MARKET',
           entry_price_logic: c.entry_price_logic || 'LTP',
           price_offset: c.price_offset ?? 0,
-          slippage_tolerance_pct: c.slippage_tolerance_pct || 0.1,
           allow_partial_entry: c.allow_partial_entry ?? false,
-          max_entry_attempts: c.max_entry_attempts || 3,
           entry_cooldown_seconds: c.entry_cooldown_seconds || 60,
         }));
       }
@@ -149,9 +144,7 @@ export default function RiskSettings() {
           order_type: formData.order_type,
           entry_price_logic: formData.entry_price_logic,
           price_offset: (formData.entry_price_logic === 'OFFSET' || formData.entry_price_logic === 'AT_BREAKOUT') ? formData.price_offset : null,
-          slippage_tolerance_pct: Number.isNaN(parseFloat(formData.slippage_tolerance_pct)) ? 0.1 : formData.slippage_tolerance_pct,
           allow_partial_entry: formData.allow_partial_entry,
-          max_entry_attempts: Number.isNaN(parseInt(formData.max_entry_attempts)) ? 3 : formData.max_entry_attempts,
           entry_cooldown_seconds: Number.isNaN(parseInt(formData.entry_cooldown_seconds)) ? 0 : formData.entry_cooldown_seconds,
         };
         await entryConfigApi.update(strategy.entry_order_config.id, entryPayload);
@@ -160,26 +153,19 @@ export default function RiskSettings() {
       const rawSizingPayload = {
         strategy: id,
         sizing_method: formData.quantity_type,
-        fixed_quantity: formData.fixed_quantity,
-        capital_percentage: formData.capital_percentage,
-        risk_per_trade_amount: formData.risk_amount,
-        risk_per_trade_percentage: formData.risk_per_trade_pct,
+        fixed_quantity: formData.quantity_type === 'FIXED' ? formData.fixed_quantity : null,
+        capital_percentage: formData.quantity_type === 'CAPITAL_BASED' ? formData.capital_percentage : null,
+        risk_per_trade_amount: formData.quantity_type === 'RISK_FIXED' ? formData.risk_amount : null,
+        risk_per_trade_percentage: formData.quantity_type === 'RISK_PERCENTAGE' ? formData.risk_per_trade_pct : null,
         max_daily_trades: formData.max_daily_trades,
         max_open_positions: formData.max_open_positions,
       };
 
+      // Sanitize: convert NaN to 0, preserve nulls (needed to clear unused fields in DB)
       const sizingPayload = {};
-      Object.keys(rawSizingPayload).forEach(key => {
-        if (!Number.isNaN(rawSizingPayload[key]) && rawSizingPayload[key] !== null) {
-          sizingPayload[key] = rawSizingPayload[key];
-        } else if (rawSizingPayload[key] === null && key === 'risk_per_trade_amount') {
-          sizingPayload[key] = null;
-        } else if (Number.isNaN(rawSizingPayload[key])) {
-          sizingPayload[key] = 0;
-        } else {
-          sizingPayload[key] = rawSizingPayload[key];
-        }
-      });
+      for (const [key, val] of Object.entries(rawSizingPayload)) {
+        sizingPayload[key] = (typeof val === 'number' && Number.isNaN(val)) ? 0 : val;
+      }
 
       if (sizingRuleId) {
         await riskApi.updateSizingRule(sizingRuleId, sizingPayload);
@@ -243,7 +229,7 @@ export default function RiskSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">Order Type</Label>
               <Select 
@@ -275,6 +261,16 @@ export default function RiskSettings() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">Entry Cooldown (seconds)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={formData.entry_cooldown_seconds}
+                onChange={(e) => setFormData({ ...formData, entry_cooldown_seconds: parseInt(e.target.value) || 0 })}
+                className="bg-gray-800/60 border-gray-700 text-white h-9 text-sm"
+              />
             </div>
             </div>
             

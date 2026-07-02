@@ -1,14 +1,14 @@
 from django.contrib import admin
 from .models import (
     BacktestRun, BacktestTrade, BacktestMetrics, EquityCurvePoint,
-    OptimizationRun, OptimizationResult, MonteCarloRun, MonteCarloResult
+    MonteCarloRun, MonteCarloResult
 )
 
 
 @admin.register(BacktestRun)
 class BacktestRunAdmin(admin.ModelAdmin):
     list_display = ['name', 'strategy', 'user', 'status', 'start_date', 'end_date', 'progress_pct', 'created_at']
-    list_filter = ['status', 'data_resolution']
+    list_filter = ['status']
     search_fields = ['name', 'strategy__name', 'user__username']
     readonly_fields = ['created_at', 'updated_at', 'started_at', 'completed_at']
 
@@ -30,17 +30,6 @@ class EquityCurvePointAdmin(admin.ModelAdmin):
     list_display = ['run', 'timestamp', 'equity_value', 'drawdown_pct']
     list_filter = ['run']
 
-
-@admin.register(OptimizationRun)
-class OptimizationRunAdmin(admin.ModelAdmin):
-    list_display = ['name', 'strategy', 'user', 'optimization_metric', 'status', 'total_combinations', 'completed_combinations']
-    list_filter = ['status', 'optimization_metric']
-    search_fields = ['name', 'strategy__name']
-
-
-@admin.register(OptimizationResult)
-class OptimizationResultAdmin(admin.ModelAdmin):
-    list_display = ['optimization_run', 'sharpe', 'total_return', 'max_drawdown', 'win_rate', 'total_trades']
 
 
 @admin.register(MonteCarloRun)

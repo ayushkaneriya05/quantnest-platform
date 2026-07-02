@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { Button } from "@/shared/components/ui/button";
-import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/shared/components/ui/select";
-import { useToast } from "@/shared/hooks/use-toast";
+} from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 import { Calculator, AlertCircle, DollarSign, X } from "lucide-react";
-import api from "@/shared/services/api";
-import { useWebSocket } from "@/shared/hooks/useWebSocket"; // Import the WebSocket hook
+import api from "@/services/api";
+import { useWebSocket } from "@/hooks/useWebSocket"; // Import the WebSocket hook
 
 // A more comprehensive list of order types
 const ORDER_TYPES = [

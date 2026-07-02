@@ -34,7 +34,7 @@ class StrategyAdmin(admin.ModelAdmin):
             'fields': ('strategy_type', 'market_type', 'exchange', 'instrument_type')
         }),
         ('Status', {
-            'fields': ('status', 'visibility', 'is_approved', 'approved_by', 'approved_at')
+            'fields': ('status', 'visibility')
         }),
         ('Trading Modes', {
             'fields': ('paper_trading_enabled', 'live_trading_enabled')

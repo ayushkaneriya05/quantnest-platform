@@ -6,6 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { TimePicker } from "@/shared/components/ui/time-picker";
 import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
 import { Badge } from "@/shared/components/ui/badge";
@@ -22,8 +23,8 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri' };
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
 
 
 
@@ -41,7 +42,7 @@ export default function TimeRulesEditor() {
   const [eventFilter, setEventFilter] = useState(null);
   
   const [formData, setFormData] = useState({
-    trading_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    trading_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
     market_session: 'ALL',
     start_time: '09:15',
     end_time: '15:30',
@@ -209,7 +210,7 @@ export default function TimeRulesEditor() {
             })}
           </div>
           <p className="text-xs text-gray-500 mt-3">
-            {formData.trading_days.length} of 5 days selected
+            {formData.trading_days.length} of 7 days selected
           </p>
         </CardContent>
       </Card>
@@ -233,8 +234,7 @@ export default function TimeRulesEditor() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">Start Time</Label>
-              <Input
-                type="time"
+              <TimePicker
                 value={formData.start_time}
                 onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                 className="bg-gray-800/60 border-gray-700 text-white h-9 font-mono text-sm"
@@ -242,8 +242,7 @@ export default function TimeRulesEditor() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">End Time</Label>
-              <Input
-                type="time"
+              <TimePicker
                 value={formData.end_time}
                 onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                 className="bg-gray-800/60 border-gray-700 text-white h-9 font-mono text-sm"
@@ -303,12 +302,22 @@ export default function TimeRulesEditor() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">Timezone</Label>
-              <Input
-                value={formData.timezone}
-                onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                className="bg-gray-800/60 border-gray-700 text-white h-9 text-sm"
-                placeholder="Asia/Kolkata"
-              />
+              <Select 
+                value={formData.timezone} 
+                onValueChange={(v) => setFormData({ ...formData, timezone: v })}
+              >
+                <SelectTrigger className="bg-gray-800/60 border-gray-700 h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(enums.Timezone || [
+                    { value: 'Asia/Kolkata', label: 'Asia/Kolkata' },
+                    { value: 'UTC', label: 'UTC' }
+                  ]).map(t => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -318,8 +327,8 @@ export default function TimeRulesEditor() {
               {(() => {
                 const [sh, sm] = formData.start_time.split(':').map(Number);
                 const [eh, em] = formData.end_time.split(':').map(Number);
-                const startPercent = ((sh * 60 + sm - 540) / (390) * 100); // 9:00 to 15:30 span
-                const endPercent = ((eh * 60 + em - 540) / (390) * 100);
+                const startPercent = ((sh * 60 + sm) / 1440 * 100);
+                const endPercent = ((eh * 60 + em) / 1440 * 100);
                 const left = Math.max(0, Math.min(100, startPercent));
                 const width = Math.max(0, Math.min(100 - left, endPercent - startPercent));
                 return (
@@ -331,9 +340,11 @@ export default function TimeRulesEditor() {
               })()}
             </div>
             <div className="flex justify-between mt-1">
-              <span className="text-[10px] text-gray-600">09:00</span>
+              <span className="text-[10px] text-gray-600">00:00</span>
+              <span className="text-[10px] text-gray-600">06:00</span>
               <span className="text-[10px] text-gray-600">12:00</span>
-              <span className="text-[10px] text-gray-600">15:30</span>
+              <span className="text-[10px] text-gray-600">18:00</span>
+              <span className="text-[10px] text-gray-600">23:59</span>
             </div>
           </div>
         </CardContent>

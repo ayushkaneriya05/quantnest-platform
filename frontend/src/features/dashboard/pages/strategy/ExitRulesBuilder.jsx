@@ -8,6 +8,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
+import { TimePicker } from "@/shared/components/ui/time-picker";
 import { Switch } from "@/shared/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { 
@@ -19,6 +20,7 @@ import StrategyFooter from './StrategyFooter';
 import { ruleGroupApi, stopLossApi, targetApi } from '@/shared/services/rulesApi';
 import { strategyApi, exitConfigApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
+import { customConfirm } from '@/shared/components/ui/custom-dialog';
 import { useEnums } from '@/shared/context/EnumsContext';
 
 
@@ -184,7 +186,7 @@ export default function ExitRulesBuilder() {
   };
 
   const handleDeleteGroup = async (groupId, type) => {
-    if (!confirm('Delete this group and all its rules?')) return;
+    if (!(await customConfirm('Delete this group and all its rules?'))) return;
     try {
       const isSL = type === 'STOP_LOSS';
       const groups = isSL ? slGroups : targetGroups;
@@ -558,8 +560,8 @@ export default function ExitRulesBuilder() {
     }
   };
 
-  const handleCancelAll = () => {
-    if (hasPendingChanges && confirm('Discard all unsaved changes?')) {
+  const handleCancelAll = async () => {
+    if (hasPendingChanges && (await customConfirm('Discard all unsaved changes?'))) {
       fetchData();
     }
   };
@@ -596,8 +598,9 @@ export default function ExitRulesBuilder() {
   };
 
   const renderStopLossGroup = (group) => (
-    <Card key={group.id} className="bg-gray-900/40 border-gray-800/80 mb-6">
-      <CardHeader className="pb-3 border-b border-gray-800/50">
+    <Card key={group.id} className="bg-[#0a0e17] border-t border-t-rose-500/20 border-gray-800/80 shadow-2xl relative overflow-hidden mb-6">
+      <div className="absolute top-0 left-1/4 w-1/2 h-px bg-gradient-to-r from-transparent via-rose-500/20 to-transparent" />
+      <CardHeader className="pb-3 z-10 relative border-b border-gray-800/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className={`p-1.5 rounded-md bg-rose-500/10`}>
@@ -608,12 +611,14 @@ export default function ExitRulesBuilder() {
               onChange={(e) => handleUpdateGroup(group.id, 'name', e.target.value, 'STOP_LOSS')}
               className="bg-transparent border-none text-white font-medium text-base p-0 h-auto focus:ring-0 max-w-[250px]"
             />
+          </div>
+          <div className="flex items-center gap-2">
             {/* Logical Operator */}
             <Select
               value={group.logical_operator || 'OR'}
               onValueChange={(v) => handleUpdateGroup(group.id, 'logical_operator', v, 'STOP_LOSS')}
             >
-              <SelectTrigger className="w-[70px] bg-gray-800/60 border-gray-700 text-xs h-7 mx-2">
+              <SelectTrigger className="w-[90px] bg-white/5 border-none hover:bg-white/10 text-sm h-8 shadow-none focus:ring-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -621,13 +626,11 @@ export default function ExitRulesBuilder() {
                 <SelectItem value="OR">OR</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex items-center gap-2">
             <Button 
                 onClick={() => handleAddStopLossToGroup(group.id)} 
                 variant="outline" 
                 size="sm" 
-                className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 h-8"
+                className="bg-rose-500/10 border-none text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 h-8"
               >
                 <Plus className="h-3.5 w-3.5 mr-1.5" />
                 Add Rule
@@ -643,7 +646,7 @@ export default function ExitRulesBuilder() {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 pt-4">
+      <CardContent className="space-y-4 pt-4 z-10 relative">
         {(!group.stop_loss_rules || group.stop_loss_rules.length === 0) ? (
           <div className="text-center py-6 border border-dashed border-gray-700/60 rounded-lg">
              <p className="text-gray-500 text-sm">No stop loss rules in this group</p>
@@ -651,274 +654,376 @@ export default function ExitRulesBuilder() {
         ) : (
           <div className="space-y-2">
             {group.stop_loss_rules.map((sl, index) => (
-              <div key={sl.id} className="flex flex-wrap items-center gap-2 p-2 bg-gray-800/40 rounded-lg border border-gray-700/40 hover:border-gray-700 transition-colors">
-                <span className="text-xs font-mono text-gray-500 w-6 text-center shrink-0">{index + 1}</span>
-                
-                {/* Type Selection */}
-                <Select 
-                  value={sl.sl_type} 
-                  onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'sl_type', v, 'STOP_LOSS')}
-                >
-                  <SelectTrigger className="w-[200px] bg-gray-800/60 border-gray-700 text-xs h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(enums.StopLossType || []).map(t => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                {/* Primary Value Input (Fixed/Trailing) */}
-                {['FIXED_POINTS', 'FIXED_PERCENTAGE', 'TRAILING_FIXED', 'TRAILING_PERCENTAGE'].includes(sl.sl_type) && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
-                    <Input
-                      type="number" step="0.1"
-                      value={(() => {
-                        if (sl.sl_type?.includes('PERCENTAGE') && !sl.sl_type?.includes('TRAILING')) return sl.fixed_percentage;
-                        if (sl.sl_type?.includes('POINTS')) return sl.fixed_points;
-                        if (sl.sl_type?.includes('TRAILING')) return sl.trailing_value;
-                        return '';
-                      })() ?? ''}
-                       onChange={(e) => {
-                        let field = null;
-                        if (sl.sl_type?.includes('PERCENTAGE') && !sl.sl_type?.includes('TRAILING')) field = 'fixed_percentage';
-                        else if (sl.sl_type?.includes('POINTS')) field = 'fixed_points';
-                        else if (sl.sl_type?.includes('TRAILING')) field = 'trailing_value';
-                        
-                        const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                        if (field) handleUpdateNestedRule(group.id, sl.id, field, val, 'STOP_LOSS');
-                      }}
-                      className="w-24 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                    <span className="text-[10px] text-gray-500 uppercase">
-                      {sl.sl_type?.includes('PERCENTAGE') ? '%' : 'Pts'}
-                    </span>
+              <div key={sl.id} className="space-y-2">
+                {index > 0 && (
+                  <div className="flex items-center justify-center -my-1 relative z-10">
+                    <div className="absolute bg-[#0a0e17] px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest text-gray-500 border border-gray-800 shadow-sm">
+                      {group.logical_operator || 'OR'}
+                    </div>
                   </div>
                 )}
+                <div className={`group relative rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] hover:bg-white/[0.04] transition-all duration-300 shadow-sm overflow-hidden ${sl.is_active ? '' : 'opacity-60'}`}>
+                  
+                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-rose-500/30 group-hover:bg-rose-500/60 transition-colors" />
 
-                {/* Time Based */}
-                {sl.sl_type === 'TIME_BASED' && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
-                    <span className="text-[10px] text-gray-500">Wait</span>
-                    <Input
-                      type="number"
-                      value={sl.time_minutes ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value === '' ? '' : parseInt(e.target.value);
-                        handleUpdateNestedRule(group.id, sl.id, 'time_minutes', val, 'STOP_LOSS');
-                      }}
-                      className="w-24 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                    <span className="text-[10px] text-gray-500 uppercase">Mins</span>
-                  </div>
-                )}
+                  {/* Row 1: Main rule sentence */}
+                  <div className="flex flex-wrap items-center gap-1.5 p-3 pl-4">
+                    <Badge variant="secondary" className="bg-rose-500/10 text-rose-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mr-1">IF</Badge>
 
-                {/* Emergency */}
-                {sl.sl_type === 'EMERGENCY' && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
-                    <span className="text-[10px] text-gray-500">Max Loss</span>
-                    <Input
-                      type="number" step="0.1"
-                      value={sl.emergency_loss_pct ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                        handleUpdateNestedRule(group.id, sl.id, 'emergency_loss_pct', val, 'STOP_LOSS');
-                      }}
-                      className="w-24 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                    <span className="text-[10px] text-gray-500 uppercase">%</span>
-                  </div>
-                )}
-
-                {/* Candle Based */}
-                {sl.sl_type === 'CANDLE_BASED' && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
+                    {/* Type Selection */}
                     <Select 
-                      value={sl.candle_part || 'LOW'} 
-                      onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'candle_part', v, 'STOP_LOSS')}
+                      value={sl.sl_type} 
+                      onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'sl_type', v, 'STOP_LOSS')}
                     >
-                      <SelectTrigger className="w-28 bg-gray-800/60 border-gray-700 text-[10px] h-8">
+                      <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 data-[state=open]:bg-white/10 text-xs h-7 px-2 shadow-none focus:ring-0 text-gray-300 font-medium">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {(enums.CandlePart || []).map(p => (
-                          <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                        {(enums.StopLossType || []).map(t => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <span className="text-[10px] text-gray-500">of candle</span>
-                    <Input
-                      type="number" title="Offset"
-                      value={sl.candle_offset ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value === '' ? '' : parseInt(e.target.value);
-                        handleUpdateNestedRule(group.id, sl.id, 'candle_offset', val, 'STOP_LOSS');
-                      }}
-                      className="w-16 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                    <span className="text-[10px] text-gray-500">L.back</span>
-                    <Input
-                      type="number" title="Lookback"
-                      value={sl.candle_lookback ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value === '' ? '' : parseInt(e.target.value);
-                        handleUpdateNestedRule(group.id, sl.id, 'candle_lookback', val, 'STOP_LOSS');
-                      }}
-                      className="w-16 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                  </div>
-                )}
 
-                {/* Indicator Based / Trailing Indicator */}
-                {['INDICATOR_BASED', 'TRAILING_INDICATOR'].includes(sl.sl_type) && (
-                  <div className="flex items-center gap-1.5 bg-gray-900/40 p-1 px-2 rounded-md border border-gray-700/30 flex-wrap">
-                    <Select 
-                      value={sl.indicator_type || ''} 
-                      onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'indicator_type', v, 'STOP_LOSS')}
-                    >
-                      <SelectTrigger className="w-[160px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
-                        <SelectValue placeholder="Indicator" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(enums.IndicatorType || []).map(ind => (
-                          <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    
-                    {sl.indicator_type && renderIndicatorParams(
-                      sl.indicator_type, 
-                      sl.indicator_params, 
-                      (newParams) => handleUpdateNestedRule(group.id, sl.id, 'indicator_params', newParams, 'STOP_LOSS'),
-                      true
+                    {/* Primary Value Input (Fixed/Trailing) */}
+                    {['FIXED_POINTS', 'FIXED_PERCENTAGE', 'TRAILING_FIXED', 'TRAILING_PERCENTAGE'].includes(sl.sl_type) && (
+                      <>
+                        <Badge variant="secondary" className="bg-gray-500/10 text-gray-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">IS</Badge>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                          <Input
+                            type="number" step="0.1"
+                            value={(() => {
+                              if (sl.sl_type?.includes('PERCENTAGE') && !sl.sl_type?.includes('TRAILING')) return sl.fixed_percentage;
+                              if (sl.sl_type?.includes('POINTS')) return sl.fixed_points;
+                              if (sl.sl_type?.includes('TRAILING')) return sl.trailing_value;
+                              return '';
+                            })() ?? ''}
+                             onChange={(e) => {
+                              let field = null;
+                              if (sl.sl_type?.includes('PERCENTAGE') && !sl.sl_type?.includes('TRAILING')) field = 'fixed_percentage';
+                              else if (sl.sl_type?.includes('POINTS')) field = 'fixed_points';
+                              else if (sl.sl_type?.includes('TRAILING')) field = 'trailing_value';
+                              
+                              const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                              if (field) handleUpdateNestedRule(group.id, sl.id, field, val, 'STOP_LOSS');
+                            }}
+                            className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                          />
+                          <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider ml-1">
+                            {sl.sl_type?.includes('PERCENTAGE') ? '%' : 'Pts'}
+                          </span>
+                        </div>
+                      </>
                     )}
 
-                    {/* Timeframe Override for indicators */}
-                    <Select 
-                      value={sl.timeframe_override || 'NONE'} 
-                      onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'timeframe_override', v === 'NONE' ? '' : v, 'STOP_LOSS')}
-                    >
-                      <SelectTrigger className="w-[120px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
-                        <SelectValue placeholder="TF Override" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">Default</SelectItem>
-                        {(enums.CandleTimeframe || []).map(tf => (
-                          <SelectItem key={tf.value} value={tf.value}>{tf.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* Time Based */}
+                    {sl.sl_type === 'TIME_BASED' && (
+                      <>
+                        <Badge variant="secondary" className="bg-amber-500/10 text-amber-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">WAIT</Badge>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                          <Input
+                            type="number"
+                            value={sl.time_minutes ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? '' : parseInt(e.target.value);
+                              handleUpdateNestedRule(group.id, sl.id, 'time_minutes', val, 'STOP_LOSS');
+                            }}
+                            className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                          />
+                          <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider ml-1">Mins</span>
+                        </div>
+                      </>
+                    )}
 
-                    {sl.sl_type === 'INDICATOR_BASED' && (
-                      <div className="flex items-center gap-1.5 border-l border-gray-700/50 pl-1.5">
+                    {/* Emergency */}
+                    {sl.sl_type === 'EMERGENCY' && (
+                      <>
+                        <Badge variant="secondary" className="bg-rose-500/20 text-rose-300 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">MAX LOSS</Badge>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                          <Input
+                            type="number" step="0.1"
+                            value={sl.emergency_loss_pct ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                              handleUpdateNestedRule(group.id, sl.id, 'emergency_loss_pct', val, 'STOP_LOSS');
+                            }}
+                            className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                          />
+                          <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider ml-1">%</span>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Candle Based */}
+                    {sl.sl_type === 'CANDLE_BASED' && (
+                      <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
                         <Select 
-                          value={sl.operator || 'LT'} 
-                          onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'operator', v, 'STOP_LOSS')}
+                          value={sl.candle_part || 'LOW'} 
+                          onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'candle_part', v, 'STOP_LOSS')}
                         >
-                          <SelectTrigger className="w-[80px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
+                          <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-indigo-300 font-semibold">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {(enums.ComparisonOperator || []).map(op => (
-                              <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                            {(enums.CandlePart || []).map(p => (
+                              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => {
-                              if (sl.compare_to_indicator) {
-                                handleUpdateNestedRuleFields(group.id, sl.id, { compare_to_indicator: null, compare_to_params: null }, 'STOP_LOSS');
-                              } else {
-                                handleUpdateNestedRuleFields(group.id, sl.id, { compare_to_indicator: 'SMA', threshold_value: null }, 'STOP_LOSS');
-                              }
+                        <div className="w-px h-4 bg-white/10 mx-1"></div>
+                        <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                          <span className="text-[9px] text-gray-500 uppercase font-medium">Offset:</span>
+                          <Input
+                            type="number" title="Offset"
+                            value={sl.candle_offset ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? '' : parseInt(e.target.value);
+                              handleUpdateNestedRule(group.id, sl.id, 'candle_offset', val, 'STOP_LOSS');
                             }}
-                            className={`h-7 w-7 rounded flex items-center justify-center transition-colors border ${
-                              sl.compare_to_indicator ? 'bg-indigo-500/20 border-indigo-500/30 text-indigo-400' : 'bg-gray-800/40 border-gray-700 text-gray-500'
-                            }`}
-                            title="Compare Indicator vs Value/Indicator"
-                          >
-                            {sl.compare_to_indicator ? <Activity className="h-3 w-3" /> : <span className="text-[9px] font-bold">123</span>}
-                          </button>
-
-
-
-                          {sl.compare_to_indicator ? (
-                            <div className="flex items-center gap-1">
-                              <Select 
-                                value={sl.compare_to_indicator} 
-                                onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'compare_to_indicator', v, 'STOP_LOSS')}
-                              >
-                                <SelectTrigger className="w-[120px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(enums.IndicatorType || []).map(ind => (
-                                    <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-
-                              {/* Secondary indicator params */}
-                              {sl.compare_to_indicator && renderIndicatorParams(
-                                sl.compare_to_indicator,
-                                sl.compare_to_params,
-                                (newParams) => handleUpdateNestedRule(group.id, sl.id, 'compare_to_params', newParams, 'STOP_LOSS'),
-                                true
-                              )}
-                            </div>
-                          ) : (
-                            <Input
-                              type="number"
-                              value={sl.threshold_value ?? ''}
-                              onChange={(e) => {
-                                const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                                handleUpdateNestedRule(group.id, sl.id, 'threshold_value', val, 'STOP_LOSS');
-                              }}
-                              className="w-20 bg-gray-800/60 border-gray-700 text-white h-7 text-[10px] text-center"
-                              placeholder="Min"
-                            />
-                          )}
-
-                          {sl.operator === 'BETWEEN' && !sl.compare_to_indicator && (
-                            <div className="flex items-center gap-1">
-                               <span className="text-[10px] text-gray-400">to</span>
-                               <Input
-                                type="number"
-                                value={sl.threshold_value2 ?? ''}
-                                onChange={(e) => {
-                                  const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                                  handleUpdateNestedRule(group.id, sl.id, 'threshold_value2', val, 'STOP_LOSS');
-                                }}
-                                className="w-20 bg-gray-800/60 border-gray-700 text-white h-7 text-[10px] text-center"
-                                placeholder="Max"
-                              />
-                            </div>
-                          )}
+                            className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                          <span className="text-[9px] text-gray-500 uppercase font-medium">L.back:</span>
+                          <Input
+                            type="number" title="Lookback"
+                            value={sl.candle_lookback ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? '' : parseInt(e.target.value);
+                              handleUpdateNestedRule(group.id, sl.id, 'candle_lookback', val, 'STOP_LOSS');
+                            }}
+                            className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                          />
                         </div>
                       </div>
                     )}
+
+                    {/* Indicator Based / Trailing Indicator */}
+                    {['INDICATOR_BASED', 'TRAILING_INDICATOR'].includes(sl.sl_type) && (
+                      <>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
+                          <Select 
+                            value={sl.indicator_type || ''} 
+                            onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'indicator_type', v, 'STOP_LOSS')}
+                          >
+                            <SelectTrigger className="w-auto min-w-[120px] bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-indigo-300 font-semibold">
+                              <SelectValue placeholder="Indicator" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(enums.IndicatorType || []).map(ind => (
+                                <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          
+                          {sl.indicator_type && (() => {
+                            const params = PARAM_CONFIG[sl.indicator_type] || [];
+                            if (params.length === 0) return null;
+                            return (
+                              <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                                {params.map(param => (
+                                  <div key={param.key} className="flex items-center gap-1">
+                                    <span className="text-[9px] text-gray-500 uppercase font-medium">{param.label}:</span>
+                                    <Input
+                                      type="number"
+                                      value={sl.indicator_params?.[param.key] ?? param.default}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        const newParams = { 
+                                          ...(sl.indicator_params || {}), 
+                                          [param.key]: isNaN(val) ? '' : val 
+                                        };
+                                        handleUpdateNestedRule(group.id, sl.id, 'indicator_params', newParams, 'STOP_LOSS');
+                                      }}
+                                      className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {sl.sl_type === 'INDICATOR_BASED' && (
+                          <>
+                            <Badge variant="secondary" className="bg-gray-500/10 text-gray-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">IS</Badge>
+                            
+                            <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
+                              <Select 
+                                value={sl.operator || 'LT'} 
+                                onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'operator', v, 'STOP_LOSS')}
+                              >
+                                <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-emerald-300 font-semibold">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(enums.ComparisonOperator || []).map(op => (
+                                    <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="flex items-center ml-1">
+                              <div className="inline-flex rounded-full border border-white/[0.05] bg-black/20 p-0.5 shadow-inner">
+                                <button
+                                  onClick={() => {
+                                    if (sl.compare_to_indicator) {
+                                      handleUpdateNestedRuleFields(group.id, sl.id, { compare_to_indicator: null, compare_to_params: null }, 'STOP_LOSS');
+                                    }
+                                  }}
+                                  title="Compare to Value"
+                                  className={`px-2.5 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full transition-all duration-200 ${
+                                    !sl.compare_to_indicator
+                                      ? 'bg-gray-700/80 text-white shadow-sm'
+                                      : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                  }`}
+                                >
+                                  Val
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (!sl.compare_to_indicator) {
+                                      handleUpdateNestedRuleFields(group.id, sl.id, { compare_to_indicator: 'SMA', threshold_value: null }, 'STOP_LOSS');
+                                    }
+                                  }}
+                                  title="Compare to Indicator"
+                                  className={`px-2.5 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full transition-all duration-200 flex items-center gap-1 ${
+                                    sl.compare_to_indicator
+                                      ? 'bg-indigo-500/20 text-indigo-300 shadow-sm'
+                                      : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                  }`}
+                                >
+                                  <Activity className="h-3 w-3" /> Ind
+                                </button>
+                              </div>
+                            </div>
+
+                            {sl.compare_to_indicator ? (
+                              <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] ml-1">
+                                <Select 
+                                  value={sl.compare_to_indicator} 
+                                  onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'compare_to_indicator', v, 'STOP_LOSS')}
+                                >
+                                  <SelectTrigger className="w-auto min-w-[120px] bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-indigo-300 font-semibold">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(enums.IndicatorType || []).map(ind => (
+                                      <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                {(() => {
+                                  const params = PARAM_CONFIG[sl.compare_to_indicator] || [];
+                                  if (params.length === 0) return null;
+                                  return (
+                                    <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                                      {params.map(param => (
+                                        <div key={param.key} className="flex items-center gap-1">
+                                          <span className="text-[9px] text-gray-500 uppercase font-medium">{param.label}:</span>
+                                          <Input
+                                            type="number"
+                                            value={sl.compare_to_params?.[param.key] ?? param.default}
+                                            onChange={(e) => {
+                                              const val = parseFloat(e.target.value);
+                                              const newParams = { 
+                                                ...(sl.compare_to_params || {}), 
+                                                [param.key]: isNaN(val) ? '' : val 
+                                              };
+                                              handleUpdateNestedRule(group.id, sl.id, 'compare_to_params', newParams, 'STOP_LOSS');
+                                            }}
+                                            className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            ) : (
+                              <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] ml-1 px-2">
+                                <Input
+                                  type="number"
+                                  value={sl.threshold_value ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                                    handleUpdateNestedRule(group.id, sl.id, 'threshold_value', val, 'STOP_LOSS');
+                                  }}
+                                  className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                                  placeholder="Value"
+                                />
+                              </div>
+                            )}
+
+                            {sl.operator === 'BETWEEN' && !sl.compare_to_indicator && (
+                              <>
+                                 <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wider mx-1">and</span>
+                                 <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                                   <Input
+                                    type="number"
+                                    value={sl.threshold_value2 ?? ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                                      handleUpdateNestedRule(group.id, sl.id, 'threshold_value2', val, 'STOP_LOSS');
+                                    }}
+                                    className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                                    placeholder="Max"
+                                  />
+                                </div>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </>
+                    )}
                   </div>
-                )}
 
-                <div className="flex-1" />
+                  {/* Row 2: Hover Metadata (Timeframe + Actions) */}
+                  <div className="flex items-center gap-3 px-4 pb-2 pt-1 opacity-100">
+                    {['INDICATOR_BASED', 'TRAILING_INDICATOR'].includes(sl.sl_type) && (
+                      <div className="flex items-center gap-1.5 bg-black/10 rounded-md px-2 py-0.5 border border-white/[0.02]">
+                        <span className="text-[9px] text-gray-500 font-bold tracking-widest uppercase">TF:</span>
+                        <Select 
+                          value={sl.timeframe_override || 'NONE'} 
+                          onValueChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'timeframe_override', v === 'NONE' ? '' : v, 'STOP_LOSS')}
+                        >
+                          <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-[10px] h-5 px-1 shadow-none focus:ring-0 text-gray-400 p-0">
+                            <SelectValue placeholder="Default" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NONE">Default</SelectItem>
+                            {(enums.CandleTimeframe || []).map(tf => (
+                              <SelectItem key={tf.value} value={tf.value}>{tf.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    
+                    <div className="flex-1" />
 
-                <div className="flex items-center gap-2 pr-1">
-                  <Switch 
-                    checked={sl.is_active} 
-                    onCheckedChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'is_active', v, 'STOP_LOSS')}
-                    className="scale-75"
-                  />
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => handleDeleteNestedRule(group.id, sl.id, 'STOP_LOSS')}
-                    className="text-gray-500 hover:text-rose-400 h-7 w-7 p-0"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <Switch 
+                          checked={sl.is_active} 
+                          onCheckedChange={(v) => handleUpdateNestedRule(group.id, sl.id, 'is_active', v, 'STOP_LOSS')}
+                          className="scale-75 data-[state=checked]:bg-rose-500"
+                        />
+                      </div>
+                      <div className="w-px h-3 bg-gray-700/50"></div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleDeleteNestedRule(group.id, sl.id, 'STOP_LOSS')}
+                        className="text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 h-6 w-6 p-0 rounded-md"
+                        title="Delete Rule"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
@@ -931,8 +1036,9 @@ export default function ExitRulesBuilder() {
 
 
   const renderTargetGroup = (group) => (
-    <Card key={group.id} className="bg-gray-900/40 border-gray-800/80 mb-6">
-      <CardHeader className="pb-3 border-b border-gray-800/50">
+    <Card key={group.id} className="bg-[#0a0e17] border-t border-t-emerald-500/20 border-gray-800/80 shadow-2xl relative overflow-hidden mb-6">
+      <div className="absolute top-0 left-1/4 w-1/2 h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
+      <CardHeader className="pb-3 border-b border-gray-800/50 relative z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className={`p-1.5 rounded-md bg-emerald-500/10`}>
@@ -943,12 +1049,14 @@ export default function ExitRulesBuilder() {
               onChange={(e) => handleUpdateGroup(group.id, 'name', e.target.value, 'TARGET')}
               className="bg-transparent border-none text-white font-medium text-base p-0 h-auto focus:ring-0 max-w-[250px]"
             />
+          </div>
+          <div className="flex items-center gap-2">
             {/* Logical Operator */}
             <Select
               value={group.logical_operator || 'OR'}
               onValueChange={(v) => handleUpdateGroup(group.id, 'logical_operator', v, 'TARGET')}
             >
-              <SelectTrigger className="w-[70px] bg-gray-800/60 border-gray-700 text-xs h-7 mx-2">
+              <SelectTrigger className="w-[90px] bg-white/5 border-none hover:bg-white/10 text-sm h-8 shadow-none focus:ring-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -956,13 +1064,11 @@ export default function ExitRulesBuilder() {
                 <SelectItem value="OR">OR</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex items-center gap-2">
             <Button 
                 onClick={() => handleAddTargetToGroup(group.id)} 
                 variant="outline" 
                 size="sm" 
-                className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 h-8"
+                className="bg-emerald-500/10 border-none text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 h-8"
               >
                 <Plus className="h-3.5 w-3.5 mr-1.5" />
                 Add Rule
@@ -978,7 +1084,7 @@ export default function ExitRulesBuilder() {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 pt-4">
+      <CardContent className="space-y-4 pt-4 relative z-10">
         {(!group.target_rules || group.target_rules.length === 0) ? (
           <div className="text-center py-6 border border-dashed border-gray-700/60 rounded-lg">
              <p className="text-gray-500 text-sm">No target rules in this group</p>
@@ -986,186 +1092,231 @@ export default function ExitRulesBuilder() {
         ) : (
           <div className="space-y-2">
             {group.target_rules.map((tgt, index) => (
-              <div key={tgt.id} className="flex flex-wrap items-center gap-2 p-2 bg-gray-800/40 rounded-lg border border-gray-700/40 hover:border-gray-700 transition-colors">
-                <span className="text-xs font-mono text-gray-500 w-6 text-center shrink-0">{index + 1}</span>
+              <div key={tgt.id} className="space-y-2">
+                {index > 0 && (
+                  <div className="flex items-center justify-center -my-1 relative z-10">
+                    <div className="absolute bg-[#0a0e17] px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest text-gray-500 border border-gray-800 shadow-sm">
+                      {group.logical_operator || 'OR'}
+                    </div>
+                  </div>
+                )}
                 
-                {/* Type Selection */}
-                <Select 
-                  value={tgt.target_type} 
-                  onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'target_type', v, 'TARGET')}
-                >
-                  <SelectTrigger className="w-[200px] bg-gray-800/60 border-gray-700 text-xs h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(enums.TargetType || []).map(t => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className={`group relative rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] hover:bg-white/[0.04] transition-all duration-300 shadow-sm overflow-hidden ${tgt.is_active ? '' : 'opacity-60'}`}>
+                  
+                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-emerald-500/30 group-hover:bg-emerald-500/60 transition-colors" />
 
-                {/* Primary Value Input */}
-                {['FIXED_POINTS', 'FIXED_PERCENTAGE', 'RISK_REWARD', 'TRAILING_POINTS', 'TRAILING_PERCENTAGE'].includes(tgt.target_type) && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
-                    <Input
-                      type="number" step="0.1"
-                      value={(() => {
-                        const field = tgt.target_type === 'RISK_REWARD' 
-                          ? 'risk_reward_ratio' 
-                          : tgt.target_type?.includes('PERCENTAGE') && !tgt.target_type?.includes('TRAILING')
-                            ? 'fixed_percentage' 
-                            : tgt.target_type?.includes('POINTS')
-                              ? 'fixed_points'
-                              : tgt.target_type?.includes('TRAILING')
-                                ? 'trailing_value'
-                                : 'fixed_points';
-                        return tgt[field] != null ? tgt[field] : '';
-                      })()}
-                      onChange={(e) => {
-                        let field = null;
-                        if (tgt.target_type === 'RISK_REWARD') field = 'risk_reward_ratio';
-                        else if (tgt.target_type?.includes('PERCENTAGE') && !tgt.target_type?.includes('TRAILING')) field = 'fixed_percentage';
-                        else if (tgt.target_type?.includes('POINTS')) field = 'fixed_points';
-                        else if (tgt.target_type?.includes('TRAILING')) field = 'trailing_value';
-                        
-                        const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                        if (field) handleUpdateNestedRule(group.id, tgt.id, field, val, 'TARGET');
-                      }}
-                      className="w-24 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                    <span className="text-[10px] text-gray-500 uppercase">
-                      {tgt.target_type === 'RISK_REWARD' ? 'R:R' : tgt.target_type?.includes('PERCENTAGE') ? '%' : 'Pts'}
-                    </span>
-                  </div>
-                )}
+                  {/* Row 1: Main rule sentence */}
+                  <div className="flex flex-wrap items-center gap-1.5 p-3 pl-4">
+                    <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mr-1">IF</Badge>
 
-                {/* Time Based */}
-                {tgt.target_type === 'TIME_BASED' && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
-                    <span className="text-[10px] text-gray-500">Wait</span>
-                    <Input
-                      type="number"
-                      value={tgt.time_exit_minutes ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value === '' ? '' : parseInt(e.target.value);
-                        handleUpdateNestedRule(group.id, tgt.id, 'time_exit_minutes', val, 'TARGET');
-                      }}
-                      className="w-24 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                    <span className="text-[10px] text-gray-500 uppercase">Mins</span>
-                  </div>
-                )}
-
-                {/* EOD Squareoff */}
-                {tgt.target_type === 'EOD' && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
-                    <span className="text-[10px] text-gray-500">At</span>
-                    <Input
-                      type="time"
-                      value={tgt.eod_squareoff_time || '15:15'}
-                      onChange={(e) => handleUpdateNestedRule(group.id, tgt.id, 'eod_squareoff_time', e.target.value, 'TARGET')}
-                      className="w-24 bg-gray-800/60 border-gray-700 text-white h-8 text-xs px-2"
-                    />
-                  </div>
-                )}
-
-                {/* Expiry */}
-                {tgt.target_type === 'EXPIRY' && (
-                  <div className="flex items-center gap-1.5 px-1 border-l border-gray-700/50">
-                    <Input
-                      type="number"
-                      value={tgt.expiry_exit_minutes_before ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value === '' ? '' : parseInt(e.target.value);
-                        handleUpdateNestedRule(group.id, tgt.id, 'expiry_exit_minutes_before', val, 'TARGET');
-                      }}
-                      className="w-24 bg-gray-800/60 border-gray-700 text-white h-8 text-xs text-center"
-                    />
-                    <span className="text-[10px] text-gray-500">mins pre-expiry</span>
-                  </div>
-                )}
-
-                {/* Indicator Based */}
-                {tgt.target_type === 'INDICATOR_BASED' && (
-                  <div className="flex items-center gap-1.5 bg-gray-900/40 p-1 px-2 rounded-md border border-gray-700/30 flex-wrap">
+                    {/* Type Selection */}
                     <Select 
-                      value={tgt.indicator_type || 'RSI'} 
-                      onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'indicator_type', v, 'TARGET')}
+                      value={tgt.target_type} 
+                      onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'target_type', v, 'TARGET')}
                     >
-                      <SelectTrigger className="w-[160px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
-                        <SelectValue placeholder="Indicator" />
+                      <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 data-[state=open]:bg-white/10 text-xs h-7 px-2 shadow-none focus:ring-0 text-gray-300 font-medium">
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {(enums.IndicatorType || []).map(ind => (
-                          <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
+                        {(enums.TargetType || []).map(t => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    
-                    {tgt.indicator_type && renderIndicatorParams(
-                      tgt.indicator_type, 
-                      tgt.indicator_params, 
-                      (newParams) => handleUpdateNestedRule(group.id, tgt.id, 'indicator_params', newParams, 'TARGET'),
-                      true
+
+                    {/* Primary Value Input */}
+                    {['FIXED_POINTS', 'FIXED_PERCENTAGE', 'RISK_REWARD', 'TRAILING_POINTS', 'TRAILING_PERCENTAGE'].includes(tgt.target_type) && (
+                      <>
+                        <Badge variant="secondary" className="bg-gray-500/10 text-gray-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">IS</Badge>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                          <Input
+                            type="number" step="0.1"
+                            value={(() => {
+                              const field = tgt.target_type === 'RISK_REWARD' 
+                                ? 'risk_reward_ratio' 
+                                : tgt.target_type?.includes('PERCENTAGE') && !tgt.target_type?.includes('TRAILING')
+                                  ? 'fixed_percentage' 
+                                  : tgt.target_type?.includes('POINTS')
+                                    ? 'fixed_points'
+                                    : tgt.target_type?.includes('TRAILING')
+                                      ? 'trailing_value'
+                                      : 'fixed_points';
+                              return tgt[field] != null ? tgt[field] : '';
+                            })()}
+                            onChange={(e) => {
+                              let field = null;
+                              if (tgt.target_type === 'RISK_REWARD') field = 'risk_reward_ratio';
+                              else if (tgt.target_type?.includes('PERCENTAGE') && !tgt.target_type?.includes('TRAILING')) field = 'fixed_percentage';
+                              else if (tgt.target_type?.includes('POINTS')) field = 'fixed_points';
+                              else if (tgt.target_type?.includes('TRAILING')) field = 'trailing_value';
+                              
+                              const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                              if (field) handleUpdateNestedRule(group.id, tgt.id, field, val, 'TARGET');
+                            }}
+                            className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                          />
+                          <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider ml-1">
+                            {tgt.target_type === 'RISK_REWARD' ? 'R:R' : tgt.target_type?.includes('PERCENTAGE') ? '%' : 'Pts'}
+                          </span>
+                        </div>
+                      </>
                     )}
 
-                    {/* Timeframe Override for indicators */}
-                    <Select 
-                      value={tgt.timeframe_override || 'NONE'} 
-                      onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'timeframe_override', v === 'NONE' ? '' : v, 'TARGET')}
-                    >
-                      <SelectTrigger className="w-[120px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
-                        <SelectValue placeholder="TF Override" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">Default</SelectItem>
-                        {(enums.CandleTimeframe || []).map(tf => (
-                          <SelectItem key={tf.value} value={tf.value}>{tf.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* Time Based */}
+                    {tgt.target_type === 'TIME_BASED' && (
+                      <>
+                        <Badge variant="secondary" className="bg-amber-500/10 text-amber-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">WAIT</Badge>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                          <Input
+                            type="number"
+                            value={tgt.time_exit_minutes ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? '' : parseInt(e.target.value);
+                              handleUpdateNestedRule(group.id, tgt.id, 'time_exit_minutes', val, 'TARGET');
+                            }}
+                            className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                          />
+                          <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider ml-1">Mins</span>
+                        </div>
+                      </>
+                    )}
 
-                    <div className="flex items-center gap-1.5 border-l border-gray-700/50 pl-1.5">
-                      <Select 
-                        value={tgt.operator || 'GT'} 
-                        onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'operator', v, 'TARGET')}
-                      >
-                        <SelectTrigger className="w-[80px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(enums.ComparisonOperator || []).map(op => (
-                            <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    {/* EOD Squareoff */}
+                    {tgt.target_type === 'EOD' && (
+                      <>
+                        <Badge variant="secondary" className="bg-indigo-500/10 text-indigo-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">AT</Badge>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-1">
+                          <TimePicker
+                            value={tgt.eod_squareoff_time || '15:15'}
+                            onChange={(e) => handleUpdateNestedRule(group.id, tgt.id, 'eod_squareoff_time', e.target.value, 'TARGET')}
+                            className="w-24 bg-transparent border-none text-white font-medium text-sm h-7 px-1 shadow-none focus:ring-0"
+                          />
+                        </div>
+                      </>
+                    )}
 
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => {
-                            if (tgt.compare_to_indicator) {
-                              handleUpdateNestedRuleFields(group.id, tgt.id, { compare_to_indicator: null, compare_to_params: null }, 'TARGET');
-                            } else {
-                              handleUpdateNestedRuleFields(group.id, tgt.id, { compare_to_indicator: 'SMA', threshold_value: null }, 'TARGET');
-                            }
+                    {/* Expiry */}
+                    {tgt.target_type === 'EXPIRY' && (
+                      <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                        <Input
+                          type="number"
+                          value={tgt.expiry_exit_minutes_before ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? '' : parseInt(e.target.value);
+                            handleUpdateNestedRule(group.id, tgt.id, 'expiry_exit_minutes_before', val, 'TARGET');
                           }}
-                          className={`h-7 w-7 rounded flex items-center justify-center transition-colors border ${
-                            tgt.compare_to_indicator ? 'bg-indigo-500/20 border-indigo-500/30 text-indigo-400' : 'bg-gray-800/40 border-gray-700 text-gray-500'
-                          }`}
-                          title="Compare Indicator vs Value/Indicator"
-                        >
-                          {tgt.compare_to_indicator ? <Activity className="h-3 w-3" /> : <span className="text-[9px] font-bold">123</span>}
-                        </button>
+                          className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                        />
+                        <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider ml-1">mins pre-expiry</span>
+                      </div>
+                    )}
 
+                    {/* Indicator Based */}
+                    {tgt.target_type === 'INDICATOR_BASED' && (
+                      <>
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
+                          <Select 
+                            value={tgt.indicator_type || 'RSI'} 
+                            onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'indicator_type', v, 'TARGET')}
+                          >
+                            <SelectTrigger className="w-auto min-w-[120px] bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-indigo-300 font-semibold">
+                              <SelectValue placeholder="Indicator" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(enums.IndicatorType || []).map(ind => (
+                                <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          
+                          {tgt.indicator_type && (() => {
+                            const params = PARAM_CONFIG[tgt.indicator_type] || [];
+                            if (params.length === 0) return null;
+                            return (
+                              <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                                {params.map(param => (
+                                  <div key={param.key} className="flex items-center gap-1">
+                                    <span className="text-[9px] text-gray-500 uppercase font-medium">{param.label}:</span>
+                                    <Input
+                                      type="number"
+                                      value={tgt.indicator_params?.[param.key] ?? param.default}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        const newParams = { 
+                                          ...(tgt.indicator_params || {}), 
+                                          [param.key]: isNaN(val) ? '' : val 
+                                        };
+                                        handleUpdateNestedRule(group.id, tgt.id, 'indicator_params', newParams, 'TARGET');
+                                      }}
+                                      className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </div>
 
+                        <Badge variant="secondary" className="bg-gray-500/10 text-gray-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">IS</Badge>
+
+                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
+                          <Select 
+                            value={tgt.operator || 'GT'} 
+                            onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'operator', v, 'TARGET')}
+                          >
+                            <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-emerald-300 font-semibold">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(enums.ComparisonOperator || []).map(op => (
+                                <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="flex items-center ml-1">
+                          <div className="inline-flex rounded-full border border-white/[0.05] bg-black/20 p-0.5 shadow-inner">
+                            <button
+                              onClick={() => {
+                                if (tgt.compare_to_indicator) {
+                                  handleUpdateNestedRuleFields(group.id, tgt.id, { compare_to_indicator: null, compare_to_params: null }, 'TARGET');
+                                }
+                              }}
+                              title="Compare to Value"
+                              className={`px-2.5 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full transition-all duration-200 ${
+                                !tgt.compare_to_indicator
+                                  ? 'bg-gray-700/80 text-white shadow-sm'
+                                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                              }`}
+                            >
+                              Val
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!tgt.compare_to_indicator) {
+                                  handleUpdateNestedRuleFields(group.id, tgt.id, { compare_to_indicator: 'SMA', threshold_value: null }, 'TARGET');
+                                }
+                              }}
+                              title="Compare to Indicator"
+                              className={`px-2.5 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full transition-all duration-200 flex items-center gap-1 ${
+                                tgt.compare_to_indicator
+                                  ? 'bg-indigo-500/20 text-indigo-300 shadow-sm'
+                                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                              }`}
+                            >
+                              <Activity className="h-3 w-3" /> Ind
+                            </button>
+                          </div>
+                        </div>
 
                         {tgt.compare_to_indicator ? (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] ml-1">
                             <Select 
                               value={tgt.compare_to_indicator} 
                               onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'compare_to_indicator', v, 'TARGET')}
                             >
-                              <SelectTrigger className="w-[120px] bg-gray-800/60 border-gray-700 text-[10px] h-7">
+                              <SelectTrigger className="w-auto min-w-[120px] bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-indigo-300 font-semibold">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1175,63 +1326,113 @@ export default function ExitRulesBuilder() {
                               </SelectContent>
                             </Select>
 
-                            {/* Secondary indicator params */}
-                            {tgt.compare_to_indicator && renderIndicatorParams(
-                              tgt.compare_to_indicator,
-                              tgt.compare_to_params,
-                              (newParams) => handleUpdateNestedRule(group.id, tgt.id, 'compare_to_params', newParams, 'TARGET'),
-                              true
-                            )}
+                            {(() => {
+                              const params = PARAM_CONFIG[tgt.compare_to_indicator] || [];
+                              if (params.length === 0) return null;
+                              return (
+                                <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                                  {params.map(param => (
+                                    <div key={param.key} className="flex items-center gap-1">
+                                      <span className="text-[9px] text-gray-500 uppercase font-medium">{param.label}:</span>
+                                      <Input
+                                        type="number"
+                                        value={tgt.compare_to_params?.[param.key] ?? param.default}
+                                        onChange={(e) => {
+                                          const val = parseFloat(e.target.value);
+                                          const newParams = { 
+                                            ...(tgt.compare_to_params || {}), 
+                                            [param.key]: isNaN(val) ? '' : val 
+                                          };
+                                          handleUpdateNestedRule(group.id, tgt.id, 'compare_to_params', newParams, 'TARGET');
+                                        }}
+                                        className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
                         ) : (
-                          <Input
-                            type="number"
-                            value={tgt.threshold_value ?? ''}
-                            onChange={(e) => {
-                              const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                              handleUpdateNestedRule(group.id, tgt.id, 'threshold_value', val, 'TARGET');
-                            }}
-                            className="w-20 bg-gray-800/60 border-gray-700 text-white h-7 text-[10px] text-center"
-                            placeholder="Min"
-                          />
-                        )}
-
-                        {tgt.operator === 'BETWEEN' && !tgt.compare_to_indicator && (
-                          <div className="flex items-center gap-1">
-                             <span className="text-[10px] text-gray-400">to</span>
-                             <Input
+                          <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] ml-1 px-2">
+                            <Input
                               type="number"
-                              value={tgt.threshold_value2 ?? ''}
+                              value={tgt.threshold_value ?? ''}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                                handleUpdateNestedRule(group.id, tgt.id, 'threshold_value2', val, 'TARGET');
+                                handleUpdateNestedRule(group.id, tgt.id, 'threshold_value', val, 'TARGET');
                               }}
-                              className="w-20 bg-gray-800/60 border-gray-700 text-white h-7 text-[10px] text-center"
-                              placeholder="Max"
+                              className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                              placeholder="Value"
                             />
                           </div>
                         )}
+
+                        {tgt.operator === 'BETWEEN' && !tgt.compare_to_indicator && (
+                          <>
+                             <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wider mx-1">and</span>
+                             <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                               <Input
+                                type="number"
+                                value={tgt.threshold_value2 ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                                  handleUpdateNestedRule(group.id, tgt.id, 'threshold_value2', val, 'TARGET');
+                                }}
+                                className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-medium"
+                                placeholder="Max"
+                              />
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Row 2: Hover Metadata (Timeframe + Actions) */}
+                  <div className="flex items-center gap-3 px-4 pb-2 pt-1 opacity-100">
+                    {tgt.target_type === 'INDICATOR_BASED' && (
+                      <div className="flex items-center gap-1.5 bg-black/10 rounded-md px-2 py-0.5 border border-white/[0.02]">
+                        <span className="text-[9px] text-gray-500 font-bold tracking-widest uppercase">TF:</span>
+                        <Select 
+                          value={tgt.timeframe_override || 'NONE'} 
+                          onValueChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'timeframe_override', v === 'NONE' ? '' : v, 'TARGET')}
+                        >
+                          <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-[10px] h-5 px-1 shadow-none focus:ring-0 text-gray-400 p-0">
+                            <SelectValue placeholder="Default" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NONE">Default</SelectItem>
+                            {(enums.CandleTimeframe || []).map(tf => (
+                              <SelectItem key={tf.value} value={tf.value}>{tf.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
+                    )}
+                    
+                    <div className="flex-1" />
+
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <Switch 
+                          checked={tgt.is_active} 
+                          onCheckedChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'is_active', v, 'TARGET')}
+                          className="scale-75 data-[state=checked]:bg-emerald-500"
+                        />
+                      </div>
+                      <div className="w-px h-3 bg-gray-700/50"></div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleDeleteNestedRule(group.id, tgt.id, 'TARGET')}
+                        className="text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 h-6 w-6 p-0 rounded-md"
+                        title="Delete Rule"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
-                )}
-
-                <div className="flex-1" />
-
-                <div className="flex items-center gap-2 pr-1">
-                  <Switch 
-                    checked={tgt.is_active} 
-                    onCheckedChange={(v) => handleUpdateNestedRule(group.id, tgt.id, 'is_active', v, 'TARGET')}
-                    className="scale-75"
-                  />
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => handleDeleteNestedRule(group.id, tgt.id, 'TARGET')}
-                    className="text-gray-500 hover:text-emerald-400 h-7 w-7 p-0"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
                 </div>
               </div>
             ))}

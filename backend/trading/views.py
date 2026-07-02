@@ -1,11 +1,8 @@
-from django.db.models import Q
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from rest_framework import generics, status, views
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Instrument, Watchlist, Account, Position, Order, TradeHistory
+from .models import Account, Position, Order, TradeHistory
 from .serializers import (
     InstrumentSerializer,
     WatchlistSerializer,
@@ -15,6 +12,13 @@ from .serializers import (
     TradeHistorySerializer,
     AccountSummarySerializer,
 )
+from .services import (
+    PaperTradingTerminalService,
+    TradingAccountService,
+    TradingInstrumentService,
+    TradingOrderService,
+    TradingWatchlistService,
+)
 
 # --- Instrument and Watchlist Views ---
 
@@ -23,32 +27,25 @@ class InstrumentSearchView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        query = self.request.query_params.get('query', '')
-        if len(query) >= 2:
-            return Instrument.objects.filter(
-                Q(symbol__icontains=query) | Q(company_name__icontains=query)
-            )[:10]
-        return Instrument.objects.none()
+        query = self.request.query_params.get('q', self.request.query_params.get('query', ''))
+        equity_only = self.request.query_params.get('equity_only', 'false').lower() == 'true'
+        return TradingInstrumentService.search(query, equity_only=equity_only)
 
 class WatchlistView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        watchlist, _ = Watchlist.objects.get_or_create(user=request.user)
+        watchlist = TradingWatchlistService.get_watchlist(request.user)
         return Response(WatchlistSerializer(watchlist).data)
 
     def post(self, request):
         instrument_id = request.data.get('instrument_id')
-        instrument = get_object_or_404(Instrument, id=instrument_id)
-        watchlist, _ = Watchlist.objects.get_or_create(user=request.user)
-        watchlist.instruments.add(instrument)
+        watchlist = TradingWatchlistService.add_instrument(request.user, instrument_id)
         return Response(WatchlistSerializer(watchlist).data, status=status.HTTP_200_OK)
 
     def delete(self, request):
         instrument_id = request.data.get('instrument_id')
-        instrument = get_object_or_404(Instrument, id=instrument_id)
-        watchlist, _ = Watchlist.objects.get_or_create(user=request.user)
-        watchlist.instruments.remove(instrument)
+        watchlist = TradingWatchlistService.remove_instrument(request.user, instrument_id)
         return Response(WatchlistSerializer(watchlist).data, status=status.HTTP_200_OK)
 
 # --- Account, Position, and Order Views ---
@@ -58,14 +55,23 @@ class AccountView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        return Account.objects.get_or_create(user=self.request.user)[0]
+        return TradingAccountService.get_or_create_account(self.request.user)
 
 class PositionView(generics.ListAPIView):
     serializer_class = PositionSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        account, _ = Account.objects.get_or_create(user=self.request.user)
+        account = TradingAccountService.get_or_create_account(self.request.user)
+        return Position.objects.filter(account=account)
+
+class PositionDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = PositionSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        account = TradingAccountService.get_or_create_account(self.request.user)
         return Position.objects.filter(account=account)
 
 class OrderView(generics.ListCreateAPIView):
@@ -73,7 +79,7 @@ class OrderView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        account, _ = Account.objects.get_or_create(user=self.request.user)
+        account = TradingAccountService.get_or_create_account(self.request.user)
         return Order.objects.filter(account=account).order_by('-created_at')
 
     def get_serializer_context(self):
@@ -88,22 +94,21 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
     lookup_field = 'id'
 
     def get_queryset(self):
-        account, _ = Account.objects.get_or_create(user=self.request.user)
+        account = TradingAccountService.get_or_create_account(self.request.user)
         return Order.objects.filter(account=account, status='OPEN')
 
     def perform_update(self, serializer):
         order = serializer.save()
 
     def perform_destroy(self, instance):
-        instance.status = 'CANCELLED'
-        instance.save()
+        TradingOrderService.cancel_order(instance)
 
 class TradeHistoryView(generics.ListAPIView):
     serializer_class = TradeHistorySerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        account, _ = Account.objects.get_or_create(user=self.request.user)
+        account = TradingAccountService.get_or_create_account(self.request.user)
         return TradeHistory.objects.filter(order__account=account).order_by('-timestamp')
 
 class AccountSummaryView(generics.RetrieveAPIView):
@@ -119,3 +124,10 @@ class AccountSummaryView(generics.RetrieveAPIView):
             'positions__instrument'
         ).get_or_create(user=self.request.user)
         return account
+
+
+class TerminalSnapshotView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(PaperTradingTerminalService.build_snapshot(request.user))

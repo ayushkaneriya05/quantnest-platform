@@ -1,19 +1,19 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import api from "@/shared/services/api";
-import { loginSuccess, fetchUserProfile } from "@/shared/store/authSlice";
+import api from "@/services/api";
+import { loginSuccess, fetchUserProfile } from "@/store/authSlice";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/shared/components/ui/card";
+} from "@/components/ui/card";
 import React from "react";
-import { Button } from "@/shared/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Chrome, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
-import MainHeader from "@/shared/components/layout/main-header";
+import MainHeader from "@/components/layout/main-header";
 
 export default function SocialLoginHandler() {
   const [searchParams] = useSearchParams();

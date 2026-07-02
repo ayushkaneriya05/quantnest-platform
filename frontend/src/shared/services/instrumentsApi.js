@@ -52,4 +52,33 @@ export const watchlistApi = {
   },
 };
 
+// Execution Routes
+export const executionRoutesApi = {
+  createOrUpdate: async (watchlistInstrumentId, routeId, data) => {
+    if (routeId) {
+      const response = await api.patch(`${INSTRUMENTS_URL}execution-routes/${routeId}/`, data);
+      return response.data;
+    } else {
+      const payload = {
+        watchlist_instrument: watchlistInstrumentId,
+        ...data
+      };
+      const response = await api.post(`${INSTRUMENTS_URL}execution-routes/`, payload);
+      return response.data;
+    }
+  },
+  
+  getByWatchlistInstrument: async (watchlistInstrumentId) => {
+    const response = await api.get(`${INSTRUMENTS_URL}execution-routes/`, {
+      params: { watchlist_instrument: watchlistInstrumentId }
+    });
+    const data = response.data;
+    return Array.isArray(data) ? data : (data?.results || []);
+  },
+  
+  delete: async (id) => {
+    await api.delete(`${INSTRUMENTS_URL}execution-routes/${id}/`);
+  }
+};
+
 export default instrumentsApi;

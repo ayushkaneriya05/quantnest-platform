@@ -6,7 +6,8 @@ from django.conf import settings
 from common.models import BaseTimestampModel
 from common.enums import (
     Exchange, InstrumentType, OptionType, StrikeSelectionLogic, 
-    ExpiryType, ComparisonOperator, FyersSegment, ExchangeInstrumentType
+    ExpiryType, ComparisonOperator, FyersSegment, ExchangeInstrumentType,
+    QuantityType
 )
 
 
@@ -160,3 +161,107 @@ class WatchlistInstrument(BaseTimestampModel):
 
     def __str__(self):
         return f"{self.strategy.name} - {self.instrument.symbol}"
+
+
+class ExecutionRoute(BaseTimestampModel):
+    watchlist_instrument = models.ForeignKey(
+        WatchlistInstrument, on_delete=models.CASCADE,
+        related_name='execution_routes'
+    )
+    
+    # ── Route Type ──
+    route_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('DIRECT', 'Trade Same Instrument'),
+            ('MANUAL', 'Specific Instrument'),
+            ('FUTURES', 'Dynamic Futures'),
+            ('OPTIONS', 'Dynamic Options'),
+        ],
+        default='DIRECT'
+    )
+    
+    # ── For MANUAL: specific instrument to trade ──
+    target_instrument = models.ForeignKey(
+        Instrument, null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='routed_from'
+    )
+    
+    # ── For FUTURES / OPTIONS: underlying instrument to resolve derivatives from ──
+    target_underlying_instrument = models.ForeignKey(
+        Instrument, null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='underlying_routes',
+        help_text='The underlying instrument whose derivatives to trade. '
+                  'Enables cross-symbol routing (e.g., signal on NIFTY → trade BANKNIFTY options).'
+    )
+    
+    # ── Expiry Selection (FUTURES + OPTIONS) ──
+    expiry_preference = models.CharField(
+        max_length=20,
+        choices=ExpiryType.choices,  # WEEKLY, MONTHLY, NEAREST
+        default=ExpiryType.NEAREST
+    )
+    avoid_same_day_expiry = models.BooleanField(
+        default=False,
+        help_text='If True, on the day of expiry, it will automatically roll over to the next expiry to avoid Gamma risk.'
+    )
+    
+    # ── Option-Specific Fields ──
+    buy_signal_option_type = models.CharField(
+        max_length=5, choices=OptionType.choices,
+        default=OptionType.CE  # BUY signal → trade CE
+    )
+    sell_signal_option_type = models.CharField(
+        max_length=5, choices=OptionType.choices,
+        default=OptionType.PE  # SELL signal → trade PE
+    )
+    
+    strike_selection = models.CharField(
+        max_length=20,
+        choices=StrikeSelectionLogic.choices,  # ATM, ITM_1, OTM_2, etc.
+        default=StrikeSelectionLogic.ATM
+    )
+    
+    # ── Optional Per-Instrument Position Sizing Override ──
+    override_sizing = models.BooleanField(
+        default=False,
+        help_text='When enabled, this instrument uses its own sizing config instead of the strategy default.'
+    )
+    sizing_method = models.CharField(
+        max_length=20, choices=QuantityType.choices,
+        null=True, blank=True,
+        help_text='Overrides strategy sizing method (FIXED, CAPITAL_BASED, RISK_FIXED, RISK_PERCENTAGE)'
+    )
+    fixed_quantity = models.IntegerField(
+        null=True, blank=True,
+        help_text='For FIXED method: exact quantity (will be rounded to lot size)'
+    )
+    capital_percentage = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='For CAPITAL_BASED method: percent of portfolio capital to allocate'
+    )
+    risk_per_trade_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text='For RISK_FIXED method: fixed rupee amount to risk per trade'
+    )
+    risk_per_trade_percentage = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='For RISK_PERCENTAGE method: percent of portfolio capital to risk per trade'
+    )
+    
+    def __str__(self):
+        return f"{self.watchlist_instrument} -> {self.route_type}"
+    
+    def get_sizing_dict(self):
+        if not self.override_sizing:
+            return None
+        return {
+            "sizing_method": self.sizing_method,
+            "fixed_quantity": self.fixed_quantity,
+            "capital_percentage": self.capital_percentage,
+            "risk_per_trade_amount": self.risk_per_trade_amount,
+            "risk_per_trade_percentage": self.risk_per_trade_percentage,
+        }
+

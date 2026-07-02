@@ -1,8 +1,7 @@
+/* eslint-disable react/prop-types */
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  TrendingUp,
-  Search,
   Brain,
   BarChart,
   Database,
@@ -22,6 +21,10 @@ import {
   Settings,
   LogOut,
   ChevronDown,
+  Activity,
+  Briefcase,
+  Wallet,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -32,7 +35,8 @@ import {
 } from "@/shared/components/ui/dropdown-menu";
 import { useSidebar } from "@/shared/hooks/useSidebar";
 import { useDispatch, useSelector } from "react-redux";
-import { logout, logoutUser } from "@/shared/store/authSlice";
+import { logoutUser } from "@/shared/store/authSlice";
+import { useSystemNotificationsContext } from "@/shared/context/SystemNotificationsContext";
 
 const SidebarLink = ({ to, icon: Icon, label, currentPath }) => {
   // Section overview routes (e.g. /dashboard/portfolio, /dashboard/paper)
@@ -65,11 +69,19 @@ export default function Sidebar() {
   const [openSections, setOpenSections] = useState({
     analysis: false,
     strategy: false,
-    trading: false,
-    paperTrading: true,
+    trading: true,
+    paperTrading: false,
+    brokers: false,
+    liveOps: false,
+    journal: false,
+    ai: false,
+    marketplace: false,
+    governance: false,
     portfolio: false,
     community: false,
   });
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { unreadCount } = useSystemNotificationsContext();
 
   const toggleSection = (section) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -78,30 +90,31 @@ export default function Sidebar() {
   if (!isOpen) {
     return null;
   }
+
   const handleLogout = async () => {
     try {
-      dispatch(logoutUser());
+      // The thunk now handles full cleanup in authSlice extraReducers
+      await dispatch(logoutUser());
     } catch (error) {
       console.error("Logout failed", error);
     } finally {
-      dispatch(logout());
       navigate("/");
     }
   };
+
   return (
     <div className="fixed left-0 top-0 z-50 h-screen w-64 sm:w-72 lg:w-64 bg-gray-950 border-r border-gray-800 flex flex-col shadow-2xl animate-in slide-in-from-left duration-300">
       {/* Header */}
       <div className="flex items-center justify-center h-16 px-4 sm:px-6 border-b border-gray-800/50 shrink-0">
         <Link
           to="/dashboard"
-          className="flex items-center space-x-2 transition-colors hover:opacity-80 min-w-0"
+          className="flex min-w-0 items-center justify-center transition-opacity hover:opacity-80"
         >
-          <div className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 shadow-[inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-2px_4px_rgba(0,0,0,0.2)] border border-gray-700/50 shrink-0">
-            <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-300" />
-          </div>
-          <span className="font-bold text-lg sm:text-xl text-slate-100 font-heading truncate">
-            QuantNest
-          </span>
+          <img
+            src="/logo_1-wordmark.png"
+            alt="QuantNest"
+            className="h-auto w-[170px] object-contain"
+          />
         </Link>
       </div>
 
@@ -115,12 +128,12 @@ export default function Sidebar() {
             label="Dashboard"
             currentPath={pathname}
           />
-          <SidebarLink
+          {/* <SidebarLink
             to="/dashboard/search"
             icon={Search}
             label="Search"
             currentPath={pathname}
-          />
+          /> */}
         </div>
 
         {/* Collapsible Sections */}
@@ -190,21 +203,9 @@ export default function Sidebar() {
                   currentPath={pathname}
                 />
                 <SidebarLink
-                  to="/dashboard/strategy/create"
-                  icon={Code}
-                  label="Create Strategy"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/backtest/setup"
+                  to="/dashboard/backtest"
                   icon={TestTube}
-                  label="Backtest"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/backtest/optimize"
-                  icon={TestTube}
-                  label="Optimization"
+                  label="Backtesting Lab"
                   currentPath={pathname}
                 />
               </div>
@@ -230,28 +231,15 @@ export default function Sidebar() {
             {openSections.trading && (
               <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
                 <SidebarLink
-                  to="/dashboard/trading/trade-terminal"
-                  icon={Terminal}
-                  label="Trade Terminal"
-                  currentPath={pathname}
-                />
-                <SidebarLink
                   to="/dashboard/trading/paper-trading"
                   icon={CreditCard}
-                  label="Paper Trading"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/trading/broker-connections"
-                  icon={Plug}
-                  label="Broker Connections"
+                  label="Trading Terminal"
                   currentPath={pathname}
                 />
               </div>
             )}
           </div>
 
-          {/* Paper Trading Section (Phase 4) */}
           <div>
             <Button
               variant="ghost"
@@ -272,26 +260,108 @@ export default function Sidebar() {
               <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
                 <SidebarLink
                   to="/dashboard/paper"
-                  icon={BarChart}
+                  icon={Activity}
                   label="Dashboard"
                   currentPath={pathname}
                 />
                 <SidebarLink
-                  to="/dashboard/paper/orders"
+                  to="/dashboard/paper/portfolio"
+                  icon={Briefcase}
+                  label="Portfolio"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/paper/capital"
+                  icon={Wallet}
+                  label="Capital & Wallet"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/paper/analytics"
+                  icon={BarChart}
+                  label="Analytics"
+                  currentPath={pathname}
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
+              onClick={() => toggleSection("brokers")}
+            >
+              <div className="flex items-center gap-2">
+                <Plug className="h-4 w-4 flex-shrink-0 text-sky-400" />
+                <span className="font-medium">Broker Integration</span>
+              </div>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${openSections.brokers ? "rotate-180" : ""}`}
+              />
+            </Button>
+            {openSections.brokers && (
+              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                <SidebarLink
+                  to="/dashboard/brokers"
+                  icon={Plug}
+                  label="Connections"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/brokers/settings"
+                  icon={Settings}
+                  label="Order Settings"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/brokers/logs"
                   icon={Terminal}
-                  label="Order Book"
+                  label="API Logs"
+                  currentPath={pathname}
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
+              onClick={() => toggleSection("liveOps")}
+            >
+              <div className="flex items-center gap-2">
+                <Rocket className="h-4 w-4 flex-shrink-0 text-rose-400" />
+                <span className="font-medium">Live Trading</span>
+              </div>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${openSections.liveOps ? "rotate-180" : ""}`}
+              />
+            </Button>
+            {openSections.liveOps && (
+              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                <SidebarLink
+                  to="/dashboard/live/portfolio"
+                  icon={BarChart}
+                  label="Portfolio"
                   currentPath={pathname}
                 />
                 <SidebarLink
-                  to="/dashboard/paper/positions"
-                  icon={CreditCard}
-                  label="Positions"
+                  to="/dashboard/live/strategies"
+                  icon={Rocket}
+                  label="Deployments"
                   currentPath={pathname}
                 />
                 <SidebarLink
-                  to="/dashboard/paper/trades"
-                  icon={BookOpen}
-                  label="Trade History"
+                  to="/dashboard/live/logs"
+                  icon={Terminal}
+                  label="Execution Logs"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/live/emergency"
+                  icon={Shield}
+                  label="Emergency Control"
                   currentPath={pathname}
                 />
               </div>
@@ -306,7 +376,7 @@ export default function Sidebar() {
             >
               <div className="flex items-center gap-2">
                 <Shield className="h-4 w-4 flex-shrink-0 text-cyan-400" />
-                <span className="font-medium">Portfolio & Analytics</span>
+                <span className="font-medium">Global Risk Hub</span>
               </div>
               <ChevronDown
                 className={`h-4 w-4 transition-transform duration-200 ${
@@ -317,38 +387,166 @@ export default function Sidebar() {
             {openSections.portfolio && (
               <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
                 <SidebarLink
-                  to="/dashboard/portfolio"
-                  icon={BarChart}
-                  label="Overview"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/portfolio/allocations"
-                  icon={Shield}
-                  label="Allocations"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/portfolio/exposure"
-                  icon={BarChart}
-                  label="Exposure"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/portfolio/transactions"
-                  icon={CreditCard}
-                  label="Transactions"
-                  currentPath={pathname}
-                />
-                <SidebarLink
                   to="/dashboard/portfolio/risk"
                   icon={Shield}
-                  label="Risk Settings"
+                  label="Risk Profiles"
                   currentPath={pathname}
                 />
               </div>
             )}
-          </div> 
+          </div>
+
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
+              onClick={() => toggleSection("journal")}
+            >
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 flex-shrink-0 text-lime-400" />
+                <span className="font-medium">Journal & Reports</span>
+              </div>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${openSections.journal ? "rotate-180" : ""}`}
+              />
+            </Button>
+            {openSections.journal && (
+              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                <SidebarLink
+                  to="/dashboard/journal"
+                  icon={BookOpen}
+                  label="Trade Journal"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/journal/reports"
+                  icon={BarChart}
+                  label="Performance Reports"
+                  currentPath={pathname}
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
+              onClick={() => toggleSection("ai")}
+            >
+              <div className="flex items-center gap-2">
+                <Brain className="h-4 w-4 flex-shrink-0 text-fuchsia-400" />
+                <span className="font-medium">AI Engine</span>
+              </div>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${openSections.ai ? "rotate-180" : ""}`}
+              />
+            </Button>
+            {openSections.ai && (
+              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                <SidebarLink
+                  to="/dashboard/ai/advisor"
+                  icon={Brain}
+                  label="Advisor"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/ai/scores"
+                  icon={BarChart}
+                  label="Health Scores"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/ai/regime"
+                  icon={Database}
+                  label="Market Regime"
+                  currentPath={pathname}
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
+              onClick={() => toggleSection("marketplace")}
+            >
+              <div className="flex items-center gap-2">
+                <Store className="h-4 w-4 flex-shrink-0 text-orange-400" />
+                <span className="font-medium">Marketplace</span>
+              </div>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${openSections.marketplace ? "rotate-180" : ""}`}
+              />
+            </Button>
+            {openSections.marketplace && (
+              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                <SidebarLink
+                  to="/dashboard/marketplace"
+                  icon={Store}
+                  label="Explore"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/marketplace/creator"
+                  icon={Trophy}
+                  label="Creator Earnings"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/marketplace/subscriptions"
+                  icon={CreditCard}
+                  label="Subscriptions"
+                  currentPath={pathname}
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
+              onClick={() => toggleSection("governance")}
+            >
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 flex-shrink-0 text-red-400" />
+                <span className="font-medium">Governance</span>
+              </div>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${openSections.governance ? "rotate-180" : ""}`}
+              />
+            </Button>
+            {openSections.governance && (
+              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
+                <SidebarLink
+                  to="/dashboard/settings/audit"
+                  icon={Terminal}
+                  label="Audit Logs"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/settings/governance"
+                  icon={Shield}
+                  label="Approvals"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/settings/compliance"
+                  icon={BookOpen}
+                  label="Compliance"
+                  currentPath={pathname}
+                />
+                <SidebarLink
+                  to="/dashboard/settings/system"
+                  icon={Settings}
+                  label="System Settings"
+                  currentPath={pathname}
+                />
+              </div>
+            )}
+          </div>
 
           <div>
             <Button
@@ -394,7 +592,7 @@ export default function Sidebar() {
 
       {/* Bottom Section (User Profile) - Clean design without borders */}
       <div className="p-3 sm:p-4 bg-gray-950/50 shrink-0">
-        <DropdownMenu>
+        <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -419,16 +617,33 @@ export default function Sidebar() {
               <Link
                 to="/dashboard/profile-settings"
                 className="flex items-center gap-2 w-full"
+                onClick={() => setDropdownOpen(false)}
               >
                 <Settings className="h-4 w-4" />
                 <span className="text-sm">Profile & Settings</span>
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem className="hover:bg-gray-800 cursor-pointer transition-colors text-red-400 hover:text-red-300">
+            <DropdownMenuItem className="hover:bg-gray-800 cursor-pointer transition-colors">
+              <Link
+                to="/dashboard/notification-center"
+                className="flex items-center gap-2 w-full"
+                onClick={() => setDropdownOpen(false)}
+              >
+                <Bell className="h-4 w-4" />
+                <span className="text-sm">Notification Center</span>
+                {unreadCount > 0 && (
+                  <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-indigo-500 px-1.5 text-[10px] font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={handleLogout}
+              className="hover:bg-gray-800 cursor-pointer transition-colors text-red-400 hover:text-red-300"
+            >
               <LogOut className="h-4 w-4 mr-2" />
-              <span className="text-sm">
-                <button onClick={handleLogout}>Logout</button>
-              </span>
+              <span className="text-sm">Logout</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -5,12 +5,12 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import (
-    PositionSizingRule, PortfolioRiskProfile, TradeHaltCondition,
+    PositionSizingRule, PortfolioRiskProfile,
     StrategyAutoDisable, RiskViolation
 )
 from .serializers import (
     PositionSizingRuleSerializer, PortfolioRiskProfileSerializer,
-    TradeHaltConditionSerializer, StrategyAutoDisableSerializer,
+    StrategyAutoDisableSerializer,
     RiskViolationSerializer
 )
 
@@ -52,18 +52,6 @@ class PortfolioRiskProfileViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
-
-
-class TradeHaltConditionViewSet(viewsets.ModelViewSet):
-    """ViewSet for trade halt conditions."""
-    serializer_class = TradeHaltConditionSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        return TradeHaltCondition.objects.filter(user=self.request.user)
-    
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
 
 
 class StrategyAutoDisableViewSet(viewsets.ModelViewSet):

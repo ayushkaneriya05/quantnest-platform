@@ -71,11 +71,17 @@ const authSlice = createSlice({
     },
     loginSuccess: (state, action) => {
       console.log("Login successful :", action.payload);
-      state.accessToken = action.payload.access;
-      state.refreshToken = action.payload.refresh;
+      if (action.payload.access) {
+        state.accessToken = action.payload.access;
+        localStorage.setItem("accessToken", action.payload.access);
+      }
+      if (action.payload.refresh) {
+        state.refreshToken = action.payload.refresh;
+        localStorage.setItem("refreshToken", action.payload.refresh);
+      }
+      localStorage.setItem("isAuthenticated", "true");
+      
       state.user = action.payload.user || null;
-      localStorage.setItem("accessToken", action.payload.access);
-      localStorage.setItem("refreshToken", action.payload.refresh);
       state.isLoading = false;
       state.error = null;
       state.is2FARequired = false;
@@ -98,13 +104,15 @@ const authSlice = createSlice({
       state.error = null;
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
+      localStorage.removeItem("isAuthenticated");
     },
     updateUser: (state, action) => {
       state.user = { ...state.user, ...action.payload };
     },
     initializeAuth: (state) => {
+      const isAuth = localStorage.getItem("isAuthenticated");
       const token = localStorage.getItem("accessToken");
-      if (token) {
+      if (isAuth === "true" || token) {
         state.isAuthenticated = true;
       }
     },
@@ -131,9 +139,27 @@ const authSlice = createSlice({
       })
       .addCase(logoutUser.fulfilled, (state) => {
         state.isLoading = false;
+        state.accessToken = null;
+        state.refreshToken = null;
+        state.user = null;
+        state.isAuthenticated = false;
+        state.is2FARequired = false;
+        state.error = null;
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("refreshToken");
+        localStorage.removeItem("isAuthenticated");
       })
       .addCase(logoutUser.rejected, (state) => {
         state.isLoading = false;
+        // Even if server logout fails, we clear local state
+        state.accessToken = null;
+        state.refreshToken = null;
+        state.user = null;
+        state.isAuthenticated = false;
+        state.is2FARequired = false;
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("refreshToken");
+        localStorage.removeItem("isAuthenticated");
       })
       // Refresh Access Token
       .addCase(refreshAccessToken.pending, (state) => {
@@ -153,6 +179,7 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
         localStorage.removeItem("accessToken");
         localStorage.removeItem("refreshToken");
+        localStorage.removeItem("isAuthenticated");
       });
   },
 });

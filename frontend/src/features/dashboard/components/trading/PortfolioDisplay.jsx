@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Button } from "@/shared/components/ui/button";
-import { Card, CardContent } from "@/shared/components/ui/card";
-import { Badge } from "@/shared/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   TrendingUp,
   TrendingDown,
@@ -22,17 +22,17 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/shared/components/ui/table";
+} from "@/components/ui/table";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/shared/components/ui/dropdown-menu";
+} from "@/components/ui/dropdown-menu";
 import ModifyOrderModal from "./ModifyOrderModal";
 import ModifyPositionModal from "./ModifyPositionModal";
-import { useWebSocket } from "@/shared/hooks/useWebSocket";
-import api from "@/shared/services/api";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import api from "@/services/api";
 import toast from "react-hot-toast";
 
 // A reusable card component for displaying key statistics.

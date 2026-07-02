@@ -17,6 +17,7 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import StrategySnapshotViewer from './components/StrategySnapshotViewer';
+import { customConfirm } from '@/shared/components/ui/custom-dialog';
 
 export default function VersionHistory() {
   const { id } = useParams();
@@ -57,7 +58,8 @@ export default function VersionHistory() {
   };
 
   const handleRollback = async (versionId) => {
-    if (!confirm('Rollback to this version? This will override current settings.')) return;
+    const confirmed = await customConfirm('Rollback to this version? This will override current settings.');
+    if (!confirmed) return;
     try {
       await strategyApi.rollback(id, versionId);
       notify.success('Strategy rolled back to version');

@@ -83,6 +83,27 @@ export const strategyApi = {
     const response = await api.post(`${STRATEGIES_URL}strategies/${id}/rollback/`, { version_id: versionId });
     return response.data;
   },
+
+  // Deployment
+  deployPaper: async (id) => {
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/deploy-paper/`);
+    return response.data;
+  },
+
+  deployLive: async (id, options = {}) => {
+    const payload = {};
+    if (options?.brokerCredential) payload.broker_credential = options.brokerCredential;
+    if (options?.allocationAmount) payload.allocation_amount = options.allocationAmount;
+    if (options?.allocationPercentage) payload.allocation_percentage = options.allocationPercentage;
+    const response = await api.post(`${STRATEGIES_URL}strategies/${id}/deploy-live/`, payload);
+    return response.data;
+  },
+
+  // Get tunable parameters for optimization
+  getTunableParameters: async (id) => {
+    const response = await api.get(`${STRATEGIES_URL}strategies/${id}/tunable-parameters/`);
+    return response.data;
+  },
 };
 
 // Strategy Tags

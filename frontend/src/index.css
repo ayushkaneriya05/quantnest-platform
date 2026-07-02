@@ -73,6 +73,16 @@
   body {
     @apply bg-background text-foreground font-sans; /* Apply font-sans to body */
   }
+
+  /* Hide number input spin buttons globally */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
 }
 
 @layer utilities {
@@ -307,5 +317,128 @@
       0 8px 25px -5px rgba(0, 0, 0, 0.5),
       0 4px 6px -2px rgba(0, 0, 0, 0.3),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .landing-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: linear-gradient(to bottom, black, transparent 88%);
+  }
+
+  [data-landing-theme="light"] .landing-grid {
+    background-image:
+      linear-gradient(rgba(120, 86, 26, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120, 86, 26, 0.08) 1px, transparent 1px);
+  }
+
+  .landing-market-animation {
+    background:
+      radial-gradient(circle at 15% 20%, rgba(229, 196, 97, 0.12), transparent 24%),
+      radial-gradient(circle at 85% 10%, rgba(124, 58, 237, 0.12), transparent 26%),
+      linear-gradient(115deg, transparent 0%, transparent 42%, rgba(229, 196, 97, 0.06) 48%, transparent 54%, transparent 100%);
+    background-size: 100% 100%, 100% 100%, 220% 220%;
+    animation: landing-market-sweep 14s ease-in-out infinite alternate;
+  }
+
+  [data-landing-theme="light"] .landing-market-animation {
+    background:
+      radial-gradient(circle at 15% 20%, rgba(184, 137, 44, 0.18), transparent 24%),
+      radial-gradient(circle at 85% 10%, rgba(124, 58, 237, 0.08), transparent 26%),
+      linear-gradient(115deg, transparent 0%, transparent 42%, rgba(184, 137, 44, 0.10) 48%, transparent 54%, transparent 100%);
+  }
+
+  .landing-sparkline {
+    background-image:
+      linear-gradient(120deg, transparent 0 10%, rgba(229, 196, 97, 0.22) 10.5% 11%, transparent 11.5% 20%, rgba(45, 212, 191, 0.16) 20.5% 21%, transparent 21.5% 31%, rgba(229, 196, 97, 0.18) 31.5% 32%, transparent 32.5% 44%, rgba(124, 58, 237, 0.18) 44.5% 45%, transparent 45.5% 100%);
+    background-size: 440px 180px;
+    background-repeat: repeat-x;
+    mask-image: linear-gradient(to right, transparent, black 20%, black 80%, transparent);
+    animation: landing-sparkline-drift 18s linear infinite;
+  }
+
+  .landing-gold-text {
+    background:
+      linear-gradient(
+        100deg,
+        #9f7830 0%,
+        #f8e89d 28%,
+        #d2a94d 52%,
+        #fff2b6 75%,
+        #a87b2d 100%
+      );
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 12px 32px rgba(209, 167, 68, 0.12));
+  }
+
+  .landing-float {
+    animation: landing-float 6s ease-in-out infinite;
+  }
+
+  .landing-float-delay {
+    animation-delay: -3s;
+  }
+
+  .landing-orb {
+    animation: landing-orb 10s ease-in-out infinite alternate;
+  }
+
+  .landing-orb-delay {
+    animation-delay: -5s;
+  }
+}
+
+@keyframes landing-market-sweep {
+  0% {
+    background-position: center, center, 0% 50%;
+  }
+  100% {
+    background-position: center, center, 100% 50%;
+  }
+}
+
+@keyframes landing-sparkline-drift {
+  0% {
+    background-position-x: 0;
+  }
+  100% {
+    background-position-x: 440px;
+  }
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes landing-orb {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.65;
+  }
+  100% {
+    transform: translate3d(20px, -12px, 0) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-float,
+  .landing-orb,
+  .landing-market-animation,
+  .landing-sparkline {
+    animation: none;
+  }
+
+  html {
+    scroll-behavior: auto;
   }
 }

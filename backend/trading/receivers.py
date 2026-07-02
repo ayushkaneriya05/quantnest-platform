@@ -23,7 +23,11 @@ def handle_order_status_changed(sender, order, **kwargs):
                 "message": {
                     "id": order.id,
                     "status": order.status,
-                    "instrument": order.instrument.symbol,
+                    "instrument": {
+                        "id": order.instrument_id,
+                        "symbol": order.instrument.symbol,
+                        "company_name": order.instrument.name,
+                    },
                     "quantity": order.quantity,
                 },
             },
@@ -45,7 +49,11 @@ def handle_position_changed(sender, position, user_id, **kwargs):
                 "message": (
                     {
                         "id": position.id,
-                        "instrument": position.instrument.symbol,
+                        "instrument": {
+                            "id": position.instrument_id,
+                            "symbol": position.instrument.symbol,
+                            "company_name": position.instrument.name,
+                        },
                         "quantity": position.quantity,
                         "average_price": str(position.average_price),
                     }

@@ -1,29 +1,25 @@
+from allauth.account.models import EmailAddress
+from dj_rest_auth.registration.serializers import RegisterSerializer
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
-from .models import User
-from dj_rest_auth.registration.serializers import RegisterSerializer
-from allauth.account.models import EmailAddress
+
+from .models import APIKey, User
+
 
 class CustomRegisterSerializer(RegisterSerializer):
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.instance = None
-
     first_name = serializers.CharField(required=True, max_length=30)
     last_name = serializers.CharField(required=True, max_length=30)
-    _has_phone_field = False
-
 
     def get_cleaned_data(self):
         data = super().get_cleaned_data()
-        data['first_name'] = self.validated_data.get('first_name', '')
-        data['last_name'] = self.validated_data.get('last_name', '')
+        data["first_name"] = self.validated_data.get("first_name", "")
+        data["last_name"] = self.validated_data.get("last_name", "")
         return data
-    
+
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for viewing and updating the user's profile."""
+
     is_email_verified = serializers.SerializerMethodField()
 
     def get_is_email_verified(self, obj):
@@ -36,7 +32,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
         allow_blank=True,
         validators=[
             UniqueValidator(
-                queryset=User.objects.all(), message="This username is already taken."
+                queryset=User.objects.all(),
+                message="This username is already taken.",
             )
         ],
     )
@@ -56,7 +53,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "is_email_verified",
         )
-        read_only_fields = ("id", "email")  # Email should remain read-only
+        read_only_fields = ("id", "email")
 
     def validate_bio(self, value):
         if value and len(value.strip()) < 10:
@@ -64,3 +61,23 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 "Bio must be at least 10 characters long."
             )
         return value
+
+
+class APIKeySerializer(serializers.ModelSerializer):
+    """Serializer for API key listing."""
+
+    class Meta:
+        model = APIKey
+        fields = ("id", "prefix", "masked_key", "name", "created_at", "last_used")
+        read_only_fields = fields
+
+
+class SessionSerializer(serializers.Serializer):
+    """Serializer for representing JWT sessions from OutstandingToken."""
+
+    id = serializers.IntegerField()
+    created_at = serializers.DateTimeField()
+    expires_at = serializers.DateTimeField()
+    is_current = serializers.BooleanField(default=False)
+    ip_address = serializers.CharField(default="Unknown")
+    user_agent = serializers.CharField(default="Unknown")

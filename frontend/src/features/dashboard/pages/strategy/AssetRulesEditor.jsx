@@ -14,9 +14,10 @@ import {
 import {
   Search, Plus, X, Layers, Loader2, Info,
   TrendingUp, BarChart3, Shield, Clock, Eye,
-  Package,
+  Package, GitMerge,
 } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
+import UniversalRoutingModal from './UniversalRoutingModal';
 import { instrumentsApi, watchlistApi } from '@/shared/services/instrumentsApi';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
@@ -379,11 +380,12 @@ function DropdownItem({ instrument, onAdd, onDetail, isInWatchlist, onOpenOption
 }
 
 // ── Watchlist Card ──
-function WatchlistCard({ item, onRemove, onDetail, onOpenOptions }) {
+function WatchlistCard({ item, onRemove, onDetail, onOpenOptions, onOpenRouting }) {
   const d = item.instrument_details;
   if (!d) return null;
   const isDeriv = ['FUTURE', 'OPTION'].includes(d.instrument_type);
   const days = daysTo(d.expiry_date);
+  const routesCount = item.execution_routes?.length || 0;
 
   return (
     <div
@@ -401,6 +403,22 @@ function WatchlistCard({ item, onRemove, onDetail, onOpenOptions }) {
         className="absolute top-1.5 right-1.5 text-gray-700 hover:text-rose-400 hover:bg-rose-500/10 h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <X className="h-2.5 w-2.5" />
+      </Button>
+
+      {/* Routing Settings Button */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={(e) => { e.stopPropagation(); onOpenRouting(item); }}
+        className={`absolute top-1.5 right-8 h-5 px-1.5 text-[10px] rounded transition-all ${
+          routesCount > 0 
+            ? 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 opacity-100 border border-indigo-500/20' 
+            : 'text-gray-700 hover:text-indigo-400 hover:bg-indigo-500/10 opacity-0 group-hover:opacity-100'
+        }`}
+        title="Execution Routing Settings"
+      >
+        <GitMerge className="h-3 w-3 mr-1" />
+        {routesCount > 0 ? `${routesCount} Route${routesCount > 1 ? 's' : ''}` : 'Routing'}
       </Button>
 
       <div className="pl-2.5">
@@ -476,6 +494,7 @@ export default function AssetRulesEditor() {
   const [exchangeFilter, setExchangeFilter] = useState('');
   const [detailInstrument, setDetailInstrument] = useState(null);
   const [optionChainUnderlying, setOptionChainUnderlying] = useState(null);
+  const [routingInstrument, setRoutingInstrument] = useState(null);
 
   const debounceRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -760,6 +779,7 @@ export default function AssetRulesEditor() {
                     onRemove={handleRemove}
                     onDetail={setDetailInstrument}
                     onOpenOptions={setOptionChainUnderlying}
+                    onOpenRouting={setRoutingInstrument}
                   />
                 ))}
               </div>
@@ -792,6 +812,13 @@ export default function AssetRulesEditor() {
         onClose={() => setOptionChainUnderlying(null)}
         onAdd={handleAdd}
         watchlistIds={watchlistIds}
+      />
+
+      <UniversalRoutingModal
+        open={!!routingInstrument}
+        onClose={() => setRoutingInstrument(null)}
+        watchlistInstrument={routingInstrument}
+        strategyConfig={strategy?.config || {}}
       />
     </div>
   );

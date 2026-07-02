@@ -14,6 +14,7 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import StrategyConfigNav from './StrategyConfigNav';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import { useEnums } from '@/shared/context/EnumsContext';
+import { customConfirm } from "@/shared/components/ui/custom-dialog";
 
 
 export default function StrategyAutoDisableConfig() {
@@ -134,7 +135,8 @@ export default function StrategyAutoDisableConfig() {
   };
 
   const handleDelete = async (ruleId) => {
-    if (window.confirm('Are you sure you want to delete this guardian rule?')) {
+    const confirmed = await customConfirm('Are you sure you want to delete this guardian rule?');
+    if (confirmed) {
       try {
         await riskApi.deleteAutoDisableRule(ruleId);
         notify.success('Rule deleted');

@@ -1,13 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  ShieldAlert, Activity, Settings, AlertTriangle, DollarSign, PowerOff
+  Settings, AlertTriangle
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { path: 'risk',              icon: Settings,      label: 'Risk Profile',  color: 'indigo' },
-  { path: 'halt-conditions',   icon: ShieldAlert,   label: 'Halt Rules',    color: 'orange' },
   { path: 'risk-violations',   icon: AlertTriangle, label: 'Violations',    color: 'amber' },
-  // { path: 'advanced-risk-hub', icon: Activity,      label: 'Advanced Hub',  color: 'blue' },
 ];
 
 const COLOR_MAP = {

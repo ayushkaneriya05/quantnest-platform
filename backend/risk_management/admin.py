@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    PositionSizingRule, PortfolioRiskProfile, TradeHaltCondition,
+    PositionSizingRule, PortfolioRiskProfile,
     StrategyAutoDisable, RiskViolation
 )
 
@@ -13,15 +13,8 @@ class PositionSizingRuleAdmin(admin.ModelAdmin):
 
 @admin.register(PortfolioRiskProfile)
 class PortfolioRiskProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'max_daily_loss_percentage', 'max_open_positions', 'max_drawdown_percentage']
-    list_filter = ['halt_on_breach', 'alert_on_breach']
-
-
-@admin.register(TradeHaltCondition)
-class TradeHaltConditionAdmin(admin.ModelAdmin):
-    list_display = ['name', 'user', 'condition_type', 'threshold_value', 'is_active']
-    list_filter = ['condition_type', 'is_active']
-    search_fields = ['name', 'user__username']
+    list_display = ['user', 'max_daily_loss_percentage', 'max_exposure_percentage', 'max_drawdown_percentage']
+    list_filter = ['alert_on_breach']
 
 
 @admin.register(StrategyAutoDisable)

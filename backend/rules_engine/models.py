@@ -6,7 +6,7 @@ from common.models import BaseTimestampModel
 from common.enums import (
     CandleTimeframe, CandleCompletionRule, MarketSession, LogicalOperator,
     RuleType, RuleCategory, IndicatorType, PriceActionType, VolumeConditionType,
-    ComparisonOperator, StopLossType, TargetType, CandlePart
+    ComparisonOperator, StopLossType, TargetType, CandlePart, Timezone
 )
 
 
@@ -65,7 +65,11 @@ class TimeRule(BaseTimestampModel):
         help_text="Time windows to avoid: [{start: '13:00', end: '14:00'}, ...]"
     )
     
-    timezone = models.CharField(max_length=50, default='Asia/Kolkata')
+    timezone = models.CharField(
+        max_length=50, 
+        choices=Timezone.choices,
+        default=Timezone.ASIA_KOLKATA
+    )
 
     def __str__(self):
         return f"{self.strategy.name} - Time Rules"
@@ -132,9 +136,7 @@ class RuleGroup(BaseTimestampModel):
         default=1,
         help_text="Evaluation priority (lower = higher priority)"
     )
-    
 
-    
     is_active = models.BooleanField(default=True)
 
     class Meta:

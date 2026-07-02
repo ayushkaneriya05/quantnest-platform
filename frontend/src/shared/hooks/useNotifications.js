@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
   addNotification,
@@ -11,22 +12,24 @@ export function useNotifications() {
     (state) => state.notification.notifications
   );
 
-  const addNotificationAction = (notification) => {
+  const addNotificationAction = useCallback((notification) => {
     const id = Date.now().toString();
-    dispatch(addNotification({ ...notification, id }));
+    const newNotification = { ...notification, id };
+    console.info("Dispatching Notification to Redux:", newNotification);
+    dispatch(addNotification(newNotification));
     return id;
-  };
+  }, [dispatch]);
 
-  const removeNotificationAction = (id) => {
+  const removeNotificationAction = useCallback((id) => {
     dispatch(removeNotification(id));
-  };
+  }, [dispatch]);
 
-  const clearAll = () => {
+  const clearAll = useCallback(() => {
     dispatch(clearAllNotifications());
-  };
+  }, [dispatch]);
 
   // Convenience methods
-  const notify = {
+  const notify = useMemo(() => ({
     success: (message, options = {}) =>
       addNotificationAction({ type: "success", message, ...options }),
 
@@ -38,7 +41,7 @@ export function useNotifications() {
 
     warning: (message, options = {}) =>
       addNotificationAction({ type: "warning", message, ...options }),
-  };
+  }), [addNotificationAction]);
 
   return {
     notifications,

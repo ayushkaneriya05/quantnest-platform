@@ -1,14 +1,8 @@
 import { useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Button } from "@/shared/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
+import { Input } from "@/shared/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -26,10 +20,18 @@ import {
   Loader2,
   Trash2,
   Plus,
+  Shield,
 } from "lucide-react";
 import api from "@/shared/services/api";
 import { logout, logoutUser } from "@/shared/store/authSlice";
 import { useNavigate } from "react-router-dom";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/shared/components/ui/card";
 import React from "react";
 export default function AccountTab() {
   const { user } = useSelector((state) => state.auth);
@@ -47,6 +49,9 @@ export default function AccountTab() {
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [preflightData, setPreflightData] = useState(null);
+  const [isLoadingPreflight, setIsLoadingPreflight] = useState(false);
 
   // Load account data on component mount
   useEffect(() => {
@@ -163,18 +168,35 @@ export default function AccountTab() {
     setIsDeleting(true);
     try {
       await api.delete("/users/account/");
-      dispatch(logoutUser());
       dispatch(logout());
       navigate("/", {
         state: { message: "Your account has been permanently deleted." },
       });
     } catch (err) {
       console.error("Failed to delete account:", err);
+      const errorMsg = err.response?.data?.error || "Failed to delete account. Please try again.";
       setMessage({
         type: "error",
-        text: "Failed to delete account",
+        text: errorMsg,
       });
       setIsDeleting(false);
+      setDeleteDialogOpen(false);
+    }
+  };
+
+  const [preflightError, setPreflightError] = useState(false);
+
+  const fetchPreflight = async () => {
+    setIsLoadingPreflight(true);
+    setPreflightError(false);
+    try {
+      const response = await api.get("/users/account/preflight/");
+      setPreflightData(response.data);
+    } catch (err) {
+      console.error("Failed to fetch preflight data:", err);
+      setPreflightError(true);
+    } finally {
+      setIsLoadingPreflight(false);
     }
   };
 
@@ -187,334 +209,349 @@ export default function AccountTab() {
   };
 
   return (
-    <Card className="bg-gray-900/50 border border-gray-800/50 rounded-xl p-4 sm:p-6">
-      <CardHeader className="mb-4 sm:mb-6 px-0 pt-0">
-        <CardTitle className="text-xl sm:text-2xl font-bold text-slate-100">
-          Account Settings
-        </CardTitle>
-        <CardDescription className="text-slate-400 text-sm sm:text-base">
-          Manage your subscription, API keys, and account actions.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-6 sm:space-y-8 px-0 pb-0">
-        {/* Message Display */}
-        {message && (
-          <div
-            className={`p-3 rounded-lg border ${
-              message.type === "success"
-                ? "bg-green-900/50 border-green-800 text-green-300"
-                : "bg-red-900/50 border-red-800 text-red-300"
-            } flex items-center gap-2 text-sm`}
-          >
-            {message.type === "success" ? (
-              <CheckCircle className="h-4 w-4" />
-            ) : (
-              <AlertTriangle className="h-4 w-4" />
-            )}
-            {message.text}
-          </div>
-        )}
-
-        {/* Subscription & Billing */}
-        <div className="space-y-4 sm:space-y-6">
-          <h3 className="text-lg sm:text-xl font-bold text-slate-100 flex items-center gap-2">
-            <CreditCard className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-400" />{" "}
-            Subscription & Billing
-          </h3>
-
-          {isLoadingSubscription ? (
-            <div className="flex items-center justify-center p-8">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-            </div>
+    <div className="w-full space-y-6 max-w-full overflow-hidden">
+      {/* Dynamic Status Message - Top-level alert */}
+      {message && (
+        <div
+          className={`px-4 py-3 rounded-2xl border ${
+            message.type === "success"
+              ? "bg-green-900/40 border-green-800/50 text-green-300"
+              : "bg-red-900/40 border-red-800/50 text-red-300"
+          } flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-4 duration-300 shadow-lg mb-2`}
+        >
+          {message.type === "success" ? (
+            <CheckCircle className="h-5 w-5 shrink-0" />
           ) : (
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 p-4 sm:p-6 bg-gray-800/50 border border-gray-700/50 rounded-lg">
-              <div className="flex-1">
-                <div className="text-slate-300 font-medium text-sm sm:text-base flex flex-wrap items-center gap-2">
-                  Current Plan:
-                  <Badge
-                    className={`text-xs sm:text-sm ${
-                      subscription?.is_pro
-                        ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                        : "bg-gray-500/20 text-gray-300 border border-gray-500/30"
-                    }`}
-                  >
-                    {subscription?.plan_name || "Starter"}
-                  </Badge>
-                </div>
-                <p className="text-xs sm:text-sm text-slate-400 mt-2">
-                  {subscription?.is_pro
-                    ? `You have access to all professional features. ${
-                        subscription?.expires_at
-                          ? `Expires on ${formatDate(subscription.expires_at)}`
-                          : ""
-                      }`
-                    : "Upgrade to unlock advanced features and API access."}
-                </p>
-                {subscription?.usage && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    Usage this month: {subscription.usage.current} /{" "}
-                    {subscription.usage.limit} requests
-                  </p>
-                )}
-              </div>
-
-              {subscription?.is_pro ? (
-                <Button
-                  variant="outline"
-                  onClick={handleManageBilling}
-                  className="bg-gray-700/50 border-gray-600/50 text-slate-300 hover:bg-gray-600/50 w-full lg:w-auto text-sm shrink-0"
-                >
-                  Manage Billing
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleUpgradeToPro}
-                  className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] rounded-xl border-0 w-full lg:w-auto text-sm shrink-0"
-                >
-                  Upgrade to Pro
-                </Button>
-              )}
-            </div>
+            <AlertTriangle className="h-5 w-5 shrink-0" />
           )}
+          <span className="font-medium">{message.text}</span>
         </div>
+      )}
 
-        {/* API Keys */}
-        <div className="space-y-4 sm:space-y-6">
-          <h3 className="text-lg sm:text-xl font-bold text-slate-100 flex items-center gap-2">
-            <KeyRound className="h-4 w-4 sm:h-5 sm:w-5 text-purple-400" /> API
-            Keys
-          </h3>
-
-          {!subscription?.is_pro ? (
-            <div className="p-4 sm:p-6 bg-gray-800/50 border border-gray-700/50 rounded-lg text-center text-slate-400">
-              <p className="font-medium mb-3 text-sm sm:text-base">
-                API Keys are a Professional plan feature.
-              </p>
-              <Button
-                onClick={handleUpgradeToPro}
-                className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] rounded-xl border-0 w-full sm:w-auto text-sm"
-              >
-                Upgrade to Pro
-              </Button>
-            </div>
-          ) : (
-            <>
-              {isLoadingApiKeys ? (
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-10">
+        {/* Top Left: Subscription & Billing */}
+        <div className="lg:col-span-12 xl:col-span-7">
+          <Card className="bg-gray-900/50 border-gray-800/50 h-full">
+            <CardHeader className="border-b border-gray-800/50">
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-emerald-400" />
+                <CardTitle className="text-lg font-semibold text-slate-200">Subscription & Billing</CardTitle>
+              </div>
+              <CardDescription className="text-slate-400">View and manage your current subscription plan and billing cycles.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              {isLoadingSubscription ? (
                 <div className="flex items-center justify-center p-8">
                   <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
                 </div>
               ) : (
-                <>
-                  <div className="space-y-3 sm:space-y-4">
-                    {apiKeys.length === 0 ? (
-                      <div className="text-center text-slate-400 p-8">
-                        No API keys found. Generate your first API key to get
-                        started.
-                      </div>
-                    ) : (
-                      apiKeys.map((key) => (
-                        <div
-                          key={key.id}
-                          className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 p-3 sm:p-4 bg-gray-800/50 border border-gray-700/50 rounded-lg"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <p className="text-slate-300 font-mono text-xs sm:text-sm break-all">
-                                {key.masked_key}
-                              </p>
-                              {key.name && (
-                                <Badge className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs">
-                                  {key.name}
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-400">
-                              Created: {formatDate(key.created_at)}
-                              {key.last_used &&
-                                ` • Last used: ${formatDate(key.last_used)}`}
-                            </p>
-                          </div>
-
-                          <div className="flex gap-2 w-full lg:w-auto">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleCopy(key.key)}
-                              className="bg-gray-700/50 border-gray-600/50 text-slate-300 hover:bg-gray-600/50 flex-1 lg:flex-none text-sm"
-                            >
-                              <Copy className="h-3 w-3 mr-1" /> Copy
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => handleDeleteApiKey(key.id)}
-                              className="bg-red-600/50 text-red-300 hover:bg-red-700/50 border border-red-600/50 text-sm"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-6 p-6 bg-gray-800/30 border border-gray-700/30 rounded-xl">
+                  <div className="space-y-3 text-center sm:text-left">
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
+                      <span className="text-slate-300 font-medium">Current Plan:</span>
+                      <Badge
+                        className={`text-sm py-1 px-3 ${
+                          subscription?.is_pro
+                            ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                            : "bg-gray-700/50 text-gray-400 border-gray-600/50"
+                        }`}
+                      >
+                        {subscription?.plan_name || "Starter"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-slate-400 max-w-md">
+                      {subscription?.is_pro
+                        ? `Full access to Pro features. ${subscription?.expires_at ? `Valid until ${formatDate(subscription.expires_at)}` : ""}`
+                        : "Upgrade to unlock high-frequency data, advanced strategy builders, and API access."}
+                    </p>
+                    {subscription?.usage && (
+                      <div className="pt-2">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-500 font-mono">Usage Tracker</span>
+                          <span className="text-slate-400">{subscription.usage.current} / {subscription.usage.limit}</span>
                         </div>
-                      ))
+                        <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className="bg-indigo-500 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${Math.min((subscription.usage.current / subscription.usage.limit) * 100, 100)}%` }}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
 
-                  <div className="flex justify-start">
-                    <Button
-                      onClick={handleGenerateApiKey}
-                      disabled={isGeneratingKey}
-                      className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] rounded-xl border-0 w-full sm:w-auto text-sm px-6 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isGeneratingKey ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="h-4 w-4 mr-2" />
-                          Generate New API Key
-                        </>
-                      )}
-                    </Button>
+                  <div className="shrink-0 w-full sm:w-auto">
+                    {subscription?.is_pro ? (
+                      <Button
+                        variant="outline"
+                        onClick={handleManageBilling}
+                        className="w-full sm:w-auto bg-gray-800/50 border-gray-700/50 text-slate-300 hover:bg-gray-700/50"
+                      >
+                        Manage Billing
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleUpgradeToPro}
+                        className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/10 border-0 rounded-xl px-8"
+                      >
+                        Upgrade to Pro
+                      </Button>
+                    )}
                   </div>
-                </>
+                </div>
               )}
-            </>
-          )}
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Danger Zone */}
-        <div className="space-y-4 sm:space-y-6 p-4 sm:p-6 border border-red-600/50 bg-red-900/20 rounded-xl">
-          <h3 className="text-lg sm:text-xl font-bold text-red-400 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-400" />{" "}
-            Danger Zone
-          </h3>
-          <p className="text-xs sm:text-sm text-red-300">
-            These actions are irreversible and will affect your account
-            permanently. Please proceed with caution.
-          </p>
-
-          <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-            {/* Deactivate Account */}
-            <div className="space-y-3">
-              <p className="text-slate-300 font-medium text-sm sm:text-base">
-                Deactivate Account
-              </p>
-              <p className="text-xs sm:text-sm text-slate-400">
-                Temporarily disable your account and hide your data. You can
-                reactivate later.
-              </p>
-
-              <Dialog
-                open={deactivateDialogOpen}
-                onOpenChange={setDeactivateDialogOpen}
-              >
-                <DialogTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    className="w-full bg-red-600/50 text-red-300 hover:bg-red-700/50 border border-red-600/50 text-sm"
-                  >
-                    Deactivate Account
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="bg-gray-900/95 border border-gray-800/50 text-slate-100">
-                  <DialogHeader>
-                    <DialogTitle>Deactivate Account</DialogTitle>
-                    <DialogDescription className="text-slate-400">
-                      Are you sure you want to deactivate your account? This
-                      will temporarily disable your account and hide your data.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="flex gap-3 pt-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => setDeactivateDialogOpen(false)}
-                      className="flex-1 bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={handleDeactivateAccount}
-                      disabled={isDeactivating}
-                      className="flex-1 bg-red-600/50 text-red-300 hover:bg-red-700/50 border border-red-600/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isDeactivating ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Deactivating...
-                        </>
-                      ) : (
-                        "Deactivate"
-                      )}
-                    </Button>
+        {/* Top Right: REST API Access */}
+        <div className="lg:col-span-12 xl:col-span-5">
+          <Card className="bg-gray-900/50 border-gray-800/50 h-full">
+            <CardHeader className="border-b border-gray-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-5 w-5 text-purple-400" />
+                  <CardTitle className="text-lg font-semibold text-slate-200">API Access</CardTitle>
+                </div>
+                <CardDescription className="text-slate-400">Generate secure API keys to interact with QuantNest via your own tools.</CardDescription>
+              </div>
+              {subscription?.is_pro && (
+                <Button
+                  onClick={handleGenerateApiKey}
+                  disabled={isGeneratingKey}
+                  size="sm"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-lg shadow-indigo-500/10 rounded-lg px-4 h-9"
+                >
+                  {isGeneratingKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4 mr-2" /> New Key</>}
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="p-0">
+              {!subscription?.is_pro ? (
+                <div className="p-12 text-center space-y-4">
+                  <div className="mx-auto w-10 h-10 bg-gray-800/50 rounded-full flex items-center justify-center mb-2">
+                    <KeyRound className="h-5 w-5 text-slate-600" />
                   </div>
-                </DialogContent>
-              </Dialog>
+                  <p className="text-slate-400 text-xs font-medium">Pro exclusive feature</p>
+                  <Button onClick={handleUpgradeToPro} variant="link" className="text-indigo-400 hover:text-indigo-300 h-auto p-0 text-xs">View Pro &rarr;</Button>
+                </div>
+              ) : isLoadingApiKeys ? (
+                <div className="p-12 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-slate-700" /></div>
+              ) : apiKeys.length === 0 ? (
+                <div className="p-12 text-center text-slate-500 text-sm">No API keys generated yet.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[400px]">
+                    <thead>
+                      <tr className="border-b border-gray-800/50 bg-gray-800/20">
+                        <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Key</th>
+                        <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Name</th>
+                        <th className="px-4 py-3 text-right"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800/30">
+                      {apiKeys.map((key) => (
+                        <tr key={key.id} className="hover:bg-gray-800/20 transition-colors group">
+                          <td className="px-4 py-3">
+                            <code className="text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded text-xs font-mono">{key.masked_key}</code>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-slate-300 text-xs truncate max-w-[100px] block">{key.name || "Default Key"}</span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleCopy(key.key)}
+                                className="h-7 w-7 text-slate-400 hover:text-slate-100 hover:bg-gray-700"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteApiKey(key.id)}
+                                className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-900/20"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Bottom Full Row: Danger Zone */}
+        <div className="lg:col-span-12">
+          <div className="bg-red-950/10 border border-red-500/20 rounded-2xl p-6 sm:p-8 shadow-inner shadow-red-950/20">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center border border-red-500/20">
+                <AlertTriangle className="h-5 w-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-red-100">Critical Actions</h3>
+                <p className="text-red-400/70 text-sm">Managing account visibility and permanent data removal.</p>
+              </div>
             </div>
 
-            {/* Delete Account */}
-            <div className="space-y-3">
-              <p className="text-slate-300 font-medium text-sm sm:text-base">
-                Delete Account
-              </p>
-              <p className="text-xs sm:text-sm text-slate-400">
-                Permanently delete your account and all associated data. This
-                cannot be undone.
-              </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="p-6 bg-black/20 border border-red-900/20 rounded-xl flex flex-col justify-between group transition-all hover:border-red-900/40">
+                <div className="space-y-3 mb-8">
+                  <h4 className="font-bold text-slate-200">Account Deactivation</h4>
+                  <p className="text-sm text-slate-400 leading-relaxed">Temporary suspension. Your data is preserved but hidden from public results. You must contact support to reactivate.</p>
+                </div>
+                <Dialog open={deactivateDialogOpen} onOpenChange={setDeactivateDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="w-full border-red-900/30 text-red-300 hover:bg-red-900/20 hover:text-red-200 transition-all">Deactivate Account</Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-gray-900 border-gray-800 text-slate-100 rounded-2xl p-8">
+                    <DialogHeader>
+                      <DialogTitle className="text-red-100 text-2xl font-bold">Confirm Deactivation?</DialogTitle>
+                      <DialogDescription className="text-slate-400 pt-3 text-base">
+                        Your account will be suspended and you will not be able to log in. Live trading sessions will be stopped, but your open live positions will remain open at your broker.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex gap-4 pt-8">
+                      <Button variant="ghost" onClick={() => setDeactivateDialogOpen(false)} className="flex-1 text-slate-400 h-12">Cancel</Button>
+                      <Button 
+                        onClick={handleDeactivateAccount} 
+                        disabled={isDeactivating}
+                        className="flex-2 bg-red-600 hover:bg-red-700 text-white border-0 px-8 h-12"
+                      >
+                        {isDeactivating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm Deactivation"}
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
 
-              <Dialog
-                open={deleteDialogOpen}
-                onOpenChange={setDeleteDialogOpen}
-              >
-                <DialogTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    className="w-full bg-red-600/50 text-red-300 hover:bg-red-700/50 border border-red-600/50 text-sm"
-                  >
-                    Delete Account
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="bg-gray-900/95 border border-gray-800/50 text-slate-100">
-                  <DialogHeader>
-                    <DialogTitle>Delete Account</DialogTitle>
-                    <DialogDescription className="text-slate-400">
-                      Are you sure you want to permanently delete your account?
-                      This action cannot be undone and all your data will be
-                      lost forever.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="flex gap-3 pt-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => setDeleteDialogOpen(false)}
-                      className="flex-1 bg-gray-800/50 border-gray-700/50 text-slate-200 hover:bg-gray-700/50"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={handleDeleteAccount}
-                      disabled={isDeleting}
-                      className="flex-1 bg-red-600/50 text-red-300 hover:bg-red-700/50 border border-red-600/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isDeleting ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Deleting...
-                        </>
-                      ) : (
-                        "Delete Forever"
-                      )}
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
+              <div className="p-6 bg-red-900/10 border border-red-500/20 rounded-xl flex flex-col justify-between group transition-all hover:bg-red-900/20">
+                <div className="space-y-3 mb-8">
+                  <h4 className="font-bold text-red-100">Permanent Account Deletion</h4>
+                  <p className="text-sm text-red-300/60 leading-relaxed">You will permanently lose access to all your trade history, strategy code, and portfolio metrics. Your personal data will be anonymized. <span className="underline font-bold text-red-400">This action is irreversible.</span></p>
+                </div>
+                <Dialog open={deleteDialogOpen} onOpenChange={(open) => {
+                  setDeleteDialogOpen(open);
+                  if (open) {
+                    fetchPreflight();
+                  } else {
+                    setDeleteConfirmText("");
+                    setPreflightData(null);
+                    setPreflightError(false);
+                  }
+                }}>
+                  <DialogTrigger asChild>
+                    <Button className="w-full bg-red-600 hover:bg-red-700 text-white border-0 shadow-lg shadow-red-600/10 h-11">Delete Forever</Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-gray-900 border-red-900/50 text-slate-100 rounded-2xl p-8 max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle className="text-red-400 text-2xl font-bold">Final Confirmation</DialogTitle>
+                      <DialogDescription className="text-red-300/60 pt-3 text-base">
+                        You will permanently lose access to all your proprietary strategy code and historical performance. Your account will be irrevocably anonymized.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    {/* Preflight Resource Summary */}
+                    {isLoadingPreflight ? (
+                      <div className="flex items-center justify-center py-6">
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                        <span className="ml-2 text-sm text-slate-400">Checking account status...</span>
+                      </div>
+                    ) : preflightError ? (
+                      <div className="mt-4 flex items-start gap-3 p-4 bg-amber-900/20 border border-amber-500/20 rounded-xl">
+                        <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-semibold text-amber-300">Could not verify account status</p>
+                          <p className="text-xs text-amber-400/70 mt-1">
+                            The preflight check failed. For your safety, deletion is blocked until we can verify you have no open live positions. Please try again later.
+                          </p>
+                        </div>
+                      </div>
+                    ) : preflightData && (
+                      <div className="mt-4 space-y-3">
+                        {preflightData.open_live_positions > 0 && (
+                          <div className="flex items-start gap-3 p-4 bg-red-900/30 border border-red-500/30 rounded-xl">
+                            <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-semibold text-red-300">Deletion Blocked</p>
+                              <p className="text-xs text-red-400/70 mt-1">
+                                You have {preflightData.open_live_positions} open live position{preflightData.open_live_positions > 1 ? "s" : ""}. Close all live positions before deleting your account.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {(() => {
+                          const items = [
+                            { key: "active_strategies", label: "Active strategies will be paused" },
+                            { key: "running_live_sessions", label: "Running live sessions will be stopped" },
+                            { key: "pending_live_orders", label: "Pending live orders will be cancelled" },
+                            { key: "active_paper_accounts", label: "Paper accounts will be deactivated" },
+                            { key: "pending_paper_orders", label: "Pending paper orders will be cancelled" },
+                            { key: "active_broker_connections", label: "Broker connections will be deactivated" },
+                            { key: "running_backtests", label: "Running backtests will be cancelled" },
+                          ];
+                          const affected = items.filter(item => preflightData[item.key] > 0);
+                          if (affected.length === 0) return null;
+                          return (
+                            <div className="p-4 bg-amber-900/20 border border-amber-500/20 rounded-xl space-y-2">
+                              <p className="text-sm font-semibold text-amber-300">The following will be affected:</p>
+                              <ul className="space-y-1">
+                                {affected.map(item => (
+                                  <li key={item.key} className="text-xs text-amber-400/80 flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400/60 shrink-0" />
+                                    {preflightData[item.key]} {item.label}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* DELETE Confirmation Input */}
+                    {!isLoadingPreflight && (
+                    <>
+                    <div className="mt-6 space-y-2">
+                      <label className="text-sm text-slate-400">
+                        Type <span className="font-mono font-bold text-red-400">DELETE</span> to confirm:
+                      </label>
+                      <Input
+                        value={deleteConfirmText}
+                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                        placeholder="Type DELETE here"
+                        className="bg-gray-800/80 border-gray-700 text-slate-100 placeholder:text-slate-500 font-mono h-11 focus:border-red-500/50 focus:ring-red-500/20"
+                        disabled={preflightError || preflightData?.open_live_positions > 0}
+                      />
+                    </div>
+
+                    <div className="flex gap-4 pt-6">
+                      <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)} className="flex-1 text-slate-400 h-12">Cancel</Button>
+                      <Button 
+                        onClick={handleDeleteAccount} 
+                        disabled={isDeleting || deleteConfirmText !== "DELETE" || preflightError || preflightData?.open_live_positions > 0}
+                        className="flex-[2] bg-red-600 hover:bg-red-700 text-white border-0 px-8 font-bold h-12 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : "I Understand, Delete My Data"}
+                      </Button>
+                    </div>
+                    </>
+                    )}
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

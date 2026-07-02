@@ -39,8 +39,8 @@ pip-delete-this-directory.txt
 # Django static/media
 staticfiles/
 media/
+
 # Django migrations
-**/migrations/
 !**/migrations/__init__.py
 
 # === Node.js / React / Vite ===

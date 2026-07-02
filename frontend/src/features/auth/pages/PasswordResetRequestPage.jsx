@@ -1,6 +1,8 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import api from "@/shared/services/api";
+import { ArrowLeft, ArrowRight, Mail, ShieldCheck } from "lucide-react";
+
+import MainHeader from "@/shared/components/layout/main-header";
 import { Button } from "@/shared/components/ui/button";
 import {
   Card,
@@ -11,8 +13,7 @@ import {
 } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { Mail, ArrowLeft } from "lucide-react";
-import MainHeader from "@/shared/components/layout/main-header";
+import api from "@/shared/services/api";
 
 export default function PasswordResetRequestPage() {
   const [email, setEmail] = useState("");
@@ -31,7 +32,7 @@ export default function PasswordResetRequestPage() {
       setMessage("Password reset email sent. Please check your inbox.");
     } catch (err) {
       setError(
-        err.response?.data?.detail || "Failed to send password reset email."
+        err.response?.data?.detail || "Failed to send password reset email.",
       );
     } finally {
       setIsLoading(false);
@@ -39,42 +40,58 @@ export default function PasswordResetRequestPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-black">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-[#050505] text-white">
+      <div className="landing-market-animation absolute inset-0 opacity-70" />
+      <div className="landing-grid absolute inset-0 opacity-25" />
       <MainHeader />
-      <div className="flex flex-1 items-center justify-center container-padding py-6 sm:py-8 md:py-12 lg:py-16">
-        <Card className="w-full max-w-md bg-gray-900/50 border border-gray-800/50 shadow-lg rounded-xl p-4 sm:p-6">
-          <CardHeader className="text-center pb-6">
-            <CardTitle className="text-2xl sm:text-3xl font-bold text-slate-100">
-              Reset Your Password
+
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 py-4">
+        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#0b0d12]/90 p-5 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <CardHeader className="px-0 pb-5 text-center">
+            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
+              <Mail className="h-5 w-5 text-[#e5c461]" />
+            </div>
+            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-white">
+              Reset your password
             </CardTitle>
-            <CardDescription className="text-slate-400 mt-2">
-              Enter your email address and we will send you a link to reset your
-              password.
+            <CardDescription className="mt-2 text-sm leading-6 text-slate-400">
+              Enter your account email and we will send a secure reset link.
             </CardDescription>
           </CardHeader>
-          <CardContent className="content-spacing px-0">
+
+          <CardContent className="px-0">
+            <div className="mb-5 rounded-2xl border border-[#e5c461]/15 bg-[#e5c461]/[0.06] p-4">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#e5c461]" />
+                <p className="text-sm leading-6 text-slate-300">
+                  Use this when you cannot access your QuantNest workspace. The
+                  link will let you choose a new password.
+                </p>
+              </div>
+            </div>
+
             {message && (
-              <div className="mb-4 p-3 bg-green-900/50 border border-green-800 rounded-lg text-green-300 text-sm">
+              <div className="mb-4 rounded-lg border border-green-800 bg-green-900/50 p-3 text-sm text-green-300">
                 {message}
               </div>
             )}
 
-            <form className="text-spacing" onSubmit={handleSubmit}>
-              <div className="text-spacing-sm">
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              <div className="space-y-1.5">
                 <Label
                   htmlFor="email"
-                  className="text-slate-200 text-sm font-medium"
+                  className="text-sm font-medium text-slate-200"
                 >
-                  Email Address
+                  Email address
                 </Label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <Input
                     id="email"
                     name="email"
                     type="email"
                     placeholder="you@example.com"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
+                    className="h-11 border-white/10 bg-white/[0.06] pl-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -83,7 +100,7 @@ export default function PasswordResetRequestPage() {
               </div>
 
               {error && (
-                <div className="mb-4 p-3 bg-red-900/50 border border-red-800 rounded-lg text-red-300 text-sm">
+                <div className="rounded-lg border border-red-800 bg-red-900/50 p-3 text-sm text-red-300">
                   {error}
                 </div>
               )}
@@ -91,30 +108,29 @@ export default function PasswordResetRequestPage() {
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] h-11 mt-6"
+                className="h-11 w-full rounded-xl bg-[#e5c461] font-semibold text-black shadow-[0_12px_40px_rgba(229,196,97,0.18)] hover:bg-[#f2da8e] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoading ? "Sending..." : "Send Reset Email"}
+                {isLoading ? "Sending..." : "Send reset email"}
+                {!isLoading && <ArrowRight className="h-4 w-4" />}
               </Button>
             </form>
 
-            <div className="text-center text-sm text-slate-400 pt-4 border-t border-gray-800/50">
+            <div className="mt-5 border-t border-white/10 pt-5 text-center text-sm text-slate-400">
               Remember your password?{" "}
               <Link
                 to="/login"
-                className="underline text-indigo-400 hover:text-indigo-300 font-medium"
+                className="font-medium text-[#e5c461] underline hover:text-[#f2da8e]"
               >
-                Back to Login
+                Back to login
               </Link>
             </div>
-            <div className="text-center text-sm pt-3">
-              <Link
-                to="/"
-                className="text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1 transition-colors"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back to Landing Page
-              </Link>
-            </div>
+            <Link
+              to="/"
+              className="mt-3 flex items-center justify-center gap-2 text-sm text-slate-400 transition-colors hover:text-[#f2da8e]"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to landing page
+            </Link>
           </CardContent>
         </Card>
       </div>

@@ -98,6 +98,41 @@ class Strategy(BaseTimestampModel):
     def __str__(self):
         return f"{self.name} ({self.user.username})"
 
+    def to_execution_dict(self):
+        """
+        Serializes the strategy and all its nested rules/configs into a single 
+        JSON-serializable dictionary. This is used for caching in Redis to 
+        avoid database hits during the live execution loop.
+        """
+        from strategies.services import StrategySnapshotService
+
+        data = StrategySnapshotService._serialize_strategy(self)
+        data.update(
+            {
+                "id": self.id,
+                "user": self.user_id,
+                "status": self.status,
+                "visibility": self.visibility,
+                "paper_trading_enabled": self.paper_trading_enabled,
+                "live_trading_enabled": self.live_trading_enabled,
+                "allow_backtest": self.allow_backtest,
+            }
+        )
+
+        risk_profile = getattr(self.user, "risk_profile", None)
+        if risk_profile:
+            data["risk_profile"] = {
+                "max_daily_loss_amount": float(risk_profile.max_daily_loss_amount) if risk_profile.max_daily_loss_amount is not None else None,
+                "max_daily_loss_percentage": float(risk_profile.max_daily_loss_percentage),
+                "max_exposure_percentage": float(risk_profile.max_exposure_percentage),
+                "max_per_instrument_exposure": float(risk_profile.max_per_instrument_exposure),
+                "max_drawdown_percentage": float(risk_profile.max_drawdown_percentage),
+                "alert_on_breach": risk_profile.alert_on_breach,
+            }
+        else:
+            data["risk_profile"] = {}
+
+        return data
 
 class StrategyVersion(BaseTimestampModel):
     """
@@ -139,6 +174,14 @@ class EntryOrderConfig(BaseTimestampModel):
         related_name='entry_order_config'
     )
 
+    # Trade direction for this strategy
+    entry_side = models.CharField(
+        max_length=10,
+        choices=[('BUY', 'Buy / Long'), ('SELL', 'Sell / Short')],
+        default='BUY',
+        help_text="Trade direction: BUY for Long entries, SELL for Short entries"
+    )
+
     # Logic for combining rule groups
     entry_group_operator = models.CharField(
         max_length=10,
@@ -169,23 +212,12 @@ class EntryOrderConfig(BaseTimestampModel):
         help_text="Offset from signal price (positive for above, negative for below)"
     )
     
-    # Execution controls
-    slippage_tolerance_pct = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=0.10,
-        help_text="Maximum allowed slippage percentage"
-    )
     allow_partial_entry = models.BooleanField(default=False)
     
-    # Cooldown and retries
+    # Cooldown
     entry_cooldown_seconds = models.PositiveIntegerField(
         default=0,
         help_text="Minimum seconds between entries"
-    )
-    max_entry_attempts = models.PositiveIntegerField(
-        default=3,
-        help_text="Maximum order placement attempts"
     )
 
     def __str__(self):

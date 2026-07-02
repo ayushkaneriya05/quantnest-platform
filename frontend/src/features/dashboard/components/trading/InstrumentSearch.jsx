@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Search, PlusCircle, Loader2 } from "lucide-react";
-import { Input } from "@/shared/components/ui/input";
-import { Button } from "@/shared/components/ui/button";
-import { useToast } from "@/shared/hooks/use-toast";
-import api from "@/shared/services/api";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import api from "@/services/api";
 
 export default function InstrumentSearch({
   onAddToWatchlist,

@@ -8,15 +8,16 @@ from rest_framework.response import Response
 
 from .enums import (
     StrategyType, MarketType, Exchange, InstrumentType, OptionType,
-    OrderType, ProductType, StrategyStatus, StrategyVisibility,
+    OrderType, OrderStatus, Side, ProductType, StrategyStatus, StrategyVisibility,
     CandleTimeframe, CandleCompletionRule, CandlePart, MarketSession,
     LogicalOperator, RuleType, RuleCategory,
     IndicatorType, PriceActionType, VolumeConditionType,
     ComparisonOperator, StopLossType, TargetType,
     QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
-    EntryPriceLogic, HaltConditionType, AutoDisableTriggerType,
+    EntryPriceLogic, AutoDisableTriggerType,
     ViolationType, ViolationAction, Severity,
-    TransactionType, RebalanceFrequency,
+    TransactionType, RebalanceFrequency, Timezone, BacktestStatus,
+    BrokerName, OptimizationMetric, OptimizableParameter
 )
 
 
@@ -45,7 +46,10 @@ _ENUM_SOURCES = {
     'InstrumentType': InstrumentType,
     'OptionType': OptionType,
     'OrderType': OrderType,
+    'OrderStatus': OrderStatus,
+    'Side': Side,
     'ProductType': ProductType,
+    'BrokerName': BrokerName,
 
     # Strategy lifecycle
     'StrategyStatus': StrategyStatus,
@@ -82,7 +86,6 @@ _ENUM_SOURCES = {
     'EntryPriceLogic': EntryPriceLogic,
 
     # Risk management
-    'HaltConditionType': HaltConditionType,
     'AutoDisableTriggerType': AutoDisableTriggerType,
     'ViolationType': ViolationType,
     'ViolationAction': ViolationAction,
@@ -91,9 +94,11 @@ _ENUM_SOURCES = {
     # Portfolio
     'TransactionType': TransactionType,
     'RebalanceFrequency': RebalanceFrequency,
+    'BacktestStatus': BacktestStatus,
+    'OptimizationMetric': OptimizationMetric,
+    'OptimizableParameter': OptimizableParameter,
 
-    # Debug
-    'DebugEnum': [('TEST', 'Test Choice')],
+    'Timezone':Timezone,
 }
 
 

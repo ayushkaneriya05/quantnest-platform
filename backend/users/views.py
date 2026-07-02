@@ -1,151 +1,295 @@
-from rest_framework import generics, status, throttling
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
 import logging
-from .serializers import UserProfileSerializer
-from rest_framework.views import APIView
-from rest_framework import status
-import qrcode
-import qrcode.image.svg
+import datetime
 from io import BytesIO
 
-logger = logging.getLogger(__name__)
+
+import qrcode
+import qrcode.image.svg
+from allauth.account.models import EmailAddress
+from django.conf import settings
+from django.contrib.auth import get_user_model, logout
+from django.core import signing
+from django.utils import timezone
+from django_otp import devices_for_user
+from django_otp.plugins.otp_totp.models import TOTPDevice
+from rest_framework import generics, status, throttling
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.token_blacklist.models import (
+    BlacklistedToken,
+    OutstandingToken,
+)
+from rest_framework_simplejwt.tokens import RefreshToken
+from dj_rest_auth.jwt_auth import set_jwt_cookies
 
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
-from dj_rest_auth.registration.views import SocialLoginView
-from django.contrib.auth import get_user_model
+from dj_rest_auth.registration.views import RegisterView, SocialLoginView
+from dj_rest_auth.views import (
+    LoginView,
+    LogoutView,
+    PasswordResetConfirmView,
+    PasswordResetView,
+)
+
+from .models import APIKey, BackupCode, UserSession
+from .serializers import (
+    APIKeySerializer,
+    CustomRegisterSerializer,
+    UserProfileSerializer,
+)
+
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
-from dj_rest_auth.views import LoginView
-from django_otp import devices_for_user
-from django_otp.plugins.otp_totp.models import TOTPDevice
+# ──────────────────────────────────────────────
+# Throttle for 2FA verification (brute-force prevention)
+# ──────────────────────────────────────────────
 
-from dj_rest_auth.registration.views import RegisterView
-from users.serializers import CustomRegisterSerializer
-from .serializers import UserProfileSerializer
 
-import cloudinary.uploader
-from .utils import get_cloudinary_public_id
+class TwoFAVerifyThrottle(throttling.AnonRateThrottle):
+    rate = "5/min"
+
+
+# ──────────────────────────────────────────────
+# Auth Views
+# ──────────────────────────────────────────────
+
 
 class CustomRegisterView(RegisterView):
     serializer_class = CustomRegisterSerializer
 
-class Get2FAStatusView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        return Response({"is_2fa_enabled": request.user.is_2fa_enabled})
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        
+        # In dj-rest-auth, if user is logged in after registration, the user is available on self.user
+        user = getattr(self, "user", None)
+        if user:
+            refresh = response.data.get("refresh")
+            if not refresh and hasattr(response, "cookies"):
+                from django.conf import settings
+                refresh_cookie = response.cookies.get(settings.REST_AUTH.get("JWT_AUTH_REFRESH_COOKIE", "quantnest-refresh"))
+                if refresh_cookie:
+                    refresh = refresh_cookie.value
+            if refresh:
+                _record_session(user, request, refresh)
+                
+        return response
 
 
 class TwoStepLoginView(LoginView):
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        user = self.user
+    """Login view that checks for 2FA and returns a signed token instead of raw user_id."""
+    
+    authentication_classes = []
 
-        # If user has OTP device confirmed
-        otp_devices = [device for device in devices_for_user(user) if device.confirmed]
+    def post(self, request, *args, **kwargs):
+        self.serializer = self.get_serializer(data=request.data)
+        self.serializer.is_valid(raise_exception=True)
+
+        user = self.serializer.validated_data.get("user")
+        self.user = user
+
+        otp_devices = [d for d in devices_for_user(user) if d.confirmed]
 
         if otp_devices:
-            # Logout user and ask for OTP code
-            from django.contrib.auth import logout
-
-            logout(request)
-
-            # Instead of returning token, say 2FA is required
+            # Return a signed token instead of raw user_id — expires in 5 minutes
+            signed_token = signing.dumps(user.id, salt="2fa-login")
             return Response(
                 {
                     "is_2fa_required": True,
                     "detail": "Two-factor authentication is required.",
-                    "user_id": user.id,
+                    "login_token": signed_token,
                 },
                 status=status.HTTP_200_OK,
             )
 
-        # If no 2FA → allow login
+        # No 2FA — proceed with standard login logic from superclass
+        response = super().post(request, *args, **kwargs)
+        
+        # Standard login — record session
+        refresh = response.data.get("refresh")
+        if not refresh and hasattr(response, "cookies"):
+            from django.conf import settings
+            refresh_cookie = response.cookies.get(settings.REST_AUTH.get("JWT_AUTH_REFRESH_COOKIE", "quantnest-refresh"))
+            if refresh_cookie:
+                refresh = refresh_cookie.value
+                
+        if refresh:
+            _record_session(user, request, refresh)
+
         return response
 
 
-from rest_framework.permissions import AllowAny
+class CustomPasswordResetView(PasswordResetView):
+    """Override PasswordResetView to explicitly allow any access and disable CSRF."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+
+class CustomPasswordResetConfirmView(PasswordResetConfirmView):
+    """Override PasswordResetConfirmView to explicitly allow any access."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+
+class CustomLogoutView(LogoutView):
+    """Override LogoutView to permit logout even if current session/token is invalid."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
 
 class TwoFactorVerifyView(APIView):
+    """Verify OTP during login. Uses signed token to prevent user_id enumeration."""
+
     permission_classes = [AllowAny]
+    throttle_classes = [TwoFAVerifyThrottle]
 
     def post(self, request):
-        user_id = request.data.get("user_id")
+        login_token = request.data.get("login_token")
         otp_token = request.data.get("otp_token")
-        print(f"Verifying OTP for user {user_id} with token {otp_token}")
-        from django.contrib.auth import get_user_model
 
-        User = get_user_model()
-    
+        if not login_token or not otp_token:
+            return Response(
+                {"error": "Both login_token and otp_token are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Decode signed token (expires after 5 minutes)
+        try:
+            user_id = signing.loads(login_token, salt="2fa-login", max_age=300)
+        except signing.BadSignature:
+            return Response(
+                {"error": "Invalid or expired login token. Please log in again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
-            return Response({"error": "Invalid user"}, status=400)
-        
-        serialized_user = UserProfileSerializer(user).data
+            return Response({"error": "Invalid user."}, status=status.HTTP_400_BAD_REQUEST)
 
         device = TOTPDevice.objects.filter(user=user, confirmed=True).first()
         if device and device.verify_token(otp_token):
-            # Token is correct → return login tokens
-            from rest_framework_simplejwt.tokens import RefreshToken
-
             refresh = RefreshToken.for_user(user)
-            return Response(
+            _record_session(user, request, str(refresh))
+            serialized_user = UserProfileSerializer(user).data
+            response = Response(
                 {
                     "access": str(refresh.access_token),
                     "refresh": str(refresh),
                     "user": serialized_user,
                 }
             )
+            set_jwt_cookies(response, refresh.access_token, refresh)
+            return response
 
-        return Response({"error": "Invalid OTP token"}, status=400)
+        # Also try backup codes
+        if BackupCode.verify_code(user, otp_token):
+            refresh = RefreshToken.for_user(user)
+            _record_session(user, request, str(refresh))
+            serialized_user = UserProfileSerializer(user).data
+            response = Response(
+                {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                    "user": serialized_user,
+                }
+            )
+            set_jwt_cookies(response, refresh.access_token, refresh)
+            return response
+
+        return Response(
+            {"error": "Invalid OTP token."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+# ──────────────────────────────────────────────
+# Google Social Login
+# ──────────────────────────────────────────────
 
 
 class GoogleLoginView(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
-    callback_url = "http://localhost:5173/google-callback"
+    callback_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173") + "/google-callback"
     client_class = OAuth2Client
 
     def post(self, request, *args, **kwargs):
         try:
-            # Log the incoming request data for debugging
-            print("Incoming request data:", request.data)
-            return super().post(request, *args, **kwargs)
+            response = super().post(request, *args, **kwargs)
+            if response.status_code == 200:
+                user = getattr(self, "user", None)
+                refresh = response.data.get("refresh")
+                if user and refresh:
+                    _record_session(user, request, refresh)
+            return response
         except Exception as e:
-            import traceback
+            logger.error("Google login error: %s", str(e), exc_info=True)
+            return Response(
+                {"detail": "Google authentication failed. Please try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            print("Google login error:", str(e))
-            traceback.print_exc()
+
+# ──────────────────────────────────────────────
+# 2FA Setup / Management
+# ──────────────────────────────────────────────
+
+
+class Get2FAStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        remaining_codes = BackupCode.objects.filter(user=request.user, is_used=False).count()
+        return Response({
+            "is_2fa_enabled": request.user.is_2fa_enabled,
+            "backup_codes_remaining": remaining_codes,
+        })
+
+
+class BackupCodesListView(APIView):
+    """Return all unused backup codes for the user."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        codes = BackupCode.objects.filter(user=request.user, is_used=False)
+        # We can't show the raw codes because they are hashed,
+        # but for the 'setup' phase they are returned by TOTPVerifyView already.
+        # This view is for general management if needed, but since we don't store 
+        # plain text, we can't actually 'list' them later.
+        # However, for consistency with the 404 fix, we define this.
+        return Response({"detail": "Backup codes can only be viewed during setup or regeneration."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class TOTPCreateView(APIView):
-    """View to create and return a new TOTP device for the user."""
+    """Create and return a new TOTP device for the user."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         user = request.user
-        # Get all existing devices for the user
         device = user.totpdevice_set.filter(confirmed=False).first()
 
-        # If no unconfirmed device exists, create a new one.
         if not device:
-            # Before creating a new one, delete any old devices to ensure a clean state.
+            # Delete any old devices for a clean state
             for old_device in devices_for_user(user):
                 old_device.delete()
             device = user.totpdevice_set.create(confirmed=False)
-        print(f"Created new TOTP device for user {user.username} with key {device.key}")
-        # Generate a QR code for the user to scan
+
         qr_code_url = device.config_url
         image_factory = qrcode.image.svg.SvgImage
         qr_code_image = qrcode.make(qr_code_url, image_factory=image_factory)
 
-        # Convert the SVG image to a string to send in the response
         stream = BytesIO()
         qr_code_image.save(stream)
 
@@ -156,7 +300,7 @@ class TOTPCreateView(APIView):
 
 
 class TOTPVerifyView(APIView):
-    """View to verify and confirm the TOTP device."""
+    """Verify and confirm the TOTP device, then generate backup codes."""
 
     permission_classes = [IsAuthenticated]
 
@@ -166,10 +310,10 @@ class TOTPVerifyView(APIView):
 
         if token is None:
             return Response(
-                {"error": "Token is required."}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "Token is required."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get the unconfirmed device
         device = user.totpdevice_set.filter(confirmed=False).first()
         if device is None:
             return Response(
@@ -177,76 +321,200 @@ class TOTPVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Verify the token
-        print(f"Verifying token {token} for device {device.key}")
         if device.verify_token(token):
             device.confirmed = True
             device.save()
             user.is_2fa_enabled = True
-            user.save()
-            print("Token verified and device confirmed.")
+            user.save(update_fields=["is_2fa_enabled"])
+
+            # Generate backup codes
+            BackupCode.objects.filter(user=user).delete()  # Clear old codes
+            code_pairs = BackupCode.generate_codes(count=10)
+            for _, code_hash in code_pairs:
+                BackupCode.objects.create(user=user, code_hash=code_hash)
+
+            raw_codes = [pair[0] for pair in code_pairs]
+
             return Response(
-                {"success": "2FA has been enabled."}, status=status.HTTP_200_OK
+                {
+                    "success": "2FA has been enabled.",
+                    "backup_codes": raw_codes,
+                },
+                status=status.HTTP_200_OK,
             )
 
-        return Response({"error": "Invalid token."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"detail": "Invalid verification code. Please try again."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class TOTPDisableView(APIView):
-    """View to disable 2FA for the user."""
+    """Disable 2FA — requires password verification."""
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
         user = request.user
-        devices = devices_for_user(user)
-        for device in devices:
+        password = request.data.get("password")
+
+        if not password:
+            return Response(
+                {"error": "Password is required to disable 2FA."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user.check_password(password):
+            return Response(
+                {"error": "Incorrect password."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for device in devices_for_user(user):
             device.delete()
-            user.is_2fa_enabled = False
-            user.save()
+
+        user.is_2fa_enabled = False
+        user.save(update_fields=["is_2fa_enabled"])
+
+        # Clean up backup codes
+        BackupCode.objects.filter(user=user).delete()
+
         return Response(
-            {"success": "2FA has been disabled."}, status=status.HTTP_200_OK
+            {"success": "2FA has been disabled."},
+            status=status.HTTP_200_OK,
         )
 
 
+# ──────────────────────────────────────────────
+# 2FA Backup Codes
+# ──────────────────────────────────────────────
+
+
+class BackupCodesRegenerateView(APIView):
+    """Regenerate backup codes (replaces all existing ones)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if not user.is_2fa_enabled:
+            return Response(
+                {"error": "2FA is not enabled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        password = request.data.get("password")
+        if not password or not user.check_password(password):
+            return Response(
+                {"error": "Password verification required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Delete old codes and generate new ones
+        BackupCode.objects.filter(user=user).delete()
+        code_pairs = BackupCode.generate_codes(count=10)
+        for _, code_hash in code_pairs:
+            BackupCode.objects.create(user=user, code_hash=code_hash)
+
+        raw_codes = [pair[0] for pair in code_pairs]
+        return Response({"backup_codes": raw_codes}, status=status.HTTP_200_OK)
+
+
+class BackupCodesCountView(APIView):
+    """Return count of remaining unused backup codes."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        count = BackupCode.objects.filter(user=request.user, is_used=False).count()
+        return Response({"remaining": count})
+
+
+class BackupCodeVerifyView(APIView):
+    """Verify a backup code during 2FA login."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [TwoFAVerifyThrottle]
+
+    def post(self, request):
+        login_token = request.data.get("login_token")
+        backup_code = request.data.get("backup_code")
+
+        if not login_token or not backup_code:
+            return Response(
+                {"error": "Both login_token and backup_code are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user_id = signing.loads(login_token, salt="2fa-login", max_age=300)
+        except signing.BadSignature:
+            return Response(
+                {"error": "Invalid or expired login token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid user."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if BackupCode.verify_code(user, backup_code):
+            refresh = RefreshToken.for_user(user)
+            serialized_user = UserProfileSerializer(user).data
+            response = Response(
+                {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                    "user": serialized_user,
+                }
+            )
+            set_jwt_cookies(response, refresh.access_token, refresh)
+            return response
+
+        return Response(
+            {"error": "Invalid backup code."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+# ──────────────────────────────────────────────
+# User Profile
+# ──────────────────────────────────────────────
+
+
 class UserProfileView(generics.RetrieveUpdateAPIView):
-    """
-    API endpoint for retrieving and updating the logged-in user's profile.
-    Only accessible by authenticated users.
-    """
+    """API endpoint for retrieving and updating the logged-in user's profile."""
 
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated]
     throttle_classes = [throttling.UserRateThrottle]
 
     def get_object(self):
-        # This ensures users can only see and edit their own profile
         return self.request.user
 
     def update(self, request, *args, **kwargs):
         try:
             user = self.get_object()
-            old_avatar_url = user.avatar
-            
-            # Get new avatar URL from request (handle both multipart and JSON)
-            new_avatar_url = request.data.get("avatar") or request.data.get("avatar_url")
+            old_avatar = user.avatar
+
             response = super().update(request, *args, **kwargs)
-            print("old avatar ",old_avatar_url)
-            print("new avatar :", new_avatar_url)
-            # If avatar changed and old avatar exists, delete old image from Cloudinary
-            if new_avatar_url and old_avatar_url and new_avatar_url != old_avatar_url:
+
+            # If a new avatar was uploaded, the serializer handles it.
+            # We can optionally delete the old file to save space.
+            new_avatar = user.avatar
+            if old_avatar and old_avatar != new_avatar:
                 try:
-                    public_id = get_cloudinary_public_id(old_avatar_url)
-                    print(f"Deleting old avatar with public ID: {public_id}")
-                    cloudinary.uploader.destroy(public_id)
+                    old_avatar.delete(save=False)
                 except Exception as e:
-                    logger.warning(f"Failed to delete old avatar from Cloudinary: {e}")
+                    logger.warning("Failed to delete old avatar: %s", e)
+
             return response
         except ValidationError as e:
-            logger.warning(f"Validation error in profile update: {e}")
+            logger.warning("Validation error in profile update: %s", e)
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Unexpected error in profile update: {e}")
+            logger.error("Unexpected error in profile update: %s", e)
             return Response(
                 {"error": "An unexpected error occurred"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -258,16 +526,505 @@ class DeleteAvatarView(APIView):
 
     def post(self, request):
         user = request.user
-        avatar_url = user.avatar
-        print(f"Attempting to delete avatar for user {user.username}: {avatar_url}")
-        if not avatar_url:
-            return Response({"detail": "No avatar to delete."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not user.avatar:
+            return Response(
+                {"detail": "No avatar to delete."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        public_id = get_cloudinary_public_id(avatar_url)
         try:
-            cloudinary.uploader.destroy(public_id)
+            user.avatar.delete(save=False)
             user.avatar = None
-            user.save()
+            user.save(update_fields=["avatar"])
             return Response({"detail": "Avatar deleted."}, status=status.HTTP_200_OK)
         except Exception as e:
+            logger.error("Failed to delete avatar: %s", e)
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ──────────────────────────────────────────────
+# Subscription & API Keys (Stub APIs — Option A)
+# ──────────────────────────────────────────────
+
+
+class SubscriptionStatusView(APIView):
+    """Returns user's subscription status. Stub: always returns Starter plan."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "plan_name": "Starter",
+                "is_pro": False,
+                "expires_at": None,
+                "usage": None,
+            }
+        )
+
+
+class APIKeyListCreateView(APIView):
+    """List and create API keys."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        keys = APIKey.objects.filter(user=request.user)
+        serializer = APIKeySerializer(keys, many=True)
+        return Response({"keys": serializer.data})
+
+    def post(self, request):
+        # Limit to 5 API keys per user
+        if APIKey.objects.filter(user=request.user).count() >= 5:
+            return Response(
+                {"error": "Maximum of 5 API keys allowed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_key, prefix, key_hash = APIKey.generate_key()
+        name = request.data.get("name", "")
+        api_key = APIKey.objects.create(
+            user=request.user, prefix=prefix, key_hash=key_hash, name=name
+        )
+
+        # Return the raw key once (it won't be shown again)
+        return Response(
+            {
+                "id": api_key.id,
+                "key": raw_key,
+                "prefix": prefix,
+                "masked_key": api_key.masked_key,
+                "name": name,
+                "created_at": api_key.created_at.isoformat(),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class APIKeyDeleteView(APIView):
+    """Delete a specific API key."""
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            api_key = APIKey.objects.get(pk=pk, user=request.user)
+            api_key.delete()
+            return Response(
+                {"detail": "API key deleted."},
+                status=status.HTTP_200_OK,
+            )
+        except APIKey.DoesNotExist:
+            return Response(
+                {"error": "API key not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+# ──────────────────────────────────────────────
+# Account Management
+# ──────────────────────────────────────────────
+
+def _graceful_shutdown_user(user):
+    """Stop all active trading operations for a user."""
+    from strategies.models import Strategy
+    from paper_trading.models import PaperOrder, PaperAccount
+    from brokers.models import BrokerCredential
+    from backtesting.models import BacktestRun
+    from live_trading.models import LivePortfolio, LiveStrategyAllocation
+    from live_trading.services import LiveExecutionService
+    from strategy_engine.runtime import StrategyRuntimeState
+    
+    # 1. Stop all live trading sessions (cancel pending orders, optionally close positions)
+    LiveExecutionService.stop_all_sessions(user, close_positions=False)
+    
+    # 2. Pause all ACTIVE strategies
+    Strategy.objects.filter(user=user, status='ACTIVE').update(status='PAUSED')
+    
+    # 3. Cancel all pending paper orders
+    PaperOrder.objects.filter(
+        account__user=user, 
+        status='PENDING'
+    ).update(status='CANCELLED')
+    
+    # 4. Deactivate paper accounts
+    PaperAccount.objects.filter(user=user, is_active=True).update(is_active=False)
+    
+    # 5. Deactivate broker credentials
+    BrokerCredential.objects.filter(user=user, is_active=True).update(is_active=False)
+    
+    # 6. Stop running backtests
+    BacktestRun.objects.filter(
+        user=user, status__in=['PENDING', 'RUNNING']
+    ).update(status='CANCELLED')
+    
+    # 7. Deactivate live portfolio & strategy allocations
+    LivePortfolio.objects.filter(user=user, is_active=True).update(is_active=False)
+    LiveStrategyAllocation.objects.filter(user=user, is_active=True).update(is_active=False)
+    
+    # 8. Clean up Redis runtime state
+    StrategyRuntimeState.clear_all_for_user(user.id)
+
+
+class AccountPreflightView(APIView):
+    """Returns a summary of active resources that will be affected."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        from strategies.models import Strategy
+        from live_trading.models import TradingSession, LivePosition, LiveOrder
+        from paper_trading.models import PaperAccount, PaperOrder, PaperPosition
+        from brokers.models import BrokerCredential
+        from backtesting.models import BacktestRun
+        
+        return Response({
+            "active_strategies": Strategy.objects.filter(user=user, status='ACTIVE').count(),
+            "running_live_sessions": TradingSession.objects.filter(user=user, status='RUNNING').count(),
+            "open_live_positions": LivePosition.objects.filter(user=user).count(),
+            "pending_live_orders": LiveOrder.objects.filter(user=user, status__in=['PENDING', 'PLACED', 'MODIFIED']).count(),
+            "active_paper_accounts": PaperAccount.objects.filter(user=user, is_active=True).count(),
+            "pending_paper_orders": PaperOrder.objects.filter(account__user=user, status='PENDING').count(),
+            "open_paper_positions": PaperPosition.objects.filter(account__user=user).count(),
+            "active_broker_connections": BrokerCredential.objects.filter(user=user, is_active=True).count(),
+            "running_backtests": BacktestRun.objects.filter(user=user, status__in=['PENDING', 'RUNNING']).count(),
+        })
+
+
+class AccountDeactivateView(APIView):
+    """Deactivate user account (set is_active=False)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        _graceful_shutdown_user(user)
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+
+        # Blacklist all tokens
+        _blacklist_all_tokens(user)
+
+        return Response(
+            {"detail": "Account deactivated successfully."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class AccountDeleteView(APIView):
+    """Permanently delete user account."""
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        user = request.user
+
+        from live_trading.models import LivePosition
+        # Block deletion if user has open live positions
+        open_live = LivePosition.objects.filter(user=user).exists()
+        if open_live:
+            return Response(
+                {"error": "You have open live positions. Please close all live positions before deleting your account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        _graceful_shutdown_user(user)
+
+        # Blacklist all tokens first
+        _blacklist_all_tokens(user)
+
+        # Soft delete user (keep data but deactivate and anonymize)
+        user.is_active = False
+        user.email = f"deleted_{user.id}@example.com"
+        user.username = f"deleted_user_{user.id}"
+        user.first_name = ""
+        user.last_name = ""
+        user.bio = ""
+        
+        # If there's an avatar, we should probably delete the file to save space and remove PII
+        if user.avatar:
+            user.avatar.delete(save=False)
+            
+        user.save(update_fields=["is_active", "email", "username", "first_name", "last_name", "bio", "avatar"])
+
+        # Also delete personal specific related objects like BackupCodes and UserSessions
+        from users.models import BackupCode, UserSession
+        BackupCode.objects.filter(user=user).delete()
+        UserSession.objects.filter(user=user).delete()
+        
+        # Anonymize community content
+        from community.models import Post, Comment, StrategyRoom
+        Post.objects.filter(author=user).update(is_anonymous=True) if hasattr(Post, 'is_anonymous') else None
+        # We leave the author pointing to the soft-deleted anonymized user, so that's actually enough
+        # The user's name is "deleted_user_X" so their posts will show up as from "deleted_user_X"
+
+        response = Response(
+            {"detail": "Account soft deleted and anonymized."},
+            status=status.HTTP_200_OK,
+        )
+        # Clear the HTTP-only JWT cookies to prevent phantom session errors
+        from dj_rest_auth.jwt_auth import unset_jwt_cookies
+        from django.conf import settings
+        unset_jwt_cookies(response)
+        return response
+
+
+# ──────────────────────────────────────────────
+# Session Management
+# ──────────────────────────────────────────────
+
+
+class ActiveSessionsView(APIView):
+    """List user's active sessions (linked to JWT tokens)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # OutstandingToken is the source of truth for all refresh tokens
+        outstanding = OutstandingToken.objects.filter(
+            user=request.user, expires_at__gt=timezone.now()
+        )
+        
+        # Get already blacklisted tokens to skip them
+        blacklisted_jtis = set(
+            BlacklistedToken.objects.filter(token__user=request.user).values_list("token__jti", flat=True)
+        )
+
+        # Get current request metadata
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        current_ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META.get("REMOTE_ADDR")
+        current_ua = request.META.get("HTTP_USER_AGENT", "")[:500]
+
+        sessions = []
+
+        for token in outstanding:
+            # Skip if blacklisted
+            if token.jti in blacklisted_jtis:
+                continue
+
+            # Try to find enriched metadata in UserSession
+            session_metadata = UserSession.objects.filter(jti=token.jti).first()
+
+            is_current = False
+            if session_metadata:
+                is_current = (
+                    session_metadata.ip_address == current_ip and
+                    session_metadata.user_agent == current_ua
+                )
+
+            if session_metadata:
+                sessions.append(
+                    {
+                        "id": session_metadata.id,
+                        "created_at": session_metadata.created_at.isoformat(),
+                        "last_activity": session_metadata.last_activity.isoformat(),
+                        "is_current": is_current,
+                        "ip_address": session_metadata.ip_address or "N/A",
+                        "user_agent": session_metadata.user_agent or "N/A",
+                        "browser": session_metadata.browser,
+                        "os": session_metadata.os,
+                        "device": session_metadata.device_type,
+                    }
+                )
+            else:
+                # Basic session info for tokens without metadata (legacy or background)
+                sessions.append(
+                    {
+                        "id": token.id,
+                        "created_at": token.created_at.isoformat(),
+                        "last_activity": token.created_at.isoformat(), # Fallback
+                        "is_current": is_current,
+                        "ip_address": "Legacy Session",
+                        "user_agent": "N/A",
+                        "browser": "Current Platform",
+                        "os": "Active Device",
+                        "device": "Desktop",
+                    }
+                )
+
+        # Sort sessions: current first, then by last activity
+        sessions.sort(key=lambda x: (not x["is_current"], x["last_activity"]), reverse=True)
+        
+        return Response({"sessions": sessions})
+
+
+class RevokeSessionView(APIView):
+    """Revoke a specific session by blacklisting its token."""
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            # We try to find the session in UserSession first
+            session = UserSession.objects.filter(pk=pk, user=request.user).first()
+            if session:
+                token = OutstandingToken.objects.filter(jti=session.jti).first()
+                if token:
+                    BlacklistedToken.objects.get_or_create(token=token)
+                session.delete()
+            else:
+                # If not in UserSession, it might be a legacy token from OutstandingToken
+                token = OutstandingToken.objects.get(pk=pk, user=request.user)
+                BlacklistedToken.objects.get_or_create(token=token)
+            
+            return Response(
+                {"detail": "Session revoked."},
+                status=status.HTTP_200_OK,
+            )
+        except OutstandingToken.DoesNotExist:
+            return Response(
+                {"error": "Session not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+             return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
+class LogoutAllView(APIView):
+    """Blacklist all outstanding tokens for the user — logout everywhere."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        _blacklist_all_tokens(request.user)
+        return Response(
+            {"detail": "Logged out from all devices."},
+            status=status.HTTP_200_OK,
+        )
+
+
+# ──────────────────────────────────────────────
+# Email Verification Resend
+# ──────────────────────────────────────────────
+
+
+class ResendVerificationEmailView(APIView):
+    """Resend the email verification link."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        if not email:
+            return Response(
+                {"error": "Email is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            email_address = EmailAddress.objects.get(email=email)
+            if email_address.verified:
+                return Response(
+                    {"detail": "Email is already verified."},
+                    status=status.HTTP_200_OK,
+                )
+            email_address.send_confirmation(request._request)
+            return Response(
+                {"detail": "Verification email sent."},
+                status=status.HTTP_200_OK,
+            )
+        except EmailAddress.DoesNotExist:
+            # Don't reveal whether the email exists
+            return Response(
+                {"detail": "If this email is registered, a verification link has been sent."},
+                status=status.HTTP_200_OK,
+            )
+
+
+# ──────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────
+
+
+def _record_session(user, request, refresh_token):
+    """Create a UserSession record from a refresh token and request metadata."""
+    try:
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        token = RefreshToken(refresh_token)
+        jti = token.payload.get("jti")
+        exp = token.payload.get("exp")
+        expires_at = datetime.datetime.fromtimestamp(exp, tz=datetime.timezone.utc)
+
+        # Basic User Agent parsing
+        ua_string = request.META.get("HTTP_USER_AGENT", "")
+        browser = "Unknown Browser"
+        os = "Unknown OS"
+        device = "Desktop"
+
+        if "Mobile" in ua_string:
+            device = "Mobile"
+        if "Tablet" in ua_string:
+            device = "Tablet"
+
+        if "Edg" in ua_string or "Edge" in ua_string:
+            browser = "Edge"
+        elif "OPR" in ua_string or "Opera" in ua_string:
+            browser = "Opera"
+        elif "Chrome" in ua_string:
+            browser = "Chrome"
+        elif "Firefox" in ua_string:
+            browser = "Firefox"
+        elif "Safari" in ua_string:
+            browser = "Safari"
+
+        if "Windows" in ua_string:
+            os = "Windows"
+        elif "Macintosh" in ua_string:
+            os = "macOS"
+        elif "Linux" in ua_string:
+            os = "Linux"
+        elif "Android" in ua_string:
+            os = "Android"
+        elif "iPhone" in ua_string or "iPad" in ua_string:
+            os = "iOS"
+
+        # Get IP address
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(",")[0]
+        else:
+            ip = request.META.get("REMOTE_ADDR")
+
+        # Find and cleanup old sessions for this exact device/IP
+        old_sessions = UserSession.objects.filter(
+            user=user,
+            ip_address=ip,
+            user_agent=ua_string[:500]
+        )
+        
+        if old_sessions.exists():
+            from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+            for old_session in old_sessions:
+                old_token = OutstandingToken.objects.filter(jti=old_session.jti).first()
+                if old_token:
+                    BlacklistedToken.objects.get_or_create(token=old_token)
+            old_sessions.delete()
+
+        UserSession.objects.get_or_create(
+            jti=jti,
+            defaults={
+                "user": user,
+                "ip_address": ip,
+                "user_agent": ua_string[:500],
+                "browser": browser,
+                "os": os,
+                "device_type": device,
+                "expires_at": expires_at,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error recording session: {e}")
+
+
+def _blacklist_all_tokens(user):
+    """Blacklist all outstanding refresh tokens for a user and clear sessions."""
+    tokens = OutstandingToken.objects.filter(user=user)
+    for token in tokens:
+        BlacklistedToken.objects.get_or_create(token=token)
+    # Also delete all our custom session records
+    UserSession.objects.filter(user=user).delete()

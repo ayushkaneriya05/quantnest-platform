@@ -61,7 +61,7 @@ export function Notification({
   return (
     <div 
       className={`
-        fixed top-4 right-4 z-50 w-full max-w-sm p-4 rounded-lg border shadow-lg backdrop-blur-sm
+        relative z-[9999] w-full max-w-sm p-4 rounded-lg border shadow-lg backdrop-blur-sm
         transform transition-all duration-300 ease-out
         ${typeConfig.className}
         ${isVisible && !isLeaving ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}
@@ -70,17 +70,15 @@ export function Notification({
       <div className="flex items-start gap-3">
         <Icon className="h-5 w-5 mt-0.5 flex-shrink-0" />
         
-        <div className="flex-1 min-w-0">
-          {title && (
-            <h4 className="font-medium text-sm mb-1">
-              {title}
+          <div className="flex-1 min-w-0">
+            <h4 className="font-black text-xs uppercase tracking-widest mb-0.5">
+              {title || (type === 'error' ? 'Execution Error' : 'Notification')}
             </h4>
-          )}
-          {message && (
-            <p className="text-sm opacity-90">
-              {message}
-            </p>
-          )}
+            {message && (
+              <p className="text-[11px] font-medium leading-tight opacity-90">
+                {typeof message === 'object' ? JSON.stringify(message) : message}
+              </p>
+            )}
           
           {actions.length > 0 && (
             <div className="flex gap-2 mt-3">
@@ -114,10 +112,11 @@ export function Notification({
 
 // Notification container
 export function NotificationContainer({ notifications, onClose }) {
-  if (notifications.length === 0) return null
+  console.info("NotificationContainer Rendering:", notifications && notifications.length, "items");
+  if (!notifications || notifications.length === 0) return null;
 
   return createPortal(
-    <div className="fixed top-0 right-0 z-50 p-4 space-y-3 pointer-events-none">
+    <div className="fixed top-4 right-4 z-[9999] p-0 space-y-3 pointer-events-none flex flex-col items-end">
       {notifications.map((notification) => (
         <div key={notification.id} className="pointer-events-auto">
           <Notification

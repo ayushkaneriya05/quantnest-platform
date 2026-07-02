@@ -1,15 +1,246 @@
-"""
-Views for the paper_trading app.
-"""
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.utils import timezone
-from .models import PaperAccount, PaperPosition, PaperOrder, PaperTrade
+
+from strategies.models import Strategy
+from .models import (
+    PaperAccount, PaperPosition, PaperOrder, PaperTrade,
+    Portfolio, CapitalAllocation, FundTransaction, ExposureSnapshot, DailyPerformance
+)
 from .serializers import (
     PaperAccountSerializer, PaperPositionSerializer,
-    PaperOrderSerializer, PaperTradeSerializer, PlaceOrderSerializer
+    PaperOrderSerializer, PaperTradeSerializer,
+    PortfolioSerializer, CapitalAllocationSerializer,
+    FundTransactionSerializer, ExposureSnapshotSerializer,
+    DailyPerformanceSerializer
 )
+from .services import PaperExecutionService, PortfolioService
+
+
+class PortfolioViewSet(viewsets.ModelViewSet):
+    """ViewSet for user portfolio."""
+    serializer_class = PortfolioSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return Portfolio.objects.filter(user=self.request.user)
+    
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        """Get current user's portfolio (creates if not exists)."""
+        portfolio, created = Portfolio.objects.get_or_create(
+            user=request.user,
+            defaults={'name': 'Primary Portfolio'}
+        )
+        serializer = self.get_serializer(portfolio)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def create_paper_account(self, request):
+        """Create or return paper account for strategy allocation."""
+        strategy_id = request.data.get('strategy_id')
+        if not strategy_id:
+            return Response({'error': 'strategy_id required'}, status=400)
+
+        try:
+            strategy = Strategy.objects.get(id=strategy_id, user=request.user)
+        except Strategy.DoesNotExist:
+            return Response({'error': 'Strategy not found'}, status=404)
+
+        portfolio = PortfolioService.get_or_create_portfolio(request.user)
+        try:
+            paper_account = PortfolioService.ensure_paper_account_for_strategy(portfolio, strategy)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+
+        serializer = PaperAccountSerializer(paper_account)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def deposit(self, request, pk=None):
+        """Deposit funds into portfolio."""
+        amount = request.data.get('amount', 0)
+        if float(amount or 0) <= 0:
+            return Response({'error': 'Amount must be positive'}, status=400)
+        transaction = PortfolioService.deposit(request.user, amount, request.data.get('notes', ''))
+        return Response({'success': True, 'new_balance': transaction.balance_after})
+    
+    @action(detail=True, methods=['post'])
+    def withdraw(self, request, pk=None):
+        """Withdraw funds from portfolio."""
+        amount = request.data.get('amount', 0)
+        if float(amount or 0) <= 0:
+            return Response({'error': 'Amount must be positive'}, status=400)
+        try:
+            transaction = PortfolioService.withdraw(request.user, amount, request.data.get('notes', ''))
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=400)
+        return Response({'success': True, 'new_balance': transaction.balance_after})
+
+    @action(detail=False, methods=['get'])
+    def performance(self, request):
+        portfolio = PortfolioService.get_or_create_portfolio(request.user)
+        data = DailyPerformance.objects.filter(portfolio=portfolio).order_by('date')
+        return Response(DailyPerformanceSerializer(data, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def exposure_history(self, request):
+        portfolio = PortfolioService.get_or_create_portfolio(request.user)
+        data = ExposureSnapshot.objects.filter(portfolio=portfolio).order_by('-snapshot_time')[:200]
+        return Response(ExposureSnapshotSerializer(data, many=True).data)
+
+
+class CapitalAllocationViewSet(viewsets.ModelViewSet):
+    """ViewSet for capital allocations."""
+    serializer_class = CapitalAllocationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return CapitalAllocation.objects.filter(portfolio__user=self.request.user)
+    
+    def create(self, request, *args, **kwargs):
+        """Create allocation using service logic."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        portfolio = serializer.validated_data['portfolio']
+        strategy = serializer.validated_data['strategy']
+        alloc_type = serializer.validated_data['allocation_type']
+        
+        val = serializer.validated_data['allocated_amount'] if alloc_type == 'FIXED' else serializer.validated_data['allocated_percentage']
+        
+        try:
+            allocation = PortfolioService.allocate_to_strategy(portfolio, strategy, val, alloc_type)
+            return Response(self.get_serializer(allocation).data, status=status.HTTP_201_CREATED)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, *args, **kwargs):
+        """Update allocation using service logic."""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        portfolio = instance.portfolio
+        strategy = instance.strategy
+        alloc_type = serializer.validated_data.get('allocation_type', instance.allocation_type)
+        
+        if alloc_type == 'FIXED':
+            val = serializer.validated_data.get('allocated_amount', instance.allocated_amount)
+        else:
+            val = serializer.validated_data.get('allocated_percentage', instance.allocated_percentage)
+            
+        try:
+            allocation = PortfolioService.allocate_to_strategy(portfolio, strategy, val, alloc_type)
+            return Response(self.get_serializer(allocation).data)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    def destroy(self, request, pk=None):
+        """Delete allocation with paper account options."""
+        allocation = self.get_object()
+        paper_account = getattr(allocation, 'paper_account', None)
+        
+        if paper_account:
+            can_delete_account, delete_reason = PortfolioService.can_delete_paper_account(paper_account)
+            return Response({
+                'status': 'has_paper_account',
+                'paper_account': {
+                    'id': paper_account.id,
+                    'name': paper_account.name,
+                    'current_balance': str(paper_account.current_balance),
+                    'total_pnl': str(paper_account.total_pnl),
+                    'unrealized_pnl': str(paper_account.unrealized_pnl),
+                },
+                'can_delete_paper_account': can_delete_account,
+                'delete_reason': delete_reason,
+                'message': 'Allocation has an associated paper account. Confirm deletion options.',
+            }, status=status.HTTP_200_OK)
+        
+        PortfolioService.deallocate_from_strategy(allocation)
+        return Response({'success': True, 'message': 'Allocation deleted'}, status=200)
+    
+    @action(detail=True, methods=['post'])
+    def confirm_delete(self, request, pk=None):
+        """Confirm allocation deletion with optional paper account deletion."""
+        allocation = self.get_object()
+        paper_account = getattr(allocation, 'paper_account', None)
+        delete_paper_account = request.data.get('delete_paper_account', False)
+        
+        if paper_account and delete_paper_account:
+            can_delete, reason = PortfolioService.can_delete_paper_account(paper_account)
+            if not can_delete:
+                return Response({'error': reason}, status=status.HTTP_400_BAD_REQUEST)
+            paper_account.delete()
+        
+        PortfolioService.deallocate_from_strategy(allocation)
+        return Response({'success': True, 'message': 'Allocation deleted'}, status=200)
+    
+    @action(detail=False, methods=['get'])
+    def by_strategy(self, request):
+        """Get allocation for a specific strategy."""
+        strategy_id = request.query_params.get('strategy_id')
+        if not strategy_id:
+            return Response({'error': 'strategy_id required'}, status=400)
+        
+        try:
+            allocation = self.get_queryset().get(strategy_id=strategy_id)
+            return Response(self.get_serializer(allocation).data)
+        except CapitalAllocation.DoesNotExist:
+            return Response({}, status=404)
+
+
+class FundTransactionViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for fund transactions (read-only)."""
+    serializer_class = FundTransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return FundTransaction.objects.filter(portfolio__user=self.request.user)
+
+
+class ExposureSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for exposure snapshots."""
+    serializer_class = ExposureSnapshotSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return ExposureSnapshot.objects.filter(portfolio__user=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def latest(self, request):
+        """Get latest exposure snapshot."""
+        snapshot = self.get_queryset().first()
+        if snapshot:
+            return Response(self.get_serializer(snapshot).data)
+        return Response({})
+
+
+class DailyPerformanceViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for daily performance records."""
+    serializer_class = DailyPerformanceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return DailyPerformance.objects.filter(portfolio__user=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def range(self, request):
+        """Get performance for a date range."""
+        start_date = request.query_params.get('start')
+        end_date = request.query_params.get('end')
+        
+        queryset = self.get_queryset()
+        if start_date:
+            queryset = queryset.filter(date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(date__lte=end_date)
+        
+        return Response(self.get_serializer(queryset, many=True).data)
 
 
 class PaperAccountViewSet(viewsets.ModelViewSet):
@@ -21,7 +252,23 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
         return PaperAccount.objects.filter(user=self.request.user)
     
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save(user=self.request.user, is_active=True)
+
+    def perform_update(self, serializer):
+        serializer.save()
+    
+    def destroy(self, request, pk=None):
+        """Delete paper account with validation."""
+        account = self.get_object()
+        
+        # Check if can be deleted
+        can_delete, message = PortfolioService.can_delete_paper_account(account)
+        if not can_delete:
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Delete the account
+        account.delete()
+        return Response({'success': True, 'message': 'Paper account deleted'}, status=200)
     
     @action(detail=False, methods=['get'])
     def active(self, request):
@@ -30,16 +277,39 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
         if account:
             return Response(self.get_serializer(account).data)
         return Response({})
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        account = self.get_object()
+        account.is_active = True
+        account.save(update_fields=["is_active", "updated_at"])
+        return Response(self.get_serializer(account).data)
+
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None):
+        account = self.get_object()
+        account.is_active = False
+        account.save(update_fields=["is_active", "updated_at"])
+        return Response(self.get_serializer(account).data)
     
     @action(detail=True, methods=['post'])
     def reset(self, request, pk=None):
         """Reset account to initial balance."""
         account = self.get_object()
         account.reset()
-        # Also close all positions and cancel pending orders
+        # Also close all positions (strategy-managed positions)
         account.positions.all().delete()
-        account.orders.filter(status__in=['PENDING', 'PLACED']).update(status='CANCELLED')
         return Response({'success': True, 'message': 'Account reset'})
+    
+    @action(detail=True, methods=['post'])
+    def validate_delete(self, request, pk=None):
+        """Check if account can be deleted (used for UI validation)."""
+        account = self.get_object()
+        can_delete, message = PortfolioService.can_delete_paper_account(account)
+        return Response({
+            'can_delete': can_delete,
+            'reason': message,
+        })
     
     @action(detail=True, methods=['get'])
     def summary(self, request, pk=None):
@@ -57,12 +327,11 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
             'losing_trades': losing,
             'win_rate': (winning / trades.count() * 100) if trades.count() > 0 else 0,
             'open_positions': account.positions.count(),
-            'pending_orders': account.orders.filter(status__in=['PENDING', 'PLACED']).count(),
         })
 
 
 class PaperPositionViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for paper positions (read-only)."""
+    """ViewSet for paper positions (read-only - strategy managed only)."""
     serializer_class = PaperPositionSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -70,51 +339,10 @@ class PaperPositionViewSet(viewsets.ReadOnlyModelViewSet):
         return PaperPosition.objects.filter(
             account__user=self.request.user
         ).select_related('instrument', 'strategy')
-    
-    @action(detail=True, methods=['post'])
-    def close(self, request, pk=None):
-        """Close a position at current market price."""
-        position = self.get_object()
-        # In real implementation, this would create an exit order
-        # For now, we simulate immediate close
-        
-        exit_price = position.current_price
-        pnl = (exit_price - position.avg_price) * position.quantity
-        if position.side == 'SELL':
-            pnl = -pnl
-        
-        # Create trade record
-        PaperTrade.objects.create(
-            account=position.account,
-            strategy=position.strategy,
-            instrument=position.instrument,
-            side=position.side,
-            quantity=position.quantity,
-            entry_price=position.avg_price,
-            entry_time=position.opened_at,
-            exit_price=exit_price,
-            exit_time=timezone.now(),
-            exit_reason='MANUAL_CLOSE',
-            gross_pnl=pnl,
-            net_pnl=pnl,
-            pnl_pct=(pnl / (position.avg_price * position.quantity)) * 100,
-        )
-        
-        # Update account
-        position.account.realized_pnl += pnl
-        position.account.current_balance += pnl
-        position.account.margin_used -= position.margin_blocked
-        position.account.margin_available += position.margin_blocked
-        position.account.save()
-        
-        # Delete position
-        position.delete()
-        
-        return Response({'success': True, 'pnl': float(pnl)})
 
 
-class PaperOrderViewSet(viewsets.ModelViewSet):
-    """ViewSet for paper orders."""
+class PaperOrderViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for paper orders (read-only - strategy execution only)."""
     serializer_class = PaperOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -122,58 +350,6 @@ class PaperOrderViewSet(viewsets.ModelViewSet):
         return PaperOrder.objects.filter(
             account__user=self.request.user
         ).select_related('instrument', 'strategy')
-    
-    @action(detail=False, methods=['post'])
-    def place(self, request):
-        """Place a new order."""
-        serializer = PlaceOrderSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        
-        # Verify account ownership
-        try:
-            account = PaperAccount.objects.get(id=data['account'], user=request.user)
-        except PaperAccount.DoesNotExist:
-            return Response({'error': 'Account not found'}, status=404)
-        
-        # Create order
-        order = PaperOrder.objects.create(
-            account=account,
-            instrument_id=data['instrument'],
-            strategy_id=data.get('strategy'),
-            order_type=data['order_type'],
-            product_type=data.get('product_type', 'MIS'),
-            side=data['side'],
-            quantity=data['quantity'],
-            price=data.get('price'),
-            trigger_price=data.get('trigger_price'),
-            order_tag=data.get('order_tag', ''),
-            status='PLACED',
-        )
-        
-        # For market orders, execute immediately (simulated)
-        if data['order_type'] == 'MARKET':
-            order.status = 'FILLED'
-            order.filled_quantity = order.quantity
-            order.avg_fill_price = order.price or 0  # Would get from market data
-            order.executed_at = timezone.now()
-            order.save()
-            
-            # Create or update position
-            # This is simplified - real implementation would be more complex
-        
-        return Response(PaperOrderSerializer(order).data, status=201)
-    
-    @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
-        """Cancel a pending order."""
-        order = self.get_object()
-        if order.status not in ['PENDING', 'PLACED']:
-            return Response({'error': 'Order cannot be cancelled'}, status=400)
-        
-        order.status = 'CANCELLED'
-        order.save()
-        return Response({'success': True})
 
 
 class PaperTradeViewSet(viewsets.ReadOnlyModelViewSet):

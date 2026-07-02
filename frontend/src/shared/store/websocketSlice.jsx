@@ -81,7 +81,7 @@ const websocketSlice = createSlice({
     },
     updateTickData: (state, action) => {
       const { symbol, data } = action.payload;
-      state.tickData[symbol] = { ...data, timestamp: Date.now() };
+      state.tickData[symbol] = { ...data, received_at: Date.now() };
     },
     addOrderUpdate: (state, action) => {
       state.orderUpdates = [action.payload, ...state.orderUpdates.slice(0, 99)];

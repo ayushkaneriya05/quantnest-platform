@@ -2,7 +2,7 @@
 Serializers for the instruments app.
 """
 from rest_framework import serializers
-from .models import Instrument, WatchlistInstrument
+from .models import Instrument, WatchlistInstrument, ExecutionRoute
 
 
 class InstrumentSerializer(serializers.ModelSerializer):
@@ -23,9 +23,25 @@ class InstrumentSerializer(serializers.ModelSerializer):
         ]
 
 
+class ExecutionRouteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExecutionRoute
+        fields = [
+            'id', 'watchlist_instrument', 'route_type', 'target_instrument',
+            'target_underlying_instrument', 'expiry_preference', 'avoid_same_day_expiry',
+            'buy_signal_option_type', 'sell_signal_option_type', 'strike_selection',
+            'override_sizing', 'sizing_method', 'fixed_quantity', 
+            'capital_percentage', 'risk_per_trade_amount', 'risk_per_trade_percentage',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
 class WatchlistInstrumentSerializer(serializers.ModelSerializer):
     instrument_details = InstrumentSerializer(source='instrument', read_only=True)
-    
+    execution_routes = ExecutionRouteSerializer(many=True, read_only=True)
+
     class Meta:
         model = WatchlistInstrument
-        fields = ['id', 'strategy', 'instrument', 'instrument_details', 'created_at']
+        fields = ['id', 'strategy', 'instrument', 'instrument_details', 'execution_routes', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']

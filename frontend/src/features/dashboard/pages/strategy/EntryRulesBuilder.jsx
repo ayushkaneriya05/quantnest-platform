@@ -3,27 +3,21 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { Switch } from "@/shared/components/ui/switch";
-import { 
-  Plus, Trash2, ChevronLeft, Save, GripVertical,
-  TrendingUp, Activity, BarChart2, Zap, Target,
-  Loader2, Sparkles
-} from 'lucide-react';
+import { Plus, Trash2, GripVertical, Activity, Target, Loader2} from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';
 import { ruleGroupApi, ruleApi } from '@/shared/services/rulesApi';
 import { strategyApi, entryConfigApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
+import { customConfirm } from '@/shared/components/ui/custom-dialog';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Changed import
 import { useEnums } from '@/shared/context/EnumsContext';
-
-
 
 
 const PARAM_CONFIG = {
@@ -102,6 +96,7 @@ export default function EntryRulesBuilder() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [interGroupOperator, setInterGroupOperator] = useState('OR');
+  const [entrySide, setEntrySide] = useState('BUY');
   
   const [pendingEdits, setPendingEdits] = useState({
     rules: {}, // ruleId -> {updates}
@@ -147,6 +142,9 @@ export default function EntryRulesBuilder() {
         if (strategyData.entry_order_config.entry_group_operator) {
           setInterGroupOperator(strategyData.entry_order_config.entry_group_operator);
         }
+        if (strategyData.entry_order_config.entry_side) {
+          setEntrySide(strategyData.entry_order_config.entry_side);
+        }
       } else {
         // Missing config? Create it now.
         try {
@@ -178,6 +176,14 @@ export default function EntryRulesBuilder() {
     }));
   };
 
+  const handleUpdateEntrySide = (v) => {
+    setEntrySide(v);
+    setPendingEdits(prev => ({
+      ...prev,
+      entryConfig: { ...(prev.entryConfig || {}), entry_side: v }
+    }));
+  };
+
   const handleAddGroup = async () => {
     try {
       const newGroup = await ruleGroupApi.create({
@@ -195,7 +201,7 @@ export default function EntryRulesBuilder() {
   };
   
   const handleDeleteGroup = async (groupId) => {
-    if (!confirm('Delete this rule group and all its rules?')) return;
+    if (!(await customConfirm('Delete this rule group and all its rules?'))) return;
     try {
       await ruleGroupApi.delete(groupId);
       setRuleGroups(ruleGroups.filter(g => g.id !== groupId));
@@ -365,8 +371,8 @@ export default function EntryRulesBuilder() {
     }
   };
 
-  const handleCancelAll = () => {
-    if (hasPendingChanges && confirm('Discard all unsaved changes?')) {
+  const handleCancelAll = async () => {
+    if (hasPendingChanges && (await customConfirm('Discard all unsaved changes?'))) {
       fetchData();
     }
   };
@@ -408,15 +414,48 @@ export default function EntryRulesBuilder() {
                 <p className="text-xs text-gray-500">Define entry conditions for the strategy</p>
               </div>
             </div>
-            <Button 
-              onClick={handleAddGroup} 
-              variant="outline"
-              className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-              size="sm"
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Add Group
-            </Button>
+            <div className="flex items-center gap-3">
+              <Select
+                value={entrySide}
+                onValueChange={handleUpdateEntrySide}
+              >
+                <SelectTrigger className={`w-[110px] border text-sm h-9 font-semibold ${
+                  entrySide === 'BUY'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                }`}>
+                  <span className="flex items-center">
+                    <span className={`inline-block h-2 w-2 rounded-full shrink-0 mr-2 ${
+                      entrySide === 'BUY' ? 'bg-emerald-400' : 'bg-rose-400'
+                    }`} />
+                    {entrySide === 'BUY' ? 'Long' : 'Short'}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BUY">
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+                      Long (Buy)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="SELL">
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
+                      Short (Sell)
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Button 
+                onClick={handleAddGroup} 
+                variant="outline"
+                className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                size="sm"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Add Group
+              </Button>
+            </div>
           </div>
           {ruleGroups.map((group, groupIndex) => (
             <div key={group.id}>
@@ -439,8 +478,10 @@ export default function EntryRulesBuilder() {
                 </div>
               )}
 
-              <Card className="bg-gray-900/40 border-gray-800/80">
-                <CardHeader className="pb-3">
+              <Card className="bg-[#0a0e17] border-t border-t-emerald-500/20 border-gray-800/80 shadow-2xl relative overflow-hidden">
+                {/* Subtle gradient blob inside card */}
+                <div className="absolute top-0 left-1/4 w-1/2 h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
+                <CardHeader className="pb-3 z-10 relative">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="p-1.5 rounded-md bg-emerald-500/10">
@@ -457,7 +498,7 @@ export default function EntryRulesBuilder() {
                         value={group.logical_operator} 
                         onValueChange={(v) => handleUpdateGroup(group.id, 'logical_operator', v)}
                       >
-                        <SelectTrigger className="w-[90px] bg-gray-800/60 border-gray-700 text-sm h-8">
+                        <SelectTrigger className="w-[90px] bg-white/5 border-none hover:bg-white/10 text-sm h-8 shadow-none focus:ring-0">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -470,7 +511,7 @@ export default function EntryRulesBuilder() {
                         onClick={() => handleAddRule(group.id)} 
                         variant="outline" 
                         size="sm" 
-                        className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 h-8"
+                        className="bg-emerald-500/10 border-none text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 h-8"
                       >
                         <Plus className="h-3.5 w-3.5 mr-1.5" />
                         Add Rule
@@ -491,7 +532,7 @@ export default function EntryRulesBuilder() {
                 {/* Advanced group settings */}
 
 
-                <CardContent className="space-y-3">
+                <CardContent className="space-y-3 z-10 relative">
                   {/* Rules */}
                   {(group.rules || []).length === 0 ? (
                     <div className="text-center py-6 border border-dashed border-gray-700/60 rounded-lg">
@@ -501,262 +542,310 @@ export default function EntryRulesBuilder() {
                     <div className="space-y-4">
                       <div className="space-y-2">
                         {(group.rules || []).map((rule, ruleIndex) => (
-                          <div key={rule.id}>
-                            <div className="flex items-center gap-2.5 p-3 bg-gray-800/40 rounded-lg border border-gray-700/40 hover:border-gray-700 transition-colors">
-                              <span className="text-xs font-mono text-gray-500 w-5 text-center shrink-0">
-                                {ruleIndex + 1}
-                              </span>
-                              
-                              {/* Category Select (Indicator, Price Action, Volume) */}
-                               <Select 
-                                 value={rule.category || 'INDICATOR'} 
-                                 onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'category', v)}
-                               >
-                                 <SelectTrigger className="w-[110px] bg-gray-800/60 border-gray-700 text-xs h-8">
-                                   <SelectValue />
-                                 </SelectTrigger>
-                                 <SelectContent>
-                                   {(enums.RuleCategory || []).map(cat => (
-                                     <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
-                                   ))}
-                                 </SelectContent>
-                               </Select>
-                              
-                              {/* ── INDICATOR RULES ── */}
-                              {rule.category === 'INDICATOR' && (
-                                <>
-                                  {/* Indicator Type */}
-                                  <Select 
-                                    value={rule.indicator_type || ''} 
-                                    onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'indicator_type', v)}
-                                  >
-                                    <SelectTrigger className="w-[130px] bg-gray-800/60 border-gray-700 text-sm h-8">
-                                      <SelectValue placeholder="Indicator" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {(enums.IndicatorType || []).map(ind => (
-                                        <SelectItem key={ind.value} value={ind.value}>
-                                          {ind.label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-
-                              {/* Dynamic Indicator Params */}
-                              {rule.indicator_type && (
-                                <div className="flex items-center gap-1.5">
-                                  {(() => {
-                                    // Common parameter definitions
-                                    // PARAM_CONFIG is now defined at top of file
-
-                                    const params = PARAM_CONFIG[rule.indicator_type] || [];
-                                    
-                                    return params.map(param => (
-                                      <div key={param.key} className="flex items-center">
-                                        <Input
-                                          type="number"
-                                          title={param.label}
-                                          placeholder={param.label}
-                                          value={rule.params?.[param.key] ?? param.default}
-                                          onChange={(e) => {
-                                            const val = parseFloat(e.target.value);
-                                            const newParams = { 
-                                              ...(rule.params || {}), 
-                                              [param.key]: isNaN(val) ? param.default : val 
-                                            };
-                                            handleUpdateRule(group.id, rule.id, 'params', newParams);
-                                          }}
-                                          className="w-20 bg-gray-800/60 border-gray-700 text-xs h-8 text-center px-1"
-                                        />
-                                      </div>
-                                    ));
-                                  })()}
+                          <div key={rule.id} className="space-y-2">
+                            {/* AND/OR connector between rules within group */}
+                            {ruleIndex > 0 && (
+                              <div className="flex items-center justify-center -my-1 relative z-10">
+                                <div className="absolute bg-[#0a0e17] px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest text-gray-500 border border-gray-800 shadow-sm">
+                                  {group.logical_operator || 'AND'}
                                 </div>
-                              )}
+                              </div>
+                            )}
 
-                              {/* Timeframe Override */}
-                              <Select 
-                                value={rule.timeframe_override || 'NONE'} 
-                                onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'timeframe_override', v === 'NONE' ? '' : v)}
-                              >
-                                <SelectTrigger className="w-[90px] bg-gray-800/60 border-gray-700 text-[10px] h-8">
-                                  <SelectValue placeholder="TF" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="NONE">Default</SelectItem>
-                                  {(enums.CandleTimeframe || []).map(tf => (
-                                    <SelectItem key={tf.value} value={tf.value}>{tf.label}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                            {/* Rule Card */}
+                            <div className={`group relative rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] hover:bg-white/[0.04] transition-all duration-300 shadow-sm overflow-hidden ${(rule.is_active ?? true) ? '' : 'opacity-60'}`}>
+                              
+                              {/* Soft glowing left edge */}
+                              <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-emerald-500/30 group-hover:bg-emerald-500/60 transition-colors" />
 
-                              {/* Comparison Logic */}
-                              <Select 
-                                value={rule.comparison || 'GT'} 
-                                onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'comparison', v)}
-                              >
-                                <SelectTrigger className="w-[140px] bg-gray-800/60 border-gray-700 text-sm h-8 px-2">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(enums.ComparisonOperator || []).map(comp => (
-                                    <SelectItem key={comp.value} value={comp.value}>
-                                      {comp.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-
-                              {/* Value OR Compare to Indicator */}
-                              <div className="flex items-center gap-2">
-                                {/* Toggle between Value / Indicator */}
-                                <button
-                                  onClick={() => handleUpdateRule(group.id, rule.id, 'compare_to_indicator', rule.compare_to_indicator ? null : 'SMA')}
-                                  className={`h-6 w-6 rounded flex items-center justify-center transition-colors ${
-                                    rule.compare_to_indicator 
-                                      ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' 
-                                      : 'bg-gray-700/50 text-gray-400 hover:text-gray-300'
-                                  }`}
-                                  title={rule.compare_to_indicator ? "Switch to fixed value" : "Compare to another indicator"}
+                              {/* Row 1: Main rule sentence */}
+                              <div className="flex flex-wrap items-center gap-1.5 p-3 pl-4">
+                                <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mr-1">IF</Badge>
+                                
+                                {/* Category Select */}
+                                <Select 
+                                  value={rule.category || 'INDICATOR'} 
+                                  onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'category', v)}
                                 >
-                                  {rule.compare_to_indicator ? <Activity className="h-3 w-3" /> : <span className="text-xs font-mono">123</span>}
-                                </button>
+                                  <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 data-[state=open]:bg-white/10 text-xs h-7 px-2 shadow-none focus:ring-0 text-gray-300 font-medium">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(enums.RuleCategory || []).map(cat => (
+                                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
 
-                                {rule.compare_to_indicator ? (
-                                    <div className="flex items-center gap-1.5">
+                                {/* ── INDICATOR RULES ── */}
+                                {rule.category === 'INDICATOR' && (
+                                  <>
+                                    <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
                                       <Select 
-                                        value={rule.compare_to_indicator} 
-                                        onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'compare_to_indicator', v)}
+                                        value={rule.indicator_type || ''} 
+                                        onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'indicator_type', v)}
                                       >
-                                        <SelectTrigger className="w-[160px] bg-gray-800/60 border-gray-700 text-sm h-8">
-                                          <SelectValue />
+                                        <SelectTrigger className="w-auto min-w-[120px] bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-indigo-300 font-semibold">
+                                          <SelectValue placeholder="Indicator" />
                                         </SelectTrigger>
                                         <SelectContent>
                                           {(enums.IndicatorType || []).map(ind => (
-                                            <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
+                                            <SelectItem key={ind.value} value={ind.value}>
+                                              {ind.label}
+                                            </SelectItem>
                                           ))}
                                         </SelectContent>
                                       </Select>
-                                      
-                                      {/* Secondary Indicator Params */}
-                                      {(() => {
-                                        // Reusing the same PARAM_CONFIG structure for secondary indicator
-                                        // PARAM_CONFIG is now defined at top of file
 
-                                        const params = PARAM_CONFIG[rule.compare_to_indicator] || [];
-                                        
-                                        return params.map(param => (
-                                          <Input
-                                            key={param.key}
-                                            type="number"
-                                            title={param.label}
-                                            placeholder={param.label}
-                                            value={rule.compare_to_params?.[param.key] ?? param.default}
-                                            onChange={(e) => {
-                                              const val = parseFloat(e.target.value);
-                                              const newParams = { 
-                                                ...(rule.compare_to_params || {}), 
-                                                [param.key]: isNaN(val) ? param.default : val 
-                                              };
-                                              handleUpdateRule(group.id, rule.id, 'compare_to_params', newParams);
-                                            }}
-                                            className="w-20 bg-gray-800/60 border-gray-700 text-xs h-8 text-center px-1"
-                                          />
-                                        ));
+                                      {/* Dynamic Indicator Params */}
+                                      {rule.indicator_type && (() => {
+                                        const params = PARAM_CONFIG[rule.indicator_type] || [];
+                                        if (params.length === 0) return null;
+                                        return (
+                                          <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                                            {params.map(param => (
+                                              <div key={param.key} className="flex items-center gap-1">
+                                                <span className="text-[9px] text-gray-500 uppercase font-medium">{param.label}:</span>
+                                                <Input
+                                                  type="number"
+                                                  value={rule.params?.[param.key] ?? param.default}
+                                                  onChange={(e) => {
+                                                    const val = parseFloat(e.target.value);
+                                                    const newParams = { 
+                                                      ...(rule.params || {}), 
+                                                      [param.key]: isNaN(val) ? '' : val 
+                                                    };
+                                                    handleUpdateRule(group.id, rule.id, 'params', newParams);
+                                                  }}
+                                                  className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                                                />
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
                                       })()}
                                     </div>
-                                ) : (
-                                  <Input
-                                    type="number"
-                                    value={rule.value != null ? rule.value : ''}
-                                    onChange={(e) => {
-                                      const val = parseFloat(e.target.value);
-                                      handleUpdateRule(group.id, rule.id, 'value', isNaN(val) ? null : val);
-                                    }}
-                                    className="w-28 bg-gray-800/60 border-gray-700 text-sm h-8 text-center"
-                                    placeholder="Value"
-                                  />
+
+                                    <Badge variant="secondary" className="bg-gray-500/10 text-gray-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mx-1">IS</Badge>
+
+                                    <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
+                                      <Select 
+                                        value={rule.comparison || 'GT'} 
+                                        onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'comparison', v)}
+                                      >
+                                        <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-emerald-300 font-semibold">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {(enums.ComparisonOperator || []).map(comp => (
+                                            <SelectItem key={comp.value} value={comp.value}>
+                                              {comp.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+
+                                    {/* Toggle between Value / Indicator */}
+                                    <div className="flex items-center ml-1">
+                                      <div className="inline-flex rounded-full border border-white/[0.05] bg-black/20 p-0.5 shadow-inner">
+                                        <button
+                                          onClick={() => {
+                                            if (rule.compare_to_indicator) {
+                                              handleUpdateRule(group.id, rule.id, 'compare_to_indicator', null);
+                                            }
+                                          }}
+                                          title="Compare to Value"
+                                          className={`px-2.5 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full transition-all duration-200 ${
+                                            !rule.compare_to_indicator
+                                              ? 'bg-gray-700/80 text-white shadow-sm'
+                                              : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                          }`}
+                                        >
+                                          Val
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            if (!rule.compare_to_indicator) {
+                                              handleUpdateRule(group.id, rule.id, 'compare_to_indicator', 'SMA');
+                                            }
+                                          }}
+                                          title="Compare to Indicator"
+                                          className={`px-2.5 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full transition-all duration-200 flex items-center gap-1 ${
+                                            rule.compare_to_indicator
+                                              ? 'bg-indigo-500/20 text-indigo-300 shadow-sm'
+                                              : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                          }`}
+                                        >
+                                          <Activity className="h-3 w-3" /> Ind
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {rule.compare_to_indicator ? (
+                                      <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] ml-1">
+                                        <Select 
+                                          value={rule.compare_to_indicator} 
+                                          onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'compare_to_indicator', v)}
+                                        >
+                                          <SelectTrigger className="w-auto min-w-[120px] bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-indigo-300 font-semibold">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {(enums.IndicatorType || []).map(ind => (
+                                              <SelectItem key={ind.value} value={ind.value}>{ind.label}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        
+                                        {(() => {
+                                          const params = PARAM_CONFIG[rule.compare_to_indicator] || [];
+                                          if (params.length === 0) return null;
+                                          return (
+                                            <div className="flex items-center gap-1 px-2 border-l border-white/[0.05]">
+                                              {params.map(param => (
+                                                <div key={param.key} className="flex items-center gap-1">
+                                                  <span className="text-[9px] text-gray-500 uppercase font-medium">{param.label}:</span>
+                                                  <Input
+                                                    type="number"
+                                                    value={rule.compare_to_params?.[param.key] ?? param.default}
+                                                    onChange={(e) => {
+                                                      const val = parseFloat(e.target.value);
+                                                      const newParams = { 
+                                                        ...(rule.compare_to_params || {}), 
+                                                        [param.key]: isNaN(val) ? '' : val 
+                                                      };
+                                                      handleUpdateRule(group.id, rule.id, 'compare_to_params', newParams);
+                                                    }}
+                                                    className="w-10 bg-transparent border-none text-xs h-5 text-center px-0 shadow-none focus-visible:ring-1 focus-visible:ring-indigo-500/50 p-0 m-0 text-gray-300 font-medium"
+                                                  />
+                                                </div>
+                                              ))}
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] ml-1 px-2">
+                                        <Input
+                                          type="number"
+                                          value={rule.value != null ? rule.value : ''}
+                                          onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            handleUpdateRule(group.id, rule.id, 'value', isNaN(val) ? null : val);
+                                          }}
+                                          className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-semibold placeholder-gray-600"
+                                          placeholder="Value"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {rule.comparison === 'BETWEEN' && (
+                                      <>
+                                        <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wider mx-1">and</span>
+                                        <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05] px-2">
+                                          <Input
+                                            type="number"
+                                            value={rule.value2 != null ? rule.value2 : ''}
+                                            onChange={(e) => {
+                                              const val = parseFloat(e.target.value);
+                                              handleUpdateRule(group.id, rule.id, 'value2', isNaN(val) ? null : val);
+                                            }}
+                                            className="w-16 bg-transparent border-none text-sm h-7 text-center shadow-none focus-visible:ring-0 p-0 m-0 text-white font-semibold placeholder-gray-600"
+                                            placeholder="Max"
+                                          />
+                                        </div>
+                                      </>
+                                    )}
+                                  </>
                                 )}
+
+                                {/* ── PRICE ACTION RULES ── */}
+                                {rule.category === 'PRICE_ACTION' && (
+                                  <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
+                                    <Select 
+                                      value={rule.price_action_type || ''} 
+                                      onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'price_action_type', v)}
+                                    >
+                                      <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-xs h-7 px-3 shadow-none focus:ring-0 text-indigo-300 font-semibold">
+                                        <SelectValue placeholder="Select Pattern" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {(enums.PriceActionType || []).map(pat => (
+                                          <SelectItem key={pat.value} value={pat.value}>{pat.label}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+
+                                {/* ── VOLUME RULES ── */}
+                                {rule.category === 'VOLUME' && (
+                                  <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
+                                    <Select 
+                                      value={rule.volume_condition_type || ''} 
+                                      onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'volume_condition_type', v)}
+                                    >
+                                      <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-xs h-7 px-3 shadow-none focus:ring-0 text-indigo-300 font-semibold">
+                                        <SelectValue placeholder="Select Volume Condition" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {(enums.VolumeConditionType || []).map(vol => (
+                                          <SelectItem key={vol.value} value={vol.value}>{vol.label}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+
+                                </div>
+
+                                {/* Row 2: Metadata (Timeframe + Actions) */}
+                                <div className="flex items-center gap-3 px-4 pb-2 pt-1 opacity-100">
+                                  {rule.category === 'INDICATOR' && (
+                                    <div className="flex items-center gap-1.5 bg-black/10 rounded-md px-2 py-0.5 border border-white/[0.02]">
+                                      <span className="text-[9px] text-gray-500 font-bold tracking-widest uppercase">TF:</span>
+                                      <Select 
+                                        value={rule.timeframe_override || 'NONE'} 
+                                        onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'timeframe_override', v === 'NONE' ? '' : v)}
+                                      >
+                                        <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-[10px] h-5 px-1 shadow-none focus:ring-0 text-gray-400 p-0">
+                                          <SelectValue placeholder="Default" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="NONE">Default</SelectItem>
+                                          {(enums.CandleTimeframe || []).map(tf => (
+                                            <SelectItem key={tf.value} value={tf.value}>{tf.label}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  )}
+                                  
+                                  <div className="flex-1" />
+
+                                  <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-1.5">
+                                      <Switch 
+                                        checked={rule.is_active ?? true} 
+                                        onCheckedChange={(v) => handleUpdateRule(group.id, rule.id, 'is_active', v)}
+                                        className="scale-75 data-[state=checked]:bg-emerald-500"
+                                      />
+                                    </div>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      onClick={() => handleDeleteRule(group.id, rule.id)}
+                                      className="text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 h-6 w-6 p-0 rounded-md"
+                                      title="Delete Rule"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </div>
                               </div>
-
-
-                            {/* Value 2 (for BETWEEN) */}
-                            {rule.comparison === 'BETWEEN' && (
-                              <>
-                                <span className="text-gray-500 text-xs">and</span>
-                                <Input
-                                  type="number"
-                                  value={rule.value2 != null ? rule.value2 : ''}
-                                  onChange={(e) => {
-                                    const val = parseFloat(e.target.value);
-                                    handleUpdateRule(group.id, rule.id, 'value2', isNaN(val) ? null : val);
-                                  }}
-                                  className="w-28 bg-gray-800/60 border-gray-700 text-sm h-8 text-center"
-                                  placeholder="Max"
-                                />
-                              </>
-                            )}
-                              </>
-                            )}
-
-                            {/* ── PRICE ACTION RULES ── */}
-                            {rule.category === 'PRICE_ACTION' && (
-                              <Select 
-                                value={rule.price_action_type || ''} 
-                                onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'price_action_type', v)}
-                              >
-                                <SelectTrigger className="w-[240px] bg-gray-800/60 border-gray-700 text-sm h-8">
-                                  <SelectValue placeholder="Select Pattern" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(enums.PriceActionType || []).map(pat => (
-                                    <SelectItem key={pat.value} value={pat.value}>{pat.label}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-
-                            {/* ── VOLUME RULES ── */}
-                            {rule.category === 'VOLUME' && (
-                              <Select 
-                                value={rule.volume_condition_type || ''} 
-                                onValueChange={(v) => handleUpdateRule(group.id, rule.id, 'volume_condition_type', v)}
-                              >
-                                <SelectTrigger className="w-[200px] bg-gray-800/60 border-gray-700 text-sm h-8">
-                                  <SelectValue placeholder="Select Volume Condition" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(enums.VolumeConditionType || []).map(vol => (
-                                    <SelectItem key={vol.value} value={vol.value}>{vol.label}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
-
-                              <div className="flex-1" />
-
-                              <div className="flex items-center gap-2">
-                                <Switch 
-                                  checked={rule.is_active ?? true} 
-                                  onCheckedChange={(v) => handleUpdateRule(group.id, rule.id, 'is_active', v)}
-                                  className="scale-75"
-                                  title="Enable/Disable Rule"
-                                />
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  onClick={() => handleDeleteRule(group.id, rule.id)}
-                                  className="text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 h-7 w-7 p-0"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-
                             </div>
-
-
-                        </div>
-                      ))}
+                          ))}
                       </div>
 
 

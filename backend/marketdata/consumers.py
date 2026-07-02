@@ -1,19 +1,27 @@
-# backend/marketdata/consumers.py
 import json
 import re
-import asyncio
+
+from asgiref.sync import sync_to_async
+from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+
+from .live_feed import LiveMarketDataRegistry
+from .streaming import MarketDataStreamer
+
+
+add_client_subscription = sync_to_async(
+    LiveMarketDataRegistry.add_client_subscription,
+    thread_sensitive=True,
+)
+remove_client_subscription = database_sync_to_async(
+    LiveMarketDataRegistry.remove_client_subscription,
+    thread_sensitive=True,
+)
+get_cached_quote = sync_to_async(MarketDataStreamer.get_cached_quote, thread_sensitive=True)
 
 
 class MarketDataConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        # ⬇️ ensure the in-process broadcaster is running
-        # try:
-        #     await ensure_broadcaster_running()
-        # except Exception as e:
-        #     # non-fatal; you still can accept the socket, but log it
-        #     print(f"Broadcaster start failed: {e}")
-
         user = self.scope["user"]
         if user.is_anonymous:
             await self.close()
@@ -21,19 +29,19 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
 
         await self.accept()
         self.user_group_name = f"user_{user.id}"
-        self.subscriptions = set()
+        self.subscriptions = {}
 
         await self.channel_layer.group_add(self.user_group_name, self.channel_name)
         await self.send(json.dumps({"status": "connected", "user": user.username}))
-        print(f"✅ User {user.username} connected to MarketDataConsumer")
 
     async def disconnect(self, close_code):
-        for group in self.subscriptions:
-            await self.channel_layer.group_discard(group, self.channel_name)
+        if hasattr(self, "subscriptions"):
+            for group, instrument in self.subscriptions.items():
+                await self.channel_layer.group_discard(group, self.channel_name)
+                await remove_client_subscription(instrument)
 
         if hasattr(self, "user_group_name"):
             await self.channel_layer.group_discard(self.user_group_name, self.channel_name)
-        print("❌ User disconnected from MarketDataConsumer")
 
     async def receive(self, text_data):
         try:
@@ -43,43 +51,43 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
             if not instrument:
                 return
 
-            # same sanitization as broadcaster
-            group_name = re.sub(r"[^a-zA-Z0-9\-_.]", "_", instrument)
+            normalized_instrument = MarketDataStreamer.normalize_symbol(instrument)
+            group_name = re.sub(r"[^a-zA-Z0-9\-_.]", "_", normalized_instrument)
 
             if message_type == "subscribe":
-                self.subscriptions.add(group_name)
-                await self.channel_layer.group_add(group_name, self.channel_name)
-                await self.send(json.dumps({"status": "subscribed", "instrument": instrument}))
-                print(f"✅ User subscribed to {instrument}")
+                if group_name not in self.subscriptions:
+                    self.subscriptions[group_name] = normalized_instrument
+                    await self.channel_layer.group_add(group_name, self.channel_name)
+                    await add_client_subscription(normalized_instrument)
+                await self.send(json.dumps({"status": "subscribed", "instrument": normalized_instrument}))
 
-            elif message_type == "unsubscribe":
-                if group_name in self.subscriptions:
-                    self.subscriptions.remove(group_name)
-                    await self.channel_layer.group_discard(group_name, self.channel_name)
-                    await self.send(json.dumps({"status": "unsubscribed", "instrument": instrument}))
-                    print(f"⚠️ User unsubscribed from {instrument}")
-
+                # Immediate Push: Send the last known price instantly
+                cached_quote = await get_cached_quote(normalized_instrument)
+                if cached_quote:
+                    await self.send(json.dumps({
+                        "type": "tick",
+                        "symbol": normalized_instrument,
+                        "data": cached_quote
+                    }))
+            elif message_type == "unsubscribe" and group_name in self.subscriptions:
+                original_instrument = self.subscriptions.pop(group_name)
+                await self.channel_layer.group_discard(group_name, self.channel_name)
+                await remove_client_subscription(original_instrument)
+                await self.send(json.dumps({"status": "unsubscribed", "instrument": normalized_instrument}))
         except json.JSONDecodeError:
             await self.send(json.dumps({"error": "Invalid JSON"}))
-        except Exception as e:
-            await self.send(json.dumps({"error": str(e)}))
+        except Exception as exc:
+            await self.send(json.dumps({"error": str(exc)}))
 
     async def marketdata_message(self, event):
-        try:
-            # event["message"] already has type="tick"
-            # which your frontend expects
-            await self.send(json.dumps(event["message"]))
-        except Exception as e:
-            print(f"Error sending market data: {e}")
+        await self.send(json.dumps(event["message"]))
 
     async def order_update(self, event):
-        """Handles 'order.update' events from the signal receiver."""
         message = event["message"]
-        message['type'] = 'order_update'  # Add type for the frontend to parse
+        message["type"] = "order_update"
         await self.send(text_data=json.dumps(message))
 
     async def position_update(self, event):
-        """Handles 'position.update' events from the signal receiver."""
         message = event["message"]
-        message['type'] = 'position_update' # Add type for the frontend to parse
+        message["type"] = "position_update"
         await self.send(text_data=json.dumps(message))

@@ -1,6 +1,9 @@
-import { useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import api from "@/shared/services/api";
+/* eslint-disable react/prop-types */
+import React, { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
+
+import MainHeader from "@/shared/components/layout/main-header";
 import { Button } from "@/shared/components/ui/button";
 import {
   Card,
@@ -11,8 +14,7 @@ import {
 } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { Lock, ArrowLeft } from "lucide-react";
-import MainHeader from "@/shared/components/layout/main-header";
+import api from "@/shared/services/api";
 
 export default function PasswordResetConfirmPage() {
   const { uid, token } = useParams();
@@ -23,6 +25,33 @@ export default function PasswordResetConfirmPage() {
   });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const getPasswordStrength = (pwd) => {
+    let strength = 0;
+    if (pwd.length >= 8) strength += 25;
+    if (/[A-Z]/.test(pwd)) strength += 25;
+    if (/[a-z]/.test(pwd)) strength += 25;
+    if (/[0-9]/.test(pwd) || /[^A-Za-z0-9]/.test(pwd)) strength += 25;
+    return strength;
+  };
+
+  const passwordStrength = getPasswordStrength(formData.new_password1);
+
+  const getStrengthColor = () => {
+    if (passwordStrength < 50) return "bg-red-500";
+    if (passwordStrength < 75) return "bg-amber-400";
+    if (passwordStrength < 100) return "bg-blue-400";
+    return "bg-emerald-500";
+  };
+
+  const getStrengthText = () => {
+    if (formData.new_password1.length === 0) return "";
+    if (passwordStrength < 50) return "Weak";
+    if (passwordStrength < 75) return "Fair";
+    if (passwordStrength < 100) return "Good";
+    return "Strong";
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -75,70 +104,80 @@ export default function PasswordResetConfirmPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-black">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-[#050505] text-white">
+      <div className="landing-market-animation absolute inset-0 opacity-70" />
+      <div className="landing-grid absolute inset-0 opacity-25" />
       <MainHeader />
-      <div className="flex flex-1 items-center justify-center container-padding py-6 sm:py-8 md:py-12 lg:py-16">
-        <Card className="w-full max-w-md bg-gray-900/50 border border-gray-800/50 shadow-lg rounded-xl p-4 sm:p-6">
-          <CardHeader className="text-center pb-6">
-            <CardTitle className="text-2xl sm:text-3xl font-bold text-slate-100">
-              Set New Password
+
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 py-4">
+        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#0b0d12]/90 p-5 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <CardHeader className="px-0 pb-4 text-center">
+            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
+              <ShieldCheck className="h-5 w-5 text-[#e5c461]" />
+            </div>
+            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-white">
+              Set a new password
             </CardTitle>
-            <CardDescription className="text-slate-400 mt-2">
-              Enter your new password below.
+            <CardDescription className="mt-2 text-sm leading-6 text-slate-400">
+              Choose a strong password to protect your QuantNest workspace.
             </CardDescription>
           </CardHeader>
-          <CardContent className="content-spacing px-0">
-            <form className="text-spacing" onSubmit={handleSubmit}>
-              <div className="text-spacing-sm">
-                <Label
-                  htmlFor="new_password1"
-                  className="text-slate-200 text-sm font-medium"
-                >
-                  New Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="new_password1"
-                    name="new_password1"
-                    type="password"
-                    placeholder="••••••••"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                    value={formData.new_password1}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                  Password must be at least 8 characters long, include an
-                  uppercase letter, a lowercase letter, a number, and a symbol.
-                </p>
-              </div>
 
-              <div className="text-spacing-sm">
-                <Label
-                  htmlFor="new_password2"
-                  className="text-slate-200 text-sm font-medium"
-                >
-                  Confirm New Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="new_password2"
-                    name="new_password2"
-                    type="password"
-                    placeholder="••••••••"
-                    className="pl-10 bg-gray-800/50 border-gray-700/50 text-slate-100 placeholder:text-slate-500 h-11"
-                    value={formData.new_password2}
-                    onChange={handleChange}
-                    required
-                  />
+          <CardContent className="px-0">
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              <PasswordInput
+                id="new_password1"
+                name="new_password1"
+                label="New password"
+                value={formData.new_password1}
+                onChange={handleChange}
+                showPassword={showPassword}
+                setShowPassword={setShowPassword}
+              />
+
+              {formData.new_password1.length > 0 && (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                  <div className="mb-2 flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Password strength</span>
+                    <span
+                      className={`font-medium ${
+                        passwordStrength < 50
+                          ? "text-red-400"
+                          : passwordStrength < 75
+                            ? "text-amber-400"
+                            : passwordStrength < 100
+                              ? "text-blue-400"
+                              : "text-emerald-400"
+                      }`}
+                    >
+                      {getStrengthText()}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-800">
+                    <div
+                      className={`h-full transition-all duration-300 ${getStrengthColor()}`}
+                      style={{ width: `${passwordStrength}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    Use at least 8 characters with uppercase, lowercase,
+                    number, or symbol.
+                  </p>
                 </div>
-              </div>
+              )}
+
+              <PasswordInput
+                id="new_password2"
+                name="new_password2"
+                label="Confirm new password"
+                value={formData.new_password2}
+                onChange={handleChange}
+                showPassword={showPassword}
+                setShowPassword={setShowPassword}
+              />
 
               {error && (
-                <div className="mb-4 p-3 bg-red-900/50 border border-red-800 rounded-lg text-red-300 text-sm">
+                <div className="rounded-lg border border-red-800 bg-red-900/50 p-3 text-sm text-red-300">
                   {error}
                 </div>
               )}
@@ -146,31 +185,73 @@ export default function PasswordResetConfirmPage() {
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] h-11 mt-6"
+                className="h-11 w-full rounded-xl bg-[#e5c461] font-semibold text-black shadow-[0_12px_40px_rgba(229,196,97,0.18)] hover:bg-[#f2da8e] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoading ? "Resetting..." : "Reset Password"}
+                {isLoading ? "Resetting..." : "Reset password"}
+                {!isLoading && <ArrowRight className="h-4 w-4" />}
               </Button>
             </form>
 
-            <div className="text-center text-sm text-slate-400 pt-4 border-t border-gray-800/50">
+            <div className="mt-5 border-t border-white/10 pt-5 text-center text-sm text-slate-400">
               <Link
                 to="/login"
-                className="underline text-indigo-400 hover:text-indigo-300 font-medium"
+                className="font-medium text-[#e5c461] underline hover:text-[#f2da8e]"
               >
-                Back to Login
+                Back to login
               </Link>
             </div>
-            <div className="text-center text-sm pt-3">
-              <Link
-                to="/"
-                className="text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1 transition-colors"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back to Landing Page
-              </Link>
-            </div>
+            <Link
+              to="/"
+              className="mt-3 flex items-center justify-center gap-2 text-sm text-slate-400 transition-colors hover:text-[#f2da8e]"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to landing page
+            </Link>
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+function PasswordInput({
+  id,
+  name,
+  label,
+  value,
+  onChange,
+  showPassword,
+  setShowPassword,
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-sm font-medium text-slate-200">
+        {label}
+      </Label>
+      <div className="relative">
+        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input
+          id={id}
+          name={name}
+          type={showPassword ? "text" : "password"}
+          placeholder="Enter password"
+          className="h-11 border-white/10 bg-white/[0.06] pl-10 pr-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
+          value={value}
+          onChange={onChange}
+          required
+        />
+        <button
+          type="button"
+          onClick={() => setShowPassword(!showPassword)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-200 focus:outline-none"
+          aria-label={showPassword ? "Hide password" : "Show password"}
+        >
+          {showPassword ? (
+            <EyeOff className="h-4 w-4" />
+          ) : (
+            <Eye className="h-4 w-4" />
+          )}
+        </button>
       </div>
     </div>
   );

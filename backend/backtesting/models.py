@@ -32,18 +32,30 @@ class BacktestRun(BaseTimestampModel):
     end_date = models.DateField()
     
     # Configuration
+    strategy_version = models.ForeignKey(
+        'strategies.StrategyVersion',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='backtest_runs',
+        help_text="The specific strategy version used for this backtest."
+    )
     initial_capital = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
     slippage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.01)
     brokerage_per_trade = models.DecimalField(max_digits=8, decimal_places=2, default=20)
     brokerage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.0003)
-    data_resolution = models.CharField(
-        max_length=10,
-        choices=CandleTimeframe.choices,
-        default=CandleTimeframe.M5
+    parameters = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Strategy parameters used for this run."
     )
-    
     # Execution settings (JSON for flexibility)
     config_snapshot = models.JSONField(default=dict, blank=True)
+    risk_profile_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Snapshot of the user's risk profile at the time of the run."
+    )
     
     # Status
     status = models.CharField(
@@ -99,6 +111,16 @@ class BacktestTrade(BaseTimestampModel):
     net_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     pnl_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     
+    # Risk Metrics
+    mae = models.DecimalField(
+        max_digits=12, decimal_places=4, default=0,
+        help_text="Maximum Adverse Excursion (Max paper loss during trade)"
+    )
+    mfe = models.DecimalField(
+        max_digits=12, decimal_places=4, default=0,
+        help_text="Maximum Favorable Excursion (Max paper profit during trade)"
+    )
+    
     # Duration
     holding_duration_minutes = models.PositiveIntegerField(default=0)
     
@@ -132,6 +154,8 @@ class BacktestMetrics(BaseTimestampModel):
     winning_trades = models.PositiveIntegerField(default=0)
     losing_trades = models.PositiveIntegerField(default=0)
     breakeven_trades = models.PositiveIntegerField(default=0)
+    max_consecutive_wins = models.PositiveIntegerField(default=0)
+    max_consecutive_losses = models.PositiveIntegerField(default=0)
     
     # Win rate
     win_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
@@ -173,6 +197,10 @@ class BacktestMetrics(BaseTimestampModel):
     # Fees
     total_brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_slippage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    avg_mae = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    avg_mfe = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    trade_efficiency = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    monthly_returns_json = models.JSONField(default=dict, blank=True)
     
     class Meta:
         db_table = 'backtest_metrics'
@@ -205,107 +233,6 @@ class EquityCurvePoint(models.Model):
         unique_together = ['run', 'timestamp']
 
 
-class OptimizationRun(BaseTimestampModel):
-    """
-    Parameter optimization run.
-    """
-    strategy = models.ForeignKey(
-        'strategies.Strategy',
-        on_delete=models.CASCADE,
-        related_name='optimization_runs'
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='optimization_runs'
-    )
-    
-    name = models.CharField(max_length=200)
-    
-    # Date range for backtests
-    start_date = models.DateField()
-    end_date = models.DateField()
-    initial_capital = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
-    
-    # Parameters to optimize
-    parameters_to_optimize = models.JSONField(
-        default=list,
-        help_text="List of {param_name, min, max, step}"
-    )
-    
-    # Optimization settings
-    OPTIMIZATION_METRICS = [
-        ('SHARPE', 'Sharpe Ratio'),
-        ('RETURN', 'Total Return'),
-        ('DRAWDOWN', 'Min Drawdown'),
-        ('WIN_RATE', 'Win Rate'),
-        ('PROFIT_FACTOR', 'Profit Factor'),
-    ]
-    optimization_metric = models.CharField(
-        max_length=20,
-        choices=OPTIMIZATION_METRICS,
-        default='SHARPE'
-    )
-    
-    # Progress
-    total_combinations = models.PositiveIntegerField(default=0)
-    completed_combinations = models.PositiveIntegerField(default=0)
-    
-    # Results
-    best_params = models.JSONField(default=dict, blank=True)
-    best_metric_value = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
-    
-    # Status
-    status = models.CharField(
-        max_length=20,
-        choices=BacktestStatus.choices,
-        default=BacktestStatus.PENDING
-    )
-    started_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    
-    class Meta:
-        db_table = 'backtest_optimization_run'
-        verbose_name = 'Optimization Run'
-        verbose_name_plural = 'Optimization Runs'
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"Optimization: {self.name}"
-
-    @property
-    def progress_pct(self):
-        if self.total_combinations == 0:
-            return 0
-        return int((self.completed_combinations / self.total_combinations) * 100)
-
-
-class OptimizationResult(models.Model):
-    """
-    Single result from an optimization run.
-    """
-    optimization_run = models.ForeignKey(
-        OptimizationRun,
-        on_delete=models.CASCADE,
-        related_name='results'
-    )
-    
-    params = models.JSONField()
-    
-    # Metrics
-    sharpe = models.DecimalField(max_digits=10, decimal_places=4, null=True)
-    total_return = models.DecimalField(max_digits=10, decimal_places=4, null=True)
-    max_drawdown = models.DecimalField(max_digits=10, decimal_places=4, null=True)
-    win_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True)
-    profit_factor = models.DecimalField(max_digits=10, decimal_places=4, null=True)
-    total_trades = models.PositiveIntegerField(default=0)
-    
-    class Meta:
-        db_table = 'backtest_optimization_result'
-        verbose_name = 'Optimization Result'
-        verbose_name_plural = 'Optimization Results'
-
-
 class MonteCarloRun(BaseTimestampModel):
     """
     Monte Carlo simulation run.
@@ -325,6 +252,10 @@ class MonteCarloRun(BaseTimestampModel):
         default=BacktestStatus.PENDING
     )
     completed_at = models.DateTimeField(null=True, blank=True)
+    equity_distribution_json = models.JSONField(
+        default=list, blank=True,
+        help_text='Percentile-based equity distribution for histogram rendering.'
+    )
     
     class Meta:
         db_table = 'backtest_monte_carlo_run'

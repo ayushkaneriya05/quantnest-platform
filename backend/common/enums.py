@@ -3,6 +3,15 @@ Common app - shared enums, base models, and utilities for QuantNest Algo Trading
 """
 from django.db import models
 
+class Timezone(models.TextChoices):
+    """Supported timezones for trading rules."""
+    ASIA_KOLKATA = 'Asia/Kolkata', 'Asia/Kolkata (IST)'
+    UTC = 'UTC', 'UTC'
+    AMERICA_NEW_YORK = 'America/New_York', 'America/New_York (EST/EDT)'
+    EUROPE_LONDON = 'Europe/London', 'Europe/London (GMT/BST)'
+    ASIA_TOKYO = 'Asia/Tokyo', 'Asia/Tokyo (JST)'
+    AUSTRALIA_SYDNEY = 'Australia/Sydney', 'Australia/Sydney (AEST/AEDT)'
+
 
 class StrategyType(models.TextChoices):
     """Type of trading strategy based on holding period."""
@@ -278,8 +287,6 @@ class StrikeSelectionLogic(models.TextChoices):
     OTM_1 = 'OTM_1', 'OTM 1 Strike'
     OTM_2 = 'OTM_2', 'OTM 2 Strikes'
     OTM_3 = 'OTM_3', 'OTM 3 Strikes'
-    CLOSEST_PREMIUM = 'CLOSEST_PREMIUM', 'Closest to Premium'
-    DELTA_BASED = 'DELTA_BASED', 'Delta Based'
 
 
 class ExpiryType(models.TextChoices):
@@ -311,25 +318,26 @@ class NotificationType(models.TextChoices):
     STRATEGY_ERROR = 'STRATEGY_ERROR', 'Strategy Error'
     RISK_ALERT = 'RISK_ALERT', 'Risk Alert'
     DAILY_SUMMARY = 'DAILY_SUMMARY', 'Daily Summary'
+    COMMUNITY_REPLY = 'COMMUNITY_REPLY', 'Community Reply'
+    COMMUNITY_MENTION = 'COMMUNITY_MENTION', 'Community Mention'
+    COMMUNITY_FOLLOW = 'COMMUNITY_FOLLOW', 'Community Follow'
+    BADGE_UNLOCKED = 'BADGE_UNLOCKED', 'Badge Unlocked'
+    STREAK_WARNING = 'STREAK_WARNING', 'Streak Warning'
+    CHALLENGE_PROGRESS = 'CHALLENGE_PROGRESS', 'Challenge Progress'
+    CERTIFICATE_ISSUED = 'CERTIFICATE_ISSUED', 'Certificate Issued'
+    PROOF_VERIFIED = 'PROOF_VERIFIED', 'Proof Verified'
+    MODERATION_ALERT = 'MODERATION_ALERT', 'Moderation Alert'
 
 
 class EntryPriceLogic(models.TextChoices):
     """Entry price logic for order placement."""
-    AT_CLOSE = 'AT_CLOSE', 'At Candle Close'
-    AT_BREAKOUT = 'AT_BREAKOUT', 'At Breakout Price'
-    OFFSET = 'OFFSET', 'Offset from Price'
-
-
-class HaltConditionType(models.TextChoices):
-    """Condition types that trigger a trading halt."""
-    LOSS_AMOUNT = 'LOSS_AMOUNT', 'Loss Amount'
-    LOSS_PERCENTAGE = 'LOSS_PERCENTAGE', 'Loss Percentage'
-    CONSECUTIVE_LOSSES = 'CONSECUTIVE_LOSSES', 'Consecutive Losses'
-    MAX_TRADES = 'MAX_TRADES', 'Maximum Trades'
-    DRAWDOWN = 'DRAWDOWN', 'Drawdown Threshold'
-    TIME_BASED = 'TIME_BASED', 'Time-Based'
-    VOLATILITY = 'VOLATILITY', 'High Volatility'
-    CUSTOM = 'CUSTOM', 'Custom Condition'
+    LTP = 'LTP', 'Last Traded Price (Instant)'
+    AT_CLOSE = 'AT_CLOSE', 'At Close'
+    AT_OPEN = 'AT_OPEN', 'At Next Open'
+    ABOVE_HIGH = 'ABOVE_HIGH', 'Above High'
+    BELOW_LOW = 'BELOW_LOW', 'Below Low'
+    AT_BREAKOUT = 'AT_BREAKOUT', 'At Breakout'
+    OFFSET = 'OFFSET', 'Limit with Offset'
 
 
 class AutoDisableTriggerType(models.TextChoices):
@@ -379,6 +387,8 @@ class TransactionType(models.TextChoices):
     BROKER_TRANSFER_OUT = 'BROKER_TRANSFER_OUT', 'Transfer to Broker'
     PROFIT_BOOKING = 'PROFIT_BOOKING', 'Profit Booking'
     LOSS_SETTLEMENT = 'LOSS_SETTLEMENT', 'Loss Settlement'
+    ALLOCATION = 'ALLOCATION', 'Strategy Allocation'
+    DEALLOCATION = 'DEALLOCATION', 'Strategy De-allocation'
 
 
 class RebalanceFrequency(models.TextChoices):
@@ -395,14 +405,6 @@ class BacktestStatus(models.TextChoices):
     COMPLETED = 'COMPLETED', 'Completed'
     FAILED = 'FAILED', 'Failed'
     CANCELLED = 'CANCELLED', 'Cancelled'
-
-
-class TradingSessionStatus(models.TextChoices):
-    """Live trading session status."""
-    RUNNING = 'RUNNING', 'Running'
-    PAUSED = 'PAUSED', 'Paused'
-    STOPPED = 'STOPPED', 'Stopped'
-    ERROR = 'ERROR', 'Error'
 
 
 # ── Fyers-specific enums (integer-based for API communication) ──
@@ -488,3 +490,37 @@ class ExchangeInstrumentType(models.IntegerChoices):
     OPTFUT_NCOM = 37, 'Options on Futures (NCOM)'
     # ── BSE-specific ──
     MISC_BSE = 50, 'Misc (BSE)'
+
+
+class OptimizationMetric(models.TextChoices):
+    """Metrics that can be targeted for optimization."""
+    SHARPE = 'SHARPE', 'Sharpe Ratio'
+    RETURN = 'RETURN', 'Total Return'
+    DRAWDOWN = 'DRAWDOWN', 'Min Drawdown'
+    WIN_RATE = 'WIN_RATE', 'Win Rate'
+    PROFIT_FACTOR = 'PROFIT_FACTOR', 'Profit Factor'
+
+
+class OptimizableParameter(models.TextChoices):
+    """Common parameters that can be swept during optimization."""
+    EMA_PERIOD = 'ema_period', 'EMA Period'
+    SMA_PERIOD = 'sma_period', 'SMA Period'
+    WMA_PERIOD = 'wma_period', 'WMA Period'
+    RSI_PERIOD = 'rsi_period', 'RSI Period'
+    RSI_OVERSOLD = 'rsi_oversold', 'RSI Oversold Level'
+    RSI_OVERBOUGHT = 'rsi_overbought', 'RSI Overbought Level'
+    MACD_FAST = 'macd_fast', 'MACD Fast Period'
+    MACD_SLOW = 'macd_slow', 'MACD Slow Period'
+    MACD_SIGNAL = 'macd_signal', 'MACD Signal Period'
+    BOLLINGER_PERIOD = 'bollinger_period', 'Bollinger Period'
+    STD_DEV = 'std_dev', 'Std Deviation Multiplier'
+    SUPERTREND_PERIOD = 'supertrend_period', 'Supertrend ATR Period'
+    SUPERTREND_MULTIPLIER = 'supertrend_multiplier', 'Supertrend Multiplier'
+    ATR_PERIOD = 'atr_period', 'ATR Period'
+    ADX_PERIOD = 'adx_period', 'ADX Period'
+    STOCHASTIC_K_PERIOD = 'stochastic_k_period', 'Stochastic %K Period'
+    STOCHASTIC_D_PERIOD = 'stochastic_d_period', 'Stochastic %D Period'
+    CCI_PERIOD = 'cci_period', 'CCI Period'
+    MFI_PERIOD = 'mfi_period', 'MFI Period'
+    STOP_LOSS_PCT = 'stop_loss_pct', 'Stop Loss %'
+    TARGET_PCT = 'target_pct', 'Target / Take Profit %'
