@@ -286,43 +286,79 @@ class MarketDataService:
         }
 
     @classmethod
+    def get_timescale_interval(cls, timeframe):
+        mapping = {
+            "3m": "3 minutes",
+            "5m": "5 minutes",
+            "15m": "15 minutes",
+            "30m": "30 minutes",
+            "1H": "1 hour",
+            "4H": "4 hours",
+            "1W": "1 week",
+        }
+        return mapping.get(timeframe, "1 minute")
+
+    @classmethod
     def list_candles(cls, symbol, timeframe="1m", limit=200, start_dt=None, end_dt=None):
         normalized = cls.normalize_symbol(symbol)
         timeframe = cls.normalize_timeframe(timeframe)
 
-        # Scale up the database limit to ensure we have enough base candles to aggregate
-        if timeframe in ("1D", "1W"):
-            multiplier = 5 if timeframe == "1W" else 1
-            db_limit = int(limit or 200) * multiplier
-            db_timeframe = "1D"
-        elif timeframe != "1m":
-            multiplier = 1
-            if timeframe == "3m": multiplier = 3
-            elif timeframe == "5m": multiplier = 5
-            elif timeframe == "15m": multiplier = 15
-            elif timeframe == "30m": multiplier = 30
-            elif timeframe == "1H": multiplier = 60
-            elif timeframe == "4H": multiplier = 240
-            
-            db_limit = int(limit or 200) * multiplier
-            db_timeframe = "1m"
-        else:
-            db_limit = int(limit or 200)
-            db_timeframe = timeframe
+        if timeframe in ("1m", "1D"):
+            candles = CandleRepository.list_candles(
+                symbol=normalized,
+                timeframe=timeframe,
+                limit=limit,
+                start_dt=start_dt,
+                end_dt=end_dt,
+            )
+            return [cls.serialize_candle(candle) for candle in candles]
 
-        candles = CandleRepository.list_candles(
-            symbol=normalized,
-            timeframe=db_timeframe,
-            limit=db_limit,
-            start_dt=start_dt,
-            end_dt=end_dt,
-        )
-        if timeframe not in ("1m", "1D"):
-            candles = cls.aggregate_candles(candles, timeframe)
-            if limit:
-                candles = candles[-int(limit):]
+        # Use TimescaleDB continuous aggregate on-the-fly
+        from django.db import connection
+        db_timeframe = "1D" if timeframe == "1W" else "1m"
+        bucket_interval = cls.get_timescale_interval(timeframe)
 
-        return [cls.serialize_candle(candle) if isinstance(candle, Candle) else cls.serialize_candle_state(candle) for candle in candles]
+        query = """
+            SELECT 
+                time_bucket(%s, "time") AS bucket_time,
+                FIRST(open, "time") AS open,
+                MAX(high) AS high,
+                MIN(low) AS low,
+                LAST(close, "time") AS close,
+                SUM(volume) AS volume
+            FROM marketdata_candle
+            WHERE symbol = %s AND timeframe = %s
+        """
+        params = [bucket_interval, normalized, db_timeframe]
+
+        if start_dt is not None:
+            query += ' AND "time" >= %s'
+            params.append(start_dt)
+        if end_dt is not None:
+            query += ' AND "time" <= %s'
+            params.append(end_dt)
+
+        query += " GROUP BY bucket_time ORDER BY bucket_time DESC"
+
+        if limit is not None:
+            query += " LIMIT %s"
+            params.append(int(limit))
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        candles = []
+        for row in reversed(rows):
+            candles.append({
+                "time": int(row[0].timestamp()),
+                "open": float(row[1]),
+                "high": float(row[2]),
+                "low": float(row[3]),
+                "close": float(row[4]),
+                "volume": int(row[5] or 0),
+            })
+        return candles
 
     @classmethod
     def serialize_candle_state(cls, candle):
@@ -462,7 +498,7 @@ class FyersHistoricalDataService:
         access_token = get_active_fyers_access_token()
         if not access_token:
             logger.error("No active Fyers access token found")
-            return []
+            return None
 
         client_id = settings.FYERS_CLIENT_ID
         auth_header = f"{client_id}:{access_token}"
@@ -484,11 +520,11 @@ class FyersHistoricalDataService:
             data = fyers.history(data=params)
         except Exception as exc:
             logger.exception("Exception while fetching candles for %s: %s", symbol, exc)
-            return []
+            return None
 
         if data.get("s") != "ok":
             logger.error("Fyers API Error for %s: %s", symbol, data)
-            return []
+            return None
 
         candles = []
         for item in data.get("candles", []):
@@ -684,6 +720,7 @@ class HistoricalCandleService:
                 logger.debug("Could not enqueue chart backfill for %s: %s", symbol, exc)
             chunk_start = max(chunk_start, end_date - timedelta(days=chunk_days - 1))
 
+        api_failed = False
         while chunk_start <= end_date:
             chunk_end = min(chunk_start + timedelta(days=chunk_days), end_date)
             fetched = FyersHistoricalDataService.fetch_and_store(
@@ -692,8 +729,16 @@ class HistoricalCandleService:
                 date_to=chunk_end.isoformat(),
                 timeframe=db_timeframe,
             )
-            fetched_total += len(fetched or [])
+            if fetched is None:
+                api_failed = True
+                break
+                
+            fetched_total += len(fetched)
             chunk_start = chunk_end + timedelta(days=1)
+
+        if api_failed:
+            cache.delete(lock_key)
+            return 0
 
         return fetched_total
 

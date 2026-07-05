@@ -189,9 +189,24 @@ export function useRealtimeCandles(symbol, interval) {
       setStatus("ready");
       
       if (normalizedCandles.length > 0) {
-        buildingCandleRef.current = { ...normalizedCandles[normalizedCandles.length - 1] };
+        const lastCandle = normalizedCandles[normalizedCandles.length - 1];
+        if (buildingCandleRef.current && buildingCandleRef.current.time === lastCandle.time) {
+            // A realtime tick arrived during fetch for the same period. Merge them.
+            normalizedCandles[normalizedCandles.length - 1] = {
+                ...lastCandle,
+                high: Math.max(lastCandle.high, buildingCandleRef.current.high),
+                low: Math.min(lastCandle.low, buildingCandleRef.current.low),
+                close: buildingCandleRef.current.close,
+                volume: Math.max(lastCandle.volume, buildingCandleRef.current.volume),
+            };
+            buildingCandleRef.current = { ...normalizedCandles[normalizedCandles.length - 1] };
+        } else if (buildingCandleRef.current && buildingCandleRef.current.time > lastCandle.time) {
+            // A realtime tick started a new period during fetch
+            normalizedCandles.push(buildingCandleRef.current);
+        } else {
+            buildingCandleRef.current = { ...lastCandle };
+        }
       }
-      
       if (response.data.source?.fetched_count > 0) {
         getLatestPrice(symbol, { force: true });
       }

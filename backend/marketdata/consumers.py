@@ -7,6 +7,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .live_feed import LiveMarketDataRegistry
 from .streaming import MarketDataStreamer
+from .services import MarketDataService
 
 
 add_client_subscription = sync_to_async(
@@ -18,6 +19,7 @@ remove_client_subscription = database_sync_to_async(
     thread_sensitive=True,
 )
 get_cached_quote = sync_to_async(MarketDataStreamer.get_cached_quote, thread_sensitive=True)
+get_live_quote_from_fyers = sync_to_async(MarketDataService.get_live_quote_from_fyers, thread_sensitive=True)
 
 
 class MarketDataConsumer(AsyncWebsocketConsumer):
@@ -63,6 +65,9 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
 
                 # Immediate Push: Send the last known price instantly
                 cached_quote = await get_cached_quote(normalized_instrument)
+                if not cached_quote:
+                    cached_quote = await get_live_quote_from_fyers(normalized_instrument)
+                    
                 if cached_quote:
                     await self.send(json.dumps({
                         "type": "tick",

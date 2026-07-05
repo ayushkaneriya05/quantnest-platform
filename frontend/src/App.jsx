@@ -15,10 +15,6 @@ import RegisterPage from "@/features/auth/pages/RegisterPage";
 import DashboardLayout from "@/shared/components/layout/DashboardLayout";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
 import MarketOverview from "@/features/dashboard/pages/MarketOverview";
-import PortfolioOverview from "@/features/dashboard/pages/portfolio/PortfolioOverview";
-import PortfolioAllocations from "@/features/dashboard/pages/portfolio/PortfolioAllocations";
-import PortfolioExposure from "@/features/dashboard/pages/portfolio/PortfolioExposure";
-import PortfolioTransactions from "@/features/dashboard/pages/portfolio/PortfolioTransactions";
 import RiskProfile from "@/features/dashboard/pages/portfolio/RiskProfile";
 import BacktestList from "@/features/dashboard/pages/backtest/BacktestList";
 import BacktestSetup from "@/features/dashboard/pages/backtest/BacktestSetup";
@@ -240,11 +236,6 @@ function AppContent() {
             />
 
             {/* Portfolio routes */}
-            <Route
-              path="portfolio/allocations"
-              element={<PortfolioAllocations />}
-            />
-            <Route path="portfolio/exposure" element={<PortfolioExposure />} />
             <Route path="portfolio/risk" element={<RiskProfile />} />
             <Route
               path="portfolio/risk-violations"
