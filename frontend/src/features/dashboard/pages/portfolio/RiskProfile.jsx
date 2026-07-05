@@ -10,6 +10,7 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import PortfolioRiskNav from './PortfolioRiskNav';
 import StrategyFooter from '@/features/dashboard/pages/strategy/StrategyFooter';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const DEFAULT_PROFILE = {
   max_daily_loss_percentage: 5,
@@ -72,7 +73,7 @@ export default function RiskProfile() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
+        <GlobalLoader />
       </div>
     );
   }

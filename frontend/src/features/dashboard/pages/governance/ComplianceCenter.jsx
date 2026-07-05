@@ -19,6 +19,7 @@ import { Progress } from "@/shared/components/ui/progress";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { auditApi } from "@/shared/services/auditApi";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 function scoreTone(score) {
   if (score >= 80) return "text-emerald-300";
@@ -91,9 +92,7 @@ export default function ComplianceCenter() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-32 text-cyan-300">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
+      <GlobalLoader />
     );
   }
 

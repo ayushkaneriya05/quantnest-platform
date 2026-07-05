@@ -14,6 +14,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Chrome, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import MainHeader from "@/components/layout/main-header";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function SocialLoginHandler() {
   const [searchParams] = useSearchParams();
@@ -74,7 +75,7 @@ export default function SocialLoginHandler() {
         return (
           <>
             <div className="flex justify-center mb-4">
-              <Loader2 className="h-12 w-12 text-indigo-400 animate-spin" />
+              <GlobalLoader />
             </div>
             <CardTitle className="text-2xl font-bold text-slate-100 text-center">
               Authenticating with Google

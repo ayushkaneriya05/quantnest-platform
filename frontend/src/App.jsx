@@ -14,7 +14,6 @@ import LoginPage from "@/features/auth/pages/LoginPage";
 import RegisterPage from "@/features/auth/pages/RegisterPage";
 import DashboardLayout from "@/shared/components/layout/DashboardLayout";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
-import MarketOverview from "@/features/dashboard/pages/MarketOverview";
 import RiskProfile from "@/features/dashboard/pages/portfolio/RiskProfile";
 import BacktestList from "@/features/dashboard/pages/backtest/BacktestList";
 import BacktestSetup from "@/features/dashboard/pages/backtest/BacktestSetup";
@@ -144,7 +143,6 @@ function AppContent() {
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<Dashboard />} />
-            <Route path="market" element={<MarketOverview />} />
             <Route path="profile-settings" element={<ProfileSettings />} />
             <Route path="notification-center" element={<NotificationCenter />} />
 

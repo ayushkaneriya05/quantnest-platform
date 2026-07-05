@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { analyticsSuiteApi } from "@/shared/services/analyticsSuiteApi";
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
+import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import {
   AreaChart,
   Area,
@@ -55,12 +56,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="container-padding py-6 lg:py-8 flex items-center justify-center min-h-[60vh]">
-        <div className="animate-pulse flex flex-col items-center">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="mt-4 text-slate-400 font-medium tracking-wide">Loading your intelligence dashboard...</p>
-        </div>
-      </div>
+      <GlobalLoader text="Loading your intelligence dashboard..." />
     );
   }
 

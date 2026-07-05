@@ -36,6 +36,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { cn } from "@/shared/lib/utils";
 
 import useRealtimeCandles from "../hooks/useRealtimeCandles";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const TIMEFRAMES = [
   { value: "1m", label: "1M" },
@@ -496,7 +497,7 @@ export default function ChartView({
       <CardContent className="relative flex-1 p-0 min-h-0 min-w-0 overflow-hidden">
         {status === "loading" && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-sm transition-all">
-            <Loader2 className="h-10 w-10 animate-spin text-sky-500" />
+            <GlobalLoader />
             <p className="mt-4 text-sm font-medium text-slate-300">Loading chart data...</p>
           </div>
         )}

@@ -16,6 +16,7 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { ruleGroupApi, stopLossApi, targetApi } from '@/shared/services/rulesApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function StrategyReview() {
   const { id } = useParams();
@@ -127,7 +128,7 @@ export default function StrategyReview() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-sky-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Reviewing strategy...</p>
       </div>
     );

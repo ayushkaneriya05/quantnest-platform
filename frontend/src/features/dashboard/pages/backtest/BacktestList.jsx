@@ -35,6 +35,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useBacktestProgress } from "@/shared/hooks/useBacktestProgress";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 /* ─── Status Badge Config ─── */
 const STATUS_CONFIG = {
@@ -228,7 +229,7 @@ export default function BacktestList() {
     return (
       <div className="flex justify-center items-center h-96">
         <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-500 border-t-transparent" />
+          <GlobalLoader />
           <p className="text-sm text-gray-500">Loading backtests…</p>
         </div>
       </div>

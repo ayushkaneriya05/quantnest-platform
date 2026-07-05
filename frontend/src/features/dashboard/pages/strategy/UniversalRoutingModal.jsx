@@ -13,6 +13,7 @@ import { Switch } from "@/shared/components/ui/switch";
 import { Search, Loader2, GitMerge, AlertCircle, Trash, Plus, Edit2, ArrowLeft } from 'lucide-react';
 import { executionRoutesApi, instrumentsApi } from '@/shared/services/instrumentsApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const ROUTE_TYPES = [
   { value: 'DIRECT', label: 'Direct Execution', desc: 'Execute on the same instrument' },
@@ -35,8 +36,6 @@ const STRIKE_LOGICS = [
   { value: 'OTM_1', label: 'OTM 1 Strike' },
   { value: 'OTM_2', label: 'OTM 2 Strikes' },
   { value: 'OTM_3', label: 'OTM 3 Strikes' },
-  { value: 'CLOSEST_PREMIUM', label: 'Closest to Premium' },
-  { value: 'DELTA_BASED', label: 'Delta Based' },
 ];
 
 const OPTION_TYPES = [
@@ -520,6 +519,15 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
             />
           </div>
 
+          {!overrideSizing && (
+            <div className="flex gap-2 items-start bg-indigo-500/10 border border-indigo-500/20 p-3 rounded-xl mt-3">
+              <AlertCircle className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-indigo-300/90 leading-snug">
+                This route will inherit the global position sizing configuration defined in your strategy's Risk Settings.
+              </p>
+            </div>
+          )}
+
           {overrideSizing && (
             <div className="grid grid-cols-2 gap-4 bg-gray-900/30 p-4 rounded-xl border border-gray-800/60">
               <div className="space-y-2 col-span-2 sm:col-span-1">
@@ -553,7 +561,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
                 </div>
               )}
 
-              {sizingConfig.sizing_method === 'CAPITAL_BASED' && (
+              {(sizingConfig.sizing_method === 'CAPITAL_BASED' || !sizingConfig.sizing_method) && (
                 <div className="space-y-2 col-span-2 sm:col-span-1">
                   <Label className="text-xs text-gray-400">Capital Percentage (%)</Label>
                   <Input
@@ -624,9 +632,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
         </DialogHeader>
 
         {loading ? (
-          <div className="flex justify-center items-center h-48">
-            <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
-          </div>
+          <GlobalLoader />
         ) : (
           viewMode === 'list' ? renderListView() : renderFormView()
         )}

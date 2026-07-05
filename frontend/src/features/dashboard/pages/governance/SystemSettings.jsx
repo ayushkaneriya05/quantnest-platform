@@ -21,6 +21,7 @@ import { Switch } from "@/shared/components/ui/switch";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { auditApi } from "@/shared/services/auditApi";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 /* ── Setting Card Component ── */
 function SettingCard({ icon: Icon, title, description, children, accent = "text-cyan-400" }) {
@@ -104,9 +105,7 @@ export default function SystemSettings() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-32 text-cyan-300">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
+      <GlobalLoader />
     );
   }
 

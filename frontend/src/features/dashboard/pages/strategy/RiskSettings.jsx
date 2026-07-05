@@ -30,6 +30,7 @@ const getRiskLevel = (pct) => {
 };
 
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function RiskSettings() {
   const { id } = useParams();
@@ -204,7 +205,7 @@ export default function RiskSettings() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-teal-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Loading risk settings...</p>
       </div>
     );

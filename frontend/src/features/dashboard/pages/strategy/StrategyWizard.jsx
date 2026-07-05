@@ -23,6 +23,7 @@ import { usePageActions } from '@/shared/context/PageActionsContext'; // Added i
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';
 import TagInput from './components/TagInput';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 
 
@@ -182,7 +183,7 @@ export default function StrategyWizard() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Loading strategy...</p>
       </div>
     );

@@ -22,6 +22,7 @@ import PaperTradingDashboard from "./PaperTradingDashboard";
 import PaperPositions from "./PaperPositions";
 import PaperOrderBook from "./PaperOrderBook";
 import PaperTradeHistory from "./PaperTradeHistory";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function PaperPortfolio() {
   const { notify } = useNotifications();
@@ -208,7 +209,7 @@ export default function PaperPortfolio() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <RefreshCw className="h-8 w-8 animate-spin text-indigo-500" />
+        <GlobalLoader />
       </div>
     );
   }

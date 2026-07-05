@@ -30,6 +30,7 @@ import { Textarea } from "@/shared/components/ui/textarea";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { auditApi } from "@/shared/services/auditApi";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const STATUS_STYLES = {
   PENDING: "bg-amber-500/10 text-amber-300 border-amber-500/20",
@@ -362,9 +363,7 @@ export default function StrategyApprovals() {
 
       {/* Approvals list */}
       {loading ? (
-        <div className="flex justify-center py-20 text-cyan-300">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
+        <GlobalLoader />
       ) : approvals.length === 0 ? (
         <Card className="border-gray-800 bg-gray-900/60">
           <CardContent className="py-12 text-center text-gray-500">

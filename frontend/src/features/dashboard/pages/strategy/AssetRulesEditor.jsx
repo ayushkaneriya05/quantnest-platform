@@ -2,7 +2,7 @@
  * Asset Rules Editor - instrument selection for algo trading
  * Features: dropdown search, filter tabs, enriched watchlist, instrument detail dialog
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, React } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
@@ -22,6 +22,7 @@ import { instrumentsApi, watchlistApi } from '@/shared/services/instrumentsApi';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 // ── Constants ──
 const TYPE_FILTERS = [
@@ -149,11 +150,21 @@ function DetailDialog({ instrument, open, onClose }) {
   );
 }
 
+const formatOI = (oi) => {
+  if (!oi) return '0';
+  const num = parseInt(oi, 10);
+  if (isNaN(num)) return '0';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
+  return num.toString();
+};
+
 // ── Option Chain Viewer Dialog ──
 function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedExpiry, setSelectedExpiry] = useState('');
+  const atmRowRef = useRef(null);
 
   useEffect(() => {
     if (!open || !underlying) return;
@@ -188,6 +199,21 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
     return Object.values(byStrike).sort((a, b) => a.strike - b.strike);
   }, [options, selectedExpiry]);
 
+  const atmStrike = useMemo(() => {
+    if (!underlying?.previous_close || chainData.length === 0) return null;
+    const spot = parseFloat(underlying.previous_close);
+    return chainData.reduce((prev, curr) => 
+      Math.abs(curr.strike - spot) < Math.abs(prev.strike - spot) ? curr : prev
+    ).strike;
+  }, [chainData, underlying?.previous_close]);
+
+  // Auto-scroll to ATM row when chainData loads
+  useEffect(() => {
+    if (atmRowRef.current) {
+      atmRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [chainData, atmStrike, selectedExpiry]);
+
   if (!underlying) return null;
 
   return (
@@ -204,7 +230,7 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
         {/* Body */}
         {loading ? (
           <div className="flex-1 flex flex-col justify-center items-center py-20">
-            <Loader2 className="h-8 w-8 text-indigo-500 animate-spin mb-3" />
+            <GlobalLoader />
             <p className="text-sm text-gray-400">Loading Option Chain...</p>
           </div>
         ) : (
@@ -228,29 +254,41 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
             </div>
 
             {/* Chain Table */}
-            <div className="flex-1 overflow-y-auto scrollbar-theme p-3">
-              <table className="w-full text-xs text-left">
-                <thead className="sticky top-0 bg-gray-950/95 backdrop-blur-sm z-10 text-gray-500 shadow-sm">
+            <div className="flex-1 overflow-y-auto scrollbar-theme px-3 pb-3">
+              <table className="w-full text-xs text-left border-separate border-spacing-0">
+                <thead className="sticky top-0 z-10 text-gray-500 shadow-sm">
                   <tr>
-                    <th colSpan={3} className="py-2 px-2 text-center border-b border-gray-800/80 text-emerald-500/80 bg-gray-950">CALLS</th>
-                    <th className="py-2 px-2 text-center border-b border-gray-800/80 text-white border-l border-r border-gray-800/60 bg-gray-950">STRIKE</th>
-                    <th colSpan={3} className="py-2 px-2 text-center border-b border-gray-800/80 text-rose-500/80 bg-gray-950">PUTS</th>
+                    <th colSpan={3} className="py-2 px-2 text-center border-b border-gray-800 text-emerald-500/80 bg-gray-950">CALLS</th>
+                    <th className="py-2 px-2 text-center border-b border-l border-r border-gray-800 text-white bg-gray-950">STRIKE</th>
+                    <th colSpan={3} className="py-2 px-2 text-center border-b border-gray-800 text-rose-500/80 bg-gray-950">PUTS</th>
                   </tr>
-                  <tr className="border-b border-gray-800/40 bg-gray-950">
-                    <th className="py-2 px-2 w-20">Action</th>
-                    <th className="py-2 px-2 text-right">OI</th>
-                    <th className="py-2 px-2 text-right">LTP</th>
-                    <th className="py-2 px-2 text-center border-l border-r border-gray-800/60">₹</th>
-                    <th className="py-2 px-2">LTP</th>
-                    <th className="py-2 px-2">OI</th>
-                    <th className="py-2 px-2 text-right w-20">Action</th>
+                  <tr>
+                    <th className="py-2 px-2 w-20 border-b border-gray-800 bg-gray-950">Action</th>
+                    <th className="py-2 px-2 text-right border-b border-gray-800 bg-gray-950">OI</th>
+                    <th className="py-2 px-2 text-right border-b border-gray-800 bg-gray-950">LTP</th>
+                    <th className="py-2 px-2 text-center border-b border-l border-r border-gray-800 bg-gray-950">₹</th>
+                    <th className="py-2 px-2 border-b border-gray-800 bg-gray-950">LTP</th>
+                    <th className="py-2 px-2 border-b border-gray-800 bg-gray-950">OI</th>
+                    <th className="py-2 px-2 text-right w-20 border-b border-gray-800 bg-gray-950">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/40">
-                  {chainData.map((row) => (
-                    <tr key={row.strike} className="hover:bg-gray-900/40 group transition-colors">
-                      {/* CALLS */}
-                      <td className="py-1 px-2">
+                  {chainData.map((row) => {
+                    const isATM = row.strike === atmStrike;
+                    const spot = parseFloat(underlying.previous_close || 0);
+                    const ceITM = row.strike < spot;
+                    const peITM = row.strike > spot;
+                    
+                    return (
+                      <tr 
+                        key={row.strike} 
+                        ref={isATM ? atmRowRef : null}
+                        className={`group transition-colors ${
+                          isATM ? 'bg-indigo-900/30 ring-1 ring-indigo-500/50' : 'hover:bg-gray-900/60'
+                        }`}
+                      >
+                        {/* CALLS */}
+                        <td className={`py-1 px-2 ${ceITM ? 'bg-amber-900/10' : ''}`}>
                         {row.CE && (
                           <Button
                             size="sm"
@@ -261,20 +299,22 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
                             {watchlistIds.has(row.CE.id) ? 'Added' : 'Add'}
                           </Button>
                         )}
-                      </td>
-                      <td className="py-1 px-2 text-right font-mono text-gray-400">{row.CE?.previous_oi || '0'}</td>
-                      <td className="py-1 px-2 text-right font-mono text-emerald-400/90">{fmt(row.CE?.previous_close) || '0.00'}</td>
-                      
-                      {/* STRIKE */}
-                      <td className="py-1.5 px-2 text-center font-bold font-mono text-white bg-gray-900/30 border-l border-r border-gray-800/60">
+                        </td>
+                        <td className={`py-1 px-2 text-right font-mono text-gray-400 ${ceITM ? 'bg-amber-900/10' : ''}`}>{formatOI(row.CE?.previous_oi)}</td>
+                        <td className={`py-1 px-2 text-right font-mono text-emerald-400/90 ${ceITM ? 'bg-amber-900/10' : ''}`}>{fmt(row.CE?.previous_close) || '0.00'}</td>
+                        
+                        {/* STRIKE */}
+                        <td className={`py-1.5 px-2 text-center font-bold font-mono border-l border-r border-gray-800/60 ${
+                          isATM ? 'text-indigo-300 bg-indigo-900/40' : 'text-white bg-gray-900/50'
+                        }`}>
                         {row.strike}
-                      </td>
-                      
-                      {/* PUTS */}
-                      <td className="py-1 px-2 font-mono text-rose-400/90">{fmt(row.PE?.previous_close) || '0.00'}</td>
-                      <td className="py-1 px-2 font-mono text-gray-400">{row.PE?.previous_oi || '0'}</td>
-                      <td className="py-1 px-2 text-right">
-                        {row.PE && (
+                        </td>
+                        
+                        {/* PUTS */}
+                        <td className={`py-1 px-2 font-mono text-rose-400/90 ${peITM ? 'bg-amber-900/10' : ''}`}>{fmt(row.PE?.previous_close) || '0.00'}</td>
+                        <td className={`py-1 px-2 font-mono text-gray-400 ${peITM ? 'bg-amber-900/10' : ''}`}>{formatOI(row.PE?.previous_oi)}</td>
+                        <td className={`py-1 px-2 text-right ${peITM ? 'bg-amber-900/10' : ''}`}>
+                          {row.PE && (
                           <Button
                             size="sm"
                             disabled={watchlistIds.has(row.PE.id)}
@@ -283,10 +323,11 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
                           >
                             {watchlistIds.has(row.PE.id) ? 'Added' : 'Add'}
                           </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {chainData.length === 0 && !loading && selectedExpiry && (
                     <tr>
                       <td colSpan={7} className="py-10 text-center text-gray-500">No options found for this expiry.</td>
@@ -613,7 +654,7 @@ export default function AssetRulesEditor() {
 
   if (loading) return (
     <div className="flex flex-col justify-center items-center h-96 gap-3">
-      <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
+      <GlobalLoader />
       <p className="text-sm text-gray-400">Loading assets...</p>
     </div>
   );

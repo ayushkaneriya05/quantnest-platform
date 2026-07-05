@@ -33,6 +33,7 @@ import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function BacktestTradeList() {
   const { id } = useParams();
@@ -134,7 +135,7 @@ export default function BacktestTradeList() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
+        <GlobalLoader />
       </div>
     );
   }

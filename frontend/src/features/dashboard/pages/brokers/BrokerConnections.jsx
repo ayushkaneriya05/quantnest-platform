@@ -23,6 +23,7 @@ import {
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { brokersApi } from "@/shared/services/brokersApi";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 
 const providerTheme = {
@@ -276,9 +277,7 @@ export default function BrokerConnections() {
 
   if (loading) {
     return (
-      <div className="container-padding py-10 flex justify-center text-cyan-300">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
+      <GlobalLoader />
     );
   }
 

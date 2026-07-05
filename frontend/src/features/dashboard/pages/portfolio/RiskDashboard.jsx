@@ -10,6 +10,7 @@ import { usePageActions } from '@/shared/context/PageActionsContext';
 import { useLiveTradingWebSocket } from '@/shared/hooks/useLiveTradingWebSocket';
 import { formatDistanceToNow, format } from 'date-fns';
 import PortfolioRiskNav from './PortfolioRiskNav';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function RiskDashboard() {
   const { notify } = useNotifications();
@@ -81,9 +82,7 @@ export default function RiskDashboard() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-96">
-        <Loader2 className="animate-spin h-8 w-8 text-indigo-500" />
-      </div>
+      <GlobalLoader />
     );
   }
 

@@ -34,6 +34,7 @@ import { brokersApi } from '@/shared/services/brokersApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
 import { customConfirm } from '@/shared/components/ui/custom-dialog';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const STATUS_CONFIG = {
   DRAFT: { label: 'Draft', className: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
@@ -281,7 +282,7 @@ export default function StrategyList() {
       {/* Strategy Grid */}
       {loading ? (
         <div className="flex flex-col justify-center items-center py-16 gap-3">
-          <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
+          <GlobalLoader />
           <p className="text-sm text-gray-400">Loading strategies...</p>
         </div>
       ) : filteredStrategies.length === 0 ? (

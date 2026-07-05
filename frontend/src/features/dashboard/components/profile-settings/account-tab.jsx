@@ -33,6 +33,7 @@ import {
   CardContent,
 } from "@/shared/components/ui/card";
 import React from "react";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 export default function AccountTab() {
   const { user } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
@@ -241,9 +242,7 @@ export default function AccountTab() {
             </CardHeader>
             <CardContent className="p-6">
               {isLoadingSubscription ? (
-                <div className="flex items-center justify-center p-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-                </div>
+                <GlobalLoader fullHeight={false} />
               ) : (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-6 p-6 bg-gray-800/30 border border-gray-700/30 rounded-xl">
                   <div className="space-y-3 text-center sm:text-left">
@@ -336,7 +335,7 @@ export default function AccountTab() {
                   <Button onClick={handleUpgradeToPro} variant="link" className="text-indigo-400 hover:text-indigo-300 h-auto p-0 text-xs">View Pro &rarr;</Button>
                 </div>
               ) : isLoadingApiKeys ? (
-                <div className="p-12 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-slate-700" /></div>
+                <GlobalLoader />
               ) : apiKeys.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 text-sm">No API keys generated yet.</div>
               ) : (

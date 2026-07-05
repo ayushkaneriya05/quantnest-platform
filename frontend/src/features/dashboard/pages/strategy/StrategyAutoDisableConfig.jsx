@@ -15,6 +15,7 @@ import StrategyConfigNav from './StrategyConfigNav';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 
 export default function StrategyAutoDisableConfig() {
@@ -165,7 +166,7 @@ export default function StrategyAutoDisableConfig() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-96 gap-3 flex-col">
-        <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-gray-400 text-sm">Loading auto-disable settings...</p>
       </div>
     );
@@ -292,57 +293,57 @@ export default function StrategyAutoDisableConfig() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Threshold Value</Label>
-                <Input 
-                  type="number" step="0.01"
-                  value={formData.threshold_value} 
-                  onChange={(e) => setFormData({...formData, threshold_value: parseFloat(e.target.value) || 0})}
-                  className="bg-gray-800 border-gray-700"
-                  placeholder="E.g. 10.0 for 10%"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Sample Count</Label>
-                <Input 
-                  type="number"
-                  value={formData.threshold_count} 
-                  onChange={(e) => setFormData({...formData, threshold_count: parseInt(e.target.value) || 0})}
-                  className="bg-gray-800 border-gray-700"
-                  placeholder="Min trades / Losses"
-                />
-              </div>
+            <div className="grid grid-cols-1 gap-4">
+              {formData.trigger_type === 'CONSECUTIVE_LOSSES' ? (
+                <div className="space-y-2">
+                  <Label>Number of Losing Trades</Label>
+                  <Input 
+                    type="number"
+                    value={formData.threshold_count} 
+                    onChange={(e) => setFormData({...formData, threshold_count: parseInt(e.target.value) || 0})}
+                    className="bg-gray-800 border-gray-700"
+                    placeholder="Min trades / Losses"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>
+                    {formData.trigger_type === 'WIN_RATE_DROP' ? 'Win Rate Threshold (%)' : 'Loss/Drawdown Threshold (₹ or %)'}
+                  </Label>
+                  <Input 
+                    type="number" step="0.01"
+                    value={formData.threshold_value} 
+                    onChange={(e) => setFormData({...formData, threshold_value: parseFloat(e.target.value) || 0})}
+                    className="bg-gray-800 border-gray-700"
+                    placeholder="E.g. 10.0 for 10%"
+                  />
+                </div>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Label>Cooldown Hours</Label>
-              <Input 
-                type="number"
-                value={formData.cooldown_hours} 
-                onChange={(e) => setFormData({...formData, cooldown_hours: parseInt(e.target.value) || 0})}
-                className="bg-gray-800 border-gray-700"
-                placeholder="24"
-              />
-              <p className="text-xs text-gray-500">Wait time before rule expires/resets.</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col justify-between bg-gray-800/50 p-3 rounded-lg border border-gray-700 gap-2">
+            <div className="flex flex-col justify-between bg-gray-800/50 p-3 rounded-lg border border-gray-700 gap-2">
+              <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label className="text-[13px]">Auto Re-Enable</Label>
-                  <p className="text-[10px] text-gray-500 leading-tight">Unpause strategy after cooldown automatically</p>
+                  <p className="text-[10px] text-gray-500 leading-tight">Unpause strategy automatically after cooldown</p>
                 </div>
                 <Switch checked={formData.auto_reenable} onCheckedChange={(v) => setFormData({...formData, auto_reenable: v})} />
               </div>
-              <div className="flex flex-col justify-between bg-gray-800/50 p-3 rounded-lg border border-gray-700 gap-2">
-                <div className="space-y-0.5">
-                  <Label className="text-[13px]">Manual Review</Label>
-                  <p className="text-[10px] text-gray-500 leading-tight">Require admin approval before restarting</p>
-                </div>
-                <Switch checked={formData.require_manual_review} onCheckedChange={(v) => setFormData({...formData, require_manual_review: v})} />
-              </div>
             </div>
+
+            {formData.auto_reenable && (
+              <div className="space-y-2">
+                <Label>Cooldown Hours</Label>
+                <Input 
+                  type="number"
+                  value={formData.cooldown_hours} 
+                  onChange={(e) => setFormData({...formData, cooldown_hours: parseInt(e.target.value) || 0})}
+                  className="bg-gray-800 border-gray-700"
+                  placeholder="24"
+                />
+                <p className="text-xs text-gray-500">Wait time before rule expires/resets.</p>
+              </div>
+            )}
 
             <div className="flex items-center justify-between bg-gray-800/50 p-3 rounded-lg border border-gray-700">
               <Label>Active Status</Label>

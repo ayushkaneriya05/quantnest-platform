@@ -19,6 +19,7 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import { useEnums } from '@/shared/context/EnumsContext';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 // UI metadata for each visibility value (icons, colors etc)
 const VISIBILITY_META = {
@@ -120,7 +121,7 @@ export default function StrategyPermissions() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Loading permissions...</p>
       </div>
     );

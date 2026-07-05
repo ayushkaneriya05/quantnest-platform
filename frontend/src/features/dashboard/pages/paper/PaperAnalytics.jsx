@@ -19,6 +19,7 @@ import {
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function PaperAnalytics() {
   const { notify } = useNotifications();
@@ -117,9 +118,7 @@ export default function PaperAnalytics() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
-      </div>
+      <GlobalLoader />
     );
   }
 

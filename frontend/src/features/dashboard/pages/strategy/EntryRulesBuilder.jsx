@@ -18,6 +18,7 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { customConfirm } from '@/shared/components/ui/custom-dialog';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Changed import
 import { useEnums } from '@/shared/context/EnumsContext';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 
 const PARAM_CONFIG = {
@@ -380,7 +381,7 @@ export default function EntryRulesBuilder() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Loading entry rules...</p>
       </div>
     );

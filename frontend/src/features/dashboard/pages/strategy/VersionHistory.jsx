@@ -17,7 +17,8 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import StrategySnapshotViewer from './components/StrategySnapshotViewer';
-import { customConfirm } from '@/shared/components/ui/custom-dialog';
+import { customConfirm, customPrompt } from '@/shared/components/ui/custom-dialog';
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function VersionHistory() {
   const { id } = useParams();
@@ -70,7 +71,7 @@ export default function VersionHistory() {
   };
 
   const handleCreateVersion = async () => {
-    const notes = prompt('Enter change notes for this version (optional):');
+    const notes = await customPrompt('Enter change notes for this version (optional):', '', 'Create Snapshot', 'Save Snapshot');
     if (notes === null) return; // User cancelled
     
     try {
@@ -125,7 +126,7 @@ export default function VersionHistory() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-purple-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Loading version history...</p>
       </div>
     );

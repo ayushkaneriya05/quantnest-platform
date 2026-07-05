@@ -37,6 +37,7 @@ import {
 } from "@/shared/components/ui/card";
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function SecurityTab() {
   const { user } = useSelector((state) => state.auth);
@@ -466,7 +467,7 @@ export default function SecurityTab() {
             </CardHeader>
             <CardContent className="p-0">
               {isLoadingSessions ? (
-                <div className="p-12 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-slate-700" /></div>
+                <GlobalLoader />
               ) : activeSessions.length === 0 ? (
                 <div className="p-12 text-center text-slate-500">No active sessions found. How are you even here?</div>
               ) : (

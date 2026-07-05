@@ -41,6 +41,7 @@ import { portfolioApi } from "@/shared/services/portfolioApi";
 import { strategyApi } from "@/shared/services/strategyApi";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function PaperTradingDashboard({ selectedAccountId }) {
   const { notify } = useNotifications();
@@ -238,7 +239,7 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
 
   if (loading) return (
     <div className="flex items-center justify-center py-20">
-      <RefreshCw className="h-8 w-8 animate-spin text-indigo-500" />
+      <GlobalLoader />
     </div>
   );
 

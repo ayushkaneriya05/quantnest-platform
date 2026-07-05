@@ -22,6 +22,7 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
@@ -170,7 +171,7 @@ export default function TimeRulesEditor() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-amber-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Loading time rules...</p>
       </div>
     );

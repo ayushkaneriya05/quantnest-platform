@@ -26,6 +26,7 @@ import { useEnums } from '@/shared/context/EnumsContext';
 
 
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const PARAM_CONFIG = {
   SMA: [{ key: 'period', label: 'Period', default: 14 }],
@@ -1445,7 +1446,7 @@ export default function ExitRulesBuilder() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <Loader2 className="h-8 w-8 text-rose-400 animate-spin" />
+        <GlobalLoader />
         <p className="text-sm text-gray-400">Loading exit rules...</p>
       </div>
     );

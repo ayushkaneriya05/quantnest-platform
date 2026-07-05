@@ -38,6 +38,7 @@ import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useBacktestProgress } from "@/shared/hooks/useBacktestProgress";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const STATUS_STYLES = {
   PENDING: { bg: "bg-yellow-600", text: "Pending", icon: RefreshCw },
@@ -239,7 +240,7 @@ export default function BacktestResults() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500" />
+        <GlobalLoader />
       </div>
     );
   }
@@ -258,7 +259,7 @@ export default function BacktestResults() {
           <CardContent className="py-5 px-6">
             <div className="flex items-center gap-5">
               <div className="relative">
-                <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-400 border-t-transparent" />
+                <GlobalLoader />
                 <div className="absolute inset-0 rounded-full animate-ping bg-indigo-500/10" />
               </div>
               <div className="flex-1">

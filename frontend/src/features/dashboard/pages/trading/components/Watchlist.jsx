@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo } from "react";
-import { Loader2, RefreshCw, Star, Trash2 } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Trash2, Search, X, Loader2, RefreshCw, Star } from "lucide-react";
+import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 
 import { Button } from "@/shared/components/ui/button";
@@ -92,9 +93,7 @@ function Watchlist({
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 custom-scrollbar">
         {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
-          </div>
+          <GlobalLoader fullHeight={false} />
         ) : items.length ? (
           items.map((item) => {
             const effectiveTick = getTickData(item.sym_ticker || item.symbol);

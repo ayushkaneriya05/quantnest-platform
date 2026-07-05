@@ -32,6 +32,7 @@ import {
 import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 /* ─── Helpers ─── */
 const toNumber = (val) => {
@@ -118,7 +119,7 @@ export default function EquityDrawdownCharts() {
     return (
       <div className="flex justify-center items-center h-96">
         <div className="flex flex-col items-center gap-3">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-indigo-500 border-t-transparent" />
+          <GlobalLoader />
           <p className="text-sm text-gray-500">Loading charts…</p>
         </div>
       </div>

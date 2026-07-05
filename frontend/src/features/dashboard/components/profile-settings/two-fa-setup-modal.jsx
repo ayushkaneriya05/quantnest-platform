@@ -12,6 +12,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { QrCode, Copy, CheckCircle, Loader2, AlertCircle, Download } from "lucide-react";
 import api from "@/shared/services/api";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
   const [step, setStep] = useState(1);
@@ -169,9 +170,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
           {step === 1 && (
             <>
               {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-                </div>
+                <GlobalLoader />
               ) : (
                 <>
                   <div className="flex justify-center">

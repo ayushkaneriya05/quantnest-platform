@@ -23,6 +23,7 @@ import { brokersApi } from "@/shared/services/brokersApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import LogDetailsModal from "./LogDetailsModal";
+import { GlobalLoader } from "@/shared/components/ui/global-loader";
 
 export default function BrokerLogs() {
   const { notify } = useNotifications();
@@ -147,10 +148,7 @@ export default function BrokerLogs() {
             {loading && logs.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-32 text-center">
-                  <div className="flex items-center justify-center gap-2 text-cyan-300">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    Loading logs...
-                  </div>
+                  <GlobalLoader text="Loading logs..." fullHeight={false} />
                 </TableCell>
               </TableRow>
             ) : logs.length === 0 ? (
