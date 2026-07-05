@@ -33,6 +33,7 @@ qrcode
 channels
 channels_redis
 celery
+gevent
 
 websockets
 python-dotenv

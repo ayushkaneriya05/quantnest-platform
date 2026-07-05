@@ -1,7 +1,7 @@
 /**
  * Version History - strategy version management and rollback
  */
-import { useState, useEffect, React } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";

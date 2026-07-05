@@ -31,7 +31,6 @@ import {
   CardDescription,
   CardContent,
 } from "@/shared/components/ui/card";
-import React from "react";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 export default function AccountTab() {
   const { user } = useSelector((state) => state.auth);

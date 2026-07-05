@@ -2,7 +2,7 @@
  * Asset Rules Editor - instrument selection for algo trading
  * Features: dropdown search, filter tabs, enriched watchlist, instrument detail dialog
  */
-import { useState, useEffect, useRef, useCallback, useMemo, React } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";

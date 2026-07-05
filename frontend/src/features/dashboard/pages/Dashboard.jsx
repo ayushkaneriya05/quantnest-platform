@@ -7,7 +7,7 @@ import {
 } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { TrendingUp, BarChart3, Target, Zap, ArrowRight, DollarSign, Activity, BrainCircuit } from "lucide-react";
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { analyticsSuiteApi } from "@/shared/services/analyticsSuiteApi";
 import { portfolioApi } from "@/shared/services/portfolioApi";

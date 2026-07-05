@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Briefcase, TrendingUp, User } from "lucide-react";
 
 import { usePageActions } from "@/shared/context/PageActionsContext";
