@@ -8,11 +8,9 @@ import {
   Download,
   Filter,
   Globe,
-  Loader2,
   RefreshCw,
   Search,
   Shield,
-  Trash2,
   User,
 } from "lucide-react";
 import { format } from "date-fns";

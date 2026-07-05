@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import {
   BadgeCheck,
   Building2,
-  Loader2,
   Power,
   Radio,
   RefreshCw,

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from "react";
-import { ArrowUpRight, ArrowDownRight, Trash2, Search, X, Loader2, RefreshCw, Star } from "lucide-react";
+import { Trash2, RefreshCw, Star } from "lucide-react";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 

@@ -3,7 +3,7 @@ import { cn } from "@/shared/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Badge } from "@/shared/components/ui/badge";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
-import { Activity, Clock } from "lucide-react";
+import { Activity } from "lucide-react";
 
 import OrderTicket from "./OrderTicket";
 

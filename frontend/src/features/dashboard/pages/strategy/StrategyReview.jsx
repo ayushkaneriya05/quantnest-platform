@@ -4,12 +4,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/components/ui/card";
-import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import { 
-  Check, AlertTriangle, 
-  Target, Shield, Clock, Layers, Settings, CheckCircle2, XCircle,
-  Loader2, TrendingUp
+import { AlertTriangle, 
+  Target, Shield, Clock, Layers, Settings, CheckCircle2, XCircle, TrendingUp
 } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import { strategyApi } from '@/shared/services/strategyApi';

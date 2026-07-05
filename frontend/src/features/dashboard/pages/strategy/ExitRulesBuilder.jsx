@@ -3,17 +3,15 @@
  */
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
 import { TimePicker } from "@/shared/components/ui/time-picker";
 import { Switch } from "@/shared/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { 
-  Plus, Trash2, Save, Shield, Target, TrendingDown,
-  Loader2, Sparkles, Activity
+  Plus, Trash2, Shield, Target, TrendingDown, Activity
 } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/components/ui/card";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
-import { ShieldAlert, CheckCircle2, AlertTriangle, AlertOctagon, Clock, Loader2 } from 'lucide-react';
+import { ShieldAlert, CheckCircle2, AlertTriangle, AlertOctagon, Clock } from 'lucide-react';
 import { riskApi } from '@/shared/services/portfolioApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';

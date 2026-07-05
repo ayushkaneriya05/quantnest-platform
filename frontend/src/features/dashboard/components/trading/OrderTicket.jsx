@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Calculator, AlertCircle, DollarSign, X } from "lucide-react";
+import { Calculator, AlertCircle, DollarSign } from "lucide-react";
 import api from "@/services/api";
 import { useWebSocket } from "@/hooks/useWebSocket"; // Import the WebSocket hook
 

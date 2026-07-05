@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wallet, History, PieChart, Activity } from "lucide-react";
+import { Wallet, History, PieChart } from "lucide-react";
 import PaperAllocations from "./PaperAllocations";
 import PaperTransactions from "./PaperTransactions";
 import PaperWallet from "./PaperWallet";

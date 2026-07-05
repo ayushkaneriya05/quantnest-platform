@@ -8,15 +8,9 @@ import {
   TrendingUp,
   DollarSign,
   Activity,
-  CreditCard,
-  Banknote,
-  PieChart,
-  AlertCircle,
-  CheckCircle,
   RefreshCw,
 } from "lucide-react";
-import { formatNumber, formatDateTime } from "@/shared/utils/formatters";
-import { statusTone } from "@/shared/constants/statusColors";
+import { formatNumber } from "@/shared/utils/formatters";
 
 const StatCard = ({
   icon: Icon,

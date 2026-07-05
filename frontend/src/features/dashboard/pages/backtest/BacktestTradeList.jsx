@@ -17,8 +17,6 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Clock,
-  Download,
-  FileText,
   DollarSign,
   Activity
 } from "lucide-react";

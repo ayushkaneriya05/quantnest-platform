@@ -20,7 +20,6 @@ import {
   Loader2,
   Trash2,
   Plus,
-  Shield,
 } from "lucide-react";
 import api from "@/shared/services/api";
 import { logout, logoutUser } from "@/shared/store/authSlice";

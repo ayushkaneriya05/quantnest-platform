@@ -5,7 +5,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -18,16 +17,10 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Badge } from "@/shared/components/ui/badge";
-import { Separator } from "@/shared/components/ui/separator";
 import {
-  AlertCircle,
-  TrendingUp,
-  TrendingDown,
   Edit3,
-  X,
   DollarSign,
   Clock,
-  Info,
   Loader2,
 } from "lucide-react";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";

@@ -8,7 +8,6 @@ import React, {
   useCallback,
 } from "react";
 import toast from "react-hot-toast";
-import sha1 from "crypto-js/sha1";
 import api from "@/services/api";
 
 const WebSocketContext = createContext();

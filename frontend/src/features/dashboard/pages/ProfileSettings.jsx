@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { TabsContent } from "@/shared/components/ui/tabs";
 import ProfileTab from "@/features/dashboard/components/profile-settings/profile-tab";
 import AccountTab from "@/features/dashboard/components/profile-settings/account-tab";
 import SecurityTab from "@/features/dashboard/components/profile-settings/security-tab";

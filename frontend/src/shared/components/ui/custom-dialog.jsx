@@ -10,7 +10,7 @@ import {
 } from "./dialog";
 import { Button } from "./button";
 import { Input } from "./input";
-import { AlertCircle, CheckCircle, Info, HelpCircle, AlertTriangle, Edit3 } from "lucide-react";
+import { Info, HelpCircle, AlertTriangle, Edit3 } from "lucide-react";
 
 // The underlying React Component that renders the custom dialog
 const CustomDialogComponent = ({ 

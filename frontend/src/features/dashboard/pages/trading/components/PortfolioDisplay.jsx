@@ -1,22 +1,18 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import {
   Package,
   FileText,
   DollarSign,
   BarChart3,
-  TrendingUp,
-  TrendingDown,
   XCircle,
   X,
-  RefreshCw,
   Edit2,
   Settings2,
   ArrowRightLeft,
-  AlertTriangle,
 } from "lucide-react";
 import {
   Table,
@@ -26,7 +22,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
-import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import api from "@/shared/services/api";
 import { useNotifications } from "@/shared/hooks/useNotifications";

@@ -23,7 +23,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/shared/components/ui/dialog";
 import TwoFASetupModal from "./two-fa-setup-modal";
 import api from "@/shared/services/api";

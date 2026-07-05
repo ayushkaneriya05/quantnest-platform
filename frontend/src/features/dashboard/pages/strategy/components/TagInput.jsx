@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Plus } from 'lucide-react';
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
-import { cn } from "@/shared/lib/utils";
 
 export default function TagInput({ 
   value = [], 

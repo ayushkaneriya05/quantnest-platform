@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Save, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, Save, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import {

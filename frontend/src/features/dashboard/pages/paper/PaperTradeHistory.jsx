@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 
 export default function PaperTradeHistory({ selectedAccountId }) {
   const { notify } = useNotifications();

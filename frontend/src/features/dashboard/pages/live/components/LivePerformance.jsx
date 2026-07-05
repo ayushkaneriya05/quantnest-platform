@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/components/ui/card";
-import { TrendingUp, TrendingDown, BarChart3, PieChart } from "lucide-react";
+import { TrendingUp, BarChart3 } from "lucide-react";
 import { formatNumber } from "@/shared/utils/formatters";
 
 const StatCard = ({

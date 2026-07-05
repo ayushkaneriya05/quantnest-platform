@@ -12,7 +12,6 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageActions } from "@/shared/context/PageActionsContext";
 import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
-import { useMemo } from "react";
 
 import LivePortfolioSummary from "./components/LivePortfolioSummary";
 import LivePositionsAnalysis from "./components/LivePositionsAnalysis";

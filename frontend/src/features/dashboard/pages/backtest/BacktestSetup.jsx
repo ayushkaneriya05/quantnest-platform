@@ -31,7 +31,6 @@ import {
   ChevronLeft,
   Layers,
   Clock,
-  Zap,
 } from "lucide-react";
 import { format } from "date-fns";
 import { backtestApi } from "@/shared/services/backtestApi";

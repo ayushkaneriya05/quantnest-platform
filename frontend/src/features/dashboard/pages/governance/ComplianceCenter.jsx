@@ -5,7 +5,6 @@ import {
   ArrowRight,
   CheckCircle,
   FileCheck,
-  Loader2,
   RefreshCw,
   Shield,
   ShieldAlert,
@@ -15,7 +14,6 @@ import {
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
-import { Progress } from "@/shared/components/ui/progress";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { auditApi } from "@/shared/services/auditApi";

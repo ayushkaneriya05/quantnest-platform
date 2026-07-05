@@ -5,13 +5,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/components/ui/card";
-import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import { RefreshCw } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { usePageTitle } from "@/shared/hooks/use-page-title";
-import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 
 const ORDER_STATUS_STYLES = {
   PENDING: { bg: "bg-yellow-600" },

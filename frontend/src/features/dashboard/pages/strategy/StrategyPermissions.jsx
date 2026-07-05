@@ -8,10 +8,8 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Badge } from "@/shared/components/ui/badge";
 import { Switch } from "@/shared/components/ui/switch";
-import { 
-  Save, Users, Lock, Globe, Share2, 
-  UserPlus, Trash2, Copy, ExternalLink,
-  Loader2, Eye
+import { Users, Lock, Globe, Share2, 
+  UserPlus, Trash2, Copy, ExternalLink, Eye
 } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';

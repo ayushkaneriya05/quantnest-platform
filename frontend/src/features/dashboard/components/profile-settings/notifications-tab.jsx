@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { analyticsSuiteApi } from "@/shared/services/analyticsSuiteApi";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Switch } from "@/shared/components/ui/switch";
 import { Bell, Mail } from "lucide-react";
 import { useNotifications } from "@/shared/hooks/useNotifications";

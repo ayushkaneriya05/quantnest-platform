@@ -16,7 +16,6 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/shared/components/ui/avat
 import { User, Upload, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import api from "@/shared/services/api";
 import { updateUser } from "@/shared/store/authSlice";
-import axios from "axios";
 import React from "react";
 
 export default function ProfileTab() {

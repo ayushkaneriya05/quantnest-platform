@@ -11,7 +11,6 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { 
-  Loader2, 
   RefreshCw, 
   Search, 
   Eye, 

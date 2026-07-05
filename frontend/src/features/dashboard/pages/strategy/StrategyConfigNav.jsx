@@ -7,7 +7,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import {
   Target, Shield, Clock, Layers, DollarSign, Lock,
-  History, Eye, Play, BarChart2, Pause, Archive, PowerOff
+  History, Eye, Play, BarChart2, Pause, PowerOff
 } from 'lucide-react';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';

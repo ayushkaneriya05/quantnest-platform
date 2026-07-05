@@ -1,17 +1,14 @@
 /**
  * Version History - strategy version management and rollback
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, React } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
 import { Switch } from "@/shared/components/ui/switch";
 import { Badge } from "@/shared/components/ui/badge";
-import { 
-  History, RotateCcw, Eye, Clock, 
-  Loader2, GitBranch
-} from 'lucide-react';
+import { History, RotateCcw, Eye, GitBranch } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';

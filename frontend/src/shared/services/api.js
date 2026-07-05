@@ -1,5 +1,5 @@
 import axios from "axios";
-import { tokenRefreshed, logoutUser, logout } from "../store/authSlice";
+import { tokenRefreshed, logout } from "../store/authSlice";
 import { store } from "../store/index";
 
 // Create an Axios instance

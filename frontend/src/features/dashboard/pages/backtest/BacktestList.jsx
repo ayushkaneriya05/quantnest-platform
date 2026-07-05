@@ -15,8 +15,6 @@ import {
   Plus,
   Search,
   TestTube,
-  TrendingUp,
-  TrendingDown,
   Activity,
   CheckCircle2,
   AlertCircle,

@@ -5,14 +5,13 @@ import api from "@/services/api";
 import { loginSuccess, fetchUserProfile } from "@/store/authSlice";
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { Chrome, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle, AlertCircle } from "lucide-react";
 import MainHeader from "@/components/layout/main-header";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 

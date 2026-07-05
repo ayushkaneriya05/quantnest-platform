@@ -1,15 +1,15 @@
 /**
  * Entry Rules Builder - visual rule builder for entry conditions
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { Switch } from "@/shared/components/ui/switch";
-import { Plus, Trash2, GripVertical, Activity, Target, Loader2} from 'lucide-react';
+import { Plus, Trash2, GripVertical, Activity, Target} from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';
 import { ruleGroupApi, ruleApi } from '@/shared/services/rulesApi';

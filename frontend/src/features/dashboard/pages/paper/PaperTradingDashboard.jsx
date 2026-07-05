@@ -33,8 +33,6 @@ import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { usePageTitle } from "@/shared/hooks/use-page-title";
-import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import { paperApi } from "@/shared/services/paperApi";
 import { portfolioApi } from "@/shared/services/portfolioApi";

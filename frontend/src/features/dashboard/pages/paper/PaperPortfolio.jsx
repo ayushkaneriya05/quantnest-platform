@@ -1,17 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Briefcase,
   TrendingUp,
-  Activity,
   BarChart3,
   RefreshCw,
-  Wallet,
   BookOpen,
   Terminal,
   Plus,
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
-import { Card, CardContent } from "@/shared/components/ui/card";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageActions } from "@/shared/context/PageActionsContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";

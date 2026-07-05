@@ -7,7 +7,7 @@ import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/shared/components/ui/dialog";
-import { PowerOff, Loader2, Plus, Edit2, Play, Pause, Trash2 } from 'lucide-react';
+import { PowerOff, Plus, Edit2, Play, Pause, Trash2 } from 'lucide-react';
 import { riskApi } from '@/shared/services/portfolioApi';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';

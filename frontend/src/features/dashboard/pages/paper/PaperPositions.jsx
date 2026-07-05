@@ -2,10 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import { Layers, RefreshCw, TrendingDown, TrendingUp, X } from "lucide-react";
+import { Layers, TrendingDown, TrendingUp } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 
 export default function PaperPositions({ selectedAccountId }) {
   const { notify } = useNotifications();

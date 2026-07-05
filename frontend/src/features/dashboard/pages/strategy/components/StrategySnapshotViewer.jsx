@@ -1,7 +1,6 @@
 import React from 'react';
-import { Card, CardContent } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
-import { ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2 } from 'lucide-react';
 
 export default function StrategySnapshotViewer({ snapshot, previousSnapshot }) {
   if (!snapshot) return null;

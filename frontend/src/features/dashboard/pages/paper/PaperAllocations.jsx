@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -16,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { Slider } from "@/shared/components/ui/slider";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +21,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/shared/components/ui/dialog";
-import { Plus, Trash2, Edit, PieChart, Save, RefreshCw } from "lucide-react";
+import { Trash2, Edit, RefreshCw } from "lucide-react";
 import { Switch } from "@/shared/components/ui/switch";
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { strategyApi } from "@/shared/services/strategyApi";

@@ -6,15 +6,10 @@ import {
   CardTitle,
 } from "@/shared/components/ui/card";
 import {
-  TrendingUp,
   TrendingDown,
   BarChart3,
   Calendar,
-  Loader2,
-  AlertTriangle,
   Activity,
-  ArrowUpRight,
-  ArrowDownRight,
 } from "lucide-react";
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";

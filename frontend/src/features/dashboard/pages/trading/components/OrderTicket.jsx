@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Calculator, DollarSign, Loader2, ShieldCheck, Zap } from "lucide-react";
+import { Calculator, DollarSign, Loader2, ShieldCheck, Zap } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
