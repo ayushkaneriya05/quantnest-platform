@@ -175,6 +175,7 @@ class FyersLiveFeedClient:
     def __init__(self):
         self.socket = None
         self._subscribed_symbols = set()
+        self._invalid_symbols = set()
 
     def connect(self):
         if data_ws is None:
@@ -204,16 +205,19 @@ class FyersLiveFeedClient:
             return []
 
         target_symbols = set(LiveMarketDataRegistry.refresh_from_active_accounts())
+        target_symbols -= self._invalid_symbols
         additions = target_symbols if force else target_symbols - self._subscribed_symbols
         removals = set() if force else self._subscribed_symbols - target_symbols
 
         if additions:
-            self.socket.subscribe(symbols=sorted(additions), data_type="SymbolUpdate")
-            logger.info("Subscribed live feed to %s symbol(s)", len(additions))
+            for sym in sorted(additions):
+                self.socket.subscribe(symbols=[sym], data_type="SymbolUpdate")
+            logger.info("Subscribed live feed to %s symbol(s) individually", len(additions))
 
         if removals and hasattr(self.socket, "unsubscribe"):
-            self.socket.unsubscribe(symbols=sorted(removals), data_type="SymbolUpdate")
-            logger.info("Unsubscribed live feed from %s symbol(s)", len(removals))
+            for sym in sorted(removals):
+                self.socket.unsubscribe(symbols=[sym], data_type="SymbolUpdate")
+            logger.info("Unsubscribed live feed from %s symbol(s) individually", len(removals))
 
         self._subscribed_symbols = target_symbols
         return sorted(target_symbols)
@@ -238,12 +242,18 @@ class FyersLiveFeedClient:
 
     def _on_error(self, message):
         logger.error("Fyers live websocket error: %s", message)
-        if isinstance(message, dict) and message.get("code") == -99:
-            logger.info("Refreshing Fyers websocket token after expiry")
-            try:
-                self.connect()
-            except Exception as exc:  # pragma: no cover - reconnect safety
-                logger.exception("Failed reconnecting Fyers websocket: %s", exc)
+        if isinstance(message, dict):
+            if message.get("code") == -99:
+                logger.info("Refreshing Fyers websocket token after expiry")
+                try:
+                    self.connect()
+                except Exception as exc:  # pragma: no cover - reconnect safety
+                    logger.exception("Failed reconnecting Fyers websocket: %s", exc)
+            elif message.get("code") == -300 and "invalid_symbols" in message:
+                invalid_symbols = message.get("invalid_symbols", [])
+                logger.warning("Fyers marked symbols as invalid: %s", invalid_symbols)
+                self._invalid_symbols.update(invalid_symbols)
+                self._subscribed_symbols -= set(invalid_symbols)
 
     def _on_message(self, tick):
         if not isinstance(tick, dict):

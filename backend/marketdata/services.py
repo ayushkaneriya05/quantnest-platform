@@ -471,7 +471,10 @@ class MarketDataService:
                 quote_data = response["d"][0].get("v", {})
                 if quote_data:
                     # Fyers timestamp is typically in epoch seconds
-                    dt = datetime.fromtimestamp(quote_data.get("tt", 0), tz=py_timezone.utc)
+                    tt_val = quote_data.get("tt", 0)
+                    if not tt_val:
+                        tt_val = int(timezone.now().timestamp())
+                    dt = datetime.fromtimestamp(int(tt_val), tz=py_timezone.utc)
                     return cls.cache_quote(
                         normalized,
                         {
