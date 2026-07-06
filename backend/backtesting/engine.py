@@ -203,6 +203,8 @@ class BacktestEngine:
         try:
             if datasets is None:
                 datasets = self.load_data()
+            
+            self.datasets = datasets
                 
             self.run.status = BacktestStatus.RUNNING
             self.run.started_at = timezone.now()

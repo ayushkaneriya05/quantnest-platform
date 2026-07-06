@@ -258,9 +258,9 @@ export default function BacktestResults() {
         <Card className="bg-indigo-900/10 border-indigo-800/30 overflow-hidden">
           <CardContent className="py-5 px-6">
             <div className="flex items-center gap-5">
-              <div className="relative">
-                <GlobalLoader />
-                <div className="absolute inset-0 rounded-full animate-ping bg-indigo-500/10" />
+              <div className="relative flex items-center justify-center h-12 w-12 rounded-full bg-indigo-900/40 border border-indigo-500/30">
+                <RefreshCw className="h-5 w-5 text-indigo-400 animate-spin" />
+                <div className="absolute inset-0 rounded-full animate-ping bg-indigo-500/20" />
               </div>
               <div className="flex-1">
                 <div className="flex justify-between items-end mb-2">
