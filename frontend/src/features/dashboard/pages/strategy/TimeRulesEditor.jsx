@@ -9,8 +9,9 @@ import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
 import { Badge } from "@/shared/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { Clock, Calendar, AlertTriangle
-} from 'lucide-react';
+import { Input } from "@/shared/components/ui/input";
+import { Clock, Calendar, AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { Button } from "@/shared/components/ui/button";
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';
 import { timeRuleApi, specialEventApi } from '@/shared/services/rulesApi';
@@ -46,9 +47,11 @@ export default function TimeRulesEditor() {
     candle_timeframe: '5m',
     candle_completion_rule: 'ON_CLOSE',
     timezone: 'Asia/Kolkata',
-    avoid_expiry_day: true,
     avoid_earnings: false,
     avoid_news: false,
+    avoid_rbi_policy: false,
+    custom_avoid_dates: '',
+    no_trade_windows: [],
   });
 
   useEffect(() => {
@@ -83,6 +86,7 @@ export default function TimeRulesEditor() {
           candle_timeframe: rule.candle_timeframe || '5m',
           candle_completion_rule: rule.candle_completion_rule || 'ON_CLOSE',
           timezone: rule.timezone || 'Asia/Kolkata',
+          no_trade_windows: rule.no_trade_windows || [],
         }));
       }
 
@@ -91,9 +95,10 @@ export default function TimeRulesEditor() {
         setEventFilter(ef);
         setFormData(prev => ({
           ...prev,
-          avoid_expiry_day: ef.avoid_expiry_day ?? true,
           avoid_earnings: ef.avoid_earnings ?? false,
           avoid_news: ef.avoid_news ?? false,
+          avoid_rbi_policy: ef.avoid_rbi_policy ?? false,
+          custom_avoid_dates: Array.isArray(ef.custom_avoid_dates) ? ef.custom_avoid_dates.join(', ') : (ef.custom_avoid_dates || ''),
         }));
       }
     } catch (error) {
@@ -121,11 +126,13 @@ export default function TimeRulesEditor() {
         candle_timeframe: formData.candle_timeframe,
         candle_completion_rule: formData.candle_completion_rule,
         timezone: formData.timezone,
+        no_trade_windows: formData.no_trade_windows.filter(w => w.start && w.end),
       };
       const eventPayload = {
-        avoid_expiry_day: formData.avoid_expiry_day,
         avoid_earnings: formData.avoid_earnings,
         avoid_news: formData.avoid_news,
+        avoid_rbi_policy: formData.avoid_rbi_policy,
+        custom_avoid_dates: formData.custom_avoid_dates ? formData.custom_avoid_dates.split(',').map(d => d.trim()).filter(Boolean) : [],
       };
 
       // Save time rule
@@ -151,17 +158,46 @@ export default function TimeRulesEditor() {
     }
   };
 
-  // Calculate trading window duration
   const getTradingDuration = () => {
     try {
       const [sh, sm] = formData.start_time.split(':').map(Number);
       const [eh, em] = formData.end_time.split(':').map(Number);
-      const mins = (eh * 60 + em) - (sh * 60 + sm);
+      let mins = (eh * 60 + em) - (sh * 60 + sm);
       if (mins <= 0) return null;
+      
+      // Subtract exclusion zones
+      formData.no_trade_windows.forEach(w => {
+        if (!w.start || !w.end) return;
+        const [wsh, wsm] = w.start.split(':').map(Number);
+        const [weh, wem] = w.end.split(':').map(Number);
+        const exclMins = (weh * 60 + wem) - (wsh * 60 + wsm);
+        if (exclMins > 0) mins -= exclMins;
+      });
+      
+      if (mins <= 0) return '0h';
       const hours = Math.floor(mins / 60);
       const remainMins = mins % 60;
       return `${hours}h ${remainMins > 0 ? `${remainMins}m` : ''}`.trim();
     } catch { return null; }
+  };
+  
+  const handleAddWindow = () => {
+    setFormData({
+      ...formData,
+      no_trade_windows: [...formData.no_trade_windows, { start: '', end: '' }]
+    });
+  };
+  
+  const handleUpdateWindow = (index, field, value) => {
+    const windows = [...formData.no_trade_windows];
+    windows[index] = { ...windows[index], [field]: value };
+    setFormData({ ...formData, no_trade_windows: windows });
+  };
+  
+  const handleRemoveWindow = (index) => {
+    const windows = [...formData.no_trade_windows];
+    windows.splice(index, 1);
+    setFormData({ ...formData, no_trade_windows: windows });
   };
 
   if (loading) {
@@ -328,11 +364,35 @@ export default function TimeRulesEditor() {
                 const endPercent = ((eh * 60 + em) / 1440 * 100);
                 const left = Math.max(0, Math.min(100, startPercent));
                 const width = Math.max(0, Math.min(100 - left, endPercent - startPercent));
+                
                 return (
-                  <div 
-                    className="absolute top-0 bottom-0 bg-amber-500/30 rounded-full"
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                  />
+                  <>
+                    {/* Active Window */}
+                    <div 
+                      className="absolute top-0 bottom-0 bg-amber-500/30 rounded-full"
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                    />
+                    {/* Exclusion Zones */}
+                    {formData.no_trade_windows.map((w, idx) => {
+                      if (!w.start || !w.end) return null;
+                      const [wsh, wsm] = w.start.split(':').map(Number);
+                      const [weh, wem] = w.end.split(':').map(Number);
+                      if (isNaN(wsh) || isNaN(weh)) return null;
+                      
+                      const wStartPercent = ((wsh * 60 + wsm) / 1440 * 100);
+                      const wEndPercent = ((weh * 60 + wem) / 1440 * 100);
+                      const wLeft = Math.max(0, Math.min(100, wStartPercent));
+                      const wWidth = Math.max(0, Math.min(100 - wLeft, wEndPercent - wStartPercent));
+                      
+                      return (
+                        <div 
+                          key={idx}
+                          className="absolute top-0 bottom-0 bg-red-500/80 rounded-full border-x border-gray-900 z-10"
+                          style={{ left: `${wLeft}%`, width: `${wWidth}%` }}
+                        />
+                      );
+                    })}
+                  </>
                 );
               })()}
             </div>
@@ -343,6 +403,45 @@ export default function TimeRulesEditor() {
               <span className="text-[10px] text-gray-600">18:00</span>
               <span className="text-[10px] text-gray-600">23:59</span>
             </div>
+          </div>
+          
+          {/* No Trade Windows Builder */}
+          <div className="pt-4 border-t border-gray-800/80">
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-sm text-gray-300">Exclusion Zones (No Trade Windows)</Label>
+              <Button onClick={handleAddWindow} variant="outline" size="sm" className="h-7 text-xs bg-gray-800/40 border-gray-700/80">
+                <Plus className="h-3 w-3 mr-1" /> Add Zone
+              </Button>
+            </div>
+            {formData.no_trade_windows.length === 0 ? (
+              <p className="text-xs text-gray-500 italic">No exclusion zones defined. Strategy can trade freely within active hours.</p>
+            ) : (
+              <div className="space-y-3">
+                {formData.no_trade_windows.map((w, index) => (
+                  <div key={index} className="flex items-center gap-3">
+                    <TimePicker
+                      value={w.start}
+                      onChange={(e) => handleUpdateWindow(index, 'start', e.target.value)}
+                      className="bg-gray-800/60 border-gray-700 text-white h-8 font-mono text-xs w-28"
+                    />
+                    <span className="text-gray-500 text-xs">to</span>
+                    <TimePicker
+                      value={w.end}
+                      onChange={(e) => handleUpdateWindow(index, 'end', e.target.value)}
+                      className="bg-gray-800/60 border-gray-700 text-white h-8 font-mono text-xs w-28"
+                    />
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 text-gray-500 hover:text-red-400 hover:bg-red-500/10"
+                      onClick={() => handleRemoveWindow(index)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -359,9 +458,9 @@ export default function TimeRulesEditor() {
         </CardHeader>
         <CardContent className="space-y-1">
           {[
-            { key: 'avoid_expiry_day', label: 'Expiry Days', desc: 'Skip trading on F&O expiry days' },
             { key: 'avoid_earnings', label: 'Earnings Days', desc: 'Avoid stocks with earnings announcements' },
-            { key: 'avoid_news', label: 'Major News Events', desc: 'Skip RBI policy, budget days, etc.' },
+            { key: 'avoid_news', label: 'Major News Events', desc: 'Skip budget days, macroeconomic announcements, etc.' },
+            { key: 'avoid_rbi_policy', label: 'RBI Policy Days', desc: 'Avoid trading during RBI rate announcements' },
           ].map(event => (
             <div key={event.key} className="flex items-center justify-between py-3 px-3 rounded-lg hover:bg-gray-800/30 transition-colors">
               <div>
@@ -374,6 +473,17 @@ export default function TimeRulesEditor() {
               />
             </div>
           ))}
+          
+          <div className="pt-3 px-3">
+            <Label className="text-xs text-gray-500 mb-1.5 block">Custom Avoid Dates</Label>
+            <Input 
+              value={formData.custom_avoid_dates}
+              onChange={(e) => setFormData({ ...formData, custom_avoid_dates: e.target.value })}
+              placeholder="e.g. 2024-01-26, 2024-08-15"
+              className="bg-gray-800/60 border-gray-700/80 text-sm text-white h-9"
+            />
+            <p className="text-[10px] text-gray-600 mt-1.5">Enter dates in YYYY-MM-DD format separated by commas</p>
+          </div>
         </CardContent>
       </Card>
 

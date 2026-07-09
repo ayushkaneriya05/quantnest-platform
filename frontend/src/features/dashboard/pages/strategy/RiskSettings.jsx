@@ -46,7 +46,7 @@ export default function RiskSettings() {
   
   const [formData, setFormData] = useState({
     order_type: 'MARKET',
-    entry_price_logic: 'LTP',
+    execution_style: 'LTP',
     price_offset: 0,
     quantity_type: 'CAPITAL_BASED',
     fixed_quantity: 1,
@@ -57,16 +57,15 @@ export default function RiskSettings() {
     max_open_positions: 5,
     max_daily_trades: 10,
     risk_per_trade_pct: 1,
+    loss_recovery_mode: false,
+    loss_recovery_multiplier: 1.5,
   });
 
   // Re-entry Rule
   const [reentryData, setReentryData] = useState({
     allow_reentry: false,
-    max_reentries: 2,
     reentry_cooldown_seconds: 300,
     allow_reverse_entry: false,
-    loss_recovery_mode: false,
-    loss_recovery_multiplier: 1.5,
   });
 
   useEffect(() => {
@@ -89,8 +88,7 @@ export default function RiskSettings() {
         const c = data.entry_order_config;
         setFormData(prev => ({
           ...prev,
-          order_type: c.order_type || 'MARKET',
-          entry_price_logic: c.entry_price_logic || 'LTP',
+          execution_style: c.execution_style || 'LTP',
           price_offset: c.price_offset ?? 0,
           allow_partial_entry: c.allow_partial_entry ?? false,
           entry_cooldown_seconds: c.entry_cooldown_seconds || 60,
@@ -112,6 +110,8 @@ export default function RiskSettings() {
           risk_per_trade_pct: s.risk_per_trade_percentage ?? 1,
           max_daily_trades: s.max_daily_trades ?? 10,
           max_open_positions: s.max_open_positions ?? 5,
+          loss_recovery_mode: s.loss_recovery_mode ?? false,
+          loss_recovery_multiplier: s.loss_recovery_multiplier ?? 1.5,
         }));
       }
 
@@ -121,11 +121,8 @@ export default function RiskSettings() {
         setReentryData(prev => ({
           ...prev,
           allow_reentry: r.allow_reentry ?? false,
-          max_reentries: r.max_reentries ?? 2,
           reentry_cooldown_seconds: r.reentry_cooldown_seconds ?? 300,
           allow_reverse_entry: r.allow_reverse_entry ?? false,
-          loss_recovery_mode: r.loss_recovery_mode ?? false,
-          loss_recovery_multiplier: r.loss_recovery_multiplier ?? 1.5,
         }));
       }
     } catch (error) {
@@ -141,9 +138,8 @@ export default function RiskSettings() {
       // Save entry order config
       if (strategy?.entry_order_config?.id) {
         const entryPayload = {
-          order_type: formData.order_type,
-          entry_price_logic: formData.entry_price_logic,
-          price_offset: (formData.entry_price_logic === 'OFFSET' || formData.entry_price_logic === 'AT_BREAKOUT') ? formData.price_offset : null,
+          execution_style: formData.execution_style,
+          price_offset: (formData.execution_style === 'LIMIT_OFFSET' || formData.execution_style === 'STOP_BREAKOUT') ? formData.price_offset : null,
           allow_partial_entry: formData.allow_partial_entry,
           entry_cooldown_seconds: Number.isNaN(parseInt(formData.entry_cooldown_seconds)) ? 0 : formData.entry_cooldown_seconds,
         };
@@ -155,10 +151,12 @@ export default function RiskSettings() {
         sizing_method: formData.quantity_type,
         fixed_quantity: formData.quantity_type === 'FIXED' ? formData.fixed_quantity : null,
         capital_percentage: formData.quantity_type === 'CAPITAL_BASED' ? formData.capital_percentage : null,
-        risk_per_trade_amount: formData.quantity_type === 'RISK_FIXED' ? formData.risk_amount : null,
+        risk_per_trade_amount: (formData.quantity_type === 'RISK_FIXED' || formData.quantity_type === 'VOLATILITY_ADJUSTED') ? formData.risk_amount : null,
         risk_per_trade_percentage: formData.quantity_type === 'RISK_PERCENTAGE' ? formData.risk_per_trade_pct : null,
         max_daily_trades: formData.max_daily_trades,
         max_open_positions: formData.max_open_positions,
+        loss_recovery_mode: formData.loss_recovery_mode,
+        loss_recovery_multiplier: formData.loss_recovery_mode ? (Number.isNaN(parseFloat(formData.loss_recovery_multiplier)) ? 1.0 : formData.loss_recovery_multiplier) : 1.0,
       };
 
       // Sanitize: convert NaN to 0, preserve nulls (needed to clear unused fields in DB)
@@ -178,11 +176,8 @@ export default function RiskSettings() {
       if (strategy?.reentry_rule?.id) {
         const payload = {
           allow_reentry: reentryData.allow_reentry,
-          max_reentries: reentryData.allow_reentry ? (Number.isNaN(parseInt(reentryData.max_reentries)) ? 0 : reentryData.max_reentries) : 0,
           reentry_cooldown_seconds: reentryData.allow_reentry ? (Number.isNaN(parseInt(reentryData.reentry_cooldown_seconds)) ? 0 : reentryData.reentry_cooldown_seconds) : 0,
           allow_reverse_entry: reentryData.allow_reentry ? reentryData.allow_reverse_entry : false,
-          loss_recovery_mode: reentryData.allow_reentry ? reentryData.loss_recovery_mode : false,
-          loss_recovery_multiplier: (reentryData.allow_reentry && reentryData.loss_recovery_mode) ? (Number.isNaN(parseFloat(reentryData.loss_recovery_multiplier)) ? 1.0 : reentryData.loss_recovery_multiplier) : 1.0,
         };
         await reentryRuleApi.update(strategy.reentry_rule.id, payload);
       } else {
@@ -231,32 +226,16 @@ export default function RiskSettings() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">Order Type</Label>
+              <Label className="text-xs text-gray-500">Execution Style</Label>
               <Select 
-                value={formData.order_type} 
-                onValueChange={(v) => setFormData({ ...formData, order_type: v })}
+                value={formData.execution_style} 
+                onValueChange={(v) => setFormData({ ...formData, execution_style: v })}
               >
                 <SelectTrigger className="bg-gray-800/60 border-gray-700 h-9 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(enums.OrderType || []).map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">Entry Price Logic</Label>
-              <Select 
-                value={formData.entry_price_logic} 
-                onValueChange={(v) => setFormData({ ...formData, entry_price_logic: v })}
-              >
-                <SelectTrigger className="bg-gray-800/60 border-gray-700 h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(enums.EntryPriceLogic || []).map(t => (
+                  {(enums.ExecutionStyle || []).map(t => (
                     <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -274,7 +253,7 @@ export default function RiskSettings() {
             </div>
             </div>
             
-            {(formData.entry_price_logic === 'OFFSET' || formData.entry_price_logic === 'AT_BREAKOUT') && (
+            {(formData.execution_style === 'LIMIT_OFFSET' || formData.execution_style === 'STOP_BREAKOUT') && (
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">Price Offset</Label>
               <Input
@@ -356,7 +335,7 @@ export default function RiskSettings() {
               </div>
             )}
 
-            {formData.quantity_type === 'RISK_FIXED' && (
+            {(formData.quantity_type === 'RISK_FIXED' || formData.quantity_type === 'VOLATILITY_ADJUSTED') && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-gray-500">Risk per Trade (₹)</Label>
                 <Input
@@ -365,6 +344,9 @@ export default function RiskSettings() {
                   onChange={(e) => setFormData({ ...formData, risk_amount: parseFloat(e.target.value) })}
                   className="bg-gray-800/60 border-gray-700 text-white h-9 text-sm"
                 />
+                {formData.quantity_type === 'VOLATILITY_ADJUSTED' && (
+                  <p className="text-[10px] text-gray-500">Risk amount is divided by ATR to determine size</p>
+                )}
               </div>
             )}
           </div>
@@ -397,6 +379,31 @@ export default function RiskSettings() {
               <span>5%</span>
             </div>
           </div>
+          )}
+
+          {/* Loss Recovery */}
+          <div className="flex items-center justify-between p-3 bg-gray-800/40 rounded-lg border border-gray-700/40 mt-4">
+            <div>
+              <Label className="text-sm text-gray-200">Loss Recovery Mode (Martingale)</Label>
+              <p className="text-xs text-gray-500 mt-0.5">Increase position size after a loss to recover</p>
+            </div>
+            <Switch
+              checked={formData.loss_recovery_mode}
+              onCheckedChange={(v) => setFormData({ ...formData, loss_recovery_mode: v })}
+            />
+          </div>
+          {formData.loss_recovery_mode && (
+            <div className="space-y-1.5 max-w-xs mt-2">
+              <Label className="text-xs text-gray-500">Recovery Multiplier</Label>
+              <Input
+                type="number"
+                step="0.1"
+                value={formData.loss_recovery_multiplier}
+                onChange={(e) => setFormData({ ...formData, loss_recovery_multiplier: parseFloat(e.target.value) })}
+                className="bg-gray-800/60 border-gray-700 text-white h-9 text-sm"
+              />
+              <p className="text-[10px] text-gray-600">Multiply quantity by this factor after a loss</p>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -431,15 +438,6 @@ export default function RiskSettings() {
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-gray-500">Max Re-Entries</Label>
-                  <Input
-                    type="number"
-                    value={reentryData.max_reentries}
-                    onChange={(e) => setReentryData({ ...reentryData, max_reentries: parseInt(e.target.value) })}
-                    className="bg-gray-800/60 border-gray-700 text-white h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
                   <Label className="text-xs text-gray-500">Cooldown (seconds)</Label>
                   <Input
                     type="number"
@@ -463,30 +461,6 @@ export default function RiskSettings() {
                 </div>
               </div>
 
-              {/* Loss Recovery */}
-              <div className="flex items-center justify-between p-3 bg-gray-800/40 rounded-lg border border-gray-700/40">
-                <div>
-                  <Label className="text-sm text-gray-200">Loss Recovery Mode</Label>
-                  <p className="text-xs text-gray-500 mt-0.5">Increase position size after a loss to recover</p>
-                </div>
-                <Switch
-                  checked={reentryData.loss_recovery_mode}
-                  onCheckedChange={(v) => setReentryData({ ...reentryData, loss_recovery_mode: v })}
-                />
-              </div>
-              {reentryData.loss_recovery_mode && (
-                <div className="space-y-1.5 max-w-xs">
-                  <Label className="text-xs text-gray-500">Recovery Multiplier</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={reentryData.loss_recovery_multiplier}
-                    onChange={(e) => setReentryData({ ...reentryData, loss_recovery_multiplier: parseFloat(e.target.value) })}
-                    className="bg-gray-800/60 border-gray-700 text-white h-9 text-sm"
-                  />
-                  <p className="text-[10px] text-gray-600">Multiply quantity by this factor after a loss</p>
-                </div>
-              )}
             </>
           )}
         </CardContent>

@@ -57,9 +57,9 @@ class PortfolioService:
         portfolio.current_capital = balance_before + amount
         if portfolio.initial_capital <= 0:
             portfolio.initial_capital = portfolio.current_capital
-        if portfolio.peak_value < portfolio.total_value:
-            portfolio.peak_value = portfolio.total_value
-            portfolio.peak_date = timezone.localdate()
+        if portfolio.peak_value < portfolio.current_capital:
+            portfolio.peak_value = portfolio.current_capital
+            portfolio.peak_date = timezone.now().date()
         portfolio.save()
         return FundTransaction.objects.create(
             portfolio=portfolio,
@@ -270,8 +270,8 @@ class PortfolioService:
         portfolio.unrealized_pnl = PortfolioService._portfolio_unrealized_pnl(portfolio)
         portfolio.invested_value = PortfolioService._portfolio_invested_value(portfolio)
         total_value = portfolio.total_value
-        if total_value > portfolio.peak_value:
-            portfolio.peak_value = total_value
+        if portfolio.current_capital > portfolio.peak_value:
+            portfolio.peak_value = portfolio.current_capital
             portfolio.peak_date = timezone.localdate()
         portfolio.save()
 
@@ -307,8 +307,8 @@ class PortfolioService:
         portfolio.today_trades = int(aggregate_metrics.get("today_trades") or 0)
 
         total_value = portfolio.total_value
-        if total_value > portfolio.peak_value:
-            portfolio.peak_value = total_value
+        if portfolio.current_capital > portfolio.peak_value:
+            portfolio.peak_value = portfolio.current_capital
             portfolio.peak_date = timezone.localdate()
         portfolio.save()
 

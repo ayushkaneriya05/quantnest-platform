@@ -126,6 +126,21 @@ class StrategyExecutor:
         if target_hit:
             return True, target_reason
 
+        # 4. Evaluate Custom Exit Rules
+        exit_groups = [
+            g for g in groups
+            if (g.get("group_type") == "EXIT" or g.get("rule_type") == "EXIT")
+            and g.get("is_active", True)
+        ]
+        if exit_groups:
+            operator = self.exit_config.get("exit_group_operator", "OR")
+            results = [completed_evaluator.evaluate_group(g) for g in exit_groups]
+            combined = results[0]
+            for res in results[1:]:
+                combined = (combined | res) if operator == "OR" else (combined & res)
+            if not combined.empty and bool(combined.iloc[-1]):
+                return True, "Custom Exit Rule Met"
+
         return False, None
 
     def _evaluate_group_set(self, groups, rule_type, state, last_price, live_evaluator, completed_evaluator, timestamp, operator="OR"):
@@ -383,9 +398,6 @@ class StrategyExecutor:
         if today_trades > 0:
             if not reentry.get("allow_reentry", True):
                 return False, "Re-entry not allowed"
-            # Use >= so max_reentries=0 with allow_reentry=True means 0 re-entries
-            if today_trades >= int(reentry.get("max_reentries", 2)):
-                return False, "Max re-entries reached"
 
             if last_exit and reentry.get("reentry_cooldown_seconds"):
                 if (timestamp - last_exit).total_seconds() < int(reentry["reentry_cooldown_seconds"]):
@@ -492,18 +504,12 @@ class StrategyExecutor:
 
     def resolve_entry_order(self, last_candle, execution_candle=None):
         """
-        Calculates price and order type based on EntryOrderConfig.
-
-        If the signal is generated on a completed candle and the execution
-        is happening on the next candle (ON_CLOSE mode), use the current
-        execution candle for AT_CLOSE/LTP/AT_OPEN/OFFSET pricing.
-        Breakout-based logic still uses the original signal candle.
+        Calculates price and order type based on EntryOrderConfig (ExecutionStyle).
         """
-        logic = self.entry_config.get("entry_price_logic", "AT_CLOSE")
+        style = self.entry_config.get("execution_style", "LTP")
         offset = float(self.entry_config.get("price_offset") or 0)
-        otype = self.entry_config.get("order_type", OrderType.MARKET)
 
-        if execution_candle is not None and logic in {"AT_CLOSE", "LTP", "AT_OPEN", "OFFSET"}:
+        if execution_candle is not None and style in {"LTP", "MARKET_AT_CLOSE", "LIMIT_OFFSET", "AT_OPEN"}:
             last_candle = execution_candle
 
         close = float(last_candle["close"])
@@ -513,26 +519,21 @@ class StrategyExecutor:
 
         target_price = close
         trigger_price = None
+        otype = OrderType.MARKET
 
-        if logic in ("AT_CLOSE", "LTP"):
+        if style in ("LTP", "MARKET_AT_CLOSE"):
             target_price = close + offset
-        elif logic == "AT_OPEN":
+            otype = OrderType.MARKET
+        elif style == "AT_OPEN":
             target_price = open_ + offset
-        elif logic == "ABOVE_HIGH":
-            target_price = high + offset
-        elif logic == "BELOW_LOW":
-            target_price = low - offset
-        elif logic == "AT_BREAKOUT":
-            # Breakout logic: Signal at close, but entry only if price breaks high/low of signal candle
+            otype = OrderType.MARKET
+        elif style == "LIMIT_OFFSET":
+            target_price = close + offset
+            otype = OrderType.LIMIT
+        elif style == "STOP_BREAKOUT":
             side = self.entry_config.get("entry_side", "BUY")
             target_price = (high + offset) if side == "BUY" else (low - offset)
-            otype = OrderType.STOP_LIMIT
-        elif logic == "OFFSET":
-            target_price = close + offset
-
-        if otype in {OrderType.STOP_MARKET, OrderType.STOP_LIMIT}:
             trigger_price = target_price
-            if otype == OrderType.STOP_MARKET:
-                target_price = None
+            otype = OrderType.STOP_LIMIT
 
         return otype, target_price, trigger_price

@@ -89,7 +89,7 @@ class SpecialEventFilterSerializer(serializers.ModelSerializer):
         model = SpecialEventFilter
         fields = [
             'id', 'strategy', 'avoid_earnings', 'avoid_news',
-            'avoid_expiry_day', 'avoid_rbi_policy', 'custom_avoid_dates'
+            'avoid_rbi_policy', 'custom_avoid_dates'
         ]
 
 

@@ -14,7 +14,7 @@ from .enums import (
     IndicatorType, PriceActionType, VolumeConditionType,
     ComparisonOperator, StopLossType, TargetType,
     QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
-    EntryPriceLogic, AutoDisableTriggerType,
+    ExecutionStyle, AutoDisableTriggerType,
     ViolationType, ViolationAction, Severity,
     TransactionType, RebalanceFrequency, Timezone, BacktestStatus,
     BrokerName, OptimizationMetric, OptimizableParameter
@@ -83,7 +83,7 @@ _ENUM_SOURCES = {
     'ExpiryType': ExpiryType,
 
     # Entry config
-    'EntryPriceLogic': EntryPriceLogic,
+    'ExecutionStyle': ExecutionStyle,
 
     # Risk management
     'AutoDisableTriggerType': AutoDisableTriggerType,

@@ -21,7 +21,7 @@ class EntryOrderConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = EntryOrderConfig
         fields = [
-            'id', 'strategy', 'entry_side', 'entry_group_operator', 'order_type', 'entry_price_logic', 'price_offset',
+            'id', 'strategy', 'entry_side', 'entry_group_operator', 'execution_style', 'price_offset',
             'allow_partial_entry', 'entry_cooldown_seconds'
         ]
 
@@ -36,31 +36,22 @@ class EntryOrderConfigSerializer(serializers.ModelSerializer):
 class ExitOrderConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExitOrderConfig
-        fields = ['id', 'stop_loss_group_operator', 'target_group_operator']
+        fields = ['id', 'exit_group_operator', 'stop_loss_group_operator', 'target_group_operator']
 
 
 class ReEntryRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReEntryRule
         fields = [
-            'id', 'allow_reentry', 'max_reentries', 'reentry_cooldown_seconds',
-            'allow_reverse_entry', 
-            'loss_recovery_mode', 'loss_recovery_multiplier'
+            'id', 'allow_reentry', 'reentry_cooldown_seconds',
+            'allow_reverse_entry'
         ]
 
     def validate(self, attrs):
-        allow_reentry = attrs.get('allow_reentry', getattr(self.instance, 'allow_reentry', True))
-        max_reentries = attrs.get('max_reentries', getattr(self.instance, 'max_reentries', None))
         cooldown = attrs.get('reentry_cooldown_seconds', getattr(self.instance, 'reentry_cooldown_seconds', None))
-        loss_recovery = attrs.get('loss_recovery_mode', getattr(self.instance, 'loss_recovery_mode', False))
-        multiplier = attrs.get('loss_recovery_multiplier', getattr(self.instance, 'loss_recovery_multiplier', None))
 
-        if allow_reentry and (max_reentries is None or max_reentries < 0 or max_reentries > 20):
-            raise serializers.ValidationError({'max_reentries': 'Max re-entries must be between 0 and 20.'})
         if cooldown is not None and cooldown < 0:
             raise serializers.ValidationError({'reentry_cooldown_seconds': 'Re-entry cooldown cannot be negative.'})
-        if loss_recovery and (multiplier is None or multiplier < 1 or multiplier > 3):
-            raise serializers.ValidationError({'loss_recovery_multiplier': 'Loss-recovery multiplier must be between 1 and 3.'})
         return attrs
 
 
@@ -148,6 +139,3 @@ class StrategyCreateSerializer(serializers.ModelSerializer):
         validated_data['status'] = 'DRAFT'
         strategy = Strategy.objects.create(**validated_data)
         return strategy
-
-
-

@@ -294,15 +294,15 @@ export default function StrategyAutoDisableConfig() {
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              {formData.trigger_type === 'CONSECUTIVE_LOSSES' ? (
+              {['CONSECUTIVE_LOSSES', 'CONSECUTIVE_WINS'].includes(formData.trigger_type) ? (
                 <div className="space-y-2">
-                  <Label>Number of Losing Trades</Label>
+                  <Label>{formData.trigger_type === 'CONSECUTIVE_LOSSES' ? 'Number of Losing Trades' : 'Number of Winning Trades'}</Label>
                   <Input 
                     type="number"
                     value={formData.threshold_count} 
                     onChange={(e) => setFormData({...formData, threshold_count: parseInt(e.target.value) || 0})}
                     className="bg-gray-800 border-gray-700"
-                    placeholder="Min trades / Losses"
+                    placeholder={formData.trigger_type === 'CONSECUTIVE_LOSSES' ? "Min Losses" : "Min Wins"}
                   />
                 </div>
               ) : (

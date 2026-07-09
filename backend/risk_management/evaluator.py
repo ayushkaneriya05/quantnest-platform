@@ -74,16 +74,22 @@ class RiskEvaluator:
             risk_pct = to_float(get_any_field(sizing, "risk_per_trade_percentage", 1), 1.0) / 100
             risk_amount = self.portfolio_capital * max(risk_pct, 0.0)
             quantity = int(risk_amount / self._effective_sl_distance(entry_price, sl_distance))
+        elif method == QuantityType.VOLATILITY_ADJUSTED:
+            risk_amount = to_float(get_any_field(sizing, "risk_per_trade_amount", 1000), 1000.0)
+            atr_value = to_float(self._get_stat(stats, "atr", 0.0), 0.0)
+            if atr_value > 0:
+                quantity = int(risk_amount / atr_value)
+            else:
+                quantity = 1
         else:
             logger.warning("Unsupported sizing method %s, defaulting to 1", method)
 
         # Apply Martingale / Loss Recovery Multiplier
         if stats and "consecutive_losses" in stats:
-            reentry = get_any_field(strategy_config, "reentry_rule")
-            if reentry and get_any_field(reentry, "loss_recovery_mode", False):
+            if get_any_field(sizing, "loss_recovery_mode", False):
                 consecutive_losses = int(stats["consecutive_losses"])
                 if consecutive_losses > 0:
-                    multiplier = float(get_any_field(reentry, "loss_recovery_multiplier", 1.5))
+                    multiplier = float(get_any_field(sizing, "loss_recovery_multiplier", 1.5))
                     # Quantity = Base * (Multiplier ^ ConsecutiveLosses)
                     quantity = int(quantity * (multiplier ** consecutive_losses))
 
@@ -143,7 +149,7 @@ class RiskEvaluator:
             "breached": bool(breaches),
             "action": action,
             "should_alert": bool(breaches) and bool(get_any_field(profile, "alert_on_breach", True)),
-            "should_halt": False,
+            "should_halt": bool(breaches),
             "breaches": breaches,
         }
 
@@ -187,6 +193,10 @@ class RiskEvaluator:
             current_value = self._get_stat(stats, "consecutive_losses")
             triggered = threshold_count > 0 and current_value >= threshold_count
             message = f"Consecutive losses reached {self._format_number(current_value)}"
+        elif trigger_type == AutoDisableTriggerType.CONSECUTIVE_WINS:
+            current_value = self._get_stat(stats, "consecutive_wins")
+            triggered = threshold_count > 0 and current_value >= threshold_count
+            message = f"Consecutive wins reached {self._format_number(current_value)}"
         elif trigger_type == AutoDisableTriggerType.DAILY_LOSS:
             daily_pnl = self._get_stat(stats, "daily_pnl")
             current_value = (abs(daily_pnl) / self.portfolio_capital) * 100 if daily_pnl < 0 and self.portfolio_capital > 0 else 0.0
@@ -275,6 +285,29 @@ class RiskEvaluator:
                     message=f"Daily loss limit ({self._format_number(max_loss_percentage)}%) breached",
                 )
             )
+            
+        max_profit_amount = to_float(get_any_field(risk_profile, "max_daily_profit_amount"), 0.0)
+        if max_profit_amount > 0 and daily_pnl >= max_profit_amount:
+            breaches.append(
+                self.create_violation_record_data(
+                    ViolationType.HALT_TRIGGERED,
+                    threshold_value=max_profit_amount,
+                    actual_value=daily_pnl,
+                    message=f"Daily profit limit ({self._format_number(max_profit_amount)}) reached. Trading halted."
+                )
+            )
+
+        max_profit_percentage = to_float(get_any_field(risk_profile, "max_daily_profit_percentage"), 0.0)
+        current_profit_pct = (daily_pnl / self.portfolio_capital) * 100 if daily_pnl > 0 and self.portfolio_capital > 0 else 0.0
+        if max_profit_percentage > 0 and current_profit_pct >= max_profit_percentage:
+            breaches.append(
+                self.create_violation_record_data(
+                    ViolationType.HALT_TRIGGERED,
+                    threshold_value=max_profit_percentage,
+                    actual_value=current_profit_pct,
+                    message=f"Daily profit limit ({self._format_number(max_profit_percentage)}%) reached. Trading halted."
+                )
+            )
 
         max_exposure_pct = to_float(get_any_field(risk_profile, "max_exposure_percentage", 80), 80.0)
         current_exposure_pct = (total_exposure / self.portfolio_capital) * 100 if self.portfolio_capital > 0 else 0.0
@@ -307,18 +340,6 @@ class RiskEvaluator:
                     threshold_value=max_drawdown,
                     actual_value=drawdown,
                     message=f"Portfolio drawdown limit ({self._format_number(max_drawdown)}%) breached",
-                )
-            )
-
-        consecutive_losses = self._get_stat(stats, "consecutive_losses")
-        max_consecutive_losses = to_int(self._get_stat(stats, "max_consecutive_losses"), 0)
-        if max_consecutive_losses > 0 and consecutive_losses >= max_consecutive_losses:
-            breaches.append(
-                self.create_violation_record_data(
-                    ViolationType.CONSECUTIVE_LOSS,
-                    threshold_value=max_consecutive_losses,
-                    actual_value=consecutive_losses,
-                    message=f"Consecutive loss limit ({max_consecutive_losses}) breached",
                 )
             )
 

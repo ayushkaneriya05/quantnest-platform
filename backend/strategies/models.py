@@ -7,7 +7,7 @@ from common.models import BaseTimestampModel
 from common.enums import (
     StrategyType, MarketType, Exchange, InstrumentType,
     StrategyStatus, StrategyVisibility, OrderType, QuantityType,
-    LogicalOperator, EntryPriceLogic
+    LogicalOperator, EntryPriceLogic, ExecutionStyle
 )
 
 
@@ -190,18 +190,12 @@ class EntryOrderConfig(BaseTimestampModel):
         help_text="Logic for combining multiple entry groups (e.g., Group A OR Group B)"
     )
     
-    # Order type
-    order_type = models.CharField(
+    # Execution Style
+    execution_style = models.CharField(
         max_length=20,
-        choices=OrderType.choices,
-        default=OrderType.MARKET
-    )
-    
-    # Entry price logic
-    entry_price_logic = models.CharField(
-        max_length=20,
-        choices=EntryPriceLogic.choices,
-        default=EntryPriceLogic.AT_CLOSE
+        choices=ExecutionStyle.choices,
+        default=ExecutionStyle.LTP,
+        help_text="Unified entry logic (e.g. Market at Close, Limit with Offset)"
     )
     price_offset = models.DecimalField(
         max_digits=10,
@@ -235,10 +229,6 @@ class ReEntryRule(BaseTimestampModel):
     )
     
     allow_reentry = models.BooleanField(default=True)
-    max_reentries = models.PositiveIntegerField(
-        default=2,
-        help_text="Maximum re-entries per trading session"
-    )
     reentry_cooldown_seconds = models.PositiveIntegerField(
         default=300,
         help_text="Minimum seconds before re-entry"
@@ -249,18 +239,6 @@ class ReEntryRule(BaseTimestampModel):
         default=False,
         help_text="Allow reversing position on opposite signal"
     )
-    
-    # Loss recovery (Martingale-like)
-    loss_recovery_mode = models.BooleanField(
-        default=False,
-        help_text="Increase position size after loss"
-    )
-    loss_recovery_multiplier = models.DecimalField(
-        max_digits=4,
-        decimal_places=2,
-        default=1.5,
-        help_text="Multiplier for position size after loss"
-    )
 
     def __str__(self):
         return f"{self.strategy.name} - Re-entry Rules"
@@ -268,6 +246,14 @@ class ReEntryRule(BaseTimestampModel):
 
 class ExitOrderConfig(BaseTimestampModel):
     strategy = models.OneToOneField(Strategy, on_delete=models.CASCADE, related_name='exit_order_config')
+    
+    exit_group_operator = models.CharField(
+        max_length=10,
+        choices=LogicalOperator.choices,
+        default=LogicalOperator.OR,
+        help_text="Logic for combining multiple exit rules"
+    )
+    
     # Logic for combining exit rule groups
     stop_loss_group_operator = models.CharField(
         max_length=10,

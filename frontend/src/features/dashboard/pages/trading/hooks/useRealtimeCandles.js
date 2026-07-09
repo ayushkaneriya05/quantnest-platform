@@ -314,11 +314,11 @@ export function useRealtimeCandles(symbol, interval) {
         
         nextCandle = {
           time: alignedTime,
-          open: interval === "1m" ? candleOpen : candleClose,
+          open: candleOpen,
           high: candleHigh,
           low: candleLow,
           close: candleClose,
-          volume: interval === "1m" ? normalizePrice(event.candle.volume, 0) : 0,
+          volume: normalizePrice(event.candle.volume, 0),
         };
       } else {
         const price = normalizePrice(event.price ?? event.ltp);
@@ -343,17 +343,18 @@ export function useRealtimeCandles(symbol, interval) {
       // Update the building candle logic
       const building = buildingCandleRef.current;
       if (!building || building.time !== nextCandle.time) {
-          // New candle period started
+          // New timeframe bucket — use this candle as the starting point
           buildingCandleRef.current = nextCandle;
           setRealtimeCandle(nextCandle);
       } else {
           // Update existing candle period
           const updated = {
               ...building,
+              // Keep the ORIGINAL open from when this bucket started
               high: Math.max(building.high, nextCandle.high),
               low: Math.min(building.low, nextCandle.low),
               close: nextCandle.close,
-              volume: event?.candle ? Math.max(building.volume, nextCandle.volume) : building.volume + nextCandle.volume,
+              volume: building.volume + nextCandle.volume,
           };
           buildingCandleRef.current = updated;
           setRealtimeCandle(updated);

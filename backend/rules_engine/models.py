@@ -93,10 +93,6 @@ class SpecialEventFilter(BaseTimestampModel):
         default=False,
         help_text="Avoid trading during major news events"
     )
-    avoid_expiry_day = models.BooleanField(
-        default=True,
-        help_text="Avoid trading on F&O expiry days"
-    )
     avoid_rbi_policy = models.BooleanField(
         default=False,
         help_text="Avoid trading on RBI policy days"

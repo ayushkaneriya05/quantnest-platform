@@ -50,6 +50,16 @@ class PositionSizingRule(BaseTimestampModel):
         help_text="Percentage of capital to risk per trade"
     )
     
+    # Loss Recovery (Martingale)
+    loss_recovery_mode = models.BooleanField(
+        default=False,
+        help_text="Increase position size after a loss (Martingale)"
+    )
+    loss_recovery_multiplier = models.DecimalField(
+        max_digits=5, decimal_places=2, default=2.00,
+        help_text="Multiplier for position size after a loss"
+    )
+    
     # Strategy Limits
     max_daily_trades = models.PositiveIntegerField(
         default=10,
@@ -88,6 +98,14 @@ class PortfolioRiskProfile(BaseTimestampModel):
     max_daily_loss_percentage = models.DecimalField(
         max_digits=5, decimal_places=2, default=5.00,
         help_text="Maximum daily loss as % of capital"
+    )
+    max_daily_profit_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Maximum daily profit in rupees to halt trading"
+    )
+    max_daily_profit_percentage = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        help_text="Maximum daily profit as % of capital to halt trading"
     )
     max_exposure_percentage = models.DecimalField(
         max_digits=5, decimal_places=2, default=80.00,

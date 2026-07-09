@@ -79,7 +79,7 @@ class Portfolio(BaseTimestampModel):
     def current_drawdown(self):
         if self.peak_value <= 0:
             return 0
-        return ((self.peak_value - self.total_value) / self.peak_value) * 100
+        return ((self.peak_value - self.current_capital) / self.peak_value) * 100
 
 
 class CapitalAllocation(BaseTimestampModel):

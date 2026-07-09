@@ -15,6 +15,7 @@ class PositionSizingRuleSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'strategy', 'sizing_method', 'fixed_quantity', 'capital_percentage',
             'risk_per_trade_amount', 'risk_per_trade_percentage',
+            'loss_recovery_mode', 'loss_recovery_multiplier',
             'max_daily_trades', 'max_open_positions',
         ]
 
@@ -47,6 +48,7 @@ class PortfolioRiskProfileSerializer(serializers.ModelSerializer):
         model = PortfolioRiskProfile
         fields = [
             'id', 'max_daily_loss_amount', 'max_daily_loss_percentage',
+            'max_daily_profit_amount', 'max_daily_profit_percentage',
             'max_exposure_percentage', 'max_per_instrument_exposure',
             'max_drawdown_percentage', 'alert_on_breach'
         ]

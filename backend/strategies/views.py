@@ -135,8 +135,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 defaults={
                     'entry_side': config.entry_side,
                     'entry_group_operator': config.entry_group_operator,
-                    'order_type': config.order_type,
-                    'entry_price_logic': config.entry_price_logic,
+                    'execution_style': config.execution_style,
                     'price_offset': config.price_offset,
                     'allow_partial_entry': config.allow_partial_entry,
                     'entry_cooldown_seconds': config.entry_cooldown_seconds,
@@ -149,11 +148,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 strategy=new_strategy,
                 defaults={
                     'allow_reentry': config.allow_reentry,
-                    'max_reentries': config.max_reentries,
                     'reentry_cooldown_seconds': config.reentry_cooldown_seconds,
                     'allow_reverse_entry': config.allow_reverse_entry,
-                    'loss_recovery_mode': config.loss_recovery_mode,
-                    'loss_recovery_multiplier': config.loss_recovery_multiplier,
                 }
             )
 
@@ -180,6 +176,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     'risk_per_trade_percentage': sizing.risk_per_trade_percentage,
                     'max_daily_trades': sizing.max_daily_trades,
                     'max_open_positions': sizing.max_open_positions,
+                    'loss_recovery_mode': sizing.loss_recovery_mode,
+                    'loss_recovery_multiplier': sizing.loss_recovery_multiplier,
                 }
             )
 

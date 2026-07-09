@@ -270,6 +270,16 @@ class QuantityType(models.TextChoices):
     CAPITAL_BASED = 'CAPITAL_BASED', 'Capital Based'
     RISK_FIXED = 'RISK_FIXED', 'Risk Based (Fixed Amount)'
     RISK_PERCENTAGE = 'RISK_PERCENTAGE', 'Risk Based (% of Capital)'
+    VOLATILITY_ADJUSTED = 'VOLATILITY_ADJUSTED', 'Volatility Adjusted (ATR)'
+
+
+class ExecutionStyle(models.TextChoices):
+    """Unified entry execution logic."""
+    LTP = 'LTP', 'Market (Instant)'
+    MARKET_AT_CLOSE = 'MARKET_AT_CLOSE', 'Market at Close'
+    LIMIT_OFFSET = 'LIMIT_OFFSET', 'Limit with Offset'
+    STOP_BREAKOUT = 'STOP_BREAKOUT', 'Stop at Breakout'
+    AT_OPEN = 'AT_OPEN', 'Market at Next Open'
 
 
 class CapitalAllocationType(models.TextChoices):
@@ -342,7 +352,8 @@ class EntryPriceLogic(models.TextChoices):
 
 class AutoDisableTriggerType(models.TextChoices):
     """Trigger types for strategy auto-disable."""
-    CONSECUTIVE_LOSSES = 'CONSECUTIVE_LOSSES', 'Consecutive Losing Trades'
+    CONSECUTIVE_LOSSES = 'CONSECUTIVE_LOSSES', 'Consecutive Losses'
+    CONSECUTIVE_WINS = 'CONSECUTIVE_WINS', 'Consecutive Wins'
     DAILY_LOSS = 'DAILY_LOSS', 'Daily Loss Threshold'
     WEEKLY_LOSS = 'WEEKLY_LOSS', 'Weekly Loss Threshold'
     MONTHLY_LOSS = 'MONTHLY_LOSS', 'Monthly Loss Threshold'

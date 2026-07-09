@@ -10,7 +10,7 @@ class TimeRuleAdmin(admin.ModelAdmin):
 
 @admin.register(SpecialEventFilter)
 class SpecialEventFilterAdmin(admin.ModelAdmin):
-    list_display = ['strategy', 'avoid_earnings', 'avoid_news', 'avoid_expiry_day']
+    list_display = ['strategy', 'avoid_earnings', 'avoid_news']
 
 
 class RuleInline(admin.TabularInline):

@@ -15,6 +15,8 @@ import { GlobalLoader } from '@/shared/components/ui/global-loader';
 const DEFAULT_PROFILE = {
   max_daily_loss_percentage: 5,
   max_daily_loss_amount: null,
+  max_daily_profit_percentage: null,
+  max_daily_profit_amount: null,
   max_exposure_percentage: 80,
   max_per_instrument_exposure: 10,
   max_drawdown_percentage: 15,
@@ -57,7 +59,7 @@ export default function RiskProfile() {
       const payload = { ...profile };
       Object.keys(payload).forEach((key) => {
         if (Number.isNaN(payload[key])) {
-          payload[key] = key === 'max_daily_loss_amount' ? null : 0;
+          payload[key] = (key === 'max_daily_loss_amount' || key === 'max_daily_profit_amount' || key === 'max_daily_profit_percentage') ? null : 0;
         }
       });
       await riskApi.updateProfile(payload);
@@ -134,6 +136,56 @@ export default function RiskProfile() {
                     className="bg-gray-950 border-gray-700 text-white"
                   />
                   <p className="text-xs text-gray-500">Optional fixed currency cap. Leaves empty for % based only.</p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gray-900/60 border-gray-800 shadow-lg hover:border-gray-700 transition-colors">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-white flex items-center gap-3">
+                  <div className="p-2 bg-green-500/10 rounded-lg">
+                    <DollarSign className="h-5 w-5 text-green-400" />
+                  </div>
+                  Daily Profit Target (Greed Control)
+                </CardTitle>
+                <CardDescription>Halt trading if daily profits exceed these thresholds to lock in gains.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-8">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-gray-300 font-medium">Max Daily Profit (%)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        className="w-20 bg-gray-950 border-gray-700 text-right h-8"
+                        value={profile.max_daily_profit_percentage || ''}
+                        onChange={(e) => setProfile({ ...profile, max_daily_profit_percentage: e.target.value ? Number(e.target.value) : null })}
+                        max={100}
+                        min={0}
+                      />
+                      <span className="text-gray-500 font-medium">%</span>
+                    </div>
+                  </div>
+                  <Slider
+                    value={[profile.max_daily_profit_percentage || 0]}
+                    onValueChange={(v) => setProfile({ ...profile, max_daily_profit_percentage: v[0] || null })}
+                    max={100}
+                    step={0.5}
+                    className="py-2 cursor-pointer"
+                  />
+                  <p className="text-xs text-gray-500">Optional % of capital to lock in profit.</p>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-gray-300 font-medium">Absolute Max Daily Profit (₹)</Label>
+                  <Input
+                    type="number"
+                    value={profile.max_daily_profit_amount || ''}
+                    onChange={(e) => setProfile({ ...profile, max_daily_profit_amount: e.target.value ? parseFloat(e.target.value) : null })}
+                    placeholder="e.g. 50000 (Optional)"
+                    className="bg-gray-950 border-gray-700 text-white"
+                  />
+                  <p className="text-xs text-gray-500">Optional fixed currency cap to lock in profit.</p>
                 </div>
               </CardContent>
             </Card>

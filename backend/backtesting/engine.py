@@ -892,6 +892,17 @@ class BacktestEngine:
     def _build_runtime_stats(self, candle, daily_stats, instrument, timestamp):
         state = self.instrument_states.get(instrument.id, {})
         open_pos = self.open_positions.get(instrument.id)
+        
+        atr_value = 0.0
+        if getattr(self, "rule_evaluator", None) and getattr(self.rule_evaluator, "indicator_engine", None):
+            from common.enums import IndicatorType
+            atr_series = self.rule_evaluator.indicator_engine.get_series(IndicatorType.ATR, {"period": 14})
+            if atr_series is not None and not atr_series.empty:
+                if timestamp in atr_series.index:
+                    atr_value = float(atr_series.loc[timestamp])
+                else:
+                    atr_value = float(atr_series.iloc[-1])
+                    
         return {
             "daily_pnl": daily_stats.get("pnl", 0.0),
             "daily_trades": daily_stats.get("trades", 0),
@@ -899,9 +910,8 @@ class BacktestEngine:
             "last_exit_time": state.get("last_exit_time"),
             "last_entry_time": state.get("last_entry_time"),
             "open_positions": len(self.open_positions),
-            "drawdown": self._calculate_drawdown(
-                self.current_capital + self._calculate_total_unrealized_pnl()
-            ),
+            "drawdown": self._calculate_drawdown(self.current_capital),
+            "atr": atr_value,
             "total_exposure": self._total_exposure(),
             "strategy_allocation_pct": (self._total_exposure() / self.initial_capital) * 100 if self.initial_capital else 0,
             "instrument_exposure_pct": ((float(candle["close"]) * open_pos["quantity"]) / self.initial_capital) * 100 if open_pos and self.initial_capital else 0,
