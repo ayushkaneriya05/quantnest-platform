@@ -451,14 +451,6 @@ class StrategyExecutor:
             if timestamp.date().isoformat() in custom_dates:
                 return True
 
-            if special.get("avoid_expiry_day"):
-                # Use the configurable expiry weekday.  Defaults to Thursday
-                # (weekday 3) for NSE weekly/monthly contracts, but can be
-                # overridden per instrument (e.g., Wednesday for Bank Nifty
-                # since SEBI changed Bank Nifty expiry in Oct 2023).
-                expiry_weekday = int(special.get("expiry_weekday", 3))
-                if timestamp.weekday() == expiry_weekday:
-                    return True
 
             active_events = special.get("active_events_today", [])
             if not active_events:

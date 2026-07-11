@@ -194,7 +194,7 @@ class MarketDataService:
     }
     # Reduced from 6 hours to 10 seconds to prevent massive Redis
     # memory leaks from storing millions of quotes for inactive symbols.
-    QUOTE_CACHE_TIMEOUT_SECONDS = 10
+    QUOTE_CACHE_TIMEOUT_SECONDS = 60
 
 
     @classmethod
@@ -421,7 +421,7 @@ class MarketDataService:
     def latest_quote_from_storage(cls, symbol, timeframe="1m"):
         latest_candle = CandleRepository.latest_candle(symbol, timeframe=timeframe)
         if latest_candle is None:
-            return cls.get_live_quote_from_fyers(symbol)
+            return None
             
         change = 0.0
         change_percent = 0.0
@@ -479,10 +479,18 @@ class MarketDataService:
                         normalized,
                         {
                             "price": float(quote_data.get("lp", 0)),
+                            
+                            # Backward compatibility keys
                             "open": float(quote_data.get("open_price", 0)),
                             "high": float(quote_data.get("high_price", 0)),
                             "low": float(quote_data.get("low_price", 0)),
-                            "close": float(quote_data.get("lp", 0)), # Fyers v3 quote doesn't strictly have current candle close, we use lp
+                            "close": float(quote_data.get("prev_close_price", 0)),
+                            
+                            # New, perfectly accurate daily keys
+                            "day_open": float(quote_data.get("open_price", 0)),
+                            "day_high": float(quote_data.get("high_price", 0)),
+                            "day_low": float(quote_data.get("low_price", 0)),
+                            "prev_close": float(quote_data.get("prev_close_price", 0)),
                             "volume": int(quote_data.get("volume", 0)),
                             "timestamp": dt.isoformat(),
                             "resolution": "1m",
@@ -508,12 +516,24 @@ class FyersHistoricalDataService:
         resolution = MarketDataService.normalize_timeframe(timeframe)
         api_resolution = MarketDataService.RESOLUTION_TO_FYERS.get(resolution, resolution)
 
+        def _to_epoch(val):
+            if isinstance(val, (int, float)):
+                return str(int(val))
+            val_str = str(val)
+            if "T" in val_str or ":" in val_str:
+                dt = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
+                return str(int(dt.timestamp()))
+            if "-" in val_str:
+                dt = datetime.strptime(val_str, "%Y-%m-%d")
+                return str(int(dt.replace(tzinfo=py_timezone.utc).timestamp()))
+            return val_str
+
         params = {
             "symbol": MarketDataService.normalize_symbol(symbol),
             "resolution": api_resolution,
-            "date_format": "1",
-            "range_from": date_from,
-            "range_to": date_to,
+            "date_format": "0",
+            "range_from": _to_epoch(date_from),
+            "range_to": _to_epoch(date_to),
             "cont_flag": "0",
         }
 
@@ -524,6 +544,10 @@ class FyersHistoricalDataService:
         except Exception as exc:
             logger.exception("Exception while fetching candles for %s: %s", symbol, exc)
             return None
+
+        if data.get("s") == "no_data":
+            # Expected behavior when fetching data during off-hours or gaps
+            return []
 
         if data.get("s") != "ok":
             logger.error("Fyers API Error for %s: %s", symbol, data)
@@ -556,7 +580,7 @@ class HistoricalCandleService:
     MAX_LIMIT = 1000
     DEFAULT_LIMIT = 240
     MAX_SYNC_FETCH_DAYS = 120
-    FETCH_LOCK_TTL_SECONDS = 60 * 15
+    FETCH_LOCK_TTL_SECONDS = 1
     TRADING_MINUTES_PER_DAY = 375
     TIMEFRAME_MINUTES = {
         "1m": 1,
@@ -586,7 +610,9 @@ class HistoricalCandleService:
         timeframe = MarketDataService.normalize_timeframe(resolution)
         limit = cls._normalize_limit(limit)
         end_dt = cls._coerce_before(before)
+        print("end_dt----------->", end_dt)
         start_dt = end_dt - timedelta(days=cls._lookback_days(timeframe, limit))
+        print("start_dt----------->", start_dt)
 
         candles = cls.list_candles(
             symbol=normalized,
@@ -600,7 +626,9 @@ class HistoricalCandleService:
 
         if cls._should_fetch(candles, limit, end_dt):
             fetch_attempted = True
+            print("fetch_attempted----------->", fetch_attempted)
             fetched_count = cls._fetch_missing_window(normalized, timeframe, start_dt, end_dt)
+            print("fetched_count----------->", fetched_count)
             if fetched_count:
                 candles = cls.list_candles(
                     symbol=normalized,
@@ -684,7 +712,7 @@ class HistoricalCandleService:
             
         if end_dt:
             latest_time = max(c["time"] for c in candles)
-            if (end_dt.timestamp() - latest_time) > 900:  # 15 minutes
+            if (end_dt.timestamp() - latest_time) > 1:  # 1 second tolerance
                 return True
                 
         return False
@@ -706,7 +734,9 @@ class HistoricalCandleService:
         cache.set(lock_key, True, timeout=cls.FETCH_LOCK_TTL_SECONDS)
         fetched_total = 0
         chunk_start = start_dt.date()
+        print("chunk_start----------->", chunk_start)
         end_date = end_dt.date()
+        print("end_date----------->", end_date)
         lookback_days = max(1, (end_date - chunk_start).days + 1)
         chunk_days = 90
 
@@ -857,71 +887,3 @@ class FyersDataService:
             return timezone.make_aware(base, py_timezone.utc)
         raise TypeError(f"Unsupported date value: {value!r}")
 
-
-class TickCandleAggregator:
-    _states = {}
-
-    @classmethod
-    def process_tick(cls, symbol, tick):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        traded_at = tick.get("timestamp")
-        if isinstance(traded_at, str):
-            try:
-                traded_at = datetime.fromisoformat(traded_at.replace("Z", "+00:00"))
-            except ValueError:
-                traded_at = None
-        if traded_at is None:
-            traded_at = timezone.now()
-        if timezone.is_naive(traded_at):
-            traded_at = timezone.make_aware(traded_at, py_timezone.utc)
-
-        bucket_time = MarketDataService.align_time(traded_at, "minute", 1)
-        raw_price = tick.get("price") or tick.get("ltp")
-        if raw_price in (None, "", 0, "0"):
-            return None, None
-        try:
-            price = float(raw_price)
-        except (TypeError, ValueError):
-            return None, None
-        if price <= 0:
-            return None, None
-        volume = int(tick.get("last_traded_qty") or 0)
-        state = cls._states.get(normalized)
-
-        finalized = None
-        if state and state.time < bucket_time:
-            finalized = state
-            CandleRepository.upsert_candles(
-                normalized,
-                "1m",
-                [
-                    {
-                        "time": finalized.time,
-                        "open": finalized.open,
-                        "high": finalized.high,
-                        "low": finalized.low,
-                        "close": finalized.close,
-                        "volume": finalized.volume,
-                    }
-                ],
-            )
-
-        if state is None or state.time < bucket_time:
-            state = CandleState(
-                symbol=normalized,
-                timeframe="1m",
-                time=bucket_time,
-                open=price,
-                high=price,
-                low=price,
-                close=price,
-                volume=volume,
-            )
-        else:
-            state.high = max(state.high, price)
-            state.low = min(state.low, price)
-            state.close = price
-            state.volume += volume
-
-        cls._states[normalized] = state
-        return finalized, state

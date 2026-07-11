@@ -18,7 +18,6 @@ import api from "../services/api";
 const socketRef = { current: null };
 const reconnectTimerRef = { current: null };
 const reconnectAttemptsRef = { current: 0 };
-const maxReconnectAttemptsRef = { current: 5 };
 const intentionalCloseRef = { current: false };
 const subscriptionCallbacks = new Map();
 const subscriptionRefCounts = new Map();
@@ -44,11 +43,13 @@ export function useWebSocket() {
     positionUpdates,
     subscriptions,
     reconnectAttempts,
-    maxReconnectAttempts,
   } = useSelector((state) => state.websocket);
 
   reconnectAttemptsRef.current = reconnectAttempts;
-  maxReconnectAttemptsRef.current = maxReconnectAttempts;
+
+  const pingIntervalRef = useRef(null);
+  const pongTimeoutRef = useRef(null);
+  const lastTickUpdateRef = useRef({});
 
   const tickDataRef = useRef(tickData);
   useEffect(() => {
@@ -98,7 +99,11 @@ export function useWebSocket() {
       const symbol = normalizeSymbol(fullSymbol);
       if (!symbol) return;
 
-      dispatch(updateTickData({ symbol, data: tick }));
+      const now = Date.now();
+      if (!lastTickUpdateRef.current[symbol] || now - lastTickUpdateRef.current[symbol] > 200) {
+        lastTickUpdateRef.current[symbol] = now;
+        dispatch(updateTickData({ symbol, data: tick }));
+      }
       notifySymbolSubscribers(fullSymbol, tick);
     },
     [dispatch, notifySymbolSubscribers]
@@ -147,6 +152,16 @@ export function useWebSocket() {
           reconnectTimerRef.current = null;
         }
 
+        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = setInterval(() => {
+          sendMessage({ type: "ping" });
+          pongTimeoutRef.current = setTimeout(() => {
+            if (socketRef.current) {
+              socketRef.current.close(4000, "Ping timeout");
+            }
+          }, 5000);
+        }, 25000);
+
         subscriptionRefCounts.forEach((count, normalizedSymbol) => {
           if (count > 0) {
             const exactSymbol = originalSymbolMap.get(normalizedSymbol) || `NSE:${normalizedSymbol}-EQ`;
@@ -158,9 +173,13 @@ export function useWebSocket() {
       socketRef.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          dispatch(setLastMessage(data));
 
-          if (data.type === "tick") {
+          if (data.type === "pong") {
+            if (pongTimeoutRef.current) {
+              clearTimeout(pongTimeoutRef.current);
+              pongTimeoutRef.current = null;
+            }
+          } else if (data.type === "tick") {
             handleTickData(data);
           } else if (data.type === "candle.update" || data.type === "candle.closed") {
             notifySymbolSubscribers(data.symbol, data);
@@ -178,17 +197,21 @@ export function useWebSocket() {
         dispatch(setConnected(false));
         dispatch(setConnectionStatus("disconnected"));
 
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
+        if (pongTimeoutRef.current) {
+          clearTimeout(pongTimeoutRef.current);
+          pongTimeoutRef.current = null;
+        }
+
         if (!intentionalCloseRef.current && mountedConsumers > 0) {
           const attempts = reconnectAttemptsRef.current;
-          const maxAttempts = maxReconnectAttemptsRef.current;
 
-          if (attempts < maxAttempts) {
-            dispatch(incrementReconnectAttempts());
-            const delay = Math.min(1000 * 2 ** attempts, 30000);
-            reconnectTimerRef.current = setTimeout(connect, delay);
-          } else {
-            toast.error("Could not connect to live data.", { duration: 4000 });
-          }
+          dispatch(incrementReconnectAttempts());
+          const delay = Math.min(1000 * 1.5 ** attempts, 30000);
+          reconnectTimerRef.current = setTimeout(connect, delay);
         }
       };
 
@@ -214,6 +237,14 @@ export function useWebSocket() {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
+    }
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    if (pongTimeoutRef.current) {
+      clearTimeout(pongTimeoutRef.current);
+      pongTimeoutRef.current = null;
     }
     if (socketRef.current) {
       socketRef.current.close(1000, "Manual disconnect");

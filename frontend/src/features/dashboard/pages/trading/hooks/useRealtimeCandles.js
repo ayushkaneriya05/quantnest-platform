@@ -143,6 +143,9 @@ export function useRealtimeCandles(symbol, interval) {
   // Track the current building realtime candle so we can update its OHLC correctly
   const buildingCandleRef = useRef(null);
 
+  const pendingRealtimeCandle = useRef(null);
+  const rafId = useRef(null);
+
   const loadCandles = useCallback(async () => {
     activeAbortRef.current?.abort();
     olderAbortRef.current?.abort();
@@ -342,13 +345,14 @@ export function useRealtimeCandles(symbol, interval) {
 
       // Update the building candle logic
       const building = buildingCandleRef.current;
+      let finalCandle;
       if (!building || building.time !== nextCandle.time) {
           // New timeframe bucket — use this candle as the starting point
           buildingCandleRef.current = nextCandle;
-          setRealtimeCandle(nextCandle);
+          finalCandle = nextCandle;
       } else {
           // Update existing candle period
-          const updated = {
+          finalCandle = {
               ...building,
               // Keep the ORIGINAL open from when this bucket started
               high: Math.max(building.high, nextCandle.high),
@@ -356,12 +360,25 @@ export function useRealtimeCandles(symbol, interval) {
               close: nextCandle.close,
               volume: building.volume + nextCandle.volume,
           };
-          buildingCandleRef.current = updated;
-          setRealtimeCandle(updated);
+          buildingCandleRef.current = finalCandle;
+      }
+
+      pendingRealtimeCandle.current = finalCandle;
+      if (rafId.current === null) {
+        rafId.current = requestAnimationFrame(() => {
+          setRealtimeCandle(pendingRealtimeCandle.current);
+          rafId.current = null;
+        });
       }
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (rafId.current !== null) {
+        cancelAnimationFrame(rafId.current);
+        rafId.current = null;
+      }
+    };
   }, [interval, isConnected, subscribe, symbol]);
 
   useEffect(() => {

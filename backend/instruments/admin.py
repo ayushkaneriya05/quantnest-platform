@@ -14,3 +14,5 @@ class InstrumentAdmin(admin.ModelAdmin):
 class WatchlistInstrumentAdmin(admin.ModelAdmin):
     list_display = ['strategy', 'instrument', 'created_at']
     list_filter = ['strategy']
+    autocomplete_fields = ['instrument', 'strategy']
+    search_fields = ['instrument__sym_ticker', 'strategy__name']

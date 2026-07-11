@@ -49,6 +49,11 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
             message_type = data.get("type")
+            
+            if message_type == "ping":
+                await self.send(json.dumps({"type": "pong"}))
+                return
+
             instrument = data.get("instrument")
             if not instrument:
                 return

@@ -73,6 +73,10 @@ class PositionDetailView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         account = TradingAccountService.get_or_create_account(self.request.user)
         return Position.objects.filter(account=account)
+        
+    def perform_update(self, serializer):
+        position = serializer.save()
+        TradingOrderService.sync_position_sl_tp_orders(position)
 
 class OrderView(generics.ListCreateAPIView):
     serializer_class = OrderSerializer
@@ -99,6 +103,7 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def perform_update(self, serializer):
         order = serializer.save()
+        TradingOrderService.sync_order_to_position(order)
 
     def perform_destroy(self, instance):
         TradingOrderService.cancel_order(instance)

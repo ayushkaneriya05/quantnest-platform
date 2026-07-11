@@ -342,6 +342,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "risk_management.check_and_reenable_strategies",
         "schedule": 5 * 60,
     },
+    "fetch-live-candles-every-1-min": {
+        "task": "marketdata.fetch_live_candles_from_broker",
+        "schedule": crontab(minute="*"),
+    },
+    "marketdata-reconcile-daily-market-data": {
+        "task": "marketdata.reconcile_daily_market_data",
+        "schedule": crontab(hour=23, minute=55),
+    },
 }
 
 

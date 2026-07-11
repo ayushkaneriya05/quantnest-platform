@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from django.conf import settings
 from django.core.cache import cache
 
-from .services import TickCandleAggregator
 from .streaming import MarketDataStreamer
 from .utils import get_active_fyers_access_token
 from .candle_engine import LiveCandleStore
@@ -168,7 +167,17 @@ class LiveMarketDataRegistry:
                 if watch.instrument and watch.instrument.sym_ticker:
                     tracked.add(watch.instrument.sym_ticker)
 
-        return cls.set_symbols(tracked)
+        if not tracked:
+            return cls.set_symbols([])
+
+        from instruments.models import Instrument
+        active_tracked = Instrument.objects.filter(
+            sym_ticker__in=tracked,
+            is_active=True,
+            is_tradeable=True
+        ).values_list('sym_ticker', flat=True)
+
+        return cls.set_symbols(list(active_tracked))
 
 
 class FyersLiveFeedClient:
@@ -276,10 +285,18 @@ class FyersLiveFeedClient:
 
         quote = {
             "price": ltp,
+            
+            # Backward compatibility for existing backend engines and frontend components
             "open": tick.get("open_price"),
             "high": tick.get("high_price"),
             "low": tick.get("low_price"),
             "close": tick.get("prev_close_price"),
+            
+            # New, accurate Fyers Daily keys
+            "day_open": tick.get("open_price"),
+            "day_high": tick.get("high_price"),
+            "day_low": tick.get("low_price"),
+            "prev_close": tick.get("prev_close_price"),
             "change": tick.get("ch"),
             "change_percent": tick.get("chp"),
             "volume": tick.get("vol_traded_today"),
@@ -288,32 +305,22 @@ class FyersLiveFeedClient:
             "timestamp": traded_at_dt.isoformat(),
         }
         MarketDataStreamer.update_quote(symbol, quote)
-        finalized_candle, active_candle = TickCandleAggregator.process_tick(symbol, quote)
-        serialized_active = None
-        if active_candle:
-            from marketdata.services import MarketDataService
-            serialized_active = MarketDataService.serialize_candle_state(active_candle)
-            LiveCandleStore.update_buffer(symbol, "1m", serialized_active)
-            
-            # Real-time 1D candle update using broker's native Daily OHLCV from the tick
-            daily_time = MarketDataService.align_time(traded_at_dt, "day", 1)
-            serialized_daily = {
-                "time": int(daily_time.timestamp()),
-                "open": float(quote["open"] if quote["open"] else quote["price"]),
-                "high": float(quote["high"] if quote["high"] else quote["price"]),
-                "low": float(quote["low"] if quote["low"] else quote["price"]),
-                "close": float(quote["price"]),
-                "volume": int(quote["volume"] or 0),
-            }
-            LiveCandleStore.update_buffer(symbol, "1D", serialized_daily)
-            
-            MarketDataStreamer.publish_candle_update(symbol, active_candle)
-        if finalized_candle:
-            MarketDataStreamer.publish_candle_update(symbol, finalized_candle, event_type="candle.closed")
+        
+        # Real-time 1D candle update using broker's native Daily OHLCV from the tick
+        from marketdata.services import MarketDataService
+        daily_time = MarketDataService.align_time(traded_at_dt, "day", 1)
+        serialized_daily = {
+            "time": int(daily_time.timestamp()),
+            "open": float(quote["day_open"] if quote["day_open"] else quote["price"]),
+            "high": float(quote["day_high"] if quote["day_high"] else quote["price"]),
+            "low": float(quote["day_low"] if quote["day_low"] else quote["price"]),
+            "close": float(quote["price"]),
+            "volume": int(quote["volume"] or 0),
+        }
+        LiveCandleStore.update_buffer(symbol, "1D", serialized_daily)
 
         try:
             from .tasks import process_market_event
-
-            process_market_event.delay(symbol, quote, candle_state=serialized_active)
+            process_market_event.delay(symbol, quote, candle_state=None)
         except Exception as exc:
             logger.exception("Failed dispatching downstream market event for %s: %s", symbol, exc)

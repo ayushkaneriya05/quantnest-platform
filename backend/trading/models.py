@@ -69,6 +69,12 @@ class Order(models.Model):
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     trigger_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    # OCO (One Cancels Other) & Position Linking fields
+    is_oco = models.BooleanField(default=False)
+    oco_linked_order = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='linked_to')
+    position_link = models.ForeignKey(Position, null=True, blank=True, on_delete=models.SET_NULL, related_name='exit_orders')
+    
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     executed_at = models.DateTimeField(null=True, blank=True)
 

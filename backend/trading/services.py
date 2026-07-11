@@ -131,6 +131,11 @@ class TradingOrderService:
 
         symbol = instrument.sym_ticker or instrument.symbol
         quote = MarketDataStreamer.get_cached_quote(symbol)
+        
+        if not quote:
+            # Fallback to live API, then DB storage
+            quote = MarketDataStreamer.poll_latest_candle_quote(symbol)
+
         price = quote.get("price") if quote else None
         if price in (None, "", 0, "0"):
             raise ValidationError("Live quote is unavailable. Market order was not placed.")
@@ -223,6 +228,8 @@ class TradingOrderService:
             account.realized_pnl += pnl
 
         if new_quantity == 0:
+            position.quantity = 0
+            cls.sync_position_sl_tp_orders(position)
             if position.pk:
                 position.delete()
         else:
@@ -246,6 +253,12 @@ class TradingOrderService:
         order.executed_at = timezone.now()
         order.price = fill_price # Store the actual fill price
         order.save()
+        
+        # Handle OCO Cancellation
+        if order.is_oco and order.oco_linked_order_id:
+            linked_order = Order.objects.filter(pk=order.oco_linked_order_id, status="OPEN").first()
+            if linked_order:
+                cls.cancel_order(linked_order)
 
         # Create Trade History
         TradeHistory.objects.create(
@@ -258,20 +271,29 @@ class TradingOrderService:
         order_status_changed.send(sender=cls, order=order)
         position_changed.send(sender=cls, position=position if new_quantity != 0 else None, user_id=account.user.id)
         
+        # Dynamically sync the Position's SL/TP exit orders based on the new quantity (if not already handled by deletion)
+        if new_quantity != 0:
+            cls.sync_position_sl_tp_orders(position)
+        
         return order
 
     @classmethod
     def process_matching_engine(cls, symbol, tick_data):
         """
-        1. Check OPEN orders for this symbol and fill them if price conditions met.
-        2. Check active Positions for this symbol and trigger SL/TP if hit.
+        Process matching engine logic for a given symbol and tick data.
         """
+        # Gate: Never execute orders when the market is closed.
+        # Stale ticks from broker WebSockets can arrive on weekends/holidays.
+        from marketdata.services import MarketStatusService
+        if not MarketStatusService.is_market_open():
+            return
+
         raw_price = tick_data.get("price")
         if raw_price in (None, "", 0, "0"):
             return
         ltp = Decimal(str(raw_price))
         
-        # --- 1. Process Open Orders ---
+        # --- Process Open Orders ---
         open_orders = Order.objects.filter(
             instrument__sym_ticker=symbol,
             status="OPEN"
@@ -296,60 +318,148 @@ class TradingOrderService:
                     should_fill = True
 
             elif order.order_type == "STOP_LIMIT":
-                if order.transaction_type == "BUY" and ltp >= order.trigger_price and ltp <= order.price:
-                    should_fill = True
-                elif order.transaction_type == "SELL" and ltp <= order.trigger_price and ltp >= order.price:
-                    should_fill = True
+                if order.transaction_type == "BUY" and ltp >= order.trigger_price:
+                    order.order_type = "LIMIT"
+                    order.trigger_price = None
+                    order.save(update_fields=["order_type", "trigger_price"])
+                    if ltp <= order.price:
+                        should_fill = True
+                elif order.transaction_type == "SELL" and ltp <= order.trigger_price:
+                    order.order_type = "LIMIT"
+                    order.trigger_price = None
+                    order.save(update_fields=["order_type", "trigger_price"])
+                    if ltp >= order.price:
+                        should_fill = True
 
             if should_fill:
                 cls.execute_order(order, ltp)
 
-        # --- 2. Process Active Positions (SL/TP) ---
-        active_positions = Position.objects.filter(
-            instrument__sym_ticker=symbol
-        ).select_related("account", "instrument")
-
-        for position in active_positions:
-            should_exit = False
-            exit_type = "" # For logging/debug if needed
-
-            qty = position.quantity
-            if qty == 0: continue
-
-            # SL/TP Logic
-            if qty > 0: # LONG
-                if position.stop_loss and ltp <= position.stop_loss:
-                    should_exit = True
-                    exit_type = "STOP_LOSS"
-                elif position.take_profit and ltp >= position.take_profit:
-                    should_exit = True
-                    exit_type = "TAKE_PROFIT"
-            else: # SHORT
-                if position.stop_loss and ltp >= position.stop_loss:
-                    should_exit = True
-                    exit_type = "STOP_LOSS"
-                elif position.take_profit and ltp <= position.take_profit:
-                    should_exit = True
-                    exit_type = "TAKE_PROFIT"
-
-            if should_exit:
-                # Create a MARKET order to close the position
-                exit_order = Order.objects.create(
-                    account=position.account,
-                    instrument=position.instrument,
-                    order_type="MARKET",
-                    status="OPEN",
-                    transaction_type="SELL" if qty > 0 else "BUY",
-                    quantity=abs(qty)
-                )
-                cls.execute_order(exit_order, ltp)
 
     @staticmethod
     def cancel_order(order):
         order.status = "CANCELLED"
         order.save(update_fields=["status"])
+        
+        # Bidirectional Sync: If a user manually cancels an SL/TP exit order, clear it from the position
+        if order.position_link_id:
+            position = order.position_link
+            if order.order_type == "STOP":
+                position.stop_loss = None
+            elif order.order_type == "LIMIT":
+                position.take_profit = None
+            position.save(update_fields=["stop_loss", "take_profit"])
+            
         order_status_changed.send(sender=TradingOrderService, order=order)
         return order
+        
+    @classmethod
+    def sync_position_sl_tp_orders(cls, position):
+        """
+        Synchronizes Position SL/TP fields to real pending OCO (One Cancels Other) orders.
+        """
+        qty = position.quantity
+        account = position.account
+        instrument = position.instrument
+        
+        # 1. Fetch existing exit orders linked to this position
+        existing_orders = list(Order.objects.filter(position_link=position, status="OPEN"))
+        
+        if qty == 0:
+            # Position closed: Cancel all pending exit orders
+            for order in existing_orders:
+                cls.cancel_order(order)
+            return
+            
+        exit_transaction_type = "SELL" if qty > 0 else "BUY"
+        exit_quantity = abs(qty)
+        
+        # Find existing STOP and LIMIT
+        stop_order = next((o for o in existing_orders if o.order_type == "STOP"), None)
+        limit_order = next((o for o in existing_orders if o.order_type == "LIMIT"), None)
+        
+        # Process Stop Loss
+        if position.stop_loss:
+            if stop_order:
+                if stop_order.trigger_price != position.stop_loss or stop_order.quantity != exit_quantity or stop_order.transaction_type != exit_transaction_type:
+                    stop_order.trigger_price = position.stop_loss
+                    stop_order.quantity = exit_quantity
+                    stop_order.transaction_type = exit_transaction_type
+                    stop_order.save(update_fields=["trigger_price", "quantity", "transaction_type"])
+            else:
+                stop_order = Order.objects.create(
+                    account=account,
+                    instrument=instrument,
+                    order_type="STOP",
+                    status="OPEN",
+                    transaction_type=exit_transaction_type,
+                    quantity=exit_quantity,
+                    trigger_price=position.stop_loss,
+                    position_link=position,
+                    is_oco=True if position.take_profit else False
+                )
+        elif stop_order:
+            cls.cancel_order(stop_order)
+            stop_order = None
+            
+        # Process Take Profit
+        if position.take_profit:
+            if limit_order:
+                if limit_order.price != position.take_profit or limit_order.quantity != exit_quantity or limit_order.transaction_type != exit_transaction_type:
+                    limit_order.price = position.take_profit
+                    limit_order.quantity = exit_quantity
+                    limit_order.transaction_type = exit_transaction_type
+                    limit_order.save(update_fields=["price", "quantity", "transaction_type"])
+            else:
+                limit_order = Order.objects.create(
+                    account=account,
+                    instrument=instrument,
+                    order_type="LIMIT",
+                    status="OPEN",
+                    transaction_type=exit_transaction_type,
+                    quantity=exit_quantity,
+                    price=position.take_profit,
+                    position_link=position,
+                    is_oco=True if position.stop_loss else False
+                )
+        elif limit_order:
+            cls.cancel_order(limit_order)
+            limit_order = None
+            
+        # Secure OCO Links
+        if stop_order and limit_order:
+            if stop_order.oco_linked_order_id != limit_order.id:
+                stop_order.oco_linked_order = limit_order
+                stop_order.is_oco = True
+                stop_order.save(update_fields=["oco_linked_order", "is_oco"])
+            if limit_order.oco_linked_order_id != stop_order.id:
+                limit_order.oco_linked_order = stop_order
+                limit_order.is_oco = True
+                limit_order.save(update_fields=["oco_linked_order", "is_oco"])
+        elif stop_order and stop_order.is_oco:
+            stop_order.is_oco = False
+            stop_order.oco_linked_order = None
+            stop_order.save(update_fields=["is_oco", "oco_linked_order"])
+        elif limit_order and limit_order.is_oco:
+            limit_order.is_oco = False
+            limit_order.oco_linked_order = None
+            limit_order.save(update_fields=["is_oco", "oco_linked_order"])
+
+    @classmethod
+    def sync_order_to_position(cls, order):
+        """
+        Reverse Sync: If a user manually updates the price of a pending SL/TP exit order,
+        this updates the underlying Position so the chart UI stays perfectly synced.
+        """
+        if not order.position_link_id:
+            return
+            
+        position = order.position_link
+        if order.order_type == "STOP":
+            position.stop_loss = order.trigger_price
+            position.save(update_fields=["stop_loss"])
+        elif order.order_type == "LIMIT":
+            position.take_profit = order.price
+            position.save(update_fields=["take_profit"])
 
     @staticmethod
     def calculate_used_margin(account):
@@ -361,7 +471,12 @@ class TradingOrderService:
 
     @classmethod
     def unrealized_pnl_for_position(cls, position):
-        quote = MarketDataStreamer.get_cached_quote(position.instrument.sym_ticker or position.instrument.symbol)
+        symbol = position.instrument.sym_ticker or position.instrument.symbol
+        quote = MarketDataStreamer.get_cached_quote(symbol)
+        
+        if not quote:
+            quote = MarketDataStreamer.poll_latest_candle_quote(symbol)
+            
         price = quote.get("price") if quote else None
         if price in (None, "", 0, "0"):
             price = position.average_price

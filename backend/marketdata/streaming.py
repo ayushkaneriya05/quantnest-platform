@@ -74,4 +74,10 @@ class MarketDataStreamer:
 
     @classmethod
     def poll_latest_candle_quote(cls, symbol, resolution="1m"):
+        # ALWAYS prioritize official broker quote to capture post-market adjustments / pre-open prices for the UI
+        official_quote = MarketDataService.get_live_quote_from_fyers(symbol)
+        if official_quote:
+            return official_quote
+            
+        # Fallback to fabricating quote from local candle database only if broker API fails
         return MarketDataService.latest_quote_from_storage(symbol, timeframe=resolution)
