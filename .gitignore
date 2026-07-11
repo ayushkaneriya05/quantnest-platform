@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.db
+celerybeat-schedule*
 *.sqlite3
 db.sqlite3
 *.log
