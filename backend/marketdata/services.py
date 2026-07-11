@@ -610,9 +610,7 @@ class HistoricalCandleService:
         timeframe = MarketDataService.normalize_timeframe(resolution)
         limit = cls._normalize_limit(limit)
         end_dt = cls._coerce_before(before)
-        print("end_dt----------->", end_dt)
         start_dt = end_dt - timedelta(days=cls._lookback_days(timeframe, limit))
-        print("start_dt----------->", start_dt)
 
         candles = cls.list_candles(
             symbol=normalized,
@@ -626,9 +624,7 @@ class HistoricalCandleService:
 
         if cls._should_fetch(candles, limit, end_dt):
             fetch_attempted = True
-            print("fetch_attempted----------->", fetch_attempted)
             fetched_count = cls._fetch_missing_window(normalized, timeframe, start_dt, end_dt)
-            print("fetched_count----------->", fetched_count)
             if fetched_count:
                 candles = cls.list_candles(
                     symbol=normalized,
@@ -734,9 +730,7 @@ class HistoricalCandleService:
         cache.set(lock_key, True, timeout=cls.FETCH_LOCK_TTL_SECONDS)
         fetched_total = 0
         chunk_start = start_dt.date()
-        print("chunk_start----------->", chunk_start)
         end_date = end_dt.date()
-        print("end_date----------->", end_date)
         lookback_days = max(1, (end_date - chunk_start).days + 1)
         chunk_days = 90
 

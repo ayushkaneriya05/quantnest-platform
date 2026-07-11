@@ -1,8 +1,12 @@
 # backend/backend/run_fyers_client.py
+import logging
 import os
 import django
 import webbrowser
 import requests
+
+logger = logging.getLogger(__name__)
+
 
 # Set up Django environment
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
@@ -22,8 +26,6 @@ if __name__ == "__main__":
     try:
         requests.get("http://localhost:8000/health/", timeout=2)
     except requests.ConnectionError:
-        print("❌ Error: Could not connect to the Django development server.")
-        print("Please ensure your backend server is running before executing this script.")
-        print("You can start it with: python manage.py runserver")
+        logger.error("Django server is not running. Please start the server before running this script.")
     else:
         main()
