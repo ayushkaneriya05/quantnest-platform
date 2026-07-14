@@ -15,7 +15,7 @@ from .middleware.jwt_auth import JWTAuthMiddleware
 django_asgi_app = get_asgi_application()
 
 application = ProtocolTypeRouter({
-    "http": get_asgi_application(),
+    "http": django_asgi_app,
     "websocket": JWTAuthMiddleware(
         URLRouter(
             marketdata.routing.websocket_urlpatterns + 
