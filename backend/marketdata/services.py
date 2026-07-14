@@ -516,24 +516,24 @@ class FyersHistoricalDataService:
         resolution = MarketDataService.normalize_timeframe(timeframe)
         api_resolution = MarketDataService.RESOLUTION_TO_FYERS.get(resolution, resolution)
 
-        def _to_epoch(val):
+        def _to_fyers_date(val):
             if isinstance(val, (int, float)):
-                return str(int(val))
+                dt = datetime.fromtimestamp(val, tz=py_timezone.utc)
+                return dt.strftime("%Y-%m-%d")
             val_str = str(val)
             if "T" in val_str or ":" in val_str:
                 dt = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
-                return str(int(dt.timestamp()))
+                return dt.strftime("%Y-%m-%d")
             if "-" in val_str:
-                dt = datetime.strptime(val_str, "%Y-%m-%d")
-                return str(int(dt.replace(tzinfo=py_timezone.utc).timestamp()))
+                return val_str[:10]  # Already yyyy-mm-dd
             return val_str
 
         params = {
             "symbol": MarketDataService.normalize_symbol(symbol),
             "resolution": api_resolution,
-            "date_format": "0",
-            "range_from": _to_epoch(date_from),
-            "range_to": _to_epoch(date_to),
+            "date_format": "1",  # 1 means yyyy-mm-dd
+            "range_from": _to_fyers_date(date_from),
+            "range_to": _to_fyers_date(date_to),
             "cont_flag": "0",
         }
 
@@ -580,7 +580,7 @@ class HistoricalCandleService:
     MAX_LIMIT = 1000
     DEFAULT_LIMIT = 240
     MAX_SYNC_FETCH_DAYS = 120
-    FETCH_LOCK_TTL_SECONDS = 1
+    FETCH_LOCK_TTL_SECONDS = 10
     TRADING_MINUTES_PER_DAY = 375
     TIMEFRAME_MINUTES = {
         "1m": 1,
@@ -708,7 +708,7 @@ class HistoricalCandleService:
             
         if end_dt:
             latest_time = max(c["time"] for c in candles)
-            if (end_dt.timestamp() - latest_time) > 1:  # 1 second tolerance
+            if (end_dt.timestamp() - latest_time) > 10:  # 10 second tolerance
                 return True
                 
         return False

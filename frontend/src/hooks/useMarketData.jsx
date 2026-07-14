@@ -18,7 +18,7 @@ export default function useMarketData(symbol, onUserMessage) {
 
     ws.onopen = () => {
       setConnected(true);
-      ws.send(JSON.stringify({ action: "subscribe", symbol }));
+      ws.send(JSON.stringify({ type: "subscribe", instrument: symbol }));
     };
 
     ws.onmessage = (e) => {
@@ -42,7 +42,7 @@ export default function useMarketData(symbol, onUserMessage) {
 
     return () => {
       try {
-        ws.send(JSON.stringify({ action: "unsubscribe", symbol }));
+        ws.send(JSON.stringify({ type: "unsubscribe", instrument: symbol }));
       } catch (e) {
         console.warn("Failed to unsubscribe:", e);
       }
