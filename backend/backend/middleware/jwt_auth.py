@@ -1,9 +1,11 @@
 from urllib.parse import parse_qs
+from http.cookies import SimpleCookie
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.tokens import UntypedToken
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from django.contrib.auth import get_user_model
+from django.conf import settings
 
 User = get_user_model()
 
@@ -12,8 +14,20 @@ class JWTAuthMiddleware:
         self.inner = inner
 
     async def __call__(self, scope, receive, send):
-        query_string = parse_qs(scope.get("query_string", b"").decode())
-        token = query_string.get("token", [None])[0]
+        token = None
+        
+        # 1. Try to get token from HttpOnly cookie
+        headers = dict(scope.get("headers", []))
+        if b"cookie" in headers:
+            cookie = SimpleCookie(headers[b"cookie"].decode())
+            cookie_name = getattr(settings, "REST_AUTH", {}).get("JWT_AUTH_COOKIE", "quantnest-auth")
+            if cookie_name in cookie:
+                token = cookie[cookie_name].value
+
+        # 2. Fallback to query string
+        if not token:
+            query_string = parse_qs(scope.get("query_string", b"").decode())
+            token = query_string.get("token", [None])[0]
 
         scope["user"] = AnonymousUser()
 
