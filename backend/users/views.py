@@ -795,16 +795,16 @@ class CustomTokenRefreshView(APIView):
         if response.status_code == 200 and old_refresh_token:
             try:
                 from rest_framework_simplejwt.tokens import RefreshToken
-                old_token_obj = RefreshToken(old_refresh_token)
+                old_token_obj = RefreshToken(old_refresh_token, verify=False)
                 old_jti = old_token_obj.payload.get("jti")
                 
                 new_refresh_token = response.cookies.get(refresh_cookie_name)
                 new_jti = None
                 if new_refresh_token:
-                    new_token_obj = RefreshToken(new_refresh_token.value)
+                    new_token_obj = RefreshToken(new_refresh_token.value, verify=False)
                     new_jti = new_token_obj.payload.get("jti")
                 elif hasattr(response, "data") and "refresh" in response.data:
-                    new_token_obj = RefreshToken(response.data["refresh"])
+                    new_token_obj = RefreshToken(response.data["refresh"], verify=False)
                     new_jti = new_token_obj.payload.get("jti")
                     
                 if new_jti and old_jti:

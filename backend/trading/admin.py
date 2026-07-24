@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Watchlist,TradeHistory,Account,Position,Order
+from .models import Watchlist,TradeHistory,Account,Position,Order,ClosedPositionLog
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
@@ -25,3 +25,11 @@ class AccountAdmin(admin.ModelAdmin):
 @admin.register(Watchlist)
 class WatchlistAdmin(admin.ModelAdmin):
     raw_id_fields = ('user',)
+
+@admin.register(ClosedPositionLog)
+class ClosedPositionLogAdmin(admin.ModelAdmin):
+    raw_id_fields = ('account', 'instrument')
+    list_select_related = ('account', 'instrument')
+    list_display = ('id', 'account', 'instrument', 'side', 'quantity', 'realized_pnl', 'entry_time', 'exit_time')
+    list_filter = ('side',)
+    search_fields = ('instrument__sym_ticker', 'account__user__username')
