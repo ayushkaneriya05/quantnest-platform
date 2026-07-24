@@ -10,9 +10,10 @@ from .enums import (
     StrategyType, MarketType, Exchange, InstrumentType, OptionType,
     OrderType, OrderStatus, Side, ProductType, StrategyStatus, StrategyVisibility,
     CandleTimeframe, CandleCompletionRule, CandlePart, MarketSession,
-    LogicalOperator, RuleType, RuleCategory,
-    IndicatorType, PriceActionType, VolumeConditionType,
-    ComparisonOperator, StopLossType, TargetType,
+    CandlePatternType,
+    LogicalOperator, RuleType,
+    OperandType,
+    ComparisonOperator,
     QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
     ExecutionStyle, AutoDisableTriggerType,
     ViolationType, ViolationAction, Severity,
@@ -59,20 +60,14 @@ _ENUM_SOURCES = {
     'CandleTimeframe': CandleTimeframe,
     'CandleCompletionRule': CandleCompletionRule,
     'CandlePart': CandlePart,
+    'CandlePatternType': CandlePatternType,
     'MarketSession': MarketSession,
 
     # Rules
     'LogicalOperator': LogicalOperator,
     'RuleType': RuleType,
-    'RuleCategory': RuleCategory,
-    'IndicatorType': IndicatorType,
-    'PriceActionType': PriceActionType,
-    'VolumeConditionType': VolumeConditionType,
+    'OperandType': OperandType,
     'ComparisonOperator': ComparisonOperator,
-
-    # Stop-loss / target
-    'StopLossType': StopLossType,
-    'TargetType': TargetType,
 
     # Position sizing
     'QuantityType': QuantityType,

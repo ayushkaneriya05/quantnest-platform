@@ -10,7 +10,7 @@ import { AlertTriangle,
 } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import { strategyApi } from '@/shared/services/strategyApi';
-import { ruleGroupApi, stopLossApi, targetApi } from '@/shared/services/rulesApi';
+import { ruleGroupApi } from '@/shared/services/rulesApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
@@ -23,8 +23,7 @@ export default function StrategyReview() {
   
   const [strategy, setStrategy] = useState(null);
   const [entryRules, setEntryRules] = useState([]);
-  const [stopLossRules, setStopLossRules] = useState([]);
-  const [targetRules, setTargetRules] = useState([]);
+  const [exitRules, setExitRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [validations, setValidations] = useState([]);
 
@@ -41,17 +40,15 @@ export default function StrategyReview() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [strategyData, entryData, slData, tgtData] = await Promise.all([
+      const [strategyData, entryData, exitData] = await Promise.all([
         strategyApi.getById(id),
         ruleGroupApi.getByStrategy(id, 'ENTRY'),
-        stopLossApi.getByStrategy(id),
-        targetApi.getByStrategy(id)
+        ruleGroupApi.getByStrategy(id, 'EXIT')
       ]);
       setStrategy(strategyData);
       setEntryRules(entryData);
-      setStopLossRules(slData);
-      setTargetRules(tgtData);
-      runValidations(strategyData, entryData, slData, tgtData);
+      setExitRules(exitData);
+      runValidations(strategyData, entryData, exitData);
     } catch (error) {
       notify.error('Failed to load strategy');
     } finally {
@@ -59,7 +56,7 @@ export default function StrategyReview() {
     }
   };
 
-  const runValidations = (strategy, entries, sls, targets) => {
+  const runValidations = (strategy, entries, exits) => {
     const checks = [];
     
     checks.push({
@@ -77,21 +74,13 @@ export default function StrategyReview() {
       icon: Target,
     });
     
-    const hasStopLoss = sls.length > 0 && sls.some(sl => sl.is_active);
+    const hasExitRules = exits.length > 0 && exits.some(g => g.rules?.length > 0);
     checks.push({
-      name: 'Stop loss defined',
-      passed: hasStopLoss,
-      category: 'Risk',
-      warning: !hasStopLoss,
-      icon: Shield,
-    });
-    
-    const hasTarget = targets.length > 0 && targets.some(t => t.is_active);
-    checks.push({
-      name: 'Profit target defined',
-      passed: hasTarget,
+      name: 'Exit rules configured',
+      passed: hasExitRules,
       category: 'Exit',
-      icon: TrendingUp,
+      warning: !hasExitRules,
+      icon: Shield,
     });
     
     checks.push({
@@ -139,8 +128,7 @@ export default function StrategyReview() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { icon: Target, label: 'Entry Conditions', value: entryRules.reduce((acc, g) => acc + (g.rules?.length || 0), 0), color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-          { icon: Shield, label: 'Stop Losses', value: stopLossRules.length, color: 'text-rose-400', bg: 'bg-rose-500/10' },
-          { icon: Layers, label: 'Targets', value: targetRules.length, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+          { icon: Shield, label: 'Exit Rules', value: exitRules.reduce((acc, g) => acc + (g.rules?.length || 0), 0), color: 'text-rose-400', bg: 'bg-rose-500/10' },
           { icon: Clock, label: 'Type', value: strategy?.strategy_type, color: 'text-amber-400', bg: 'bg-amber-500/10', isText: true },
         ].map((item, i) => {
           const Icon = item.icon;
@@ -239,7 +227,7 @@ export default function StrategyReview() {
               <div>
                 <h4 className="text-sm font-medium text-amber-400">Risk Warning</h4>
                 <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                  Trading without a stop loss is not recommended. It exposes your capital to unlimited risk. Consider adding at least one stop loss rule before going live.
+                  Trading without an exit rule is not recommended. It exposes your capital to unlimited risk. Consider adding at least one exit rule before going live.
                 </p>
               </div>
             </div>

@@ -24,6 +24,9 @@ export const tradingTerminalApi = {
       data: { instrument_id: instrumentId },
     }),
   placeOrder: (payload) => api.post("/trading/orders/", payload),
+  getOrdersHistory: (params) => api.get("/trading/orders/", { params }),
+  getTradesHistory: (params) => api.get("/trading/trades/", { params }),
+  getPnlHistory: (params) => api.get("/trading/pnl-report/", { params }),
 };
 
 export default tradingTerminalApi;

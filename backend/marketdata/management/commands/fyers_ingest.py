@@ -20,6 +20,11 @@ class Command(BaseCommand):
         client.connect()
         self.stdout.write(self.style.SUCCESS("Fyers websocket connected. Sync loop running."))
 
-        while True:
-            client.sync_subscriptions()
-            time.sleep(15)
+        try:
+            while True:
+                client.sync_subscriptions()
+                time.sleep(15)
+        except KeyboardInterrupt:
+            self.stdout.write(self.style.WARNING("KeyboardInterrupt received. Shutting down..."))
+            client.shutdown()
+            self.stdout.write(self.style.SUCCESS("Shutdown complete."))

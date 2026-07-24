@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from decimal import Decimal
 
@@ -8,7 +9,7 @@ from django.utils import timezone
 
 from brokers.models import BrokerCredential, BrokerFundsSnapshot, OrderReconciliation, OrderSettings
 from brokers.services import BrokerService
-from common.trading_utils import compute_sl_distance_from_config
+from rules_engine.utils import compute_sl_distance_from_config
 from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Severity, Side, StrategyStatus, ViolationAction, ViolationType
 from instruments.models import WatchlistInstrument
 from marketdata.access import StrategyMarketDataService
@@ -67,11 +68,30 @@ class LivePortfolioService:
 
 
 class LiveExecutionService:
+    """Service to handle Live Trading Strategy execution."""
+    
+    # Dedicated thread pool for async broker API network calls.
+    # Prevents slow broker API responses from blocking tick evaluation.
+    _execution_pool = ThreadPoolExecutor(max_workers=32, thread_name_prefix="live_exec")
+
     ORDERBOOK_SYNC_TTL_SECONDS = 2
     BROKER_STATE_STALE_SECONDS = 8
     ACTIVE_ORDER_STATUSES = {OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL}
     FILLED_ORDER_STATUSES = {OrderStatus.PARTIAL_FILL, OrderStatus.FILLED}
     TERMINAL_ORDER_STATUSES = {OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.EXPIRED}
+
+    @staticmethod
+    def _update_routing_cache(session, add=True):
+        """
+        Triggers the market data ingestion daemon to immediately refresh its 
+        routing cache (tracked symbols) via Celery without blocking the UI.
+        """
+        try:
+            from marketdata.tasks import refresh_live_market_subscriptions
+            refresh_live_market_subscriptions.delay()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to trigger routing cache update: %s", e)
 
     @staticmethod
     def _broadcast_update(user_id, event_type, data):
@@ -238,10 +258,17 @@ class LiveExecutionService:
         return side_text
 
     @staticmethod
-    def _sync_funds_from_broker(credential, force=False):
+    def _sync_funds_from_broker(credential, force=False, async_refresh=False):
         cached = LiveBrokerStateCache.get_funds_state(credential.user_id, credential.id)
-        if cached and not force and not LiveExecutionService._is_state_stale(cached):
-            return cached.get("payload") or {}
+        if cached and not force:
+            if not LiveExecutionService._is_state_stale(cached):
+                return cached.get("payload") or {}
+            
+            if async_refresh:
+                from live_trading.tasks import refresh_broker_funds
+                refresh_broker_funds.delay(credential.id)
+                return cached.get("payload") or {}
+                
         funds_payload = BrokerService.get_funds(credential)
         snapshot = BrokerService.record_funds_snapshot(credential, funds_payload)
         payload = {
@@ -921,60 +948,15 @@ class LiveExecutionService:
 
     @staticmethod
     def _has_pending_order(session, instrument, side=None):
-        query = LiveOrder.objects.filter(
-            session=session,
-            instrument=instrument,
-            status__in=LiveExecutionService.ACTIVE_ORDER_STATUSES,
-        )
-        if side:
-            query = query.filter(side=side)
-        return query.exists()
+        from marketdata.l1_cache import tick_cache
+        open_orders = tick_cache.get_live_open_orders(session.id)
+        for o in open_orders:
+            if getattr(o, "instrument_id", getattr(getattr(o, "instrument", None), "id", None)) == instrument.id:
+                if side is None or o.side == side:
+                    return True
+        return False
 
-    @staticmethod
-    def _get_strategy_runtime_stats(session, instrument, timestamp, entry_side=None):
-        entry_side = entry_side or Side.BUY
-        exit_side = Side.SELL if entry_side == Side.BUY else Side.BUY
-        latest_exit = (
-            LiveOrder.objects.filter(
-                session=session,
-                instrument=instrument,
-                side=exit_side,
-                status__in=LiveExecutionService.FILLED_ORDER_STATUSES,
-            )
-            .exclude(executed_at__isnull=True)
-            .order_by("-executed_at")
-            .first()
-        )
-        latest_entry = (
-            LiveOrder.objects.filter(
-                session=session,
-                instrument=instrument,
-                side=entry_side,
-                status__in=LiveExecutionService.FILLED_ORDER_STATUSES,
-            )
-            .exclude(executed_at__isnull=True)
-            .order_by("-executed_at")
-            .first()
-        )
-        total_today_trades = LiveOrder.objects.filter(
-            session=session,
-            status__in=LiveExecutionService.FILLED_ORDER_STATUSES,
-            side=exit_side,
-            executed_at__date=timezone.localdate(timestamp),
-        ).count()
-        instrument_today_trades = LiveOrder.objects.filter(
-            session=session,
-            instrument=instrument,
-            status__in=LiveExecutionService.FILLED_ORDER_STATUSES,
-            side=exit_side,
-            executed_at__date=timezone.localdate(timestamp),
-        ).count()
-        return {
-            "daily_trades": total_today_trades,
-            "instrument_daily_trades": instrument_today_trades,
-            "last_exit_time": latest_exit.executed_at if latest_exit else None,
-            "last_entry_time": latest_entry.executed_at if latest_entry else None,
-        }
+
 
     @staticmethod
     @transaction.atomic
@@ -1069,6 +1051,42 @@ class LiveExecutionService:
                 trigger_price=float(trigger_price) if trigger_price is not None else None,
             )
 
+        from django.db import transaction
+        transaction.on_commit(
+            lambda: LiveExecutionService._execution_pool.submit(
+                LiveExecutionService._async_broker_placement,
+                order.id,
+                session.id,
+                instrument.id,
+                side,
+                quantity,
+                order_type,
+                expected_price,
+                trigger_price,
+                reduce_only,
+                order_timeout,
+                max_retries,
+                retry_delay
+            )
+        )
+        return order
+
+    @classmethod
+    def _async_broker_placement(cls, order_id, session_id, instrument_id, side, quantity, order_type, expected_price, trigger_price, reduce_only, order_timeout, max_retries, retry_delay):
+        """Runs in _execution_pool, away from tick evaluation."""
+        from live_trading.models import LiveOrder, TradingSession
+        from instruments.models import TradingInstrument
+        from trading.models import OrderSettings
+        
+        try:
+            order = LiveOrder.objects.get(id=order_id)
+            session = TradingSession.objects.get(id=session_id)
+            instrument = TradingInstrument.objects.get(id=instrument_id)
+            settings = OrderSettings.objects.filter(user=session.user).first()
+        except Exception as e:
+            logger.error(f"Async broker placement failed to load objects: {e}")
+            return
+            
         broker_result = {}
         last_error = None
         import time
@@ -1198,8 +1216,10 @@ class LiveExecutionService:
                 },
             )
             
-        if filled_quantity:
-            LiveExecutionService._apply_fill_to_position(order, filled_quantity=filled_quantity, fill_price=fill_price)
+        if broker_status in LiveExecutionService.ACTIVE_ORDER_STATUSES:
+            StrategyRuntimeState.update_live_order_status(order, broker_status)
+        elif broker_status == OrderStatus.FILLED:
+            LiveExecutionService._apply_fill_to_position(order, filled_quantity, fill_price)
 
         # Handle Partial Fills
         if broker_status == OrderStatus.PARTIAL_FILL and settings and settings.partial_fill_action == "CANCEL_REMAINING":
@@ -1281,7 +1301,7 @@ class LiveExecutionService:
             order.session.save(update_fields=["trades_count", "pnl", "updated_at"])
 
             # Update Global Portfolio Realized PnL + Peak Tracking
-            portfolio = PortfolioService.get_or_create_portfolio(order.user)
+            portfolio = LivePortfolioService.get_or_create_portfolio(order.user)
             portfolio.realized_pnl += pnl
             portfolio.today_pnl += pnl
             portfolio.today_trades += 1
@@ -1508,7 +1528,7 @@ class LiveExecutionService:
         return position
 
     @staticmethod
-    def execute_session_once(session, symbol=None, candle_state=None):
+    def execute_session_once(session, symbol=None, candle_states=None):
         """Process a single strategy session tick.
 
         Wrapped with a distributed Redis lock so that two concurrent Celery
@@ -1526,43 +1546,47 @@ class LiveExecutionService:
         from risk_management.cache import RiskCache
         risk_stats = RiskCache.get_stats(session.user_id, session.strategy_id)
 
-        watchlist = WatchlistInstrument.objects.filter(strategy=session.strategy).select_related("instrument")
-        if symbol:
-            watchlist = watchlist.filter(instrument__sym_ticker=symbol)
+        # In HFT Fanning, we only process the specific symbol that triggered the tick
+        if not symbol:
+            return False
+            
+        from marketdata.l1_cache import tick_cache
+        instrument = tick_cache.get_instrument(symbol)
+        if not instrument:
+            return False
 
         timestamp = timezone.now()
         no_trade_zone = executor.is_in_no_trade_zone(timestamp)
 
-        LiveExecutionService.sync_open_orders(session, symbol=symbol)
+        # Do NOT sync open orders synchronously here. It blocks the ThreadPool and makes an API call.
+        # LiveExecutionService.sync_open_orders(session, symbol=symbol)
 
         processed = False
-        for watch in watchlist:
-            instrument = watch.instrument
 
-            # Acquire distributed lock per (session, instrument) so concurrent
-            # workers cannot double-enter or double-exit the same position.
-            try:
-                with StrategyRuntimeState.execution_lock(
-                    "live", session.strategy_id, instrument.id
-                ):
-                    processed = LiveExecutionService._process_instrument_tick(
-                        session=session,
-                        instrument=instrument,
-                        config=config,
-                        executor=executor,
-                        risk_stats=risk_stats,
-                        timestamp=timestamp,
-                        no_trade_zone=no_trade_zone,
-                        symbol=symbol,
-                        candle_state=candle_state,
-                    ) or processed
-            except RuntimeError as lock_err:
-                # Lock could not be acquired — another worker is processing this
-                # instrument right now. Skip this tick to prevent duplicate execution.
-                logger.warning(
-                    "Skipping tick for session=%s instrument=%s: %s",
-                    session.id, instrument.sym_ticker, lock_err,
-                )
+        # Acquire distributed lock per (session, instrument) so concurrent
+        # workers cannot double-enter or double-exit the same position.
+        try:
+            with StrategyRuntimeState.execution_lock(
+                "live", session.strategy_id, instrument.id
+            ):
+                processed = LiveExecutionService._process_instrument_tick(
+                    session=session,
+                    instrument=instrument,
+                    config=config,
+                    executor=executor,
+                    risk_stats=risk_stats,
+                    timestamp=timestamp,
+                    no_trade_zone=no_trade_zone,
+                    symbol=symbol,
+                    candle_states=candle_states,
+                ) or processed
+        except RuntimeError as lock_err:
+            # Lock could not be acquired — another worker is processing this
+            # instrument right now. Skip this tick to prevent duplicate execution.
+            logger.warning(
+                "Skipping tick for session=%s instrument=%s: %s",
+                session.id, instrument.sym_ticker, lock_err,
+            )
 
         return processed
 
@@ -1576,10 +1600,10 @@ class LiveExecutionService:
         timestamp,
         no_trade_zone,
         symbol=None,
-        candle_state=None,
+        candle_states=None,
     ):
         """Inner tick processor — runs inside the distributed execution lock."""
-        base_timeframe, mtf_data = StrategyMarketDataService.get_multi_timeframe_data(config, instrument, candle_state=candle_state)
+        base_timeframe, mtf_data = StrategyMarketDataService.get_multi_timeframe_data(config, instrument, candle_states=candle_states)
         candle_df = mtf_data.get(base_timeframe)
         if candle_df is None or candle_df.empty:
             return False
@@ -1589,21 +1613,15 @@ class LiveExecutionService:
         signal_df = executor.completed_signal_frame(candle_df)
         if signal_df is None or signal_df.empty:
             return False
-        # Find the active position associated with this signal instrument (could be direct or derivative)
-        from django.db import models
-        position = LivePosition.objects.filter(
-            user=session.user, strategy=session.strategy
-        ).filter(
-            models.Q(instrument=instrument) | 
-            models.Q(instrument__underlying_symbol=instrument.symbol)
-        ).first()
+        from marketdata.l1_cache import tick_cache
+        position = tick_cache.get_live_position(session.id, instrument.id)
+        if not position and hasattr(instrument, "underlying_symbol") and instrument.underlying_symbol:
+            underlying = tick_cache.get_instrument(instrument.underlying_symbol)
+            if underlying:
+                position = tick_cache.get_live_position(session.id, underlying.id)
+
         entry_side = executor.entry_config.get("entry_side", Side.BUY)
-        runtime_stats = LiveExecutionService._get_strategy_runtime_stats(
-            session,
-            instrument,
-            timestamp,
-            entry_side=entry_side,
-        )
+        runtime_stats = tick_cache.get_live_stats(session.id)
         trade_state = StrategyRuntimeState.trade_state("live", session.strategy_id, instrument.id)
 
         if position:
@@ -1618,7 +1636,7 @@ class LiveExecutionService:
                 identifier=position.id,
                 scope="live-position",
             )
-            should_exit, reason = executor.evaluate_exit_logic(state, candle_df, timestamp)
+            should_exit, reason, action, action_params = executor.evaluate_exit_logic(state, candle_df, timestamp)
 
             # Reverse entry check
             reverse_enabled = config.get("reentry_rule", {}).get("allow_reverse_entry", False)
@@ -1627,6 +1645,8 @@ class LiveExecutionService:
                 if entry_signals.iloc[-1] and entry_side != position.side:
                     should_exit = True
                     reason = "Reverse Entry Signal"
+                    action = "EXIT_ALL"
+                    action_params = {}
 
             StrategyRuntimeState.update_position_state(
                 "live-position",
@@ -1643,28 +1663,45 @@ class LiveExecutionService:
                 and trade_state.get("phase") != StrategyRuntimeState.EXIT_PENDING
                 and not LiveExecutionService._has_pending_order(session, instrument, exit_side)
             ):
-                StrategyRuntimeState.mark_exit_pending(
-                    "live",
-                    session.strategy_id,
-                    instrument.id,
-                    reason=reason,
-                )
-                LiveExecutionService.place_strategy_order(
-                    session=session, instrument=position.instrument,
-                    side=exit_side,
-                    quantity=position.quantity, order_type=OrderType.MARKET,
-                    price=last_price,
-                )
-                return True
+                if action == 'MOVE_TO_BREAKEVEN':
+                    if not state.get(f'breakeven_{reason}'):
+                        state['protected_stop_price'] = state['avg_price']
+                        StrategyRuntimeState.update_position_state("live-position", position.id, {
+                            "protected_stop_price": state['avg_price'],
+                            f"breakeven_{reason}": True
+                        })
+                elif action == 'PARTIAL_EXIT':
+                    exit_pct = float(action_params.get('exit_pct', 50))
+                    if not state.get(f'partial_exit_{reason}'):
+                        exit_qty = int(position.quantity * (exit_pct / 100.0))
+                        if exit_qty > 0:
+                            StrategyRuntimeState.mark_exit_pending("live", session.strategy_id, instrument.id, reason=f"Partial Exit ({exit_pct}%): {reason}")
+                            LiveExecutionService.place_strategy_order(
+                                session=session, instrument=position.instrument,
+                                side=exit_side, quantity=exit_qty, order_type="MARKET", price=last_price,
+                            )
+                            StrategyRuntimeState.update_position_state("live-position", position.id, {f'partial_exit_{reason}': True})
+                else:
+                    StrategyRuntimeState.mark_exit_pending("live", session.strategy_id, instrument.id, reason=reason)
+                    LiveExecutionService.place_strategy_order(
+                        session=session, instrument=position.instrument,
+                        side=exit_side, quantity=position.quantity, order_type="MARKET", price=last_price,
+                    )
+                    return True
+                
+                # If reverse entry was triggered, we allow re-entry
+                if reason == "Reverse Entry Signal":
+                    position = None
         else:
             if no_trade_zone:
                 return False
 
             # ENTRY EVALUATION
-            funds_payload = LiveExecutionService._sync_funds_from_broker(session.broker_credential)
+            funds_payload = LiveExecutionService._sync_funds_from_broker(session.broker_credential, async_refresh=True)
             broker_margin = LiveExecutionService._to_decimal(funds_payload.get("available_margin", 0))
 
-            allocation = LiveExecutionService._get_active_allocation(session)
+            from marketdata.l1_cache import tick_cache
+            allocation = tick_cache.get_live_allocation(session.id)
             if allocation:
                 alloc_available = Decimal(str(allocation.available_capital or allocation.allocated_capital))
                 sizing_capital = min(alloc_available, broker_margin)
@@ -1689,12 +1726,11 @@ class LiveExecutionService:
 
             signals = executor.evaluate_entry_signals(signal_df)
             if signals.iloc[-1]:
-                # Step 1: Resolve execution instrument
                 from instruments.services import InstrumentResolver
-                from instruments.models import WatchlistInstrument
-                watch = WatchlistInstrument.objects.filter(
-                    strategy=session.strategy, instrument=instrument
-                ).first()
+                from marketdata.l1_cache import tick_cache
+                watch = tick_cache.get_watchlist_instrument(session.strategy_id, instrument.id)
+                if not watch:
+                    return False
                 resolutions = InstrumentResolver.resolve(
                     watch, entry_side, spot_price=float(last_price)
                 )
@@ -1726,7 +1762,7 @@ class LiveExecutionService:
                     
                     # If entering a derivative/different instrument, original signal-based limit prices don't map cleanly. Force MARKET.
                     if exec_instrument.id != instrument.id:
-                        otype = OrderType.MARKET
+                        otype = "MARKET"
                         resolved_entry_price = exec_price
                         trigger_price = None
     
@@ -1741,36 +1777,7 @@ class LiveExecutionService:
 
         return False
 
-    @staticmethod
-    def _update_routing_cache(session, add=True):
-        from live_trading.cache import LiveRoutingCache
-        for watchlist in session.strategy.watchlist_instruments.select_related("instrument").all():
-            if watchlist.instrument and watchlist.instrument.sym_ticker:
-                if add:
-                    LiveRoutingCache.add_session(watchlist.instrument.sym_ticker, session.id)
-                else:
-                    LiveRoutingCache.remove_session(watchlist.instrument.sym_ticker, session.id)
 
-    @staticmethod
-    def execute_tick(symbol, quote=None, quote_already_cached=False, candle_state=None):
-        normalized_symbol = MarketDataStreamer.normalize_symbol(symbol)
-        if quote and not quote_already_cached:
-            MarketDataStreamer.update_quote(normalized_symbol, quote)
-            
-        from live_trading.cache import LiveRoutingCache
-        session_ids = LiveRoutingCache.get_sessions(normalized_symbol)
-        if not session_ids:
-            return False
-            
-        try:
-            from .tasks import process_session_tick
-            for session_id in session_ids:
-                process_session_tick.delay(session_id, normalized_symbol, candle_state=candle_state)
-        except ImportError:
-            # Fallback if tasks not available during testing
-            return False
-            
-        return True
 
     @staticmethod
     @transaction.atomic

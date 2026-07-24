@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule, StopLossRule, TargetRule
+from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule
 
 
 @admin.register(TimeRule)
@@ -27,17 +27,5 @@ class RuleGroupAdmin(admin.ModelAdmin):
 
 @admin.register(Rule)
 class RuleAdmin(admin.ModelAdmin):
-    list_display = ['rule_group', 'category', 'is_active']
-    list_filter = ['category', 'is_active']
-
-
-@admin.register(StopLossRule)
-class StopLossRuleAdmin(admin.ModelAdmin):
-    list_display = ['rule_group', 'sl_type', 'is_active']
-    list_filter = ['sl_type', 'is_active']
-
-
-@admin.register(TargetRule)
-class TargetRuleAdmin(admin.ModelAdmin):
-    list_display = ['rule_group', 'target_type', 'is_active']
-    list_filter = ['target_type', 'is_active']
+    list_display = ['rule_group', 'operand_a_type', 'comparison', 'operand_b_type', 'is_active']
+    list_filter = ['operand_a_type', 'operand_b_type', 'is_active']

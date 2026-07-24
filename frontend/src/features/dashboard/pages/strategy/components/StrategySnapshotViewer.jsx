@@ -73,7 +73,7 @@ export default function StrategySnapshotViewer({ snapshot, previousSnapshot }) {
         }
 
         // Compare Group Fields
-        compareObjects(`Rule Group #${i+1}`, g2, g1, ['rules', 'stop_loss_rules', 'target_rules']);
+        compareObjects(`Rule Group #${i+1}`, g2, g1, ['rules']);
 
         // Compare Nested Lists
         const compareList = (name, list1, list2) => {
@@ -92,9 +92,7 @@ export default function StrategySnapshotViewer({ snapshot, previousSnapshot }) {
             }
         };
 
-        compareList('Entry Rules', g1.rules, g2.rules);
-        compareList('Stop Losses', g1.stop_loss_rules, g2.stop_loss_rules);
-        compareList('Targets', g1.target_rules, g2.target_rules);
+        compareList('Rules', g1.rules, g2.rules);
     }
 
     return changes;

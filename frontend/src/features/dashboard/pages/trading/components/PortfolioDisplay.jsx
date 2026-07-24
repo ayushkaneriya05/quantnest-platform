@@ -315,7 +315,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
                         <TableCell className="text-right text-slate-100 font-mono font-bold py-4">{order.quantity}</TableCell>
                         <TableCell className="text-right py-4">
                           <p className="text-xs font-bold text-slate-300">
-                            {order.price ? `₹${Number(order.price).toFixed(2)}` : "MARKET"}
+                            {order.price ? `₹${Number(order.price).toFixed(2)}` : order.order_type === "STOP" ? `Trigger: ₹${Number(order.trigger_price).toFixed(2)}` : "MARKET"}
                           </p>
                           <p className="text-[9px] text-amber-400 font-bold tracking-tighter mt-0.5">{order.status}</p>
                         </TableCell>

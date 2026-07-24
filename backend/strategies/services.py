@@ -3,7 +3,7 @@ from django.db import transaction
 from .models import Strategy, StrategyVersion, EntryOrderConfig, ExitOrderConfig, ReEntryRule
 from .serializers import StrategyDetailSerializer
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
-from rules_engine.models import RuleGroup, Rule, StopLossRule, TargetRule, TimeRule, SpecialEventFilter
+from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
 from rules_engine.serializers import RuleGroupSerializer, TimeRuleSerializer, SpecialEventFilterSerializer
 from instruments.models import WatchlistInstrument
 
@@ -129,114 +129,29 @@ class StrategySnapshotService:
             # Indicator Rules
             rules = group.get('rules', [])
             for r_idx, rule in enumerate(rules):
-                ind_type = rule.get('indicator_type')
+                ind_type = rule.get('operand_a_type')
                 if ind_type:
                     # Common params
-                    params = rule.get('params', {}) or {}
+                    params = rule.get('operand_a_params', {}) or {}
                     for p_name, p_val in params.items():
                         if isinstance(p_val, (int, float)) and not isinstance(p_val, bool):
                             tunables.append({
                                 'label': f"{group_name} - {ind_type} {p_name}",
-                                'path': f"rule_groups.{g_idx}.rules.{r_idx}.params.{p_name}",
+                                'path': f"rule_groups.{g_idx}.rules.{r_idx}.operand_a_params.{p_name}",
                                 'current_value': p_val
                             })
-                    # Threshold value
-                    threshold = rule.get('value')
-                    if threshold is not None:
-                        tunables.append({
-                            'label': f"{group_name} - {ind_type} Threshold",
-                            'path': f"rule_groups.{g_idx}.rules.{r_idx}.value",
-                            'current_value': float(threshold) if isinstance(threshold, (int, float)) else threshold
-                        })
-                
-                # Compare To Indicator
-                compare_ind = rule.get('compare_to_indicator')
-                if compare_ind:
-                    c_params = rule.get('compare_to_params', {}) or {}
-                    for p_name, p_val in c_params.items():
-                        if isinstance(p_val, (int, float)) and not isinstance(p_val, bool):
-                            tunables.append({
-                                'label': f"{group_name} - Comp {compare_ind} {p_name}",
-                                'path': f"rule_groups.{g_idx}.rules.{r_idx}.compare_to_params.{p_name}",
-                                'current_value': p_val
-                            })
-
-            # Stop Loss Rules
-            sl_rules = group.get('stop_loss_rules', [])
-            for r_idx, rule in enumerate(sl_rules):
-                sl_type = rule.get('sl_type', 'SL')
-                prefix = f"{group_name} SL ({sl_type})"
-                # Fixed percentage
-                val = rule.get('fixed_percentage')
-                if val is not None:
-                    tunables.append({
-                        'label': f"{prefix} %",
-                        'path': f"rule_groups.{g_idx}.stop_loss_rules.{r_idx}.fixed_percentage",
-                        'current_value': float(val)
-                    })
-                # Fixed points
-                val = rule.get('fixed_points')
-                if val is not None:
-                    tunables.append({
-                        'label': f"{prefix} pts",
-                        'path': f"rule_groups.{g_idx}.stop_loss_rules.{r_idx}.fixed_points",
-                        'current_value': float(val)
-                    })
-                # Indicator Params
-                params = rule.get('indicator_params', {}) or {}
-                for p_name, p_val in params.items():
-                    if isinstance(p_val, (int, float)):
-                        tunables.append({
-                            'label': f"{prefix} {p_name}",
-                            'path': f"rule_groups.{g_idx}.stop_loss_rules.{r_idx}.indicator_params.{p_name}",
-                            'current_value': p_val
-                        })
-                # Trailing
-                val = rule.get('trailing_value')
-                if val is not None:
-                    tunables.append({
-                        'label': f"{prefix} Trailing Val",
-                        'path': f"rule_groups.{g_idx}.stop_loss_rules.{r_idx}.trailing_value",
-                        'current_value': float(val)
-                    })
-            
-            # Target Rules
-            target_rules = group.get('target_rules', [])
-            for r_idx, rule in enumerate(target_rules):
-                tgt_type = rule.get('target_type', 'Tgt')
-                prefix = f"{group_name} Target ({tgt_type})"
-                # Fixed percentage
-                val = rule.get('fixed_percentage')
-                if val is not None:
-                    tunables.append({
-                        'label': f"{prefix} %",
-                        'path': f"rule_groups.{g_idx}.target_rules.{r_idx}.fixed_percentage",
-                        'current_value': float(val)
-                    })
-                val = rule.get('fixed_points')
-                if val is not None:
-                    tunables.append({
-                        'label': f"{prefix} pts",
-                        'path': f"rule_groups.{g_idx}.target_rules.{r_idx}.fixed_points",
-                        'current_value': float(val)
-                    })
-                # Risk reward
-                val = rule.get('risk_reward_ratio')
-                if val is not None:
-                    tunables.append({
-                        'label': f"{prefix} RR Ratio",
-                        'path': f"rule_groups.{g_idx}.target_rules.{r_idx}.risk_reward_ratio",
-                        'current_value': float(val)
-                    })
-                # Indicator Params
-                params = rule.get('indicator_params', {}) or {}
-                for p_name, p_val in params.items():
-                    if isinstance(p_val, (int, float)):
-                        tunables.append({
-                            'label': f"{prefix} {p_name}",
-                            'path': f"rule_groups.{g_idx}.target_rules.{r_idx}.indicator_params.{p_name}",
-                            'current_value': p_val
-                        })
+                            
+                    # Operand B
+                    op_b = rule.get('operand_b_type')
+                    if op_b:
+                        c_params = rule.get('operand_b_params', {}) or {}
+                        for p_name, p_val in c_params.items():
+                            if isinstance(p_val, (int, float)) and not isinstance(p_val, bool):
+                                tunables.append({
+                                    'label': f"{group_name} - Comp {op_b} {p_name}",
+                                    'path': f"rule_groups.{g_idx}.rules.{r_idx}.operand_b_params.{p_name}",
+                                    'current_value': p_val
+                                })
 
         return tunables
 
@@ -301,16 +216,12 @@ class StrategySnapshotService:
         # Rule Groups (Deep nesting)
         groups = []
         for group in strategy.rule_groups.all().order_by('priority'):
-            g_data = StrategySnapshotService._model_to_dict(group, exclude=['id', 'strategy', 'created_at', 'updated_at', 'rules', 'stop_loss_rules', 'target_rules'])
+            g_data = StrategySnapshotService._model_to_dict(group, exclude=['id', 'strategy', 'created_at', 'updated_at', 'rules'])
             
             # Rules
             g_data['rules'] = [StrategySnapshotService._model_to_dict(r, exclude=['id', 'rule_group', 'created_at', 'updated_at']) for r in group.rules.all()]
             
-            # Stop Losses
-            g_data['stop_loss_rules'] = [StrategySnapshotService._model_to_dict(sl, exclude=['id', 'rule_group', 'created_at', 'updated_at']) for sl in group.stop_loss_rules.all()]
             
-            # Targets
-            g_data['target_rules'] = [StrategySnapshotService._model_to_dict(t, exclude=['id', 'rule_group', 'created_at', 'updated_at']) for t in group.target_rules.all()]
             
             groups.append(g_data)
         
@@ -360,8 +271,6 @@ class StrategySnapshotService:
     @staticmethod
     def _restore_rule_group(strategy, group_data):
         rules_data = group_data.pop('rules', [])
-        sl_data = group_data.pop('stop_loss_rules', [])
-        target_data = group_data.pop('target_rules', [])
         
         # Create Group
         group = RuleGroup.objects.create(strategy=strategy, **group_data)
@@ -369,12 +278,6 @@ class StrategySnapshotService:
         # Create Nested Rules
         for r_data in rules_data:
             Rule.objects.create(rule_group=group, **r_data)
-            
-        for sl_info in sl_data:
-            StopLossRule.objects.create(rule_group=group, **sl_info)
-            
-        for t_info in target_data:
-            TargetRule.objects.create(rule_group=group, **t_info)
 
     @staticmethod
     def _restore_auto_disable_rule(strategy, rule_data):

@@ -1,8 +1,9 @@
 from rest_framework import generics, status, views
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 
-from .models import Account, Position, Order, TradeHistory
+from .models import Account, Position, Order, TradeHistory, ClosedPositionLog
 from .serializers import (
     InstrumentSerializer,
     WatchlistSerializer,
@@ -11,6 +12,7 @@ from .serializers import (
     OrderSerializer,
     TradeHistorySerializer,
     AccountSummarySerializer,
+    ClosedPositionLogSerializer,
 )
 from .services import (
     PaperTradingTerminalService,
@@ -78,13 +80,29 @@ class PositionDetailView(generics.RetrieveUpdateAPIView):
         position = serializer.save()
         TradingOrderService.sync_position_sl_tp_orders(position)
 
+class HistoricalDataPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 class OrderView(generics.ListCreateAPIView):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = HistoricalDataPagination
 
     def get_queryset(self):
         account = TradingAccountService.get_or_create_account(self.request.user)
-        return Order.objects.filter(account=account).order_by('-created_at')
+        queryset = Order.objects.filter(account=account).select_related('instrument').order_by('-created_at')
+        
+        status_filter = self.request.query_params.get('status')
+        symbol_filter = self.request.query_params.get('symbol')
+        
+        if status_filter:
+            queryset = queryset.filter(status__iexact=status_filter)
+        if symbol_filter:
+            queryset = queryset.filter(instrument__symbol__icontains=symbol_filter)
+            
+        return queryset
 
     def get_serializer_context(self):
         return {'request': self.request}
@@ -111,10 +129,36 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
 class TradeHistoryView(generics.ListAPIView):
     serializer_class = TradeHistorySerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = HistoricalDataPagination
 
     def get_queryset(self):
         account = TradingAccountService.get_or_create_account(self.request.user)
-        return TradeHistory.objects.filter(order__account=account).order_by('-timestamp')
+        queryset = TradeHistory.objects.filter(order__account=account).select_related('order', 'order__instrument').order_by('-timestamp')
+        
+        symbol_filter = self.request.query_params.get('symbol')
+        side_filter = self.request.query_params.get('side') # BUY/SELL
+        
+        if symbol_filter:
+            queryset = queryset.filter(order__instrument__symbol__icontains=symbol_filter)
+        if side_filter:
+            queryset = queryset.filter(order__transaction_type__iexact=side_filter)
+            
+        return queryset
+
+class ClosedPositionLogView(generics.ListAPIView):
+    serializer_class = ClosedPositionLogSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = HistoricalDataPagination
+
+    def get_queryset(self):
+        account = TradingAccountService.get_or_create_account(self.request.user)
+        queryset = ClosedPositionLog.objects.filter(account=account).select_related('instrument').order_by('-exit_time')
+        
+        symbol_filter = self.request.query_params.get('symbol')
+        if symbol_filter:
+            queryset = queryset.filter(instrument__symbol__icontains=symbol_filter)
+            
+        return queryset
 
 class AccountSummaryView(generics.RetrieveAPIView):
     """

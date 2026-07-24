@@ -170,7 +170,6 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
             "broker_credential",
             "broker_name",
             "broker_label",
-            "capital_allocation",
             "allocation_type",
             "allocated_capital",
             "allocated_percentage",

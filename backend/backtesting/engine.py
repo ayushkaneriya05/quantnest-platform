@@ -8,10 +8,10 @@ from django.utils import timezone
 
 from common.enums import BacktestStatus, OrderType, Side
 from common.trading_utils import (
-    compute_sl_distance_from_config,
     get_any_field,
     minutes_since_session_open,
 )
+from rules_engine.utils import compute_sl_distance_from_config
 from marketdata.calendar_service import EventCalendarService
 from marketdata.access import StrategyMarketDataService
 from marketdata.services import FyersDataService
@@ -365,7 +365,7 @@ class BacktestEngine:
                             pos_state["peak_price"] = min(pos_state["peak_price"], float(candle["low"]))
                         
                         executor = context["executor"]
-                        should_exit, reason = executor.evaluate_exit_logic(pos_state, df.iloc[:df.index.get_loc(timestamp)+1], timestamp)
+                        should_exit, reason, action, action_params = executor.evaluate_exit_logic(pos_state, df.iloc[:df.index.get_loc(timestamp)+1], timestamp)
 
                         reverse_enabled = self.config.get("reentry_rule", {}).get("allow_reverse_entry", False)
                         entry_side = executor.entry_config.get("entry_side", Side.BUY)
@@ -378,6 +378,8 @@ class BacktestEngine:
                         ):
                             should_exit = True
                             reason = "Reverse Entry Signal"
+                            action = "EXIT_ALL"
+                            action_params = {}
                         
                         # Preserve trailing state for backtest persistence
                         open_pos["trailing_stop"] = pos_state.get("trailing_stop")
@@ -386,12 +388,26 @@ class BacktestEngine:
                         open_pos["peak_price"] = pos_state.get("peak_price")
 
                         if should_exit:
-                            self._close_trade(timestamp, float(candle["close"]), reason)
-                            state["last_exit_time"] = timestamp
-                            state["reentry_count"] += 1
-                            daily_stats["trades"] += 1
-                            daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
-                            open_pos = None
+                            if action == 'MOVE_TO_BREAKEVEN':
+                                if not open_pos.get(f'breakeven_{reason}'):
+                                    open_pos['protected_stop_price'] = open_pos['entry_price']
+                                    open_pos[f'breakeven_{reason}'] = True
+                            elif action == 'PARTIAL_EXIT':
+                                exit_pct = float(action_params.get('exit_pct', 50))
+                                if not open_pos.get(f'partial_exit_{reason}'):
+                                    exit_qty = int(open_pos["quantity"] * (exit_pct / 100.0))
+                                    if exit_qty > 0:
+                                        self._close_trade(timestamp, float(candle["close"]), f"Partial Exit ({exit_pct}%): {reason}", exit_qty=exit_qty)
+                                        daily_stats["trades"] += 1
+                                        daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
+                                        open_pos[f'partial_exit_{reason}'] = True
+                            else:
+                                self._close_trade(timestamp, float(candle["close"]), reason)
+                                state["last_exit_time"] = timestamp
+                                state["reentry_count"] += 1
+                                daily_stats["trades"] += 1
+                                daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
+                                open_pos = None
 
                     if not open_pos:
                         executor = context["executor"]
@@ -639,18 +655,6 @@ class BacktestEngine:
             return float(entry_price)
         return float(candle["close"])
 
-    def _check_entry(self, timestamp, candle, instrument, daily_stats, executor=None, signal_candle=None):
-        """Backward-compatible one-shot entry helper."""
-        orders = self._build_entry_orders(
-            timestamp, candle, instrument, daily_stats, executor=executor, signal_candle=signal_candle,
-        )
-        if not orders:
-            return False
-        success = False
-        for order in orders:
-            if self._try_fill_entry_order(timestamp, candle, instrument, order):
-                success = True
-        return success
 
     def _update_mae_mfe(self, candle):
         pos = self.open_position
@@ -691,11 +695,11 @@ class BacktestEngine:
         dict_key = signal_instrument_id if signal_instrument_id is not None else instrument.id
         self.open_positions[dict_key] = self.open_position
 
-    def _close_trade(self, timestamp, price, reason):
+    def _close_trade(self, timestamp, price, reason, exit_qty=None):
         pos = self.open_position
         entry_price = pos["entry_price"]
         exit_price = float(price)
-        quantity = pos["quantity"]
+        quantity = exit_qty or pos["quantity"]
         instrument = pos["instrument"]
         side_closed = pos["side"]
 
@@ -727,14 +731,15 @@ class BacktestEngine:
             mfe=pos.get("max_profit", 0),
             holding_duration_minutes=holding_minutes,
             exit_reason=reason,
-            entry_rule=self._describe_entry_rule(),
-            exit_rule=reason,
         )
         self.trades_to_create.append(trade)
-        self.last_trade = trade
-        if instrument:
-            self.open_positions.pop(instrument.id, None)
-        self.open_position = None
+        
+        if exit_qty and exit_qty < pos["quantity"]:
+            pos["quantity"] -= exit_qty
+        else:
+            self.open_position = None
+            dict_key = pos.get("signal_instrument_id") or pos["instrument"].id
+            self.open_positions[dict_key] = None
 
     def _calculate_unrealized_pnl(self, candle):
         pos = self.open_position
@@ -895,8 +900,8 @@ class BacktestEngine:
         
         atr_value = 0.0
         if getattr(self, "rule_evaluator", None) and getattr(self.rule_evaluator, "indicator_engine", None):
-            from common.enums import IndicatorType
-            atr_series = self.rule_evaluator.indicator_engine.get_series(IndicatorType.ATR, {"period": 14})
+            from common.enums import OperandType
+            atr_series = self.rule_evaluator.indicator_engine.get_series(OperandType.ATR, {"period": 14})
             if atr_series is not None and not atr_series.empty:
                 if timestamp in atr_series.index:
                     atr_value = float(atr_series.loc[timestamp])
@@ -1025,25 +1030,7 @@ class BacktestEngine:
         self.rule_evaluators[cache_key] = evaluator
         return evaluator
 
-    def _get_candle_reference(self, rule, row_index):
-        candle_part = str(get_any_field(rule, "candle_part", "LOW")).lower()
-        candle_offset = int(get_any_field(rule, "candle_offset", 0) or 0)
-        lookback = max(int(get_any_field(rule, "candle_lookback", 1) or 1), 1)
-        series = self.rule_evaluator.df[candle_part]
-        end_idx = max(row_index - candle_offset, 0)
-        start_idx = max(end_idx - lookback + 1, 0)
-        window = series.iloc[start_idx : end_idx + 1]
-        # Use appropriate aggregation based on candle part:
-        # - low: use min (worst case for BUY stops)
-        # - high: use max (worst case for SELL stops)
-        # - close/open: use the most recent value
-        if candle_part == "low":
-            return float(window.min())
-        elif candle_part == "high":
-            return float(window.max())
-        else:
-            # For close and open, return the most recent value in the window
-            return float(window.iloc[-1]) if len(window) > 0 else float(window.min())
+
 
     def _minutes_in_trade(self, timestamp):
         if not self.open_position:
@@ -1138,11 +1125,7 @@ class BacktestEngine:
         monthly = df["equity"].resample("ME").last().pct_change().fillna(0) * 100
         return {index.strftime("%Y-%m"): float(value) for index, value in monthly.items()}
 
-    def _describe_entry_rule(self):
-        entry_groups = self._get_active_groups("ENTRY")
-        if not entry_groups:
-            return ""
-        return entry_groups[0].get("name") or "Entry Signal"
+
 
     def _consecutive_streaks(self, pnl_series):
         max_wins = 0

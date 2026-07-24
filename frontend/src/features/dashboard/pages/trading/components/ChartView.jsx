@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Activity,
   AlertCircle,
@@ -19,6 +19,7 @@ import {
 } from "lightweight-charts";
 
 import { Button } from "@/shared/components/ui/button";
+import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import {
   Card,
   CardContent,
@@ -101,6 +102,7 @@ export default function ChartView({
   const [selectedChartType, setSelectedChartType] = useState("candles");
   const [showVolume, setShowVolume] = useState(false);
   const [hoveredCandle, setHoveredCandle] = useState(null);
+  const { getTickData } = useWebSocket();
 
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -116,15 +118,72 @@ export default function ChartView({
   // Track chart data directly inside a ref to be accessible
   const chartDataRef = useRef([]);
 
+  // DOM Refs for ultra-fast direct mutations
+  const priceRef = useRef(null);
+  const priceChangeWrapperRef = useRef(null);
+  const priceChangeIconUpRef = useRef(null);
+  const priceChangeIconDownRef = useRef(null);
+  const priceChangeTextRef = useRef(null);
+
+  const handleTickUpdate = useCallback((event) => {
+    const latestTickPrice = Number(event.price ?? event.ltp);
+    if (Number.isFinite(latestTickPrice) && latestTickPrice > 0) {
+      if (priceRef.current) {
+        priceRef.current.innerText = formatCurrency(latestTickPrice);
+      }
+      
+      const change = Number(event.change);
+      const changePercent = Number(event.change_percent ?? 0);
+      
+      if (Number.isFinite(change) && priceChangeWrapperRef.current && priceChangeTextRef.current) {
+        priceChangeWrapperRef.current.style.display = "flex";
+        const isUp = change >= 0;
+        
+        priceChangeWrapperRef.current.className = cn(
+            "flex items-center gap-1 text-sm font-semibold",
+            isUp ? "text-emerald-400" : "text-rose-400"
+        );
+        
+        priceChangeTextRef.current.innerText = `${isUp ? "+" : ""}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`;
+        
+        if (priceChangeIconUpRef.current) priceChangeIconUpRef.current.style.display = isUp ? "block" : "none";
+        if (priceChangeIconDownRef.current) priceChangeIconDownRef.current.style.display = !isUp ? "block" : "none";
+      }
+    }
+  }, []);
+
+  const handleRealtimeCandleUpdate = useCallback((realtimeCandle) => {
+    if (!chartRef.current || !candleSeriesRef.current || !realtimeCandle) return;
+
+    const arr = chartDataRef.current;
+    if (arr.length > 0 && realtimeCandle.time < arr[arr.length - 1].time) {
+        return;
+    }
+
+    candleSeriesRef.current.update(realtimeCandle);
+    lineSeriesRef.current.update({ time: realtimeCandle.time, value: realtimeCandle.close });
+    if (volumeSeriesRef.current) {
+      volumeSeriesRef.current.update({
+          time: realtimeCandle.time,
+          value: realtimeCandle.volume,
+          color: realtimeCandle.close >= realtimeCandle.open ? "#10b98155" : "#f43f5e55",
+      });
+    }
+
+    if (arr.length > 0 && arr[arr.length - 1].time === realtimeCandle.time) {
+        arr[arr.length - 1] = realtimeCandle;
+    } else {
+        arr.push(realtimeCandle);
+    }
+  }, []);
+
   const {
     historicalData,
-    realtimeCandle,
-    latestTick,
     status,
     isLoadingOlder,
     hasMoreHistory,
     loadOlder,
-  } = useRealtimeCandles(symbol, selectedTimeframe);
+  } = useRealtimeCandles(symbol, selectedTimeframe, handleRealtimeCandleUpdate, handleTickUpdate);
 
   useEffect(() => {
     loadOlderRef.current = loadOlder;
@@ -143,25 +202,12 @@ export default function ChartView({
     if (volumeSeriesRef.current) volumeSeriesRef.current.setData([]);
   }, [selectedTimeframe, symbol]);
 
-  const latestCandle = hoveredCandle ?? chartDataRef.current[chartDataRef.current.length - 1] ?? null;
-  const latestTickTime = parseUnixTime(latestTick?.timestamp ?? latestTick?.updated_at);
-  const latestTickPrice = Number(latestTick?.price);
-  const isLatestTickUsable =
-    Number.isFinite(latestTickPrice) &&
-    latestTickPrice > 0 &&
-    (!latestCandle?.time ||
-      !latestTickTime ||
-      latestTickTime >= Number(latestCandle.time) - 60);
-  const displayPrice = isLatestTickUsable ? latestTickPrice : latestCandle?.close;
-
-  const priceChange = useMemo(() => {
-    if (!isLatestTickUsable) return null;
-    if (!latestTick?.change && latestTick?.change !== 0) return null;
-    return {
-      change: Number(latestTick.change),
-      changePercent: Number(latestTick.change_percent ?? 0),
-    };
-  }, [isLatestTickUsable, latestTick]);
+  const currentCandle = chartDataRef.current[chartDataRef.current.length - 1] ?? null;
+  const latestCandle = hoveredCandle ?? currentCandle;
+  
+  // Get the effective tick data from the Redux store (aware of market phase / adjusted close)
+  const effectiveTick = getTickData(symbol);
+  const displayPrice = effectiveTick?.price ?? currentCandle?.close;
 
   // Init Chart instance
   useEffect(() => {
@@ -355,37 +401,7 @@ export default function ChartView({
     }
   }, [historicalData]);
 
-  // Handle Realtime Tick (Update Data incrementally)
-  useEffect(() => {
-    if (!chartRef.current || !candleSeriesRef.current || !realtimeCandle) return;
 
-    const arr = chartDataRef.current;
-    // Prevent 'Cannot update oldest data' exception in lightweight-charts
-    // If the websocket tick is older than the latest historical candle, ignore it.
-    if (arr.length > 0 && realtimeCandle.time < arr[arr.length - 1].time) {
-        return;
-    }
-
-    // Use lightweight-charts high-performance .update()
-    candleSeriesRef.current.update(realtimeCandle);
-    lineSeriesRef.current.update({ time: realtimeCandle.time, value: realtimeCandle.close });
-    if (volumeSeriesRef.current) {
-      volumeSeriesRef.current.update({
-          time: realtimeCandle.time,
-          value: realtimeCandle.volume,
-          color: realtimeCandle.close >= realtimeCandle.open ? "#10b98155" : "#f43f5e55",
-      });
-    }
-
-    // Mirror to our local ref
-    if (arr.length > 0 && arr[arr.length - 1].time === realtimeCandle.time) {
-        arr[arr.length - 1] = realtimeCandle;
-    } else {
-        arr.push(realtimeCandle);
-    }
-  }, [realtimeCandle]);
-
-  // Toggle chart types
   useEffect(() => {
     candleSeriesRef.current?.applyOptions({ visible: selectedChartType === "candles" });
     lineSeriesRef.current?.applyOptions({ visible: selectedChartType === "line" });
@@ -409,23 +425,18 @@ export default function ChartView({
                 {symbol}
               </CardTitle>
               <div className="flex items-baseline gap-3">
-                <span className="text-2xl font-bold text-white tabular-nums">
+                <span ref={priceRef} className="text-2xl font-bold text-white tabular-nums">
                   {formatCurrency(displayPrice)}
                 </span>
-                {priceChange && (
-                  <div
-                    className={cn(
-                      "flex items-center gap-1 text-sm font-semibold",
-                      priceChange.change >= 0 ? "text-emerald-400" : "text-rose-400"
-                    )}
-                  >
-                    {priceChange.change >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-                    <span>
-                      {priceChange.change >= 0 ? "+" : ""}
-                      {priceChange.change.toFixed(2)} ({priceChange.changePercent.toFixed(2)}%)
-                    </span>
-                  </div>
-                )}
+                <div
+                  ref={priceChangeWrapperRef}
+                  className="flex items-center gap-1 text-sm font-semibold"
+                  style={{ display: "none" }}
+                >
+                  <div ref={priceChangeIconUpRef} style={{ display: "none" }}><TrendingUp className="h-3.5 w-3.5" /></div>
+                  <div ref={priceChangeIconDownRef} style={{ display: "none" }}><TrendingDown className="h-3.5 w-3.5" /></div>
+                  <span ref={priceChangeTextRef}></span>
+                </div>
               </div>
             </div>
           </div>

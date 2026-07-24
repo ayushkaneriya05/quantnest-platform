@@ -13,7 +13,7 @@ from instruments.models import Instrument
 from marketdata.live_feed import LiveMarketDataRegistry
 from marketdata.streaming import MarketDataStreamer
 
-from .models import Account, Order, Position, TradeHistory, Watchlist
+from .models import Account, Order, Position, TradeHistory, Watchlist, ClosedPositionLog
 from .signals import order_status_changed, position_changed
 
 
@@ -222,10 +222,33 @@ class TradingOrderService:
             closed_qty = min(abs(old_quantity), abs(transaction_qty))
             pnl = (fill_price - position.average_price) * Decimal(str(closed_qty))
             account.realized_pnl += pnl
+            
+            ClosedPositionLog.objects.create(
+                account=account,
+                instrument=order.instrument,
+                side="LONG",
+                quantity=closed_qty,
+                entry_price=position.average_price,
+                exit_price=fill_price,
+                realized_pnl=pnl,
+                entry_time=position.created_at
+            )
+            
         elif old_quantity < 0 and transaction_qty > 0:
             closed_qty = min(abs(old_quantity), abs(transaction_qty))
             pnl = (position.average_price - fill_price) * Decimal(str(closed_qty))
             account.realized_pnl += pnl
+            
+            ClosedPositionLog.objects.create(
+                account=account,
+                instrument=order.instrument,
+                side="SHORT",
+                quantity=closed_qty,
+                entry_price=position.average_price,
+                exit_price=fill_price,
+                realized_pnl=pnl,
+                entry_time=position.created_at
+            )
 
         if new_quantity == 0:
             position.quantity = 0
@@ -252,7 +275,7 @@ class TradingOrderService:
         order.status = "COMPLETE"
         order.executed_at = timezone.now()
         order.price = fill_price # Store the actual fill price
-        order.save()
+        order.save(update_fields=["status", "executed_at", "price"])
         
         # Handle OCO Cancellation
         if order.is_oco and order.oco_linked_order_id:
@@ -278,7 +301,7 @@ class TradingOrderService:
         return order
 
     @classmethod
-    def process_matching_engine(cls, symbol, tick_data):
+    def process_matching_engine(cls, symbol, tick_data, open_orders=None):
         """
         Process matching engine logic for a given symbol and tick data.
         """
@@ -294,10 +317,11 @@ class TradingOrderService:
         ltp = Decimal(str(raw_price))
         
         # --- Process Open Orders ---
-        open_orders = Order.objects.filter(
-            instrument__sym_ticker=symbol,
-            status="OPEN"
-        ).select_related("account", "instrument")
+        if open_orders is None:
+            open_orders = Order.objects.filter(
+                instrument__sym_ticker=symbol,
+                status="OPEN"
+            ).select_related("account", "instrument")
 
         for order in open_orders:
             should_fill = False
@@ -366,8 +390,8 @@ class TradingOrderService:
         
         if qty == 0:
             # Position closed: Cancel all pending exit orders
-            for order in existing_orders:
-                cls.cancel_order(order)
+            for pending_order in existing_orders:
+                cls.cancel_order(pending_order)
             return
             
         exit_transaction_type = "SELL" if qty > 0 else "BUY"

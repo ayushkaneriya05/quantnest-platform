@@ -4,11 +4,10 @@ Views for the rules_engine app.
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule, StopLossRule, TargetRule
+from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule
 from .serializers import (
     TimeRuleSerializer, SpecialEventFilterSerializer,
-    RuleGroupSerializer, RuleGroupCreateSerializer, RuleSerializer,
-    StopLossRuleSerializer, TargetRuleSerializer
+    RuleGroupSerializer, RuleGroupCreateSerializer, RuleSerializer
 )
 
 
@@ -75,35 +74,4 @@ class RuleViewSet(viewsets.ModelViewSet):
         return Rule.objects.filter(rule_group__strategy__user=self.request.user)
 
 
-class StopLossRuleViewSet(viewsets.ModelViewSet):
-    """ViewSet for stop loss rules."""
-    serializer_class = StopLossRuleSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        return StopLossRule.objects.filter(rule_group__strategy__user=self.request.user)
-    
-    @action(detail=False, methods=['get'])
-    def by_strategy(self, request):
-        """Get stop loss rules for a strategy."""
-        strategy_id = request.query_params.get('strategy_id')
-        qs = self.get_queryset().filter(rule_group__strategy_id=strategy_id)
-        serializer = self.get_serializer(qs, many=True)
-        return Response(serializer.data)
 
-
-class TargetRuleViewSet(viewsets.ModelViewSet):
-    """ViewSet for target/exit rules."""
-    serializer_class = TargetRuleSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        return TargetRule.objects.filter(rule_group__strategy__user=self.request.user)
-    
-    @action(detail=False, methods=['get'])
-    def by_strategy(self, request):
-        """Get target rules for a strategy."""
-        strategy_id = request.query_params.get('strategy_id')
-        qs = self.get_queryset().filter(rule_group__strategy_id=strategy_id)
-        serializer = self.get_serializer(qs, many=True)
-        return Response(serializer.data)

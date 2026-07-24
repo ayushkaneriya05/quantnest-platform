@@ -4,7 +4,7 @@ from django.utils import timezone
 from datetime import timedelta
 from .models import Strategy, EntryOrderConfig, ReEntryRule, ExitOrderConfig, StrategyVersion
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
-from rules_engine.models import RuleGroup, Rule, StopLossRule, TargetRule, TimeRule, SpecialEventFilter
+from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
 from .services import StrategySnapshotService
 from django.core.cache import cache
 import logging
@@ -27,14 +27,10 @@ def create_strategy_configs(sender, instance, created, **kwargs):
 @receiver(post_save, sender=SpecialEventFilter)
 @receiver(post_save, sender=RuleGroup)
 @receiver(post_save, sender=Rule)
-@receiver(post_save, sender=StopLossRule)
-@receiver(post_save, sender=TargetRule)
 @receiver(post_save, sender=PositionSizingRule)
 @receiver(post_save, sender=StrategyAutoDisable)
 @receiver(post_delete, sender=RuleGroup)
 @receiver(post_delete, sender=Rule)
-@receiver(post_delete, sender=StopLossRule)
-@receiver(post_delete, sender=TargetRule)
 @receiver(post_delete, sender=StrategyAutoDisable)
 def auto_create_version(sender, instance, **kwargs):
     """

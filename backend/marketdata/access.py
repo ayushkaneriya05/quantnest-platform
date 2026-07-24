@@ -29,7 +29,7 @@ class StrategyMarketDataService:
         raise ValueError("Live market price is unavailable")
 
     @classmethod
-    def get_multi_timeframe_data(cls, config, instrument, *, lookback_days=30, fetch_missing=True, candle_state=None):
+    def get_multi_timeframe_data(cls, config, instrument, *, lookback_days=30, fetch_missing=True, candle_states=None):
         if instrument is None:
             return None, {}
 
@@ -42,6 +42,13 @@ class StrategyMarketDataService:
         mtf_data = {}
         for timeframe in required_timeframes:
             max_lookback = warmup_reqs.get(timeframe, IndicatorRequirementAnalyzer.MIN_LOOKBACK)
+            
+            # Extract the correct forming candle state if available
+            candle_state = None
+            if candle_states:
+                db_timeframe = "1D" if timeframe in ("1D", "1W") else "1m"
+                candle_state = candle_states.get(db_timeframe)
+                
             # Fetch directly from the ultra-fast bounded ring buffer
             df = LiveCandleStore.get_candle_df(instrument.sym_ticker, timeframe, max_lookback=max_lookback, candle_state=candle_state)
             if df is not None and not df.empty:
@@ -77,9 +84,12 @@ class StrategyMarketDataService:
         base_timeframe = MarketDataService.normalize_timeframe(time_rule.get("candle_timeframe", "1m"))
         required_timeframes = {base_timeframe}
         for group in (config or {}).get("rule_groups", []) or []:
-            for collection_name in ("rules", "stop_loss_rules", "target_rules"):
-                for rule in group.get(collection_name, []) or []:
-                    timeframe_override = rule.get("timeframe_override")
-                    if timeframe_override:
-                        required_timeframes.add(MarketDataService.normalize_timeframe(timeframe_override))
+            for rule in group.get("rules", []) or []:
+                    tf_a = rule.get("operand_a_timeframe")
+                    if tf_a:
+                        required_timeframes.add(MarketDataService.normalize_timeframe(tf_a))
+                        
+                    tf_b = rule.get("operand_b_timeframe")
+                    if tf_b:
+                        required_timeframes.add(MarketDataService.normalize_timeframe(tf_b))
         return base_timeframe, required_timeframes

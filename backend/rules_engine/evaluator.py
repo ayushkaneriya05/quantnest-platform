@@ -10,14 +10,15 @@ if not hasattr(np, "NaN"):
     np.NaN = np.nan
 
 import pandas_ta as ta
+from scipy.stats import norm
 
 from common.enums import (
     ComparisonOperator,
-    IndicatorType,
+    OperandType,
     LogicalOperator,
-    PriceActionType,
-    RuleCategory,
-    VolumeConditionType,
+    
+    
+    
     CandleCompletionRule,
 )
 from common.trading_utils import get_any_field, to_float
@@ -41,7 +42,7 @@ class IndicatorEngine:
             return self._indicators_cached[cache_key]
 
         p = normalized_params
-        close = self._get_price_source(p.get("source", "close"))
+        close = self._get_price_source(p.get("source", "close"), p)
         high = self.df["high"]
         low = self.df["low"]
         volume = self.df["volume"]
@@ -64,19 +65,27 @@ class IndicatorEngine:
             )
 
         try:
-            if indicator_type == IndicatorType.SMA:
+            if indicator_type == OperandType.SMA:
                 series = ta.sma(close, length=p["period"])
-            elif indicator_type == IndicatorType.EMA:
+            elif indicator_type == OperandType.EMA:
                 series = ta.ema(close, length=p["period"])
-            elif indicator_type == IndicatorType.WMA:
+            elif indicator_type == OperandType.WMA:
                 series = ta.wma(close, length=p["period"])
-            elif indicator_type == IndicatorType.RSI:
+            elif indicator_type == OperandType.RSI:
                 series = ta.rsi(close, length=p["period"])
-            elif indicator_type in {
-                IndicatorType.MACD,
-                IndicatorType.MACD_SIGNAL,
-                IndicatorType.MACD_HISTOGRAM,
-            }:
+            elif indicator_type == OperandType.ROC:
+                series = ta.roc(close, length=p["period"])
+            elif indicator_type == OperandType.HMA:
+                series = ta.hma(close, length=p["period"])
+            elif indicator_type == OperandType.ALMA:
+                series = ta.alma(close, length=p["period"])
+            elif indicator_type == OperandType.KAMA:
+                series = ta.kama(close, length=p["period"])
+            elif indicator_type == OperandType.DEMA:
+                series = ta.dema(close, length=p["period"])
+            elif indicator_type == OperandType.TEMA:
+                series = ta.tema(close, length=p["period"])
+            elif indicator_type == OperandType.MACD:
                 macd_df = ta.macd(
                     close,
                     fast=p["fast_period"],
@@ -85,37 +94,33 @@ class IndicatorEngine:
                 )
                 if macd_df is not None:
                     # pandas_ta returns columns: MACD_F_S_SIG, MACDh_F_S_SIG, MACDs_F_S_SIG
-                    # Use named filtering — robust to column-order changes across versions.
-                    if indicator_type == IndicatorType.MACD:
-                        cols = [c for c in macd_df.columns if c.startswith("MACD_")]
-                        series = macd_df[cols[0]] if cols else None
-                    elif indicator_type == IndicatorType.MACD_SIGNAL:
+                    output_line = str(p.get("output_line", "MACD_LINE")).upper()
+                    if output_line == "MACD_SIGNAL":
                         cols = [c for c in macd_df.columns if c.startswith("MACDs_")]
                         series = macd_df[cols[0]] if cols else None
-                    else:  # MACD_HISTOGRAM
+                    elif output_line == "MACD_HISTOGRAM":
                         cols = [c for c in macd_df.columns if c.startswith("MACDh_")]
                         series = macd_df[cols[0]] if cols else None
-            elif indicator_type in {
-                IndicatorType.BOLLINGER_UPPER,
-                IndicatorType.BOLLINGER_MID,
-                IndicatorType.BOLLINGER_LOWER,
-            }:
+                    else:  # Default to MACD_LINE
+                        cols = [c for c in macd_df.columns if c.startswith("MACD_")]
+                        series = macd_df[cols[0]] if cols else None
+            elif indicator_type == OperandType.BOLLINGER_BANDS:
                 bb_df = ta.bbands(close, length=p["period"], std=p["std_dev"])
                 if bb_df is not None:
-                    # pandas_ta columns: BBL_P_S, BBM_P_S, BBU_P_S, BBB_P_S, BBP_P_S
-                    # Use named prefix filtering.
-                    if indicator_type == IndicatorType.BOLLINGER_LOWER:
+                    output_line = str(p.get("output_line", "UPPER")).upper()
+                    if output_line == "LOWER":
                         cols = [c for c in bb_df.columns if c.startswith("BBL_")]
                         series = bb_df[cols[0]] if cols else None
-                    elif indicator_type == IndicatorType.BOLLINGER_MID:
+                    elif output_line == "MIDDLE" or output_line == "MID":
                         cols = [c for c in bb_df.columns if c.startswith("BBM_")]
                         series = bb_df[cols[0]] if cols else None
-                    else:  # BOLLINGER_UPPER
+                    else:  # UPPER
                         cols = [c for c in bb_df.columns if c.startswith("BBU_")]
                         series = bb_df[cols[0]] if cols else None
-            elif indicator_type == IndicatorType.VWAP:
-                series = ta.vwap(high, low, close, volume)
-            elif indicator_type == IndicatorType.SUPERTREND:
+            elif indicator_type == OperandType.VWAP:
+                anchor = str(p.get("anchor", "D")).upper()
+                series = ta.vwap(high, low, close, volume, anchor=anchor)
+            elif indicator_type == OperandType.SUPERTREND:
                 supertrend_df = ta.supertrend(
                     high,
                     low,
@@ -127,20 +132,20 @@ class IndicatorEngine:
                     # Column: SUPERT_P_M (the actual supertrend line)
                     cols = [c for c in supertrend_df.columns if c.startswith("SUPERT_") and "d" not in c.lower()]
                     series = supertrend_df[cols[0]] if cols else supertrend_df.iloc[:, 0]
-            elif indicator_type in {IndicatorType.ADX, IndicatorType.PLUS_DI, IndicatorType.MINUS_DI}:
+            elif indicator_type in {OperandType.ADX, OperandType.DMI}:
                 adx_df = ta.adx(high, low, close, length=p["period"])
                 if adx_df is not None:
-                    # pandas_ta columns: ADX_P, DMP_P, DMN_P
-                    if indicator_type == IndicatorType.ADX:
-                        cols = [c for c in adx_df.columns if c.startswith("ADX_")]
-                        series = adx_df[cols[0]] if cols else None
-                    elif indicator_type == IndicatorType.PLUS_DI:
+                    output_line = str(p.get("output_line", "ADX")).upper()
+                    if output_line == "PLUS_DI" or output_line == "+DI":
                         cols = [c for c in adx_df.columns if c.startswith("DMP_")]
                         series = adx_df[cols[0]] if cols else None
-                    else:  # MINUS_DI
+                    elif output_line == "MINUS_DI" or output_line == "-DI":
                         cols = [c for c in adx_df.columns if c.startswith("DMN_")]
                         series = adx_df[cols[0]] if cols else None
-            elif indicator_type in {IndicatorType.STOCHASTIC_K, IndicatorType.STOCHASTIC_D}:
+                    else:
+                        cols = [c for c in adx_df.columns if c.startswith("ADX_")]
+                        series = adx_df[cols[0]] if cols else None
+            elif indicator_type == OperandType.STOCHASTIC:
                 stoch_df = ta.stoch(
                     high,
                     low,
@@ -150,25 +155,114 @@ class IndicatorEngine:
                     smooth_k=p["smooth"],
                 )
                 if stoch_df is not None:
-                    # pandas_ta columns: STOCHk_K_D_S, STOCHd_K_D_S
-                    if indicator_type == IndicatorType.STOCHASTIC_K:
-                        cols = [c for c in stoch_df.columns if c.startswith("STOCHk_")]
-                        series = stoch_df[cols[0]] if cols else None
-                    else:
+                    output_line = str(p.get("output_line", "K")).upper()
+                    if output_line == "D" or output_line == "%D":
                         cols = [c for c in stoch_df.columns if c.startswith("STOCHd_")]
                         series = stoch_df[cols[0]] if cols else None
-            elif indicator_type == IndicatorType.ATR:
+                    else:
+                        cols = [c for c in stoch_df.columns if c.startswith("STOCHk_")]
+                        series = stoch_df[cols[0]] if cols else None
+            elif indicator_type == OperandType.ATR:
                 series = ta.atr(high, low, close, length=p["period"])
-            elif indicator_type == IndicatorType.CCI:
+            elif indicator_type == OperandType.CCI:
                 series = ta.cci(high, low, close, length=p["period"])
-            elif indicator_type == IndicatorType.WILLIAMS_R:
+            elif indicator_type == OperandType.WILLIAMS_R:
                 series = ta.willr(high, low, close, length=p["period"])
-            elif indicator_type == IndicatorType.OBV:
+            elif indicator_type == OperandType.OBV:
                 series = ta.obv(close, volume)
-            elif indicator_type == IndicatorType.MFI:
+            elif indicator_type == OperandType.MFI:
                 series = ta.mfi(high, low, close, volume, length=p["period"])
-            elif indicator_type == IndicatorType.PIVOT_POINT:
+            elif indicator_type == OperandType.PIVOT_POINT:
                 series = ((high.shift(1) + low.shift(1) + close.shift(1)) / 3).rename("pivot_point")
+            elif indicator_type == OperandType.DONCHIAN_CHANNEL:
+                dc_df = ta.donchian(high, low, lower_length=p["period"], upper_length=p["period"])
+                if dc_df is not None:
+                    output_line = str(p.get("output_line", "UPPER")).upper()
+                    if output_line == "LOWER":
+                        cols = [c for c in dc_df.columns if c.startswith("DCL_")]
+                        series = dc_df[cols[0]] if cols else None
+                    elif output_line == "MIDDLE" or output_line == "MID":
+                        cols = [c for c in dc_df.columns if c.startswith("DCM_")]
+                        series = dc_df[cols[0]] if cols else None
+                    else:  # UPPER
+                        cols = [c for c in dc_df.columns if c.startswith("DCU_")]
+                        series = dc_df[cols[0]] if cols else None
+            elif indicator_type == OperandType.KELTNER_CHANNEL:
+                kc_df = ta.kc(high, low, close, length=p["period"], scalar=p["multiplier"])
+                if kc_df is not None:
+                    output_line = str(p.get("output_line", "UPPER")).upper()
+                    if output_line == "LOWER":
+                        cols = [c for c in kc_df.columns if c.startswith("KCLe_")]
+                        series = kc_df[cols[0]] if cols else None
+                    elif output_line == "MIDDLE" or output_line == "MID":
+                        cols = [c for c in kc_df.columns if c.startswith("KCBs_")]
+                        series = kc_df[cols[0]] if cols else None
+                    else:  # UPPER
+                        cols = [c for c in kc_df.columns if c.startswith("KCUe_")]
+                        series = kc_df[cols[0]] if cols else None
+            elif indicator_type == OperandType.PARABOLIC_SAR:
+                af = to_float(p.get("af"), 0.02)
+                max_af = to_float(p.get("max_af"), 0.2)
+                psar_df = ta.psar(high, low, close, af0=af, af=af, max_af=max_af)
+                if psar_df is not None:
+                    cols = [c for c in psar_df.columns if c.startswith("PSARl_") or c.startswith("PSARs_") or c.startswith("PSAR_")]
+                    series = psar_df[cols[0]] if cols else None
+            elif indicator_type == OperandType.ICHIMOKU_CLOUD:
+                tenkan = int(p.get("tenkan", 9))
+                kijun = int(p.get("kijun", 26))
+                senkou = int(p.get("senkou", 52))
+                ichimoku_dfs = ta.ichimoku(high, low, close, tenkan=tenkan, kijun=kijun, senkou=senkou)
+                if ichimoku_dfs and ichimoku_dfs[0] is not None:
+                    df = ichimoku_dfs[0]
+                    output_line = str(p.get("output_line", "TENKAN")).upper()
+                    if output_line == "KIJUN":
+                        cols = [c for c in df.columns if c.startswith("IKS_")]
+                        series = df[cols[0]] if cols else None
+                    elif output_line == "SENKOU_A":
+                        cols = [c for c in df.columns if c.startswith("ISA_")]
+                        series = df[cols[0]] if cols else None
+                    elif output_line == "SENKOU_B":
+                        cols = [c for c in df.columns if c.startswith("ISB_")]
+                        series = df[cols[0]] if cols else None
+                    elif output_line == "CHIKOU":
+                        cols = [c for c in df.columns if c.startswith("ICS_")]
+                        series = df[cols[0]] if cols else None
+                    else:
+                        cols = [c for c in df.columns if c.startswith("ITS_")]
+                        series = df[cols[0]] if cols else None
+            elif indicator_type == OperandType.CANDLE_PATTERN:
+                pattern_enum = str(p.get("pattern", "DOJI")).upper()
+                pattern_name = pattern_enum.lower()
+                
+                # Map specific enums to pandas-ta / TA-Lib expected names
+                if "engulfing" in pattern_name:
+                    pattern_name = "engulfing"
+                elif "harami" in pattern_name:
+                    pattern_name = "harami"
+                elif pattern_name == "shooting_star":
+                    pattern_name = "shootingstar"
+                elif pattern_name == "morning_star":
+                    pattern_name = "morningstar"
+                elif pattern_name == "evening_star":
+                    pattern_name = "eveningstar"
+                elif pattern_name == "piercing_line":
+                    pattern_name = "piercing"
+                    
+                pattern_df = ta.cdl_pattern(open, high, low, close, name=pattern_name)
+                if pattern_df is not None and not pattern_df.empty:
+                    cols = pattern_df.columns
+                    if cols:
+                        raw_series = pattern_df[cols[0]]
+                        if pattern_enum in ["ENGULFING_BULLISH", "HARAMI_BULLISH"]:
+                            series = raw_series == 100
+                        elif pattern_enum in ["ENGULFING_BEARISH", "HARAMI_BEARISH"]:
+                            series = raw_series == -100
+                        else:
+                            series = raw_series != 0
+                        
+                        # Return as float so it can be compared with boolean (True -> 1.0, False -> 0.0)
+                        series = series.astype(float)
+
         except Exception as exc:
             logger.exception("Error calculating indicator %s: %s", indicator_type, exc)
             series = None
@@ -215,17 +309,42 @@ class IndicatorEngine:
         normalized.setdefault("lookback", normalized.get("period", 20))
         return normalized
 
-    def _get_price_source(self, source):
-        source = str(source or "close").lower()
-        if source in self.df.columns:
-            return self.df[source]
-        if source == "hl2":
-            return (self.df["high"] + self.df["low"]) / 2
-        if source == "hlc3":
-            return (self.df["high"] + self.df["low"] + self.df["close"]) / 3
-        if source == "ohlc4":
-            return (self.df["open"] + self.df["high"] + self.df["low"] + self.df["close"]) / 4
-        logger.warning("Unsupported price source '%s', defaulting to close", source)
+    def _get_price_source(self, source, params=None):
+        source_str = str(source or "close").upper()
+        shift_val = int(params.get("source_shift", 0)) if params else 0
+        price_series = None
+
+        if source_str in {"OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"}:
+            price_series = self.df[source_str.lower()]
+        elif source_str == "HL2":
+            price_series = (self.df["high"] + self.df["low"]) / 2
+        elif source_str == "HLC3":
+            price_series = (self.df["high"] + self.df["low"] + self.df["close"]) / 3
+        elif source_str == "OHLC4":
+            price_series = (self.df["open"] + self.df["high"] + self.df["low"] + self.df["close"]) / 4
+        elif source_str == "CURRENT_DAY_OPEN":
+            price_series = self.df["open"].resample("1d").first().reindex(self.df.index, method="ffill")
+        elif source_str == "PREV_WEEK_HIGH":
+            price_series = self.df["high"].resample("W").max().shift(1).reindex(self.df.index, method="ffill")
+        elif source_str == "PREV_WEEK_LOW":
+            price_series = self.df["low"].resample("W").min().shift(1).reindex(self.df.index, method="ffill")
+
+        if price_series is not None:
+            if shift_val > 0:
+                price_series = price_series.shift(shift_val)
+            return price_series
+            
+        # Indicator Chaining: If source is an OperandType, evaluate it recursively
+        try:
+            op_type = OperandType(source_str)
+            source_params = params.get("source_params", {}) if params else {}
+            series = self.get_series(op_type, source_params)
+            if series is not None and not series.isna().all():
+                return series
+        except ValueError:
+            pass
+
+        logger.warning("Unsupported price source '%s', defaulting to close", source_str)
         return self.df["close"]
 
 
@@ -235,14 +354,15 @@ class RuleEvaluator:
     Supports both Django model instances and dict snapshots from backtests.
     """
 
-    def __init__(self, bars_df, candle_completion_rule="ON_CLOSE", mtf_data=None, indicator_engine=None, mtf_indicator_engines=None):
+    def __init__(self, bars_df, candle_completion_rule="ON_CLOSE", mtf_data=None, indicator_engine=None, mtf_indicator_engines=None, instrument=None):
         self.df = bars_df.copy()
+        self.instrument = instrument
         self.candle_completion_rule = candle_completion_rule
         self.mtf_data = mtf_data or {} # Dict of {timeframe: df}
         self.indicator_engine = indicator_engine if indicator_engine is not None else IndicatorEngine(self.df)
         self.mtf_indicator_engines = mtf_indicator_engines if mtf_indicator_engines is not None else {}
 
-    def evaluate_group(self, group):
+    def evaluate_group(self, group, state=None):
         """
         Evaluate a RuleGroup and return a boolean series.
         """
@@ -253,7 +373,7 @@ class RuleEvaluator:
 
         results = []
         for rule in rules:
-            res = self.evaluate_rule(rule)
+            res = self.evaluate_rule(rule, state)
             # If MTF, we might need to re-index the result back to base dataframe index
             if len(res) != len(self.df):
                 res = res.reindex(self.df.index, method="ffill").fillna(False)
@@ -273,77 +393,128 @@ class RuleEvaluator:
 
         return self._normalize_boolean_series(combined)
 
-    def evaluate_rule(self, rule):
-        """
-        Evaluate a single Rule and return a boolean series.
-        """
-        category = get_any_field(rule, "category")
-        indicator_type = get_any_field(rule, "indicator_type")
-        price_action_type = get_any_field(rule, "price_action_type")
-        volume_condition_type = get_any_field(rule, "volume_condition_type")
-        tf_override = get_any_field(rule, "timeframe_override")
 
-        # Handle MTF context switch
-        original_engine = self.indicator_engine
-        original_df = self.df
-        
-        if tf_override and tf_override in self.mtf_data:
-            override_df = self.mtf_data[tf_override]
-            self.df = override_df
-            if tf_override in self.mtf_indicator_engines:
-                self.indicator_engine = self.mtf_indicator_engines[tf_override]
-            else:
-                self.indicator_engine = IndicatorEngine(override_df)
-        
+    def evaluate_rule(self, rule, state=None):
+        """
+        Evaluates a single rule (Unified Architecture) against the cached dataframe.
+        Returns a boolean Series.
+        """
         try:
-            if category == RuleCategory.INDICATOR or indicator_type:
-                res = self._evaluate_indicator_rule(rule)
-            elif category == RuleCategory.PRICE_ACTION or price_action_type:
-                res = self._evaluate_price_action_rule(rule)
-            elif category == RuleCategory.VOLUME or volume_condition_type:
-                res = self._evaluate_volume_rule(rule)
-            elif category == RuleCategory.CUSTOM:
-                res = self._evaluate_custom_rule(rule)
-            else:
-                res = self._false_series()
-        finally:
-            # Restore original context
-            self.indicator_engine = original_engine
-            self.df = original_df
+            op_a_type = get_any_field(rule, "operand_a_type")
+            op_a_params = get_any_field(rule, "operand_a_params", {}) or {}
+            
+            if not op_a_type:
+                return self._false_series()
+                
 
-        return res
-
-
-    def _evaluate_indicator_rule(self, rule):
-        indicator_type = get_any_field(rule, "indicator_type")
-        if not indicator_type:
+            op_a_timeframe = get_any_field(rule, "operand_a_timeframe")
+            val_a = self._resolve_operand(op_a_type, op_a_params, state, timeframe=op_a_timeframe)
+            
+            op_b_type = get_any_field(rule, "operand_b_type")
+            op_b_params = get_any_field(rule, "operand_b_params", {}) or {}
+            op_b_timeframe = get_any_field(rule, "operand_b_timeframe")
+            val_b = self._resolve_operand(op_b_type, op_b_params, state, timeframe=op_b_timeframe)
+            
+            comparison = get_any_field(rule, "comparison", ComparisonOperator.EQUAL)
+            
+            if isinstance(val_a, pd.Series) and val_a.dtype == bool:
+                if not op_b_type:
+                    return val_a
+                    
+            return self._compare(val_a, comparison, val_b)
+        except Exception as e:
+            logger.error("Error evaluating rule %s: %s", getattr(rule, "id", "Unknown"), str(e))
             return self._false_series()
 
-        params = get_any_field(rule, "params", {}) or {}
-        value_1 = self.indicator_engine.get_series(indicator_type, params)
-        comparison = get_any_field(rule, "comparison", ComparisonOperator.GREATER)
-        compare_to_indicator = get_any_field(rule, "compare_to_indicator")
+    def _resolve_operand(self, op_type, params, state=None, timeframe=None):
+        if not op_type:
+            return 0.0
+            
+        target_df = self.df
+        target_engine = self.indicator_engine
+        if timeframe and timeframe in self.mtf_data and timeframe in self.mtf_indicator_engines:
+            target_df = self.mtf_data[timeframe]
+            target_engine = self.mtf_indicator_engines[timeframe]
+            
+        if op_type == OperandType.CONSTANT:
+            return to_float(params.get("value"), 0.0)
+            
+        if op_type == OperandType.MATH_EXPRESSION:
+            return self._evaluate_custom_expression(params, state)
+            
+        if state is not None:
+            # State-based properties
+            if op_type == OperandType.POSITION_PNL_PERCENTAGE:
+                return float(state.get("pnl_percentage", 0.0))
+            if op_type == OperandType.POSITION_PNL_POINTS:
+                return float(state.get("pnl_points", 0.0))
+            if op_type == OperandType.ENTRY_PRICE:
+                return float(state.get("avg_price", 0.0))
+            if op_type == OperandType.TRAILING_PEAK_OFFSET:
+                return float(state.get("peak_price", 0.0)) - float(self.df["close"].iloc[-1])
+            if op_type == OperandType.TIME_DECAY:
+                return float(state.get("bars_held", 0.0))
 
-        if compare_to_indicator:
-            value_2 = self.indicator_engine.get_series(
-                compare_to_indicator,
-                get_any_field(rule, "compare_to_params", {}) or {},
-            )
-        else:
-            value_2 = to_float(get_any_field(rule, "value"), 0.0)
+            
+        shift_val = int(params.get("shift", 0)) if params else 0
+        price_series = None
 
-        value_3 = to_float(get_any_field(rule, "value2"), 0.0)
+        if op_type == OperandType.LTP or op_type == OperandType.CLOSE:
+            price_series = target_df["close"]
+        elif op_type == OperandType.OPEN:
+            price_series = target_df["open"]
+        elif op_type == OperandType.HIGH:
+            price_series = target_df["high"]
+        elif op_type == OperandType.LOW:
+            price_series = target_df["low"]
+        elif op_type == OperandType.VOLUME:
+            price_series = target_df["volume"]
+        elif op_type == OperandType.HL2:
+            price_series = (target_df["high"] + target_df["low"]) / 2
+        elif op_type == OperandType.HLC3:
+            price_series = (target_df["high"] + target_df["low"] + target_df["close"]) / 3
+        elif op_type == OperandType.OHLC4:
+            price_series = (target_df["open"] + target_df["high"] + target_df["low"] + target_df["close"]) / 4
+        elif op_type == OperandType.CURRENT_DAY_OPEN:
+            daily_open = target_df["open"].resample("1d").first()
+            price_series = daily_open.reindex(target_df.index, method="ffill")
+        elif op_type == OperandType.PREV_WEEK_HIGH:
+            weekly_high = target_df["high"].resample("W").max().shift(1)
+            price_series = weekly_high.reindex(target_df.index, method="ffill")
+        elif op_type == OperandType.PREV_WEEK_LOW:
+            weekly_low = target_df["low"].resample("W").min().shift(1)
+            price_series = weekly_low.reindex(target_df.index, method="ffill")
+        elif op_type == OperandType.CANDLE_BODY_SIZE:
+            mode = params.get("mode", "POINTS")
+            body_size = (target_df["close"] - target_df["open"]).abs()
+            if mode == "PERCENTAGE":
+                price_series = (body_size / target_df["open"]) * 100
+            else:
+                price_series = body_size
 
-        # For REAL_TIME evaluation we should still compare the computed
-        # indicator series against the configured threshold or comparison
-        # series. Do not override the value_1 series with raw candle highs/lows,
-        # because that changes rule semantics and creates mismatches between
-        # backtest and live execution.
-        return self._compare(value_1, comparison, value_2, value_3)
+        if price_series is not None:
+            if shift_val > 0:
+                price_series = price_series.shift(shift_val)
+            return price_series
+        # Indicator Types
+        indicator_types = {
+            OperandType.SMA, OperandType.EMA, OperandType.WMA, OperandType.HMA, OperandType.ALMA, OperandType.KAMA, OperandType.DEMA, OperandType.TEMA,
+            OperandType.RSI, OperandType.ROC, OperandType.MACD, OperandType.BOLLINGER_BANDS, OperandType.SUPERTREND, OperandType.ADX, OperandType.DMI, OperandType.STOCHASTIC, OperandType.ATR,
+            OperandType.CCI, OperandType.WILLIAMS_R, OperandType.OBV, OperandType.MFI, OperandType.PIVOT_POINT, OperandType.KELTNER_CHANNEL, OperandType.DONCHIAN_CHANNEL, OperandType.PARABOLIC_SAR, OperandType.ICHIMOKU_CLOUD,
+            OperandType.VWAP, OperandType.CANDLE_PATTERN
+        }
+        if op_type in indicator_types:
+            series = target_engine.get_series(op_type, params)
+            if series is not None and shift_val > 0:
+                series = series.shift(shift_val)
+            return series
 
+        logger.warning("Unsupported op_type: %s", op_type)
 
+        # If it's something else we don't know, return 0.0
+        return 0.0
 
-    def _compare(self, value_1, operator, value_2, value_3=None):
+    def _compare(self, value_1, operator, value_2):
         """
         Perform comparison between two series or a series and a scalar.
         """
@@ -363,39 +534,51 @@ class RuleEvaluator:
         elif operator == ComparisonOperator.CROSSES_BELOW:
             previous_2 = value_2.shift(1) if isinstance(value_2, pd.Series) else value_2
             result = (value_1 < value_2) & (value_1.shift(1) >= previous_2)
-        elif operator == ComparisonOperator.BETWEEN:
-            # Handle both scalar and Series values for BETWEEN comparisons
-            if isinstance(value_2, pd.Series):
-                # Two-indicator BETWEEN: value_2 <= value_1 <= value_3 (Series)
-                lower = value_2
-                upper = value_3 if isinstance(value_3, pd.Series) else pd.Series(to_float(value_3, 0.0), index=self.df.index)
-                result = (value_1 >= lower) & (value_1 <= upper)
-            else:
-                lower = min(to_float(value_2, 0.0), to_float(value_3, 0.0))
-                upper = max(to_float(value_2, 0.0), to_float(value_3, 0.0))
-                result = value_1.between(lower, upper, inclusive="both")
         else:
             logger.warning("Unsupported comparison operator: %s", operator)
             result = self._false_series()
 
         return self._normalize_boolean_series(result)
 
-    def _evaluate_custom_rule(self, rule):
-        params = get_any_field(rule, "params", {}) or {}
+    def _evaluate_custom_expression(self, params, state=None):
         expression = str(params.get("expression") or "").strip()
         if not expression:
-            logger.warning("Custom rule missing expression: %s", rule)
+            logger.warning("Custom rule missing expression")
             return self._false_series()
 
-        if not self._is_safe_custom_expression(expression):
+        variables = params.get("variables") or {}
+        if not self._is_safe_custom_expression(expression, variables=variables):
             logger.warning("Rejected unsafe custom rule expression: %s", expression)
             return self._false_series()
 
+        variables = params.get("variables") or {}
+        eval_df = self.df.copy()
+        
+        # Calculate and inject dynamic variables into the dataframe
         try:
-            result = self.df.eval(expression, engine="numexpr")
+            for var_name, var_config in variables.items():
+                if not isinstance(var_config, dict):
+                    continue
+                var_type = var_config.get("type")
+                var_params = var_config.get("params", {})
+                var_timeframe = var_config.get("timeframe")
+                
+                # We can pass state and timeframe to _resolve_operand.
+                series = self._resolve_operand(var_type, var_params, state=state, timeframe=var_timeframe)
+                
+                if isinstance(series, pd.Series) and len(series) != len(eval_df):
+                    series = series.reindex(eval_df.index, method="ffill")
+                    
+                eval_df[var_name] = series
+        except Exception as e:
+            logger.warning("Failed to evaluate nested variables for math expression: %s", e)
+            return self._false_series()
+
+        try:
+            result = eval_df.eval(expression, engine="numexpr")
         except Exception as exc:
             try:
-                result = self.df.eval(expression, engine="python")
+                result = eval_df.eval(expression, engine="python")
             except Exception:
                 logger.warning("Custom rule expression failed '%s': %s", expression, exc)
                 return self._false_series()
@@ -403,111 +586,16 @@ class RuleEvaluator:
         return self._normalize_boolean_series(result)
 
     @staticmethod
-    def _is_safe_custom_expression(expression):
+    def _is_safe_custom_expression(expression, variables=None):
         if "__" in expression or "@" in expression:
             return False
         allowed_columns = {"open", "high", "low", "close", "volume"}
+        if variables:
+            allowed_columns.update(variables.keys())
         tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression))
         if not tokens.issubset(allowed_columns):
             return False
         return bool(re.fullmatch(r"[A-Za-z0-9_\s\.\<\>\=\!\&\|\(\)\+\-\*\/\%]+", expression))
-
-    def _evaluate_price_action_rule(self, rule):
-        price_action_type = get_any_field(rule, "price_action_type")
-        params = self._normalize_params(get_any_field(rule, "params", {}) or {})
-        df = self.df
-        close = df["close"]
-        high = df["high"]
-        low = df["low"]
-        open_ = df["open"]
-        lookback = max(int(params.get("lookback", params.get("period", 20))), 1)
-        breakout_source = str(params.get("breakout_source", "close")).lower()
-        breakout_series = self._get_breakout_series(breakout_source)
-        rolling_high = high.shift(1).rolling(window=lookback, min_periods=1).max()
-        rolling_low = low.shift(1).rolling(window=lookback, min_periods=1).min()
-
-        if price_action_type == PriceActionType.DOJI:
-            result = ta.cdl_doji(open_, high, low, close) != 0
-        elif price_action_type == PriceActionType.HAMMER:
-            result = ta.cdl_hammer(open_, high, low, close) > 0
-        elif price_action_type == PriceActionType.SHOOTING_STAR:
-            result = ta.cdl_shootingstar(open_, high, low, close) < 0
-        elif price_action_type == PriceActionType.MORNING_STAR:
-            result = ta.cdl_morningstar(open_, high, low, close) > 0
-        elif price_action_type == PriceActionType.EVENING_STAR:
-            result = ta.cdl_eveningstar(open_, high, low, close) < 0
-        elif price_action_type == PriceActionType.ENGULFING_BULLISH:
-            result = ta.cdl_engulfing(open_, high, low, close) > 0
-        elif price_action_type == PriceActionType.ENGULFING_BEARISH:
-            result = ta.cdl_engulfing(open_, high, low, close) < 0
-        elif price_action_type == PriceActionType.INSIDE_CANDLE:
-            result = (high < high.shift(1)) & (low > low.shift(1))
-        elif price_action_type == PriceActionType.OUTSIDE_CANDLE:
-            result = (high > high.shift(1)) & (low < low.shift(1))
-        elif price_action_type == PriceActionType.HIGHER_HIGH:
-            result = high > high.shift(1)
-        elif price_action_type == PriceActionType.HIGHER_LOW:
-            result = low > low.shift(1)
-        elif price_action_type == PriceActionType.LOWER_HIGH:
-            result = high < high.shift(1)
-        elif price_action_type == PriceActionType.LOWER_LOW:
-            result = low < low.shift(1)
-        elif price_action_type == PriceActionType.GAP_UP:
-            result = open_ > high.shift(1)
-        elif price_action_type == PriceActionType.GAP_DOWN:
-            result = open_ < low.shift(1)
-        elif price_action_type == PriceActionType.BREAKOUT_HIGH:
-            result = breakout_series > rolling_high
-        elif price_action_type == PriceActionType.BREAKDOWN_LOW:
-            result = breakout_series < rolling_low
-        elif price_action_type == PriceActionType.SUPPORT_BREAKOUT:
-            result = (breakout_series > rolling_low) & (breakout_series.shift(1) <= rolling_low.shift(1))
-        elif price_action_type == PriceActionType.RESISTANCE_BREAKOUT:
-            result = (breakout_series > rolling_high) & (breakout_series.shift(1) <= rolling_high.shift(1))
-        elif price_action_type == PriceActionType.RANGE_BREAKOUT:
-            result = (breakout_series > rolling_high) | (breakout_series < rolling_low)
-        elif price_action_type == PriceActionType.PREV_DAY_HIGH:
-            prev_day_high = high.resample("1D").max().shift(1).reindex(df.index, method="ffill")
-            result = breakout_series > prev_day_high
-        elif price_action_type == PriceActionType.PREV_DAY_LOW:
-            prev_day_low = low.resample("1D").min().shift(1).reindex(df.index, method="ffill")
-            result = breakout_series < prev_day_low
-        else:
-            logger.warning("Unsupported price action type: %s", price_action_type)
-            result = self._false_series()
-
-        return self._normalize_boolean_series(result)
-
-    def _evaluate_volume_rule(self, rule):
-        volume_condition_type = get_any_field(rule, "volume_condition_type")
-        params = self._normalize_params(get_any_field(rule, "params", {}) or {})
-        volume = self.df["volume"]
-        close = self.df["close"]
-        period = max(int(params.get("period", 20)), 1)
-
-        if volume_condition_type == VolumeConditionType.VOLUME_ABOVE_AVG:
-            avg_volume = ta.sma(volume, length=period)
-            result = volume > avg_volume
-        elif volume_condition_type == VolumeConditionType.VOLUME_SPIKE:
-            avg_volume = ta.sma(volume, length=period)
-            multiplier = to_float(params.get("multiplier"), 2.0)
-            result = volume > (avg_volume * multiplier)
-        elif volume_condition_type == VolumeConditionType.VOLUME_DIVERGENCE:
-            price_change = close.diff(periods=period)
-            volume_change = volume.diff(periods=period)
-            direction = str(params.get("direction", "ANY")).upper()
-
-            if direction == "BULLISH":
-                result = (price_change < 0) & (volume_change > 0)
-            elif direction == "BEARISH":
-                result = (price_change > 0) & (volume_change < 0)
-            else:
-                result = ((price_change > 0) & (volume_change < 0)) | ((price_change < 0) & (volume_change > 0))
-        else:
-            logger.warning("Unsupported volume condition type: %s", volume_condition_type)
-            result = self._false_series()
-
-        return self._normalize_boolean_series(result)
 
     def _get_group_rules(self, group):
         rules = get_any_field(group, "rules", [])

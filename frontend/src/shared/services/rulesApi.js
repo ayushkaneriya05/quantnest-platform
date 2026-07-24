@@ -66,53 +66,7 @@ export const ruleApi = {
   },
 };
 
-// Stop Loss Rules
-export const stopLossApi = {
-  getByStrategy: async (strategyId) => {
-    const response = await api.get(`${RULES_URL}stop-loss/by_strategy/`, {
-      params: { strategy_id: strategyId }
-    });
-    return response.data;
-  },
 
-  create: async (data) => {
-    const response = await api.post(`${RULES_URL}stop-loss/`, data);
-    return response.data;
-  },
-
-  update: async (id, data) => {
-    const response = await api.patch(`${RULES_URL}stop-loss/${id}/`, data);
-    return response.data;
-  },
-
-  delete: async (id) => {
-    await api.delete(`${RULES_URL}stop-loss/${id}/`);
-  },
-};
-
-// Target Rules
-export const targetApi = {
-  getByStrategy: async (strategyId) => {
-    const response = await api.get(`${RULES_URL}targets/by_strategy/`, {
-      params: { strategy_id: strategyId }
-    });
-    return response.data;
-  },
-
-  create: async (data) => {
-    const response = await api.post(`${RULES_URL}targets/`, data);
-    return response.data;
-  },
-
-  update: async (id, data) => {
-    const response = await api.patch(`${RULES_URL}targets/${id}/`, data);
-    return response.data;
-  },
-
-  delete: async (id) => {
-    await api.delete(`${RULES_URL}targets/${id}/`);
-  },
-};
 
 // Special Event Filters
 export const specialEventApi = {
@@ -134,4 +88,4 @@ export const specialEventApi = {
   },
 };
 
-export default { timeRuleApi, ruleGroupApi, ruleApi, stopLossApi, targetApi, specialEventApi };
+export default { timeRuleApi, ruleGroupApi, ruleApi, specialEventApi };

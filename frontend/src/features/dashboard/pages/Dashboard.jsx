@@ -170,11 +170,11 @@ export default function Dashboard() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                   <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
+                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${value}`} />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
                     itemStyle={{ color: '#e2e8f0' }}
-                    formatter={(value) => [`$${parseFloat(value).toFixed(2)}`, 'Daily PnL']}
+                    formatter={(value) => [`₹${parseFloat(value).toFixed(2)}`, 'Daily PnL']}
                   />
                   <Area type="monotone" dataKey="pnl" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorPnl)" />
                 </AreaChart>

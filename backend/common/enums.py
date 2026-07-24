@@ -136,6 +136,21 @@ class CandlePart(models.TextChoices):
     CLOSE = 'CLOSE', 'Close'
 
 
+class CandlePatternType(models.TextChoices):
+    """Candlestick patterns for entry rules."""
+    DOJI = 'DOJI', 'Doji'
+    HAMMER = 'HAMMER', 'Hammer'
+    SHOOTING_STAR = 'SHOOTING_STAR', 'Shooting Star'
+    ENGULFING_BULLISH = 'ENGULFING_BULLISH', 'Bullish Engulfing'
+    ENGULFING_BEARISH = 'ENGULFING_BEARISH', 'Bearish Engulfing'
+    MORNING_STAR = 'MORNING_STAR', 'Morning Star'
+    EVENING_STAR = 'EVENING_STAR', 'Evening Star'
+    MARUBOZU = 'MARUBOZU', 'Marubozu'
+    HARAMI_BULLISH = 'HARAMI_BULLISH', 'Bullish Harami'
+    HARAMI_BEARISH = 'HARAMI_BEARISH', 'Bearish Harami'
+    PIERCING_LINE = 'PIERCING_LINE', 'Piercing Line'
+
+
 class MarketSession(models.TextChoices):
     """Market session filter."""
     PRE_MARKET = 'PRE_MARKET', 'Pre-Market'
@@ -158,74 +173,66 @@ class RuleType(models.TextChoices):
     TARGET = 'TARGET', 'Target Rule'
 
 
-class RuleCategory(models.TextChoices):
-    """Category of rule condition."""
-    INDICATOR = 'INDICATOR', 'Indicator-based'
-    PRICE_ACTION = 'PRICE_ACTION', 'Price Action'
-    VOLUME = 'VOLUME', 'Volume-based'
-    CUSTOM = 'CUSTOM', 'Custom'
+class OperandType(models.TextChoices):
+    """Universal operands for rules (Data, Indicators, State, Math)."""
+    # Price Data
+    LTP = 'LTP', 'Last Traded Price'
+    OPEN = 'OPEN', 'Open Price'
+    HIGH = 'HIGH', 'High Price'
+    LOW = 'LOW', 'Low Price'
+    CLOSE = 'CLOSE', 'Close Price'
+    VOLUME = 'VOLUME', 'Volume'
+    VWAP = 'VWAP', 'Volume Weighted Average Price'
+    HL2 = 'HL2', 'HL2'
+    HLC3 = 'HLC3', 'HLC3'
+    OHLC4 = 'OHLC4', 'OHLC4'
+    CURRENT_DAY_OPEN = 'CURRENT_DAY_OPEN', 'Current Day Open'
+    PREV_WEEK_HIGH = 'PREV_WEEK_HIGH', 'Previous Week High'
+    PREV_WEEK_LOW = 'PREV_WEEK_LOW', 'Previous Week Low'
 
+    # Candle Analysis
+    CANDLE_PATTERN = 'CANDLE_PATTERN', 'Candle Pattern'
+    CANDLE_BODY_SIZE = 'CANDLE_BODY_SIZE', 'Candle Body Size'
 
-class IndicatorType(models.TextChoices):
-    """Technical indicators."""
+    # Technical Indicators
     SMA = 'SMA', 'Simple Moving Average'
     EMA = 'EMA', 'Exponential Moving Average'
     WMA = 'WMA', 'Weighted Moving Average'
+    HMA = 'HMA', 'Hull Moving Average'
+    ALMA = 'ALMA', 'Arnaud Legoux Moving Average'
+    KAMA = 'KAMA', 'Kaufman Adaptive Moving Average'
+    DEMA = 'DEMA', 'Double Exponential Moving Average'
+    TEMA = 'TEMA', 'Triple Exponential Moving Average'
     RSI = 'RSI', 'Relative Strength Index'
-    MACD = 'MACD', 'MACD Line'
-    MACD_SIGNAL = 'MACD_SIGNAL', 'MACD Signal Line'
-    MACD_HISTOGRAM = 'MACD_HISTOGRAM', 'MACD Histogram'
-    BOLLINGER_UPPER = 'BOLLINGER_UPPER', 'Bollinger Upper Band'
-    BOLLINGER_LOWER = 'BOLLINGER_LOWER', 'Bollinger Lower Band'
-    BOLLINGER_MID = 'BOLLINGER_MID', 'Bollinger Middle Band'
-    VWAP = 'VWAP', 'Volume Weighted Average Price'
+    ROC = 'ROC', 'Rate of Change'
+    MACD = 'MACD', 'MACD'
+    BOLLINGER_BANDS = 'BOLLINGER_BANDS', 'Bollinger Bands'
     SUPERTREND = 'SUPERTREND', 'SuperTrend'
     ADX = 'ADX', 'Average Directional Index'
-    PLUS_DI = 'PLUS_DI', '+DI'
-    MINUS_DI = 'MINUS_DI', '-DI'
-    STOCHASTIC_K = 'STOCHASTIC_K', 'Stochastic %K'
-    STOCHASTIC_D = 'STOCHASTIC_D', 'Stochastic %D'
+    DMI = 'DMI', 'Directional Movement Index'
+    STOCHASTIC = 'STOCHASTIC', 'Stochastic'
     ATR = 'ATR', 'Average True Range'
     CCI = 'CCI', 'Commodity Channel Index'
     WILLIAMS_R = 'WILLIAMS_R', 'Williams %R'
     OBV = 'OBV', 'On Balance Volume'
     MFI = 'MFI', 'Money Flow Index'
     PIVOT_POINT = 'PIVOT_POINT', 'Pivot Point'
+    KELTNER_CHANNEL = 'KELTNER_CHANNEL', 'Keltner Channel'
+    DONCHIAN_CHANNEL = 'DONCHIAN_CHANNEL', 'Donchian Channel'
+    PARABOLIC_SAR = 'PARABOLIC_SAR', 'Parabolic SAR'
+    ICHIMOKU_CLOUD = 'ICHIMOKU_CLOUD', 'Ichimoku Cloud'
 
 
-class PriceActionType(models.TextChoices):
-    """Price action patterns."""
-    BREAKOUT_HIGH = 'BREAKOUT_HIGH', 'Breakout Above High'
-    BREAKDOWN_LOW = 'BREAKDOWN_LOW', 'Breakdown Below Low'
-    SUPPORT_BREAKOUT = 'SUPPORT_BREAKOUT', 'Support Breakout'
-    RESISTANCE_BREAKOUT = 'RESISTANCE_BREAKOUT', 'Resistance Breakout'
-    INSIDE_CANDLE = 'INSIDE_CANDLE', 'Inside Candle'
-    OUTSIDE_CANDLE = 'OUTSIDE_CANDLE', 'Outside Candle'
-    ENGULFING_BULLISH = 'ENGULFING_BULLISH', 'Bullish Engulfing'
-    ENGULFING_BEARISH = 'ENGULFING_BEARISH', 'Bearish Engulfing'
-    DOJI = 'DOJI', 'Doji'
-    HAMMER = 'HAMMER', 'Hammer'
-    SHOOTING_STAR = 'SHOOTING_STAR', 'Shooting Star'
-    MORNING_STAR = 'MORNING_STAR', 'Morning Star'
-    EVENING_STAR = 'EVENING_STAR', 'Evening Star'
-    HIGHER_HIGH = 'HIGHER_HIGH', 'Higher High'
-    HIGHER_LOW = 'HIGHER_LOW', 'Higher Low'
-    LOWER_HIGH = 'LOWER_HIGH', 'Lower High'
-    LOWER_LOW = 'LOWER_LOW', 'Lower Low'
-    GAP_UP = 'GAP_UP', 'Gap Up'
-    GAP_DOWN = 'GAP_DOWN', 'Gap Down'
-    RANGE_BREAKOUT = 'RANGE_BREAKOUT', 'Range Breakout'
-    PREV_DAY_HIGH = 'PREV_DAY_HIGH', 'Previous Day High'
-    PREV_DAY_LOW = 'PREV_DAY_LOW', 'Previous Day Low'
+    # Position State (For Exit Rules)
+    POSITION_PNL_PERCENTAGE = 'POSITION_PNL_PERCENTAGE', 'Position PnL %'
+    POSITION_PNL_POINTS = 'POSITION_PNL_POINTS', 'Position PnL Points'
+    TRAILING_PEAK_OFFSET = 'TRAILING_PEAK_OFFSET', 'Trailing Peak Offset'
+    ENTRY_PRICE = 'ENTRY_PRICE', 'Entry Price'
+    TIME_DECAY = 'TIME_DECAY', 'Time Decay Exit'
 
-
-class VolumeConditionType(models.TextChoices):
-    """Volume-based conditions."""
-    VOLUME_SPIKE = 'VOLUME_SPIKE', 'Volume Spike'
-    VOLUME_ABOVE_AVG = 'VOLUME_ABOVE_AVG', 'Volume Above Average'
-    VOLUME_DIVERGENCE = 'VOLUME_DIVERGENCE', 'Volume Divergence'
-
-
+    # Math/Constant
+    CONSTANT = 'CONSTANT', 'Constant Value'
+    MATH_EXPRESSION = 'MATH_EXPRESSION', 'Math Expression'
 class ComparisonOperator(models.TextChoices):
     """Comparison operators for rules."""
     GREATER = 'GT', 'Greater Than'
@@ -235,33 +242,6 @@ class ComparisonOperator(models.TextChoices):
     LESS_EQUAL = 'LTE', 'Less Than or Equal'
     CROSSES_ABOVE = 'CROSSES_ABOVE', 'Crosses Above'
     CROSSES_BELOW = 'CROSSES_BELOW', 'Crosses Below'
-    BETWEEN = 'BETWEEN', 'Between'  
-
-
-class StopLossType(models.TextChoices):
-    """Stop loss rule types."""
-    FIXED_POINTS = 'FIXED_POINTS', 'Fixed Points'
-    FIXED_PERCENTAGE = 'FIXED_PERCENTAGE', 'Fixed Percentage'
-    CANDLE_BASED = 'CANDLE_BASED', 'Candle Based'
-    TRAILING_FIXED = 'TRAILING_FIXED', 'Trailing Fixed'
-    TRAILING_PERCENTAGE = 'TRAILING_PERCENTAGE', 'Trailing Percentage'
-    TRAILING_INDICATOR = 'TRAILING_INDICATOR', 'Trailing Indicator-based'
-    INDICATOR_BASED = 'INDICATOR_BASED', 'Indicator Condition'
-    TIME_BASED = 'TIME_BASED', 'Time Based'
-    EMERGENCY = 'EMERGENCY', 'Emergency'
-
-
-class TargetType(models.TextChoices):
-    """Target/exit rule types."""
-    FIXED_POINTS = 'FIXED_POINTS', 'Fixed Points'
-    FIXED_PERCENTAGE = 'FIXED_PERCENTAGE', 'Fixed Percentage'
-    RISK_REWARD = 'RISK_REWARD', 'Risk-Reward Ratio'
-    INDICATOR_BASED = 'INDICATOR_BASED', 'Indicator Based'
-    TRAILING_FIXED = 'TRAILING_FIXED', 'Trailing Fixed'
-    TRAILING_PERCENTAGE = 'TRAILING_PERCENTAGE', 'Trailing Percentage'
-    TIME_BASED = 'TIME_BASED', 'Time Based'
-    EOD = 'EOD', 'End of Day'
-    EXPIRY = 'EXPIRY', 'Expiry Exit'
 
 
 class QuantityType(models.TextChoices):

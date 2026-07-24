@@ -1,4 +1,4 @@
-from common.enums import IndicatorType, PriceActionType, VolumeConditionType
+from common.enums import OperandType
 from common.trading_utils import get_any_field
 
 class IndicatorRequirementAnalyzer:
@@ -26,17 +26,26 @@ class IndicatorRequirementAnalyzer:
         
         groups = (config or {}).get("rule_groups", []) or []
         for group in groups:
-            for collection_name in ("rules", "stop_loss_rules", "target_rules"):
-                for rule in group.get(collection_name, []) or []:
+            for rule in group.get("rules", []) or []:
                     if not get_any_field(rule, "is_active", True):
                         continue
                         
-                    tf_override = get_any_field(rule, "timeframe_override")
-                    timeframe = tf_override if tf_override else base_timeframe
+                    tf_a = get_any_field(rule, "operand_a_timeframe") or base_timeframe
+                    tf_b = get_any_field(rule, "operand_b_timeframe") or base_timeframe
                     
-                    lookback = cls._calculate_rule_lookback(rule)
-                    if timeframe not in requirements or lookback > requirements[timeframe]:
-                        requirements[timeframe] = lookback
+                    lookback_a = cls._calculate_operand_lookback(
+                        get_any_field(rule, "operand_a_type"),
+                        get_any_field(rule, "operand_a_params", {}) or {}
+                    )
+                    if tf_a not in requirements or lookback_a > requirements[tf_a]:
+                        requirements[tf_a] = lookback_a
+                        
+                    lookback_b = cls._calculate_operand_lookback(
+                        get_any_field(rule, "operand_b_type"),
+                        get_any_field(rule, "operand_b_params", {}) or {}
+                    )
+                    if tf_b not in requirements or lookback_b > requirements[tf_b]:
+                        requirements[tf_b] = lookback_b
                         
         return requirements
 
@@ -62,21 +71,34 @@ class IndicatorRequirementAnalyzer:
         return max_days
 
     @classmethod
-    def _calculate_rule_lookback(cls, rule):
-        indicator_type = get_any_field(rule, "indicator_type")
-        price_action_type = get_any_field(rule, "price_action_type")
-        volume_condition_type = get_any_field(rule, "volume_condition_type")
-        params = get_any_field(rule, "params", {}) or {}
-        
+    def _calculate_operand_lookback(cls, op_type, params):
+        if not op_type:
+            return 0
+            
         lookback = cls.MIN_LOOKBACK
         
-        if indicator_type:
-            lookback = cls._get_indicator_lookback(indicator_type, params)
-        elif price_action_type:
-            lookback = max(int(params.get("lookback", params.get("period", 20))), 5)
-        elif volume_condition_type:
-            lookback = max(int(params.get("period", 20)), 10)
+        # Determine if it's an indicator
+        indicator_types = {
+            OperandType.SMA, OperandType.EMA, OperandType.WMA, OperandType.HMA, OperandType.ALMA, OperandType.KAMA, OperandType.DEMA, OperandType.TEMA,
+            OperandType.RSI, OperandType.MACD, OperandType.BOLLINGER_BANDS, OperandType.SUPERTREND, OperandType.ADX, OperandType.DMI, OperandType.STOCHASTIC, OperandType.ATR,
+            OperandType.CCI, OperandType.WILLIAMS_R, OperandType.OBV, OperandType.MFI, OperandType.PIVOT_POINT, OperandType.KELTNER_CHANNEL, OperandType.DONCHIAN_CHANNEL, OperandType.PARABOLIC_SAR, OperandType.ICHIMOKU_CLOUD,
+            OperandType.CANDLE_PATTERN
+        }
+        
+        if op_type in indicator_types:
+            lookback = cls._get_indicator_lookback(op_type, params)
             
+        # Add recursive source check
+        source = params.get("source")
+        if source:
+            source_params = params.get("source_params", {})
+            try:
+                source_op = OperandType(source)
+                source_lookback = cls._calculate_operand_lookback(source_op, source_params)
+                lookback = max(lookback, source_lookback)
+            except ValueError:
+                pass
+                
         return lookback
         
     @classmethod
@@ -86,37 +108,40 @@ class IndicatorRequirementAnalyzer:
         
         # EMAs and derivatives need a longer "unstable period" to settle
         # Usually 3x to 5x the period is standard practice
-        if indicator_type in {IndicatorType.EMA, IndicatorType.WMA}:
+        if indicator_type in {OperandType.EMA, OperandType.WMA}:
             return period * 5
             
-        elif indicator_type in {IndicatorType.MACD, IndicatorType.MACD_SIGNAL, IndicatorType.MACD_HISTOGRAM}:
+        elif indicator_type == OperandType.MACD:
             slow = int(params.get("slow_period", params.get("slow", 26)))
             signal = int(params.get("signal_period", params.get("signal", 9)))
             return (slow + signal) * 5
             
-        elif indicator_type == IndicatorType.RSI:
+        elif indicator_type == OperandType.RSI:
             return period * 5  # Wilder's Smoothing needs significant warmup
             
-        elif indicator_type == IndicatorType.VWAP:
+        elif indicator_type == OperandType.VWAP:
             return 400  # VWAP usually resets daily, 400 mins is ~1 trading day
             
-        elif indicator_type == IndicatorType.SUPERTREND:
+        elif indicator_type == OperandType.SUPERTREND:
             return period * 5  # Uses ATR which uses EMA/RMA internally
             
-        elif indicator_type in {IndicatorType.ADX, IndicatorType.PLUS_DI, IndicatorType.MINUS_DI}:
+        elif indicator_type in {OperandType.ADX, OperandType.DMI}:
             return period * 5
             
-        elif indicator_type in {IndicatorType.STOCHASTIC_K, IndicatorType.STOCHASTIC_D}:
+        elif indicator_type == OperandType.STOCHASTIC:
             k = int(params.get("k_period", params.get("k", 14)))
             d = int(params.get("d_period", params.get("d", 3)))
             smooth = int(params.get("smooth", params.get("smooth_k", 3)))
             return k + d + smooth
             
-        elif indicator_type == IndicatorType.ATR:
+        elif indicator_type == OperandType.ATR:
             return period * 5
             
-        elif indicator_type in {IndicatorType.SMA, IndicatorType.BOLLINGER_UPPER, IndicatorType.BOLLINGER_MID, IndicatorType.BOLLINGER_LOWER}:
+        elif indicator_type in {OperandType.SMA, OperandType.BOLLINGER_BANDS}:
             # Simple averages don't have unstable periods, they just need N candles
             return period
+            
+        elif indicator_type == OperandType.CANDLE_PATTERN:
+            return 5
             
         return max(period, cls.MIN_LOOKBACK)

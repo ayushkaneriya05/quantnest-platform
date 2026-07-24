@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from instruments.models import Instrument
 
-from .models import Watchlist, Account, Position, Order, TradeHistory
+from .models import Watchlist, Account, Position, Order, TradeHistory, ClosedPositionLog
 from .services import TradingOrderService
 
 class InstrumentSerializer(serializers.ModelSerializer):
@@ -159,6 +159,21 @@ class TradeHistorySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'order', 'instrument', 'order_type', 'transaction_type',
             'executed_price', 'quantity', 'timestamp'
+        ]
+        read_only_fields = fields
+
+class ClosedPositionLogSerializer(serializers.ModelSerializer):
+    """
+    Serializes a closed position (round-trip trade) showing Realized P&L.
+    """
+    instrument = InstrumentSerializer(read_only=True)
+
+    class Meta:
+        model = ClosedPositionLog
+        fields = [
+            'id', 'account', 'instrument', 'side', 'quantity', 
+            'entry_price', 'exit_price', 'realized_pnl', 
+            'entry_time', 'exit_time'
         ]
         read_only_fields = fields
 

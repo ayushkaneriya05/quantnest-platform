@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Briefcase, TrendingUp, User } from "lucide-react";
+import { Briefcase, TrendingUp, User, Clock } from "lucide-react";
 
 import { usePageActions } from "@/shared/context/PageActionsContext";
 import AccountSummary from "./components/AccountSummary";
@@ -7,6 +7,7 @@ import PortfolioDisplay from "./components/PortfolioDisplay";
 import ChartView from "./components/ChartView";
 import OrderModal from "./components/OrderModal";
 import Watchlist from "./components/Watchlist";
+import HistoryDisplay from "./components/HistoryDisplay";
 import usePaperTradingTerminal from "./hooks/usePaperTradingTerminal";
 
 export default function PaperTrading() {
@@ -39,7 +40,7 @@ export default function PaperTrading() {
   // Inject tab navigation into MainContentHeader
   useEffect(() => {
     const HeaderTabs = () => (
-      <div className="flex space-x-1 bg-gray-800/30 border border-gray-700/30 rounded-lg p-1 w-full max-w-md mx-auto sm:mx-0 sm:ml-4">
+      <div className="inline-flex items-center space-x-1 bg-gray-800/30 border border-gray-700/30 rounded-lg p-1 mx-auto sm:mx-0 sm:ml-4">
         <button
           onClick={() => setActiveTab("trading")}
           className={`flex-1 flex justify-center items-center gap-2 rounded-md px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium transition-all duration-200 ${
@@ -61,6 +62,17 @@ export default function PaperTrading() {
         >
           <Briefcase className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           <span className="hidden sm:inline">Portfolio</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("history")}
+          className={`flex-1 flex justify-center items-center gap-2 rounded-md px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium transition-all duration-200 ${
+            activeTab === "history"
+              ? "bg-gray-700/70 text-slate-100 shadow-sm"
+              : "text-slate-400 hover:text-slate-300 hover:bg-gray-800/50"
+          }`}
+        >
+          <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline">History</span>
         </button>
         <button
           onClick={() => setActiveTab("account")}
@@ -191,6 +203,10 @@ export default function PaperTrading() {
               onRefresh={refreshSnapshot}
             />
           </div>
+        )}
+
+        {activeTab === "history" && (
+          <HistoryDisplay />
         )}
       </div>
 

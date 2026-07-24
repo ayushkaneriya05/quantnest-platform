@@ -244,16 +244,16 @@ export default function SecurityTab() {
   const handleLogoutEverywhere = async () => {
     try {
       await api.post("/users/auth/logout-all/");
-      dispatch(logoutUser());
-      dispatch(logout());
-      navigate("/login", {
-        state: { message: "You have been logged out from all devices." },
+      await loadSecurityData();
+      setMessage({
+        type: "success",
+        text: "Logged out from all other devices successfully.",
       });
     } catch (err) {
       console.error("Failed to logout everywhere:", err);
       setMessage({
         type: "error",
-        text: "Failed to logout from all devices",
+        text: "Failed to logout from other devices.",
       });
     }
   };

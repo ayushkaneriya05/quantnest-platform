@@ -325,7 +325,7 @@ export function useWebSocket() {
       const normalizedSymbol = normalizeSymbol(symbol);
       const liveTick = tickDataRef.current[normalizedSymbol];
       if (liveTick && !options.force) {
-        return liveTick.price;
+        return liveTick;
       }
 
       if (options.force || !fetchingPrices.has(normalizedSymbol)) {
@@ -340,7 +340,7 @@ export function useWebSocket() {
 
           dispatch(updateTickData({ symbol: normalizedSymbol, data: lastKnownTick }));
           fetchingPrices.delete(normalizedSymbol);
-          return lastKnownTick.price;
+          return lastKnownTick;
         } catch (error) {
           fetchingPrices.delete(normalizedSymbol);
           return null;

@@ -862,10 +862,10 @@ class PaperExecutionService:
         return order
 
     @staticmethod
-    def close_position(position, reason="MANUAL_CLOSE"):
+    def close_position(position, reason="MANUAL_CLOSE", exit_qty=None):
         return PaperExecutionService.execute_market_order(
             account=position.account, instrument=position.instrument, strategy=position.strategy,
-            side=Side.SELL if position.side == Side.BUY else Side.BUY, quantity=position.quantity,
+            side=Side.SELL if position.side == Side.BUY else Side.BUY, quantity=exit_qty or position.quantity,
             product_type=ProductType.INTRADAY, order_tag="paper_manual_close",
             fallback_price=position.current_price or position.avg_price, exit_reason=reason,
         )
@@ -907,10 +907,8 @@ class PaperExecutionService:
         if quote and quote.get("price") is not None:
             live_price = Decimal(str(quote.get("price")))
 
-        pending_orders = PaperOrder.objects.filter(
-            instrument__sym_ticker=normalized_symbol,
-            status__in=PaperExecutionService.STRATEGY_ORDER_STATUSES,
-        ).select_related("instrument", "strategy", "account")
+        from marketdata.l1_cache import tick_cache
+        pending_orders = tick_cache.get_paper_open_orders(normalized_symbol)
 
         processed = False
         for order in pending_orders:
@@ -962,48 +960,15 @@ class PaperStrategyEngine:
         StrategyRuntimeState.clear_position_state("paper-position", position_id)
 
     @staticmethod
-    def _get_strategy_runtime_stats(strategy, account, instrument, timestamp, entry_side=None):
-        if entry_side is None:
-            try:
-                config = cache.get(f"strategy_config_{strategy.id}") or strategy.to_execution_dict()
-                entry_side = (config.get("entry_order_config") or {}).get("entry_side", Side.BUY)
-            except Exception:
-                entry_side = Side.BUY
-        latest_exit = PaperTrade.objects.filter(account=account, strategy=strategy, instrument=instrument).order_by("-exit_time").first()
-        latest_entry = (
-            PaperOrder.objects.filter(
-                account=account,
-                strategy=strategy,
-                instrument=instrument,
-                side=entry_side,
-                status=OrderStatus.FILLED,
-            )
-            .exclude(executed_at__isnull=True)
-            .order_by("-executed_at")
-            .first()
-        )
-        total_today_trades = PaperTrade.objects.filter(account=account, strategy=strategy, exit_time__date=timestamp.date()).count()
-        instrument_today_trades = PaperTrade.objects.filter(account=account, strategy=strategy, instrument=instrument, exit_time__date=timestamp.date()).count()
-
-        return {
-            "daily_trades": total_today_trades,
-            "instrument_daily_trades": instrument_today_trades,
-            "last_exit_time": latest_exit.exit_time if latest_exit else None,
-            "last_entry_time": latest_entry.executed_at if latest_entry else None,
-        }
-
-
-    @staticmethod
-    def _get_multi_timeframe_data(config, instrument):
-        return StrategyMarketDataService.get_multi_timeframe_data(config, instrument)
-
-    @staticmethod
-    def execute_live_strategy(strategy, account=None, symbol=None):
+    def execute_live_strategy(strategy, account=None, symbol=None, candle_states=None):
         if not strategy.paper_trading_enabled or strategy.status != StrategyStatus.ACTIVE:
             return False
 
+        from marketdata.l1_cache import tick_cache
         if account is None:
-            account = PortfolioService.ensure_paper_account_for_strategy(PortfolioService.get_or_create_portfolio(strategy.user), strategy)
+            account = tick_cache.get_paper_account(strategy.id)
+            if not account:
+                return False
 
         from strategy_engine.executor import StrategyExecutor
         config = cache.get(f"strategy_config_{strategy.id}") or strategy.to_execution_dict()
@@ -1012,210 +977,193 @@ class PaperStrategyEngine:
         timestamp = timezone.now()
         no_trade_zone = executor.is_in_no_trade_zone(timestamp)
 
-        watchlist = strategy.watchlist_instruments.select_related('instrument')
-        if symbol:
-            watchlist = watchlist.filter(instrument__sym_ticker=symbol)
+        from marketdata.l1_cache import tick_cache
+        
+        # We only process if a specific symbol is provided (which is the case from live_feed.py)
+        if not symbol:
+            return False
+            
+        instrument = tick_cache.get_instrument(symbol)
+        if not instrument:
+            return False
 
         refreshed = False
-        for watch in watchlist:
-            instrument = watch.instrument
+        try:
+            with StrategyRuntimeState.execution_lock("paper", strategy.id, instrument.id):
+                trade_state = StrategyRuntimeState.trade_state("paper", strategy.id, instrument.id)
+                from marketdata.access import StrategyMarketDataService
+                base_timeframe, mtf_data = StrategyMarketDataService.get_multi_timeframe_data(config, instrument, candle_states=candle_states)
+                candle_df = mtf_data.get(base_timeframe)
+                if candle_df is None or candle_df.empty:
+                    return False
 
-            try:
-                with StrategyRuntimeState.execution_lock("paper", strategy.id, instrument.id):
-                    trade_state = StrategyRuntimeState.trade_state("paper", strategy.id, instrument.id)
-                    base_timeframe, mtf_data = PaperStrategyEngine._get_multi_timeframe_data(config, instrument)
-                    candle_df = mtf_data.get(base_timeframe)
-                    if candle_df is None or candle_df.empty:
-                        continue
+                executor = StrategyExecutor(config, mtf_data=mtf_data)
+                last_price = float(candle_df['close'].iloc[-1])
+                signal_df = executor.completed_signal_frame(candle_df)
+                if signal_df is None or signal_df.empty:
+                    return False
+                    
+                position = tick_cache.get_paper_position(strategy.id, instrument.id)
+                entry_side = executor.entry_config.get("entry_side", Side.BUY)
+                stats = tick_cache.get_paper_stats(strategy.id)
 
-                    executor = StrategyExecutor(config, mtf_data=mtf_data)
-
-                    last_price = float(candle_df['close'].iloc[-1])
-                    signal_df = executor.completed_signal_frame(candle_df)
-                    if signal_df is None or signal_df.empty:
-                        continue
-                    from django.db import models
-                    position = PaperPosition.objects.filter(
-                        account=account, strategy=strategy
-                    ).filter(
-                        models.Q(instrument=instrument) |
-                        models.Q(instrument__underlying_symbol=instrument.symbol)
-                    ).first()
-                    entry_side = executor.entry_config.get("entry_side", Side.BUY)
-                    stats = PaperStrategyEngine._get_strategy_runtime_stats(
-                        strategy,
-                        account,
-                        instrument,
-                        timestamp,
-                        entry_side=entry_side,
+                if position:
+                    state = StrategyRuntimeState.build_position_state(
+                        config=config,
+                        position=position,
+                        side=position.side,
+                        avg_price=position.avg_price,
+                        current_price=position.current_price or position.avg_price,
+                        opened_at=position.opened_at,
+                        identifier=position.id,
+                        scope="paper-position",
+                    )
+                    should_exit, reason, action, action_params = executor.evaluate_exit_logic(state, candle_df, timestamp)
+                    
+                    # Check for reverse entry if enabled
+                    reverse_enabled = config.get("reentry_rule", {}).get("allow_reverse_entry", False)
+                    if not should_exit and reverse_enabled and not no_trade_zone:
+                        entry_signals = executor.evaluate_entry_signals(signal_df)
+                        if entry_signals.iloc[-1]:
+                            if entry_side != position.side:
+                                should_exit = True
+                                reason = "Reverse Entry Signal"
+                                action = "EXIT_ALL"
+                                action_params = {}
+                    
+                    StrategyRuntimeState.update_position_state(
+                        "paper-position",
+                        position.id,
+                        {
+                            "trailing_stop": state.get("trailing_stop"),
+                            "peak_price": state.get("peak_price"),
+                        },
                     )
 
-                    if position:
-                        state = StrategyRuntimeState.build_position_state(
-                            config=config,
-                            position=position,
-                            side=position.side,
-                            avg_price=position.avg_price,
-                            current_price=position.current_price or position.avg_price,
-                            opened_at=position.opened_at,
-                            identifier=position.id,
-                            scope="paper-position",
+                    if should_exit:
+                        StrategyRuntimeState.mark_exit_pending(
+                            "paper",
+                            strategy.id,
+                            instrument.id,
+                            reason=reason,
                         )
-                        should_exit, reason = executor.evaluate_exit_logic(state, candle_df, timestamp)
-                        
-                        # Check for reverse entry if enabled
-                        reverse_enabled = config.get("reentry_rule", {}).get("allow_reverse_entry", False)
-                        if not should_exit and reverse_enabled and not no_trade_zone:
-                            entry_signals = executor.evaluate_entry_signals(signal_df)
-                            if entry_signals.iloc[-1]:
-                                if entry_side != position.side:
-                                    should_exit = True
-                                    reason = "Reverse Entry Signal"
-                        
-                        StrategyRuntimeState.update_position_state(
-                            "paper-position",
-                            position.id,
-                            {
-                                "trailing_stop": state.get("trailing_stop"),
-                                "peak_price": state.get("peak_price"),
-                            },
-                        )
+                        if action == 'MOVE_TO_BREAKEVEN':
+                            if not state.get(f'breakeven_{reason}'):
+                                # Update protected stop price to entry price
+                                state['protected_stop_price'] = state['avg_price']
+                                StrategyRuntimeState.update_position_state("paper-position", position.id, {
+                                    "protected_stop_price": state['avg_price'],
+                                    f"breakeven_{reason}": True
+                                })
+                            # Do NOT exit the position
+                        elif action == 'PARTIAL_EXIT':
+                            # Check if we already partially exited
+                            exit_pct = float(action_params.get('exit_pct', 50))
+                            if not state.get(f'partial_exit_{reason}'):
+                                exit_qty = int(position.quantity * (exit_pct / 100.0))
+                                if exit_qty > 0:
+                                    PaperExecutionService.close_position(position, reason=f"Partial Exit ({exit_pct}%): {reason or 'Strategy exit'}", exit_qty=exit_qty)
+                                    StrategyRuntimeState.update_position_state("paper-position", position.id, {f'partial_exit_{reason}': True})
+                        else:
+                            # EXIT_ALL
+                            PaperExecutionService.close_position(position, reason=reason or "Strategy exit")
+                        PaperStrategyEngine._clear_position_state(position)
+                        refreshed = True
+                        # If it was a reverse entry, we allow re-entry in the same tick
+                        if reason == "Reverse Entry Signal":
+                            position = None
 
-                        if should_exit:
-                            StrategyRuntimeState.mark_exit_pending(
+                if not position:  # Using if not position because it might have been set to None above
+                    if no_trade_zone:
+                        return False
+
+                    evaluator = RiskEvaluator(account.current_balance)
+                    
+                    # Check Strategy-specific limits (Max trades, Max positions)
+                    ok, msg = evaluator.check_strategy_limits(config, stats)
+                    if not ok: return False
+                    
+                    # Check Portfolio-wide risk
+                    ok, msg = evaluator.check_portfolio_risk(config.get("risk_profile", {}), stats)
+                    if not ok: return False
+
+                    can_enter, reason = executor.can_enter(stats, timestamp)
+                    if not can_enter: return False
+                    if trade_state.get("phase") in {StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING}:
+                        return False
+
+                    signals = executor.evaluate_entry_signals(signal_df)
+                    if signals.iloc[-1]:
+                        # Step 1: Resolve execution instrument
+                        from marketdata.l1_cache import tick_cache
+                        watch = tick_cache.get_watchlist_instrument(strategy.id, instrument.id)
+                        if not watch:
+                            return False
+                            
+                        from instruments.services import InstrumentResolver
+                        resolutions = InstrumentResolver.resolve(
+                            watch, entry_side, spot_price=float(last_price)
+                        )
+                        # Step 2: Iterate over each resolution
+                        for exec_instrument, exec_side, sizing_config in resolutions:
+                            from marketdata.access import StrategyMarketDataService
+                            exec_price = StrategyMarketDataService.get_quote(exec_instrument, fallback_price=last_price)
+                            lot_size = getattr(exec_instrument, 'lot_size', 1) or 1
+
+                            if not sizing_config:
+                                sizing_config = config
+                            # Step 4: Calculate quantity
+                            quantity = evaluator.calculate_quantity(sizing_config, exec_price, stats=stats, lot_size=lot_size)
+
+                            if PaperOrder.objects.filter(
+                                account=account,
+                                strategy=strategy,
+                                instrument=exec_instrument,
+                                status__in=PaperExecutionService.STRATEGY_ORDER_STATUSES,
+                            ).exists():
+                                continue
+
+                            current_candle = candle_df.iloc[-1] if executor.candle_completion_rule in ("ON_CLOSE", "ON_OPEN") else signal_df.iloc[-1]
+                            order_type, resolved_entry_price, trigger_price = executor.resolve_entry_order(
+                                signal_df.iloc[-1],
+                                execution_candle=current_candle,
+                            )
+                            
+                            # Force market if instrument changed
+                            if exec_instrument.id != instrument.id:
+                                order_type = "MARKET"
+                                resolved_entry_price = exec_price
+                                trigger_price = None
+
+                            order = PaperExecutionService.execute_strategy_order(
+                                strategy=strategy,
+                                account=account,
+                                instrument=exec_instrument,
+                                side=exec_side,
+                                quantity=max(int(quantity), 1),
+                                order_type=order_type,
+                                price=Decimal(str(resolved_entry_price)) if resolved_entry_price is not None else None,
+                                trigger_price=Decimal(str(trigger_price)) if trigger_price is not None else None,
+                                order_tag=f"strategy_entry_{timestamp.strftime('%H%M%S')}",
+                            )
+                            StrategyRuntimeState.mark_entry_pending(
                                 "paper",
                                 strategy.id,
                                 instrument.id,
-                                reason=reason,
+                                side=exec_side,
+                                order_id=getattr(order, "id", None),
+                                order_type=order_type,
+                                requested_price=float(resolved_entry_price) if resolved_entry_price is not None else None,
+                                trigger_price=float(trigger_price) if trigger_price is not None else None,
                             )
-                            PaperExecutionService.close_position(position, reason=reason)
-                            PaperStrategyEngine._clear_position_state(position)
                             refreshed = True
-                            # If it was a reverse entry, we allow re-entry in the same tick
-                            if reason == "Reverse Entry Signal":
-                                position = None
 
-                    if not position:  # Using if not position because it might have been set to None above
-                        if no_trade_zone:
-                            continue
-
-                        evaluator = RiskEvaluator(account.current_balance)
-                        
-                        # Check Strategy-specific limits (Max trades, Max positions)
-                        ok, msg = evaluator.check_strategy_limits(config, stats)
-                        if not ok: continue
-                        
-                        # Check Portfolio-wide risk
-                        ok, msg = evaluator.check_portfolio_risk(config.get("risk_profile", {}), stats)
-                        if not ok: continue
-
-                        can_enter, reason = executor.can_enter(stats, timestamp)
-                        if not can_enter: continue
-                        if trade_state.get("phase") in {StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING}:
-                            continue
-
-                        signals = executor.evaluate_entry_signals(signal_df)
-                        if signals.iloc[-1]:
-                            # Step 1: Resolve execution instrument
-                            from instruments.services import InstrumentResolver
-                            exec_instrument, exec_side = InstrumentResolver.resolve(
-                                watch, entry_side, spot_price=float(last_price)
-                            )
-
-                            # Step 2: Iterate over each resolution
-                            for exec_instrument, exec_side, sizing_config in resolutions:
-                                from marketdata.access import StrategyMarketDataService
-                                exec_price = StrategyMarketDataService.get_quote(exec_instrument, fallback_price=last_price)
-                                lot_size = getattr(exec_instrument, 'lot_size', 1) or 1
-    
-                                if not sizing_config:
-                                    sizing_config = config
-    
-                                # Step 4: Calculate quantity
-                                quantity = evaluator.calculate_quantity(sizing_config, exec_price, stats=stats, lot_size=lot_size)
-    
-                                if PaperOrder.objects.filter(
-                                    account=account,
-                                    strategy=strategy,
-                                    instrument=exec_instrument,
-                                    status__in=PaperExecutionService.STRATEGY_ORDER_STATUSES,
-                                ).exists():
-                                    continue
-    
-                                current_candle = candle_df.iloc[-1] if executor.candle_completion_rule in ("ON_CLOSE", "ON_OPEN") else signal_df.iloc[-1]
-                                order_type, resolved_entry_price, trigger_price = executor.resolve_entry_order(
-                                    signal_df.iloc[-1],
-                                    execution_candle=current_candle,
-                                )
-                                
-                                # Force market if instrument changed
-                                if exec_instrument.id != instrument.id:
-                                    order_type = OrderType.MARKET
-                                    resolved_entry_price = exec_price
-                                    trigger_price = None
-    
-                                StrategyRuntimeState.mark_entry_pending(
-                                    "paper",
-                                    strategy.id,
-                                    instrument.id,
-                                    side=exec_side,
-                                    order_type=order_type,
-                                    requested_price=float(resolved_entry_price) if resolved_entry_price is not None else None,
-                                    trigger_price=float(trigger_price) if trigger_price is not None else None,
-                                )
-                                order = PaperExecutionService.execute_strategy_order(
-                                    strategy=strategy,
-                                    account=account,
-                                    instrument=exec_instrument,
-                                    side=exec_side,
-                                    quantity=max(int(quantity), 1),
-                                    order_type=order_type,
-                                    price=Decimal(str(resolved_entry_price)) if resolved_entry_price is not None else None,
-                                    trigger_price=Decimal(str(trigger_price)) if trigger_price is not None else None,
-                                    order_tag=f"strategy_entry_{timestamp.strftime('%H%M%S')}",
-                                )
-                                StrategyRuntimeState.mark_entry_pending(
-                                    "paper",
-                                    strategy.id,
-                                    instrument.id,
-                                    side=exec_side,
-                                    order_id=getattr(order, "id", None),
-                                    order_type=order_type,
-                                    requested_price=float(resolved_entry_price) if resolved_entry_price is not None else None,
-                                    trigger_price=float(trigger_price) if trigger_price is not None else None,
-                                )
-                                refreshed = True
-            except RuntimeError as e:
-                logger.warning(f"Paper execution lock skipped for {strategy.name} - {instrument.sym_ticker}: {e}")
+        except RuntimeError as e:
+            logger.warning(f"Paper execution lock skipped for {strategy.name} - {instrument.sym_ticker}: {e}")
+        except Exception as exc:
+            logger.exception("Error executing paper live strategy %s for symbol %s: %s", strategy.id, symbol, exc)
 
         if refreshed:
             PaperExecutionService.sync_account(account)
         return refreshed
 
-    @staticmethod
-    def execute_live_tick(symbol, quote=None, quote_already_cached=False):
-        normalized_symbol = MarketDataStreamer.normalize_symbol(symbol)
-        if quote and not quote_already_cached:
-            MarketDataStreamer.update_quote(normalized_symbol, quote)
-
-        processed = PaperExecutionService.process_pending_strategy_orders(
-            normalized_symbol,
-            quote=quote,
-            quote_already_cached=quote_already_cached,
-        )
-
-        strategies = Strategy.objects.filter(
-            paper_trading_enabled=True,
-            status=StrategyStatus.ACTIVE,
-            capital_allocation__is_active=True,
-            watchlist_instruments__instrument__sym_ticker=normalized_symbol,
-        ).distinct()
-
-        for strategy in strategies:
-            try:
-                result = PaperStrategyEngine.execute_live_strategy(strategy, symbol=normalized_symbol)
-                processed = processed or bool(result)
-            except Exception:
-                logger.exception('Error running live strategy %s for symbol %s', strategy.name, normalized_symbol)
-
-        return processed

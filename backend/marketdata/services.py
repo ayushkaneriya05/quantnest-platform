@@ -516,24 +516,27 @@ class FyersHistoricalDataService:
         resolution = MarketDataService.normalize_timeframe(timeframe)
         api_resolution = MarketDataService.RESOLUTION_TO_FYERS.get(resolution, resolution)
 
-        def _to_fyers_date(val):
+        def _to_fyers_epoch(val):
             if isinstance(val, (int, float)):
-                dt = datetime.fromtimestamp(val, tz=py_timezone.utc)
-                return dt.strftime("%Y-%m-%d")
+                return int(val)
             val_str = str(val)
             if "T" in val_str or ":" in val_str:
                 dt = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
-                return dt.strftime("%Y-%m-%d")
+                return int(dt.timestamp())
             if "-" in val_str:
-                return val_str[:10]  # Already yyyy-mm-dd
-            return val_str
+                dt = datetime.fromisoformat(val_str[:10]).replace(tzinfo=py_timezone.utc)
+                # If we only have a date, set time to end of day to include the full day
+                if len(val_str) <= 10:
+                     dt = dt.replace(hour=23, minute=59, second=59)
+                return int(dt.timestamp())
+            return int(val_str)
 
         params = {
             "symbol": MarketDataService.normalize_symbol(symbol),
             "resolution": api_resolution,
-            "date_format": "1",  # 1 means yyyy-mm-dd
-            "range_from": _to_fyers_date(date_from),
-            "range_to": _to_fyers_date(date_to),
+            "date_format": "0",  # 0 means epoch seconds
+            "range_from": str(_to_fyers_epoch(date_from)),
+            "range_to": str(_to_fyers_epoch(date_to)),
             "cont_flag": "0",
         }
 

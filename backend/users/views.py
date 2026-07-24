@@ -771,8 +771,58 @@ class AccountDeleteView(APIView):
 
 
 # ──────────────────────────────────────────────
-# Session Management
+# Session Management & Token Rotation
 # ──────────────────────────────────────────────
+
+class CustomTokenRefreshView(APIView):
+    """
+    Intercepts the token refresh to update the UserSession's JTI.
+    Wrapped as an APIView to avoid module-level circular import deadlocks in ASGI.
+    """
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        from dj_rest_auth.jwt_auth import get_refresh_view
+        view_func = get_refresh_view().as_view()
+        
+        refresh_cookie_name = getattr(settings, "REST_AUTH", {}).get("JWT_AUTH_REFRESH_COOKIE", "quantnest-refresh")
+        old_refresh_token = request.COOKIES.get(refresh_cookie_name) or request.data.get("refresh")
+        
+        # Pass the raw Django HttpRequest to the dj-rest-auth view
+        response = view_func(request._request, *args, **kwargs)
+        
+        if response.status_code == 200 and old_refresh_token:
+            try:
+                from rest_framework_simplejwt.tokens import RefreshToken
+                old_token_obj = RefreshToken(old_refresh_token)
+                old_jti = old_token_obj.payload.get("jti")
+                
+                new_refresh_token = response.cookies.get(refresh_cookie_name)
+                new_jti = None
+                if new_refresh_token:
+                    new_token_obj = RefreshToken(new_refresh_token.value)
+                    new_jti = new_token_obj.payload.get("jti")
+                elif hasattr(response, "data") and "refresh" in response.data:
+                    new_token_obj = RefreshToken(response.data["refresh"])
+                    new_jti = new_token_obj.payload.get("jti")
+                    
+                if new_jti and old_jti:
+                    updated = UserSession.objects.filter(jti=old_jti).update(jti=new_jti, last_activity=timezone.now())
+                    if updated == 0:
+                        user_id = old_token_obj.payload.get("user_id")
+                        if user_id:
+                            from django.contrib.auth import get_user_model
+                            User = get_user_model()
+                            user = User.objects.filter(id=user_id).first()
+                            if user:
+                                token_str = new_refresh_token.value if new_refresh_token else response.data["refresh"]
+                                _record_session(user, request, token_str)
+            except Exception as e:
+                logger.error(f"Error updating UserSession JTI on refresh: {e}")
+                
+        return response
+
 
 
 class ActiveSessionsView(APIView):
@@ -890,9 +940,22 @@ class LogoutAllView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        _blacklist_all_tokens(request.user)
+        from rest_framework_simplejwt.tokens import RefreshToken
+        from django.conf import settings
+        
+        exclude_jti = None
+        refresh_cookie_name = getattr(settings, "REST_AUTH", {}).get("JWT_AUTH_REFRESH_COOKIE", "quantnest-refresh")
+        refresh_token = request.COOKIES.get(refresh_cookie_name)
+        if refresh_token:
+            try:
+                token_obj = RefreshToken(refresh_token)
+                exclude_jti = token_obj.payload.get("jti")
+            except Exception:
+                pass
+                
+        _blacklist_all_tokens(request.user, exclude_jti=exclude_jti)
         return Response(
-            {"detail": "Logged out from all devices."},
+            {"detail": "Logged out from all other devices."},
             status=status.HTTP_200_OK,
         )
 
@@ -990,11 +1053,13 @@ def _record_session(user, request, refresh_token):
         else:
             ip = request.META.get("REMOTE_ADDR")
 
-        # Find and cleanup old sessions for this exact device/IP
+        # Find and cleanup old sessions for this exact Browser + OS + Device combo
+        # This prevents accumulating orphaned sessions when IP changes or browser closes without logout.
         old_sessions = UserSession.objects.filter(
             user=user,
-            ip_address=ip,
-            user_agent=ua_string[:500]
+            browser=browser,
+            os=os,
+            device_type=device
         )
         
         if old_sessions.exists():
@@ -1021,10 +1086,17 @@ def _record_session(user, request, refresh_token):
         logger.error(f"Error recording session: {e}")
 
 
-def _blacklist_all_tokens(user):
+def _blacklist_all_tokens(user, exclude_jti=None):
     """Blacklist all outstanding refresh tokens for a user and clear sessions."""
     tokens = OutstandingToken.objects.filter(user=user)
+    if exclude_jti:
+        tokens = tokens.exclude(jti=exclude_jti)
+        
     for token in tokens:
         BlacklistedToken.objects.get_or_create(token=token)
+        
     # Also delete all our custom session records
-    UserSession.objects.filter(user=user).delete()
+    sessions = UserSession.objects.filter(user=user)
+    if exclude_jti:
+        sessions = sessions.exclude(jti=exclude_jti)
+    sessions.delete()

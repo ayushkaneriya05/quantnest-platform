@@ -14,6 +14,7 @@ from .views import (
     CustomPasswordResetConfirmView,
     CustomPasswordResetView,
     CustomRegisterView,
+    CustomTokenRefreshView,
     DeleteAvatarView,
     Get2FAStatusView,
     GoogleLoginView,
@@ -62,6 +63,7 @@ urlpatterns = [
     path("account/", AccountDeleteView.as_view(), name="account-delete"),
     # dj-rest-auth & allauth (includes password change/reset, token refresh, logout, etc.)
     path("auth/registration/", include("dj_rest_auth.registration.urls")),
+    path("auth/token/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),
     path("auth/", include("dj_rest_auth.urls")),
     path("accounts/", include("allauth.urls")),
 ]

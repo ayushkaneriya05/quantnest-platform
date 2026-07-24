@@ -1,11 +1,20 @@
 import json
 import logging
 import pandas as pd
+import redis
+from django.conf import settings
 from django.core.cache import cache
 
 from marketdata.services import MarketDataService, HistoricalCandleService
 
 logger = logging.getLogger(__name__)
+
+try:
+    redis_url = settings.CACHES["default"]["LOCATION"]
+except (KeyError, AttributeError):
+    redis_url = "redis://127.0.0.1:6379/1"
+    
+redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
 
 WORKER_LOCAL_DATAFRAMES = {}
 
@@ -44,8 +53,14 @@ class LiveCandleStore:
             return False
             
         key = cls._cache_key(symbol, timeframe)
-        # Store as JSON for cross-worker safety
-        cache.set(key, json.dumps(candles), timeout=60 * 60 * 24)
+        # Store as JSON strings in a Redis List
+        redis_client.delete(key)
+        
+        if candles:
+            candle_strs = [json.dumps(c) for c in candles]
+            redis_client.rpush(key, *candle_strs)
+            redis_client.expire(key, 60 * 60 * 24)
+            
         return True
 
     @classmethod
@@ -65,13 +80,20 @@ class LiveCandleStore:
             candle_time = pd.to_datetime(candle_state["time"], unit="s", utc=True)
             
             if not df.empty and candle_time >= df.index[-1]:
-                df.loc[candle_time] = [
-                    float(candle_state["open"]),
-                    float(candle_state["high"]),
-                    float(candle_state["low"]),
-                    float(candle_state["close"]),
-                    int(candle_state.get("volume", 0)),
-                ]
+                if candle_time in df.index:
+                    # Update forming candle dynamically from incoming ticks
+                    df.loc[candle_time, "high"] = max(df.loc[candle_time, "high"], float(candle_state["high"]))
+                    df.loc[candle_time, "low"] = min(df.loc[candle_time, "low"], float(candle_state["low"]))
+                    df.loc[candle_time, "close"] = float(candle_state["close"])
+                else:
+                    # Initialize new forming candle
+                    df.loc[candle_time] = [
+                        float(candle_state["open"]),
+                        float(candle_state["high"]),
+                        float(candle_state["low"]),
+                        float(candle_state["close"]),
+                        int(candle_state.get("volume", 0)),
+                    ]
                 
                 # Calculate required base lookback to support higher timeframes safely
                 base_multiplier = HistoricalCandleService.TIMEFRAME_MINUTES.get(config_tf, 1)
@@ -80,16 +102,38 @@ class LiveCandleStore:
                 # Truncate if it grows too large
                 if len(df) > base_lookback + 50:
                     df = df.iloc[-int(base_lookback + 5):]
-                    WORKER_LOCAL_DATAFRAMES[base_key] = {"df": df}
+                    local_cache["df"] = df
+                    
+                # Update resampled L1 caches dynamically
+                if "resampled" in local_cache:
+                    for tf, resampled_df in local_cache["resampled"].items():
+                        pd_rule = local_cache.get("pd_rules", {}).get(tf)
+                        if pd_rule and not resampled_df.empty:
+                            tf_boundary = candle_time.floor(pd_rule)
+                            if tf_boundary in resampled_df.index:
+                                resampled_df.loc[tf_boundary, "high"] = max(resampled_df.loc[tf_boundary, "high"], float(candle_state["high"]))
+                                resampled_df.loc[tf_boundary, "low"] = min(resampled_df.loc[tf_boundary, "low"], float(candle_state["low"]))
+                                resampled_df.loc[tf_boundary, "close"] = float(candle_state["close"])
+                                resampled_df.loc[tf_boundary, "volume"] += int(candle_state.get("volume", 0))
+                            else:
+                                resampled_df.loc[tf_boundary] = [
+                                    float(candle_state["open"]),
+                                    float(candle_state["high"]),
+                                    float(candle_state["low"]),
+                                    float(candle_state["close"]),
+                                    int(candle_state.get("volume", 0)),
+                                ]
+                                if len(resampled_df) > max_lookback:
+                                    local_cache["resampled"][tf] = resampled_df.iloc[-int(max_lookback):]
             else:
                 # Out of order tick or empty cache, force rebuild
                 local_cache = None
                 
         # 2. Rebuild from Redis (L2 Cache) if necessary
         if local_cache is None:
-            cached_data = cache.get(base_key)
+            list_len = redis_client.llen(base_key)
             
-            if not cached_data:
+            if list_len == 0:
                 # Auto-initialize base timeframe if missing
                 if db_timeframe == "1D":
                     cls.initialize(symbol, "1D", int(max_lookback) * (5 if config_tf == "1W" else 1))
@@ -98,12 +142,13 @@ class LiveCandleStore:
                     base_lookback = int(max_lookback) * int(base_multiplier)
                     cls.initialize(symbol, "1m", base_lookback)
                     
-                cached_data = cache.get(base_key)
-                if not cached_data:
+                list_len = redis_client.llen(base_key)
+                if list_len == 0:
                     return pd.DataFrame()
                     
             try:
-                candles = json.loads(cached_data)
+                cached_data = redis_client.lrange(base_key, 0, -1)
+                candles = [json.loads(c) for c in cached_data]
                 df = pd.DataFrame(candles)
                 if not df.empty:
                     df["timestamp"] = pd.to_datetime(df["time"], unit="s", utc=True)
@@ -111,31 +156,37 @@ class LiveCandleStore:
                     df = df[["open", "high", "low", "close", "volume"]]
                     
                     # Update Worker L1 Cache
-                    WORKER_LOCAL_DATAFRAMES[base_key] = {"df": df}
+                    local_cache = {"df": df, "resampled": {}, "pd_rules": {}}
+                    WORKER_LOCAL_DATAFRAMES[base_key] = local_cache
             except Exception as exc:
                 logger.exception("Failed to parse LiveCandleStore for %s %s: %s", symbol, timeframe, exc)
                 return pd.DataFrame()
-        else:
-            df = local_cache["df"].copy() if local_cache else pd.DataFrame()
 
-        if not df.empty:
-            # Resample if higher timeframe is requested
+        if local_cache and not local_cache["df"].empty:
+            df = local_cache["df"]
+            
+            # Use Resampled Cache if higher timeframe is requested
             if timeframe not in ("1m", "1D"):
-                config_tf = MarketDataService.normalize_timeframe(timeframe)
-                # Convert QuantNest timeframe to pandas rule
-                rule_map = {
-                    "3m": "3T", "5m": "5T", "15m": "15T", "30m": "30T",
-                    "1H": "1H", "4H": "4H", "1D": "D", "1W": "W-MON"
-                }
-                pd_rule = rule_map.get(config_tf)
-                if pd_rule:
-                    df = df.resample(pd_rule).agg({
-                        "open": "first",
-                        "high": "max",
-                        "low": "min",
-                        "close": "last",
-                        "volume": "sum"
-                    }).dropna()
+                if timeframe in local_cache["resampled"]:
+                    df = local_cache["resampled"][timeframe]
+                else:
+                    config_tf = MarketDataService.normalize_timeframe(timeframe)
+                    # Convert QuantNest timeframe to pandas rule
+                    rule_map = {
+                        "3m": "3min", "5m": "5min", "15m": "15min", "30m": "30min",
+                        "1H": "1h", "4H": "4h", "1D": "d", "1W": "W-MON"
+                    }
+                    pd_rule = rule_map.get(config_tf)
+                    if pd_rule:
+                        df = df.resample(pd_rule).agg({
+                            "open": "first",
+                            "high": "max",
+                            "low": "min",
+                            "close": "last",
+                            "volume": "sum"
+                        }).dropna()
+                        local_cache["resampled"][timeframe] = df
+                        local_cache["pd_rules"][timeframe] = pd_rule
             
             # Ensure we strictly bound the buffer to requested lookback
             if len(df) > max_lookback:
@@ -151,44 +202,48 @@ class LiveCandleStore:
         latest_candle_state should be a dict matching the serialized candle format.
         """
         key = cls._cache_key(symbol, timeframe)
-        cached_data = cache.get(key)
         
-        if not cached_data:
+        last_str = redis_client.lindex(key, -1)
+        if not last_str:
             # Need historical data first
             cls.initialize(symbol, timeframe, max_lookback)
-            cached_data = cache.get(key)
-            if not cached_data:
+            last_str = redis_client.lindex(key, -1)
+            if not last_str:
                 return False
                 
         try:
-            candles = json.loads(cached_data)
+            last_candle = json.loads(last_str)
             candle_time = int(latest_candle_state["time"])
             
             # Check if this updates the current forming candle or starts a new one
-            if candles and candles[-1]["time"] == candle_time:
+            if last_candle["time"] == candle_time:
                 # Update forming candle
-                current = candles[-1]
-                current["high"] = max(current["high"], float(latest_candle_state["high"]))
-                current["low"] = min(current["low"], float(latest_candle_state["low"]))
-                current["close"] = float(latest_candle_state["close"])
+                last_candle["high"] = max(last_candle["high"], float(latest_candle_state["high"]))
+                last_candle["low"] = min(last_candle["low"], float(latest_candle_state["low"]))
+                last_candle["close"] = float(latest_candle_state["close"])
                 # For 1D the volume from broker is already total daily volume. For 1m it is total 1m volume.
-                current["volume"] = int(latest_candle_state.get("volume", current["volume"]))
+                last_candle["volume"] = int(latest_candle_state.get("volume", last_candle.get("volume", 0)))
+                
+                redis_client.lset(key, -1, json.dumps(last_candle))
             else:
                 # Append new candle
-                candles.append({
+                new_candle = {
                     "time": candle_time,
                     "open": float(latest_candle_state["open"]),
                     "high": float(latest_candle_state["high"]),
                     "low": float(latest_candle_state["low"]),
                     "close": float(latest_candle_state["close"]),
                     "volume": int(latest_candle_state.get("volume", 0)),
-                })
+                }
                 
-            # Bound the array to prevent unbounded growth
-            if len(candles) > max_lookback + 5:
-                candles = candles[-(max_lookback + 5):]
+                redis_client.rpush(key, json.dumps(new_candle))
                 
-            cache.set(key, json.dumps(candles), timeout=60 * 60 * 24)
+                # Bound the array to prevent unbounded growth in Redis
+                list_len = redis_client.llen(key)
+                if list_len > max_lookback + 5:
+                    redis_client.ltrim(key, -(max_lookback + 5), -1)
+                    
+            redis_client.expire(key, 60 * 60 * 24)
             return True
             
         except Exception as exc:

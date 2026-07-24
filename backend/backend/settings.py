@@ -287,10 +287,7 @@ CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25
 CELERY_TASK_TIME_LIMIT = 60 * 30
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_TASK_ROUTES = {
-    "marketdata.process_market_event": {"queue": "tick"},
-    "paper_trading.process_paper_tick": {"queue": "tick"},
-    "live_trading.process_live_tick": {"queue": "tick"},
-    "trading.process_terminal_tick": {"queue": "tick"},
+
     "backtesting.*": {"queue": "backtesting"},
     "paper_trading.*": {"queue": "paper"},
     "marketdata.*": {"queue": "marketdata"},

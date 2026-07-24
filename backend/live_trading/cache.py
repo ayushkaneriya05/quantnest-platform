@@ -75,31 +75,3 @@ class LiveBrokerStateCache:
     @staticmethod
     def get_strategy_wallet(strategy_id, broker_credential_id):
         return cache.get(LiveBrokerStateCache._wallet_key(strategy_id, broker_credential_id)) or {}
-
-
-class LiveRoutingCache:
-    TTL_SECONDS = 60 * 60 * 24 * 7
-
-    @classmethod
-    def _key(cls, symbol):
-        return f"live_routing:{symbol}"
-
-    @classmethod
-    def add_session(cls, symbol, session_id):
-        key = cls._key(symbol)
-        sessions = set(cache.get(key, []) or [])
-        sessions.add(str(session_id))
-        cache.set(key, list(sessions), timeout=cls.TTL_SECONDS)
-
-    @classmethod
-    def remove_session(cls, symbol, session_id):
-        key = cls._key(symbol)
-        sessions = set(cache.get(key, []) or [])
-        if str(session_id) in sessions:
-            sessions.remove(str(session_id))
-            cache.set(key, list(sessions), timeout=cls.TTL_SECONDS)
-
-    @classmethod
-    def get_sessions(cls, symbol):
-        key = cls._key(symbol)
-        return cache.get(key, []) or []

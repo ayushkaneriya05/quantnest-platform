@@ -13,16 +13,6 @@ def run_active_sessions(symbol=None):
     return {"processed_sessions": processed}
 
 
-@shared_task(name="live_trading.process_live_tick", queue="tick")
-def process_live_tick(symbol, quote=None, quote_already_cached=False, candle_state=None):
-    LiveExecutionService.execute_tick(
-        symbol,
-        quote=quote,
-        quote_already_cached=quote_already_cached,
-        candle_state=candle_state,
-    )
-    return {"status": "processed", "symbol": symbol}
-
 
 @shared_task(name="live_trading.reconcile_all_active_accounts")
 def reconcile_all_active_accounts():
@@ -45,17 +35,11 @@ def reconcile_all_active_accounts():
     return {"synced_users": synced_users}
 
 
-@shared_task(name="live_trading.process_session_tick", queue="strategy_tick")
-def process_session_tick(session_id, symbol, candle_state=None):
-    from common.enums import StrategyStatus
+@shared_task(name="live_trading.refresh_broker_funds")
+def refresh_broker_funds(credential_id):
+    from brokers.models import BrokerCredential
     try:
-        session = TradingSession.objects.select_related("strategy", "broker_credential").get(id=session_id)
-        if session.status == "RUNNING" and session.strategy.status == StrategyStatus.ACTIVE:
-            LiveExecutionService.execute_session_once(session, symbol, candle_state=candle_state)
-    except TradingSession.DoesNotExist:
+        credential = BrokerCredential.objects.get(id=credential_id)
+        LiveExecutionService._sync_funds_from_broker(credential, force=True, async_refresh=False)
+    except Exception:
         pass
-    except Exception as exc:
-        if 'session' in locals():
-            session.status = "ERROR"
-            session.error_message = str(exc)
-            session.save(update_fields=["status", "error_message", "updated_at"])

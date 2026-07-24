@@ -15,7 +15,7 @@ from contextlib import contextmanager
 
 from django.core.cache import cache
 
-from common.trading_utils import compute_sl_distance_from_config, derive_protection_levels
+from rules_engine.utils import compute_sl_distance_from_config, derive_protection_levels
 
 logger = logging.getLogger(__name__)
 

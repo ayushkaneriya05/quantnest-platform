@@ -122,9 +122,8 @@ function normalizeMarketSymbol(value) {
   return normalized.replace(/-(EQ|INDEX)$/i, "");
 }
 
-export function useRealtimeCandles(symbol, interval) {
+export function useRealtimeCandles(symbol, interval, onRealtimeCandleUpdate, onTickUpdate) {
   const [historicalData, setHistoricalData] = useState([]);
-  const [realtimeCandle, setRealtimeCandle] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
   
@@ -137,8 +136,7 @@ export function useRealtimeCandles(symbol, interval) {
   const olderAbortRef = useRef(null);
   const loadingOlderRef = useRef(false);
   
-  const { subscribe, isConnected, getLatestPrice, tickData } = useWebSocket();
-  const latestTick = symbol ? tickData[normalizeMarketSymbol(symbol)] : null;
+  const { subscribe, isConnected, getLatestPrice } = useWebSocket();
   
   // Track the current building realtime candle so we can update its OHLC correctly
   const buildingCandleRef = useRef(null);
@@ -160,7 +158,6 @@ export function useRealtimeCandles(symbol, interval) {
 
     if (!symbol) {
       setHistoricalData([]);
-      setRealtimeCandle(null);
       buildingCandleRef.current = null;
       setStatus("idle");
       setHasMoreHistory(false);
@@ -173,7 +170,6 @@ export function useRealtimeCandles(symbol, interval) {
     setError(null);
     buildingCandleRef.current = null;
     setHistoricalData([]);
-    setRealtimeCandle(null);
 
     try {
       const response = await tradingTerminalApi.getCandles({
@@ -364,9 +360,18 @@ export function useRealtimeCandles(symbol, interval) {
       }
 
       pendingRealtimeCandle.current = finalCandle;
+      
       if (rafId.current === null) {
+        // Store raw event on a ref to avoid closure staleness
+        buildingCandleRef.current.latestEvent = event;
+        
         rafId.current = requestAnimationFrame(() => {
-          setRealtimeCandle(pendingRealtimeCandle.current);
+          if (onRealtimeCandleUpdate) {
+            onRealtimeCandleUpdate(pendingRealtimeCandle.current);
+          }
+          if (onTickUpdate && buildingCandleRef.current.latestEvent) {
+            onTickUpdate(buildingCandleRef.current.latestEvent);
+          }
           rafId.current = null;
         });
       }
@@ -379,36 +384,26 @@ export function useRealtimeCandles(symbol, interval) {
         rafId.current = null;
       }
     };
-  }, [interval, isConnected, subscribe, symbol]);
+  }, [interval, isConnected, subscribe, symbol, onRealtimeCandleUpdate, onTickUpdate]);
 
   useEffect(() => {
-    if (symbol && !latestTick) {
-      getLatestPrice(symbol);
+    if (symbol) {
+      getLatestPrice(symbol).then(tick => {
+        if (tick && onTickUpdate) {
+            onTickUpdate(tick);
+        }
+      });
     }
-  }, [getLatestPrice, latestTick, symbol]);
+  }, [getLatestPrice, symbol, onTickUpdate]);
 
-  return useMemo(
-    () => ({
-      historicalData,
-      realtimeCandle,
-      status,
-      error,
-      latestTick,
-      isLoadingOlder,
-      hasMoreHistory,
-      loadOlder,
-    }),
-    [
-      historicalData,
-      realtimeCandle,
-      error,
-      hasMoreHistory,
-      isLoadingOlder,
-      latestTick,
-      loadOlder,
-      status,
-    ],
-  );
+  return {
+    historicalData,
+    status,
+    error,
+    isLoadingOlder,
+    hasMoreHistory,
+    loadOlder,
+  };
 }
 
 export default useRealtimeCandles;

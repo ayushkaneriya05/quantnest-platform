@@ -86,7 +86,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         has_stop_loss = strategy.rule_groups.filter(
             rule_type='STOP_LOSS',
             is_active=True,
-            stop_loss_rules__is_active=True,
+            rules__is_active=True,
         ).exists()
         if mode == 'live' and not has_stop_loss:
             errors.append('Live deployment requires at least one active stop-loss rule.')
@@ -94,17 +94,9 @@ class StrategyViewSet(viewsets.ModelViewSet):
         return errors
 
     def _has_static_stop_distance(self, strategy):
-        for group in strategy.rule_groups.filter(rule_type='STOP_LOSS', is_active=True).prefetch_related('stop_loss_rules'):
-            for rule in group.stop_loss_rules.filter(is_active=True):
-                if rule.sl_type == 'FIXED_POINTS' and rule.fixed_points and rule.fixed_points > 0:
-                    return True
-                if rule.sl_type == 'FIXED_PERCENTAGE' and rule.fixed_percentage and rule.fixed_percentage > 0:
-                    return True
-                if rule.sl_type == 'TRAILING_FIXED' and rule.trailing_value and rule.trailing_value > 0:
-                    return True
-                if rule.sl_type == 'TRAILING_PERCENTAGE' and rule.trailing_value and rule.trailing_value > 0:
-                    return True
-                if rule.sl_type == 'EMERGENCY' and rule.emergency_loss_pct and rule.emergency_loss_pct > 0:
+        for group in strategy.rule_groups.filter(rule_type='STOP_LOSS', is_active=True).prefetch_related('rules'):
+            for rule in group.rules.filter(is_active=True):
+                if rule.operand_a_type in ['POSITION_PNL_POINTS', 'POSITION_PNL_PERCENTAGE', 'TRAILING_PEAK_OFFSET'] and rule.operand_b_type == 'CONSTANT':
                     return True
         return False
     

@@ -18,43 +18,6 @@ def refresh_live_market_subscriptions():
     return {"symbols": symbols, "count": len(symbols)}
 
 
-@shared_task(name="marketdata.process_market_event", queue="tick")
-def process_market_event(symbol, quote, candle_state=None):
-    """
-    Fan out a normalized market event to downstream engines away from the
-    provider websocket callback thread.
-    """
-    processed = {"paper": False, "terminal": False, "live": False}
-
-    try:
-        from paper_trading.tasks import process_paper_tick
-
-        process_paper_tick.delay(symbol, quote=quote, quote_already_cached=True)
-        processed["paper"] = True
-    except Exception:
-        logger.exception("Failed dispatching market event to paper engine for %s", symbol)
-        processed["paper"] = False
-
-    try:
-        from trading.tasks import process_terminal_tick
-
-        process_terminal_tick.delay(symbol, quote)
-        processed["terminal"] = True
-    except Exception:
-        logger.exception("Failed dispatching market event to trading terminal for %s", symbol)
-        processed["terminal"] = False
-
-    try:
-        from live_trading.tasks import process_live_tick
-
-        process_live_tick.delay(symbol, quote=quote, quote_already_cached=True, candle_state=candle_state)
-        processed["live"] = True
-    except Exception:
-        logger.exception("Failed dispatching market event to live engine for %s", symbol)
-        processed["live"] = False
-
-    return processed
-
 
 @shared_task(name="marketdata.backfill_missing_candles")
 def backfill_missing_candles(symbol, lookback_days=10, timeframe="1m", **_ignored):

@@ -8,7 +8,8 @@ from common.enums import (
     ViolationAction,
     ViolationType,
 )
-from common.trading_utils import compute_sl_distance_from_config, get_any_field, to_float, to_int
+from common.trading_utils import get_any_field, to_float, to_int
+from rules_engine.utils import compute_sl_distance_from_config
 
 logger = logging.getLogger(__name__)
 
