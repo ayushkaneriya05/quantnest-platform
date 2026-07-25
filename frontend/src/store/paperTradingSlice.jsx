@@ -76,9 +76,31 @@ const paperTradingSlice = createSlice({
       state.watchlist = watchlist;
       state.unrealized_pnl = unrealized_pnl;
     },
+    upsertOrder: (state, action) => {
+      const updatedOrder = action.payload;
+      const index = state.orders.findIndex((o) => o.id === updatedOrder.id);
+      if (index !== -1) {
+        state.orders[index] = updatedOrder;
+      } else {
+        state.orders.push(updatedOrder);
+      }
+    },
+    upsertPosition: (state, action) => {
+      const updatedPosition = action.payload;
+      if (updatedPosition.deleted || updatedPosition.quantity === 0) {
+          state.positions = state.positions.filter(p => p.id !== updatedPosition.id);
+          return;
+      }
+      const index = state.positions.findIndex((p) => p.id === updatedPosition.id);
+      if (index !== -1) {
+        state.positions[index] = updatedPosition;
+      } else {
+        state.positions.push(updatedPosition);
+      }
+    },
   },
 });
 
-export const { setSocketConnected, setInitialState, updatePortfolio } =
+export const { setSocketConnected, setInitialState, updatePortfolio, upsertOrder, upsertPosition } =
   paperTradingSlice.actions;
 export default paperTradingSlice.reducer;

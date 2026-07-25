@@ -4,7 +4,6 @@ djangorestframework
 
 # Database
 psycopg2-binary
-dj-database-url
 
 # Configuration
 python-decouple
@@ -17,15 +16,14 @@ djangorestframework-simplejwt
 pyjwt
 django-allauth
 dj-rest-auth
-cryptography
 
 # File Storage
 pillow
 
 # Deployment
 gunicorn
+uvicorn
 whitenoise
-
 
 django-otp
 qrcode
@@ -33,16 +31,11 @@ qrcode
 channels
 channels_redis
 celery
-gevent
 
-websockets
-python-dotenv
 pyarrow
 pandas
 redis
 fyers-apiv3
 python-dateutil
-apscheduler
-daphne  
 
 pandas-ta
