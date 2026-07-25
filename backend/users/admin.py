@@ -53,6 +53,7 @@ class BackupCodeAdmin(admin.ModelAdmin):
 class UserSessionAdmin(admin.ModelAdmin):
     list_display = (
         "user",
+        "session_id",
         "ip_address",
         "browser",
         "os",
@@ -61,7 +62,7 @@ class UserSessionAdmin(admin.ModelAdmin):
         "expires_at",
     )
     list_filter = ("browser", "os", "device_type", "created_at", "last_activity")
-    search_fields = ("user__email", "user__username", "ip_address", "jti")
-    readonly_fields = ("jti", "created_at", "last_activity", "expires_at")
+    search_fields = ("user__email", "user__username", "ip_address", "session_id")
+    readonly_fields = ("session_id", "created_at", "last_activity", "expires_at")
     ordering = ("-last_activity",)
 

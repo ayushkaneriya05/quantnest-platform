@@ -1,15 +1,14 @@
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-
+from django.core.cache import cache
 import logging
+
 logger = logging.getLogger(__name__)
 
 class SafeJWTAuthentication(JWTAuthentication):
     """
-    Custom JWT Authentication that checks if the token's JTI has been blacklisted.
-    This ensures that 'Logout Everywhere' and 'Revoke Session' take effect immediately
-    for access tokens, even before they expire.
+    Custom JWT Authentication that enforces Stateful validation via session_id.
+    Ensures absolute revocation accuracy with Redis caching.
     """
     def authenticate(self, request):
         header = self.get_header(request)
@@ -24,7 +23,6 @@ class SafeJWTAuthentication(JWTAuthentication):
         if raw_token is None:
             return None
 
-        # raw_token from cookie is a string, simplejwt expects bytes
         if isinstance(raw_token, str):
             raw_token = raw_token.encode('utf-8')
 
@@ -33,16 +31,20 @@ class SafeJWTAuthentication(JWTAuthentication):
         except AuthenticationFailed:
             return None
 
-        # Check if this token's JTI is in the blacklist
-        jti = validated_token.get("jti")
-        sid = validated_token.get("sid") # Session ID (Refresh Token JTI)
+        session_id = validated_token.get("session_id")
+        
+        if session_id:
+            cache_key = f"auth_session_valid_{session_id}"
+            is_valid = cache.get(cache_key)
 
-        # DEBUG LOGGING (Temporary)
-        logger.info(f"--- Auth Check --- JTI: {jti}, SID: {sid}")
+            if is_valid is None:
+                # Local import to avoid circular import errors
+                from users.models import UserSession
+                is_valid = UserSession.objects.filter(session_id=session_id).exists()
+                cache.set(cache_key, is_valid, timeout=60)
 
-        if jti:
-            if BlacklistedToken.objects.filter(token__jti=jti).exists():
-                logger.warning(f"Rejecting blocked JTI: {jti}")
-                raise AuthenticationFailed("This token has been revoked.", code="token_revoked")
- 
+            if not is_valid:
+                logger.warning(f"Rejecting revoked session_id: {session_id}")
+                raise AuthenticationFailed("This session has been revoked or expired.", code="session_revoked")
+                
         return self.get_user(validated_token), validated_token

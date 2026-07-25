@@ -141,9 +141,26 @@ class CustomPasswordResetConfirmView(PasswordResetConfirmView):
 class CustomLogoutView(LogoutView):
     """Override LogoutView to permit logout even if current session/token is invalid."""
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
+        # Extract session_id and delete session before calling super()
+        try:
+            from django.conf import settings
+            from django.core.cache import cache
+            from rest_framework_simplejwt.tokens import RefreshToken
+            refresh_cookie_name = getattr(settings, "REST_AUTH", {}).get("JWT_AUTH_REFRESH_COOKIE", "quantnest-refresh")
+            refresh_token = request.COOKIES.get(refresh_cookie_name) or request.data.get("refresh")
+            if refresh_token:
+                token_obj = RefreshToken(refresh_token, verify=False)
+                session_id = token_obj.payload.get("session_id")
+                if session_id:
+                    UserSession.objects.filter(session_id=session_id).delete()
+                    cache.delete(f"auth_session_valid_{session_id}")
+        except Exception as e:
+            logger.error(f"Error deleting session on logout: {e}")
+            
         return super().post(request, *args, **kwargs)
 
 
@@ -784,154 +801,117 @@ class CustomTokenRefreshView(APIView):
 
     def post(self, request, *args, **kwargs):
         from dj_rest_auth.jwt_auth import get_refresh_view
-        view_func = get_refresh_view().as_view()
+        from django.conf import settings
+        
+        RefreshViewClass = get_refresh_view()
+        view_instance = RefreshViewClass()
+        view_instance.setup(request._request, *args, **kwargs)
+        view_instance.request = request
+        view_instance.format_kwarg = None
         
         refresh_cookie_name = getattr(settings, "REST_AUTH", {}).get("JWT_AUTH_REFRESH_COOKIE", "quantnest-refresh")
         old_refresh_token = request.COOKIES.get(refresh_cookie_name) or request.data.get("refresh")
         
-        # Pass the raw Django HttpRequest to the dj-rest-auth view
-        response = view_func(request._request, *args, **kwargs)
-        
-        if response.status_code == 200 and old_refresh_token:
+        if old_refresh_token:
             try:
                 from rest_framework_simplejwt.tokens import RefreshToken
                 old_token_obj = RefreshToken(old_refresh_token, verify=False)
-                old_jti = old_token_obj.payload.get("jti")
-                
-                new_refresh_token = response.cookies.get(refresh_cookie_name)
-                new_jti = None
-                if new_refresh_token:
-                    new_token_obj = RefreshToken(new_refresh_token.value, verify=False)
-                    new_jti = new_token_obj.payload.get("jti")
-                elif hasattr(response, "data") and "refresh" in response.data:
-                    new_token_obj = RefreshToken(response.data["refresh"], verify=False)
-                    new_jti = new_token_obj.payload.get("jti")
-                    
-                if new_jti and old_jti:
-                    updated = UserSession.objects.filter(jti=old_jti).update(jti=new_jti, last_activity=timezone.now())
+                session_id = old_token_obj.payload.get("session_id")
+                if session_id:
+                    # Check if session exists and update activity
+                    updated = UserSession.objects.filter(session_id=session_id).update(last_activity=timezone.now())
                     if updated == 0:
-                        user_id = old_token_obj.payload.get("user_id")
-                        if user_id:
-                            from django.contrib.auth import get_user_model
-                            User = get_user_model()
-                            user = User.objects.filter(id=user_id).first()
-                            if user:
-                                token_str = new_refresh_token.value if new_refresh_token else response.data["refresh"]
-                                _record_session(user, request, token_str)
+                        # Session was revoked/deleted!
+                        from dj_rest_auth.jwt_auth import unset_jwt_cookies
+                        res = Response({"detail": "Session revoked."}, status=status.HTTP_401_UNAUTHORIZED)
+                        unset_jwt_cookies(res)
+                        return res
             except Exception as e:
-                logger.error(f"Error updating UserSession JTI on refresh: {e}")
+                logger.error(f"Error checking session on refresh: {e}")
+                
+        # Pass the already parsed DRF request to avoid RawPostDataException
+        response = view_instance.post(request, *args, **kwargs)
+        
+        if response.status_code == 200 and old_refresh_token:
+            try:
+                # If we made it here, the session existed and we already updated last_activity
+                # We just need to update the token in the session record just in case.
+                from rest_framework_simplejwt.tokens import RefreshToken
+                old_token_obj = RefreshToken(old_refresh_token, verify=False)
+                session_id = old_token_obj.payload.get("session_id")
+                user_id = old_token_obj.payload.get("user_id")
+                if session_id and user_id:
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    user = User.objects.filter(id=user_id).first()
+                    if user:
+                        new_refresh_token = response.cookies.get(refresh_cookie_name)
+                        token_str = new_refresh_token.value if new_refresh_token else response.data.get("refresh")
+                        if token_str:
+                            _record_session(user, request, token_str)
+            except Exception as e:
+                logger.error(f"Error updating UserSession on refresh: {e}")
                 
         return response
 
 
 
 class ActiveSessionsView(APIView):
-    """List user's active sessions (linked to JWT tokens)."""
+    """List user's active sessions."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # OutstandingToken is the source of truth for all refresh tokens
-        outstanding = OutstandingToken.objects.filter(
+        active_sessions = UserSession.objects.filter(
             user=request.user, expires_at__gt=timezone.now()
         )
-        
-        # Get already blacklisted tokens to skip them
-        blacklisted_jtis = set(
-            BlacklistedToken.objects.filter(token__user=request.user).values_list("token__jti", flat=True)
-        )
 
-        # Get current request metadata
         x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         current_ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META.get("REMOTE_ADDR")
         current_ua = request.META.get("HTTP_USER_AGENT", "")[:500]
 
         sessions = []
+        for session_metadata in active_sessions:
+            is_current = (
+                session_metadata.ip_address == current_ip and
+                session_metadata.user_agent == current_ua
+            )
+            sessions.append(
+                {
+                    "id": session_metadata.id,
+                    "created_at": session_metadata.created_at.isoformat(),
+                    "last_activity": session_metadata.last_activity.isoformat(),
+                    "is_current": is_current,
+                    "ip_address": session_metadata.ip_address or "N/A",
+                    "user_agent": session_metadata.user_agent or "N/A",
+                    "browser": session_metadata.browser,
+                    "os": session_metadata.os,
+                    "device": session_metadata.device_type,
+                }
+            )
 
-        for token in outstanding:
-            # Skip if blacklisted
-            if token.jti in blacklisted_jtis:
-                continue
-
-            # Try to find enriched metadata in UserSession
-            session_metadata = UserSession.objects.filter(jti=token.jti).first()
-
-            is_current = False
-            if session_metadata:
-                is_current = (
-                    session_metadata.ip_address == current_ip and
-                    session_metadata.user_agent == current_ua
-                )
-
-            if session_metadata:
-                sessions.append(
-                    {
-                        "id": session_metadata.id,
-                        "created_at": session_metadata.created_at.isoformat(),
-                        "last_activity": session_metadata.last_activity.isoformat(),
-                        "is_current": is_current,
-                        "ip_address": session_metadata.ip_address or "N/A",
-                        "user_agent": session_metadata.user_agent or "N/A",
-                        "browser": session_metadata.browser,
-                        "os": session_metadata.os,
-                        "device": session_metadata.device_type,
-                    }
-                )
-            else:
-                # Basic session info for tokens without metadata (legacy or background)
-                sessions.append(
-                    {
-                        "id": token.id,
-                        "created_at": token.created_at.isoformat(),
-                        "last_activity": token.created_at.isoformat(), # Fallback
-                        "is_current": is_current,
-                        "ip_address": "Legacy Session",
-                        "user_agent": "N/A",
-                        "browser": "Current Platform",
-                        "os": "Active Device",
-                        "device": "Desktop",
-                    }
-                )
-
-        # Sort sessions: current first, then by last activity
         sessions.sort(key=lambda x: (not x["is_current"], x["last_activity"]), reverse=True)
-        
         return Response({"sessions": sessions})
 
 
 class RevokeSessionView(APIView):
-    """Revoke a specific session by blacklisting its token."""
+    """Revoke a specific session."""
 
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, pk):
         try:
-            # We try to find the session in UserSession first
+            from django.core.cache import cache
             session = UserSession.objects.filter(pk=pk, user=request.user).first()
             if session:
-                token = OutstandingToken.objects.filter(jti=session.jti).first()
-                if token:
-                    BlacklistedToken.objects.get_or_create(token=token)
+                session_id = session.session_id
                 session.delete()
-            else:
-                # If not in UserSession, it might be a legacy token from OutstandingToken
-                token = OutstandingToken.objects.get(pk=pk, user=request.user)
-                BlacklistedToken.objects.get_or_create(token=token)
-            
-            return Response(
-                {"detail": "Session revoked."},
-                status=status.HTTP_200_OK,
-            )
-        except OutstandingToken.DoesNotExist:
-            return Response(
-                {"error": "Session not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+                cache.delete(f"auth_session_valid_{session_id}")
+                return Response({"detail": "Session revoked."}, status=status.HTTP_200_OK)
+            return Response({"error": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-             return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            logger.error(f"Error revoking session: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class LogoutAllView(APIView):
@@ -943,17 +923,17 @@ class LogoutAllView(APIView):
         from rest_framework_simplejwt.tokens import RefreshToken
         from django.conf import settings
         
-        exclude_jti = None
+        exclude_session_id = None
         refresh_cookie_name = getattr(settings, "REST_AUTH", {}).get("JWT_AUTH_REFRESH_COOKIE", "quantnest-refresh")
         refresh_token = request.COOKIES.get(refresh_cookie_name)
         if refresh_token:
             try:
-                token_obj = RefreshToken(refresh_token)
-                exclude_jti = token_obj.payload.get("jti")
+                token_obj = RefreshToken(refresh_token, verify=False)
+                exclude_session_id = token_obj.payload.get("session_id")
             except Exception:
                 pass
                 
-        _blacklist_all_tokens(request.user, exclude_jti=exclude_jti)
+        _blacklist_all_tokens(request.user, exclude_session_id=exclude_session_id)
         return Response(
             {"detail": "Logged out from all other devices."},
             status=status.HTTP_200_OK,
@@ -1009,7 +989,11 @@ def _record_session(user, request, refresh_token):
         from rest_framework_simplejwt.tokens import RefreshToken
 
         token = RefreshToken(refresh_token)
-        jti = token.payload.get("jti")
+        import uuid
+        session_id = token.payload.get("session_id")
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            
         exp = token.payload.get("exp")
         expires_at = datetime.datetime.fromtimestamp(exp, tz=datetime.timezone.utc)
 
@@ -1053,25 +1037,8 @@ def _record_session(user, request, refresh_token):
         else:
             ip = request.META.get("REMOTE_ADDR")
 
-        # Find and cleanup old sessions for this exact Browser + OS + Device combo
-        # This prevents accumulating orphaned sessions when IP changes or browser closes without logout.
-        old_sessions = UserSession.objects.filter(
-            user=user,
-            browser=browser,
-            os=os,
-            device_type=device
-        )
-        
-        if old_sessions.exists():
-            from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-            for old_session in old_sessions:
-                old_token = OutstandingToken.objects.filter(jti=old_session.jti).first()
-                if old_token:
-                    BlacklistedToken.objects.get_or_create(token=old_token)
-            old_sessions.delete()
-
-        UserSession.objects.get_or_create(
-            jti=jti,
+        UserSession.objects.update_or_create(
+            session_id=session_id,
             defaults={
                 "user": user,
                 "ip_address": ip,
@@ -1086,17 +1053,19 @@ def _record_session(user, request, refresh_token):
         logger.error(f"Error recording session: {e}")
 
 
-def _blacklist_all_tokens(user, exclude_jti=None):
+def _blacklist_all_tokens(user, exclude_session_id=None):
     """Blacklist all outstanding refresh tokens for a user and clear sessions."""
     tokens = OutstandingToken.objects.filter(user=user)
-    if exclude_jti:
-        tokens = tokens.exclude(jti=exclude_jti)
-        
     for token in tokens:
         BlacklistedToken.objects.get_or_create(token=token)
         
+    from django.core.cache import cache
+    
     # Also delete all our custom session records
     sessions = UserSession.objects.filter(user=user)
-    if exclude_jti:
-        sessions = sessions.exclude(jti=exclude_jti)
+    if exclude_session_id:
+        sessions = sessions.exclude(session_id=exclude_session_id)
+        
+    for session in sessions:
+        cache.delete(f"auth_session_valid_{session.session_id}")
     sessions.delete()

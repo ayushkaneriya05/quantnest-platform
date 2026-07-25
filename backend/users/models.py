@@ -1,6 +1,7 @@
 import hashlib
 import secrets
 import string
+import uuid
 
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -114,7 +115,7 @@ class UserSession(models.Model):
     """Tracks active JWT sessions for a user with metadata."""
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sessions")
-    jti = models.CharField(max_length=255, unique=True, help_text="JWT Unique Identifier")
+    session_id = models.UUIDField(unique=True, help_text="Constant Session Identifier", default=uuid.uuid4)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(null=True, blank=True)
     device_type = models.CharField(max_length=50, default="Unknown")

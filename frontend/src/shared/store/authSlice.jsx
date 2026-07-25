@@ -90,6 +90,10 @@ const authSlice = createSlice({
     tokenRefreshed: (state, action) => {
       state.accessToken = action.payload.access;
       localStorage.setItem("accessToken", action.payload.access);
+      if (action.payload.refresh) {
+        state.refreshToken = action.payload.refresh;
+        localStorage.setItem("refreshToken", action.payload.refresh);
+      }
     },
     set2FARequired: (state, action) => {
       state.is2FARequired = action.payload;

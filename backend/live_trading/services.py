@@ -435,7 +435,6 @@ class LiveExecutionService:
             broker_credential=credential,
             defaults={
                 "portfolio": portfolio,
-                "capital_allocation": capital_allocation,
                 "allocation_type": allocation_type,
                 "allocated_capital": allocated_capital,
                 "allocated_percentage": allocated_percentage or Decimal("0"),
@@ -1790,9 +1789,7 @@ class LiveExecutionService:
         orders = LiveExecutionService.sync_orders_from_broker(user, credential=credential, force=force)
         LiveExecutionService._refresh_broker_allocation_health(user, credential)
         portfolio = LivePortfolioService.get_or_create_portfolio(user)
-        portfolio.broker_synced = True
-        portfolio.last_broker_sync = timezone.now()
-        portfolio.save(update_fields=["broker_synced", "last_broker_sync", "updated_at"])
+        portfolio.save(update_fields=["updated_at"])
         return {"funds": funds, "positions": positions, "orders": orders}
 
     @staticmethod

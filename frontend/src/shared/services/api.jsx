@@ -27,6 +27,20 @@ api.interceptors.request.use(
   }
 );
 
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 api.interceptors.response.use(
   (response) => {
     return response;
@@ -36,7 +50,21 @@ api.interceptors.response.use(
 
     // Check if the error is a 401 and we haven't already tried to refresh
     if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true; // Mark that we've tried to refresh
+      if (isRefreshing) {
+        return new Promise(function (resolve, reject) {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers["Authorization"] = `Bearer ${token}`;
+            return api(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
 
       try {
         const refreshToken = localStorage.getItem("refreshToken");
@@ -58,15 +86,16 @@ api.interceptors.response.use(
           }
         );
 
-        const { access } = response.data;
+        const { access, refresh } = response.data;
 
         // Update the Redux store and localStorage with the new token
-        store.dispatch(tokenRefreshed({ access }));
+        store.dispatch(tokenRefreshed({ access, refresh }));
 
-        // Update the header of the original request and retry it
+        processQueue(null, access);
         originalRequest.headers["Authorization"] = `Bearer ${access}`;
         return api(originalRequest);
       } catch (refreshError) {
+        processQueue(refreshError, null);
         store.dispatch(logoutUser());
         store.dispatch(logout());
 
@@ -76,6 +105,8 @@ api.interceptors.response.use(
         }
 
         return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
 

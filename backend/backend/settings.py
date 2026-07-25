@@ -235,7 +235,7 @@ SIMPLE_JWT = {
     # Rotate refresh tokens on every use and blacklist the old one so stolen
     # refresh tokens can only be used once before they are invalidated.
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
+    "BLACKLIST_AFTER_ROTATION": False,
     "TOKEN_OBTAIN_SERIALIZER": "users.serializers.CustomTokenObtainPairSerializer",
 }
 

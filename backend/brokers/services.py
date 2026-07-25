@@ -293,8 +293,8 @@ class FyersAdapter(BaseBrokerAdapter):
             self._log("fyers.exchange_auth_code", {"client_id": self._client_id()}, token_resp, 400, message, started_at)
             raise ValueError(message)
 
-        expires_in = int(token_resp.get("expires_in") or token_resp.get("expiresIn") or 86400)
-        expires_at = timezone.now() + timedelta(seconds=expires_in)
+        local_now = timezone.localtime(timezone.now())
+        expires_at = local_now.replace(hour=23, minute=59, second=59, microsecond=999999)
         BrokerSession.objects.filter(credential=self.credential, is_valid=True).update(is_valid=False)
         session = BrokerSession.objects.create(
             credential=self.credential,
