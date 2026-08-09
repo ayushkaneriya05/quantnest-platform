@@ -57,7 +57,7 @@ export default function PaperCapital() {
 
         {activeTab === "allocations" && (
           <div className="flex items-center gap-3">
-             <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 h-10 px-4 shadow-lg shadow-indigo-500/20 font-bold" onClick={() => window.dispatchEvent(new CustomEvent('open-new-allocation'))}>
+             <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 h-10 px-4 shadow-lg shadow-indigo-500/20 font-bold text-white" onClick={() => window.dispatchEvent(new CustomEvent('open-new-allocation'))}>
                 <PieChart className="h-4 w-4 mr-2" /> 
                 <span>ADD ALLOCATION</span>
              </Button>

@@ -103,6 +103,14 @@ class StrategyVersionSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
+class StrategyVersionListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for version dropdowns."""
+    class Meta:
+        model = StrategyVersion
+        fields = ['id', 'version_number', 'change_notes', 'created_at']
+        read_only_fields = fields
+
+
 class StrategyListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for list views."""
     user_username = serializers.CharField(source='user.username', read_only=True)

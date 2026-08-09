@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import BrokerAPILog, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderReconciliation, OrderSettings
+from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderReconciliation, OrderSettings
 
 
 class BrokerCredentialSerializer(serializers.ModelSerializer):
@@ -63,7 +63,6 @@ class OrderSettingsSerializer(serializers.ModelSerializer):
             "retry_delay_ms",
             "partial_fill_action",
             "use_amo_orders",
-            "primary_broker",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]
@@ -130,3 +129,49 @@ class BrokerFundsSnapshotSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class BrokerChargeProfileSerializer(serializers.ModelSerializer):
+    """Serializer for BrokerChargeProfile CRUD operations."""
+
+    class Meta:
+        model = BrokerChargeProfile
+        fields = [
+            'id', 'name', 'broker_credential',
+            'brokerage_per_order', 'brokerage_pct', 'brokerage_cap',
+            'stt_eq_delivery_pct', 'stt_eq_intraday_pct',
+            'stt_futures_pct', 'stt_options_sell_pct',
+            'exchange_txn_pct', 'exchange_txn_fo_pct',
+            'sebi_turnover_pct', 'stamp_duty_pct', 'gst_pct',
+            'is_default', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_name(self, value):
+        """Ensure unique name per user."""
+        user = self.context['request'].user
+        qs = BrokerChargeProfile.objects.filter(user=user, name=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('A charge profile with this name already exists.')
+        return value
+
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        profile = super().create(validated_data)
+        if profile.is_default:
+            BrokerChargeProfile.objects.filter(
+                user=profile.user,
+                is_default=True,
+            ).exclude(pk=profile.pk).update(is_default=False)
+        return profile
+
+    def update(self, instance, validated_data):
+        profile = super().update(instance, validated_data)
+        if profile.is_default:
+            BrokerChargeProfile.objects.filter(
+                user=profile.user,
+                is_default=True,
+            ).exclude(pk=profile.pk).update(is_default=False)
+        return profile

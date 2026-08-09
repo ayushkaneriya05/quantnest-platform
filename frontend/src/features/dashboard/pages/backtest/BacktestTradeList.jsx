@@ -48,18 +48,27 @@ export default function BacktestTradeList() {
   const [selectedTrade, setSelectedTrade] = useState(null);
   const PAGE_SIZE = 50;
 
+  const [totalCount, setTotalCount] = useState(0);
+
   useEffect(() => {
     fetchData();
-  }, [id]);
+  }, [id, page, filter, search, instrumentFilter]);
 
   const fetchData = async () => {
     try {
+      setLoading(true);
       const [runData, tradesData] = await Promise.all([
         backtestApi.getRun(id),
-        backtestApi.getRunTrades(id),
+        backtestApi.getRunTrades(id, { page, filter, search, instrument: instrumentFilter }),
       ]);
       setRun(runData.data);
-      setTrades(tradesData.data);
+      if (tradesData.data.results) {
+        setTrades(tradesData.data.results);
+        setTotalCount(tradesData.data.count);
+      } else {
+        setTrades(tradesData.data);
+        setTotalCount(tradesData.data.length);
+      }
     } catch (error) {
       notify.error("Failed to load trades");
     } finally {
@@ -85,40 +94,24 @@ export default function BacktestTradeList() {
     });
   };
 
-  const filteredTrades = trades.filter((t) => {
-    if (filter === "winning" && t.net_pnl <= 0) return false;
-    if (filter === "losing" && t.net_pnl >= 0) return false;
-    if (instrumentFilter !== "all" && t.instrument_symbol !== instrumentFilter) return false;
-    if (
-      search &&
-      !t.instrument_symbol?.toLowerCase().includes(search.toLowerCase())
-    )
-      return false;
-    return true;
-  });
-
   const stats = {
-    total: trades.length,
-    winners: trades.filter((t) => t.net_pnl > 0).length,
-    losers: trades.filter((t) => t.net_pnl < 0).length,
-    totalPnl: trades.reduce((sum, t) => sum + parseFloat(t.net_pnl || 0), 0),
+    total: run?.metrics?.total_trades || 0,
+    winners: run?.metrics?.winning_trades || 0,
+    losers: run?.metrics?.losing_trades || 0,
+    totalPnl: parseFloat(run?.metrics?.total_return_pct || 0),
   };
 
-  // Paginated slice
-  const totalPages = Math.max(1, Math.ceil(filteredTrades.length / PAGE_SIZE));
-  const paginatedTrades = filteredTrades.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE
-  );
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const paginatedTrades = trades;
 
   // Reset page on filter/search change
   useEffect(() => {
     setPage(1);
   }, [filter, search, instrumentFilter]);
 
-  const instrumentOptions = ["all", ...new Set(trades.map((trade) => trade.instrument_symbol).filter(Boolean))];
+  const instrumentOptions = ["all"]; // Dynamic instruments require a separate backend call
 
-  useSetPageActions(
+  const pageActions = React.useMemo(() => (
     <Button
       variant="outline"
       size="sm"
@@ -128,7 +121,9 @@ export default function BacktestTradeList() {
       <ChevronLeft className="h-4 w-4 mr-2" />
       Back to Results
     </Button>
-  );
+  ), [navigate, id]);
+
+  useSetPageActions(pageActions);
 
   if (loading) {
     return (
@@ -253,6 +248,9 @@ export default function BacktestTradeList() {
                   <th className="px-6 py-4 font-semibold text-right">
                     Net P&L
                   </th>
+                  <th className="px-6 py-4 font-semibold text-right">
+                    Charges (₹)
+                  </th>
                   <th className="px-6 py-4 font-semibold">Exit Reason</th>
                 </tr>
               </thead>
@@ -329,6 +327,11 @@ export default function BacktestTradeList() {
                         {parseFloat(trade.pnl_pct).toFixed(2)}%
                       </div>
                     </td>
+                    <td className="px-6 py-4 text-right">
+                      <span className="text-sm font-medium text-gray-300">
+                        {formatCurrency(trade.charges_breakdown?.total ?? trade.charges_json?.total_charges ?? 0)}
+                      </span>
+                    </td>
                     <td className="px-6 py-4">
                       <Badge
                         variant="outline"
@@ -341,7 +344,7 @@ export default function BacktestTradeList() {
                 ))}
               </tbody>
             </table>
-            {filteredTrades.length === 0 && (
+            {trades.length === 0 && (
               <div className="p-8 text-center text-gray-500">
                 No trades found matching your filters.
               </div>
@@ -352,7 +355,7 @@ export default function BacktestTradeList() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-6 py-4 border-t border-gray-800">
               <span className="text-xs text-gray-500">
-                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredTrades.length)} of {filteredTrades.length} trades
+                Showing {(page - 1) * PAGE_SIZE + (trades.length > 0 ? 1 : 0)}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount} trades
               </span>
               <div className="flex items-center gap-2">
                 <Button
@@ -501,9 +504,34 @@ export default function BacktestTradeList() {
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-gray-400">Brokerage Paid</span>
                         <span className="font-medium text-gray-300">
-                          {formatCurrency(selectedTrade.brokerage)}
+                          {formatCurrency(selectedTrade.charges_breakdown?.brokerage || 0)}
                         </span>
                       </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">STT/CTT</span>
+                        <span className="font-medium text-gray-300">
+                          {formatCurrency(selectedTrade.charges_breakdown?.stt || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">Exchange Txn</span>
+                        <span className="font-medium text-gray-300">
+                          {formatCurrency(selectedTrade.charges_breakdown?.exchange_txn || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">SEBI + Stamp</span>
+                        <span className="font-medium text-gray-300">
+                          {formatCurrency((selectedTrade.charges_breakdown?.sebi || 0) + (selectedTrade.charges_breakdown?.stamp_duty || 0))}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">GST</span>
+                        <span className="font-medium text-gray-300">
+                          {formatCurrency(selectedTrade.charges_breakdown?.gst || 0)}
+                        </span>
+                      </div>
+                      <div className="h-px bg-gray-700/50 w-full" />
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-gray-400">Estimated Slippage</span>
                         <span className="font-medium text-gray-300">

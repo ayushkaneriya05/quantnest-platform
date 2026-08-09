@@ -44,6 +44,27 @@ class RiskCache:
         cache.set(key, current, timeout=60 * 60 * 24)
 
     @staticmethod
+    def record_trade_result(user_id, strategy_id, pnl):
+        key = RiskCache._key(user_id, strategy_id)
+        current = RiskCache.get_stats(user_id, strategy_id)
+        if pnl < 0:
+            current["consecutive_losses"] = current.get("consecutive_losses", 0) + 1
+        else:
+            current["consecutive_losses"] = 0
+        cache.set(key, current, timeout=60 * 60 * 24)
+
+    @staticmethod
+    def sync_on_fill(user_id, portfolio_value):
+        """
+        Perform an immediate recalculation/sync of the risk cache for the given user.
+        """
+        from live_trading.models import LiveStrategyAllocation
+        from strategies.models import Strategy
+        allocations = LiveStrategyAllocation.objects.filter(user_id=user_id, is_active=True).select_related('strategy')
+        for alloc in allocations:
+            RiskCache.sync_from_db(alloc.user, alloc.strategy)
+
+    @staticmethod
     def sync_from_db(user, strategy):
         """
         Populate the cache from the database.
@@ -85,37 +106,10 @@ class RiskCache:
         # 4. Fetch last exit time for re-entry check
         last_exit = completed_trade_query.order_by("-executed_at").first()
 
-        # 5. Compute consecutive losses by pairing recent exit fills with the
-        # preceding entry fills for the same instrument.
-        consecutive_losses = 0
-        for exit_order in completed_trade_query.order_by("-executed_at")[:50]:
-            entry_order = (
-                LiveOrder.objects.filter(
-                    user=user,
-                    strategy=strategy,
-                    instrument=exit_order.instrument,
-                    side=entry_side,
-                    status__in=filled_statuses,
-                    executed_at__lt=exit_order.executed_at,
-                )
-                .exclude(executed_at__isnull=True)
-                .order_by("-executed_at")
-                .first()
-            )
-            if not entry_order or not entry_order.avg_fill_price or not exit_order.avg_fill_price:
-                break
-            closed_qty = min(int(entry_order.filled_quantity or entry_order.quantity or 0), int(exit_order.filled_quantity or exit_order.quantity or 0))
-            if closed_qty <= 0:
-                break
-            pnl = (
-                (exit_order.avg_fill_price - entry_order.avg_fill_price) * closed_qty
-                if entry_side == Side.BUY
-                else (entry_order.avg_fill_price - exit_order.avg_fill_price) * closed_qty
-            )
-            if pnl < 0:
-                consecutive_losses += 1
-            else:
-                break
+        # 5. Consecutive losses are now tracked via record_trade_result on trade close.
+        # We retain the existing cached value to avoid expensive DB queries.
+        current_stats = RiskCache.get_stats(user.id, strategy.id)
+        consecutive_losses = current_stats.get("consecutive_losses", 0)
 
         # 6. Weekly and monthly PnL for auto-disable rules
         from paper_trading.models import DailyPerformance

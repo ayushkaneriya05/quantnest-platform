@@ -85,6 +85,14 @@ class LivePortfolio(BaseTimestampModel):
 class LiveStrategyAllocation(BaseTimestampModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_strategy_allocations")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.CASCADE, related_name="live_allocations")
+    deployed_version = models.ForeignKey(
+        'strategies.StrategyVersion',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='live_allocations',
+        help_text='Pinned strategy version for this live allocation'
+    )
     portfolio = models.ForeignKey(LivePortfolio, on_delete=models.CASCADE, related_name="live_allocations")
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.CASCADE, related_name="strategy_allocations")
     allocation_type = models.CharField(max_length=20, choices=CapitalAllocationType.choices, default=CapitalAllocationType.FIXED)
@@ -97,7 +105,6 @@ class LiveStrategyAllocation(BaseTimestampModel):
     unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     broker_equity_reference = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    is_active = models.BooleanField(default=True)
     is_over_allocated = models.BooleanField(default=False)
     breach_reason = models.TextField(blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)

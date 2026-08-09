@@ -6,6 +6,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
 from kombu.exceptions import OperationalError
 from .models import (
@@ -266,16 +267,76 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         """Get all trades for a backtest run."""
         run = self.get_object()
         trades = run.trades.all()
+        
+        trade_filter = request.query_params.get('filter')
+        if trade_filter == 'winning':
+            trades = trades.filter(net_pnl__gt=0)
+        elif trade_filter == 'losing':
+            trades = trades.filter(net_pnl__lt=0)
+            
+        instrument = request.query_params.get('instrument')
+        if instrument and instrument != 'all':
+            trades = trades.filter(instrument__symbol=instrument)
+            
+        search = request.query_params.get('search')
+        if search:
+            trades = trades.filter(instrument__symbol__icontains=search)
+        
+        class TradePagination(PageNumberPagination):
+            page_size = 50
+            page_size_query_param = 'page_size'
+            
+        paginator = TradePagination()
+        page = paginator.paginate_queryset(trades, request, view=self)
+        if page is not None:
+            serializer = BacktestTradeSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+            
         serializer = BacktestTradeSerializer(trades, many=True)
         return Response(serializer.data)
     
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], url_path='equity_curve')
     def equity_curve(self, request, pk=None):
         """Get equity curve data for charting."""
         run = self.get_object()
-        points = run.equity_curve.all()
+        points = run.equity_curve.order_by('timestamp')
+        
+        count = points.count()
+        if count > 1000:
+            step = count // 1000
+            ids = list(points.values_list('id', flat=True))[::step]
+            points = points.filter(id__in=ids).order_by('timestamp')
+            
         serializer = EquityCurvePointSerializer(points, many=True)
         return Response(serializer.data)
+        
+    @action(detail=True, methods=['get'], url_path='charges_timeline')
+    def charges_timeline(self, request, pk=None):
+        """Get lightweight timeline of charges for frontend gross P&L calculations."""
+        run = self.get_object()
+        trades = run.trades.filter(exit_time__isnull=False).only('exit_time', 'charges_json').order_by('exit_time')
+        
+        timeline = []
+        for t in trades:
+            try:
+                charges_json = t.charges_json or {}
+                if isinstance(charges_json, str):
+                    import json
+                    charges_json = json.loads(charges_json)
+                
+                charges = float(charges_json.get('total_charges', 0))
+                if charges > 0:
+                    exit_time = t.exit_time
+                    timeline.append({
+                        'exitTime': int(exit_time.timestamp() * 1000),
+                        'charges': charges
+                    })
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Error parsing charges for trade {t.id}: {e}")
+                continue
+        
+        return Response(timeline)
     
     @action(detail=True, methods=['get'])
     def metrics(self, request, pk=None):

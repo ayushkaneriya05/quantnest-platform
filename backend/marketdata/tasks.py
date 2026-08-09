@@ -137,9 +137,11 @@ def reconcile_daily_market_data():
             logger.info(f"Deleted {deleted} fake mock candles from database.")
             
             # Flush Redis candle cache
-            keys = cache.keys("marketdata:candles:*")
+            from .candle_engine import redis_client
+            keys = redis_client.keys("marketdata:candles:*")
+            # If django cache uses prefixes, the keys above will have them.
             if keys:
-                cache.delete_many(keys)
+                redis_client.delete(*keys)
                 logger.info(f"Flushed {len(keys)} Redis candle cache keys.")
                 
             return {"status": "wiped_mock_data", "deleted": deleted}

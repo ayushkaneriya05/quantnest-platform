@@ -8,4 +8,8 @@ class LiveTradingConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401
-
+        try:
+            from .services import LiveExecutionService
+            LiveExecutionService.rebuild_runtime_state_from_db()
+        except Exception:
+            pass

@@ -3,8 +3,8 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Card, CardContent, CardDescription, CardHeader, CardTitle 
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle
 } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -24,13 +24,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { 
-  Plus, Play, Pause, Archive, Copy, 
+import {
+  Plus, Play, Pause, Archive, Copy,
   TrendingUp, Clock, Zap, Target, Edit, Trash2, TestTube,
   Loader2, Sparkles, RotateCcw, FlaskConical, Rocket
 } from 'lucide-react';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { brokersApi } from '@/shared/services/brokersApi';
+import { portfolioApi } from '@/shared/services/portfolioApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
 import { customConfirm } from '@/shared/components/ui/custom-dialog';
@@ -39,7 +40,6 @@ import { GlobalLoader } from '@/shared/components/ui/global-loader';
 const STATUS_CONFIG = {
   DRAFT: { label: 'Draft', className: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
   ACTIVE: { label: 'Active', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
-  PAUSED: { label: 'Paused', className: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
   ARCHIVED: { label: 'Archived', className: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
 };
 
@@ -71,6 +71,17 @@ export default function StrategyList() {
   const [allocationMode, setAllocationMode] = useState("FIXED");
   const [allocationAmount, setAllocationAmount] = useState("");
   const [allocationPercentage, setAllocationPercentage] = useState("");
+
+  const [versions, setVersions] = useState([]);
+  const [selectedVersion, setSelectedVersion] = useState("");
+  const [paperDeployOpen, setPaperDeployOpen] = useState(false);
+  const [paperDeployStrategy, setPaperDeployStrategy] = useState(null);
+  const [strategyAllocations, setStrategyAllocations] = useState([]);
+  const [selectedAllocation, setSelectedAllocation] = useState("new");
+  const [newAllocationAmount, setNewAllocationAmount] = useState(100000);
+
+  const [deleteConflictOpen, setDeleteConflictOpen] = useState(false);
+  const [conflictedStrategy, setConflictedStrategy] = useState(null);
 
   const fetchStrategies = async () => {
     try {
@@ -121,11 +132,47 @@ export default function StrategyList() {
     return connected;
   };
 
-  const handleDeployPaper = async (strategy) => {
+  const openPaperDeploy = async (strategy) => {
     try {
       setDeployingId(strategy.id);
-      const result = await strategyApi.deployPaper(strategy.id);
-      notify.success(result.message || 'Strategy deployed to paper trading');
+      const data = await strategyApi.getVersions(strategy.id);
+      const fetchedVersions = Array.isArray(data) ? data : data?.results || [];
+      setVersions(fetchedVersions);
+      setSelectedVersion(fetchedVersions.length > 0 ? fetchedVersions[0].id.toString() : "");
+
+      const allocRes = await portfolioApi.getAllocationByStrategy(strategy.id);
+      const fetchedAllocations = Array.isArray(allocRes.data) ? allocRes.data : allocRes.data?.results || [];
+      // Filter out allocations that already have an active/running session if needed, 
+      // but for now we just show all allocations that don't have a RUNNING session, 
+      // or we can just show all of them and let the backend throw if they try to reuse.
+      // Wait, let's just show all allocations for this strategy so they can reuse STOPPED ones.
+      setStrategyAllocations(fetchedAllocations);
+      setSelectedAllocation(fetchedAllocations.length > 0 ? String(fetchedAllocations[0].id) : "new");
+      
+      setPaperDeployStrategy(strategy);
+      setPaperDeployOpen(true);
+    } catch (error) {
+      notify.error("Failed to load deploy data");
+    } finally {
+      setDeployingId(null);
+    }
+  };
+
+  const handleConfirmPaperDeploy = async () => {
+    if (!paperDeployStrategy) return;
+    try {
+      setDeployingId(paperDeployStrategy.id);
+      const payload = {};
+      if (selectedVersion) payload.versionId = selectedVersion;
+      if (selectedAllocation === "new") {
+          payload.allocationAmount = newAllocationAmount;
+      } else {
+          payload.allocationId = selectedAllocation;
+      }
+      const result = await strategyApi.deployPaper(paperDeployStrategy.id, payload);
+      notify.success(result.session_id ? `Paper session started (ID: ${result.session_id})` : 'Strategy deployed to paper trading');
+      setPaperDeployOpen(false);
+      setPaperDeployStrategy(null);
       await fetchStrategies();
       navigate('/dashboard/paper');
     } catch (error) {
@@ -147,6 +194,12 @@ export default function StrategyList() {
       setAllocationMode("FIXED");
       setAllocationAmount("");
       setAllocationPercentage("");
+
+      const vData = await strategyApi.getVersions(strategy.id);
+      const fetchedVersions = Array.isArray(vData) ? vData : vData?.results || [];
+      setVersions(fetchedVersions);
+      setSelectedVersion(fetchedVersions.length > 0 ? fetchedVersions[0].id.toString() : "");
+
       setLiveDeployOpen(true);
     } catch (error) {
       notify.error('Failed to load connected broker accounts');
@@ -165,6 +218,7 @@ export default function StrategyList() {
           brokerCredential: selectedBroker ? Number(selectedBroker) : null,
           allocationAmount: allocationMode === "FIXED" && allocationAmount ? Number(allocationAmount) : null,
           allocationPercentage: allocationMode === "PERCENTAGE" && allocationPercentage ? Number(allocationPercentage) : null,
+          version_id: selectedVersion || undefined,
         },
       );
       notify.success(result.message || 'Strategy deployed to live trading');
@@ -209,15 +263,7 @@ export default function StrategyList() {
     }
   };
 
-  const handlePause = async (id) => {
-    try {
-      await strategyApi.pause(id);
-      notify.success('Strategy paused');
-      fetchStrategies();
-    } catch (error) {
-      notify.error('Failed to pause strategy');
-    }
-  };
+
 
   const handleUnarchive = async (id) => {
     try {
@@ -229,15 +275,44 @@ export default function StrategyList() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (strategy) => {
     const confirmed = await customConfirm('Are you sure you want to delete this strategy? This cannot be undone.');
     if (!confirmed) return;
     try {
-      await strategyApi.delete(id);
+      await strategyApi.delete(strategy.id);
       notify.success('Strategy deleted');
       fetchStrategies();
     } catch (error) {
-      notify.error('Failed to delete strategy');
+      if (error?.response?.status === 409) {
+        setConflictedStrategy(strategy);
+        setDeleteConflictOpen(true);
+      } else {
+        notify.error(error?.response?.data?.error || 'Failed to delete strategy');
+      }
+    }
+  };
+
+  const handleArchiveInstead = async () => {
+    if (!conflictedStrategy) return;
+    try {
+      await strategyApi.archive(conflictedStrategy.id);
+      notify.success('Strategy archived');
+      setDeleteConflictOpen(false);
+      fetchStrategies();
+    } catch (error) {
+      notify.error('Failed to archive strategy');
+    }
+  };
+
+  const handleHaltAndArchive = async () => {
+    if (!conflictedStrategy) return;
+    try {
+      await strategyApi.haltAndArchive(conflictedStrategy.id);
+      notify.success('Strategy halted and archived');
+      setDeleteConflictOpen(false);
+      fetchStrategies();
+    } catch (error) {
+      notify.error('Failed to halt and archive');
     }
   };
 
@@ -264,8 +339,8 @@ export default function StrategyList() {
             variant={filter === f ? 'default' : 'outline'}
             size="sm"
             onClick={() => setFilter(f)}
-            className={filter === f 
-              ? 'bg-indigo-600 hover:bg-indigo-500 text-white' 
+            className={filter === f
+              ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
               : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-600 bg-transparent'
             }
           >
@@ -295,7 +370,7 @@ export default function StrategyList() {
               {filter === 'all' ? 'No strategies yet' : `No ${filter} strategies`}
             </h3>
             <p className="text-gray-400 text-sm max-w-sm mx-auto">
-              {filter === 'all' 
+              {filter === 'all'
                 ? 'Create your first algorithmic trading strategy to get started. Define entry rules, exit conditions, and risk parameters.'
                 : `You don't have any ${filter} strategies. Try changing the filter.`}
             </p>
@@ -313,10 +388,10 @@ export default function StrategyList() {
             const TypeIcon = STRATEGY_TYPE_ICONS[strategy.strategy_type] || TrendingUp;
             const typeColor = TYPE_COLORS[strategy.strategy_type] || 'text-gray-400 bg-gray-500/10';
             const statusConfig = STATUS_CONFIG[strategy.status] || STATUS_CONFIG.DRAFT;
-            
+
             return (
-              <Card 
-                key={strategy.id} 
+              <Card
+                key={strategy.id}
                 className="bg-gray-900/40 border-gray-800/80 hover:border-gray-700 hover:bg-gray-900/60 transition-all duration-200 cursor-pointer group"
                 onClick={() => handleEdit(strategy.id)}
               >
@@ -344,7 +419,7 @@ export default function StrategyList() {
                   <p className="text-sm text-gray-400 line-clamp-2 mb-4 min-h-[2.5rem]">
                     {strategy.description || 'No description added'}
                   </p>
-                  
+
                   {/* Tags */}
                   {strategy.tags?.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-4">
@@ -360,21 +435,21 @@ export default function StrategyList() {
                       )}
                     </div>
                   )}
-                  
+
                   {/* Actions */}
                   <div className="flex gap-1 pt-3 border-t border-gray-800/80" onClick={e => e.stopPropagation()}>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => handleEdit(strategy.id)}
                       className="text-gray-500 hover:text-white hover:bg-gray-800/60 h-8 w-8 p-0"
                       title="Edit strategy"
                     >
                       <Edit className="h-3.5 w-3.5" />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => handleClone(strategy.id)}
                       className="text-gray-500 hover:text-white hover:bg-gray-800/60 h-8 w-8 p-0"
                       title="Clone strategy"
@@ -393,7 +468,7 @@ export default function StrategyList() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleDeployPaper(strategy)}
+                      onClick={() => openPaperDeploy(strategy)}
                       className="text-gray-500 hover:text-cyan-400 hover:bg-cyan-500/10 h-8 w-8 p-0"
                       title="Deploy to paper trading"
                       disabled={deployingId === strategy.id}
@@ -415,9 +490,9 @@ export default function StrategyList() {
                       <Rocket className="h-3.5 w-3.5" />
                     </Button>
                     {strategy.status === 'DRAFT' && (
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleActivate(strategy.id)}
                         className="text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
                         title="Activate strategy"
@@ -427,18 +502,10 @@ export default function StrategyList() {
                     )}
                     {strategy.status === 'ACTIVE' && (
                       <>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => handlePause(strategy.id)}
-                          className="text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 h-8 w-8 p-0"
-                          title="Pause strategy"
-                        >
-                          <Pause className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleArchive(strategy.id)}
                           className="text-gray-500 hover:text-gray-400 hover:bg-gray-800/60 h-8 w-8 p-0"
                           title="Archive strategy"
@@ -448,9 +515,9 @@ export default function StrategyList() {
                       </>
                     )}
                     {strategy.status === 'PAUSED' && (
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleActivate(strategy.id)}
                         className="text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
                         title="Resume strategy"
@@ -459,9 +526,9 @@ export default function StrategyList() {
                       </Button>
                     )}
                     {strategy.status === 'ARCHIVED' && (
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleUnarchive(strategy.id)}
                         className="text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 h-8 w-8 p-0"
                         title="Unarchive strategy"
@@ -469,10 +536,10 @@ export default function StrategyList() {
                         <RotateCcw className="h-3.5 w-3.5" />
                       </Button>
                     )}
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => handleDelete(strategy.id)}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(strategy)}
                       className="text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 h-8 w-8 p-0 ml-auto"
                       title="Delete strategy"
                     >
@@ -545,6 +612,24 @@ export default function StrategyList() {
                   placeholder={allocationMode === "FIXED" ? "50000" : "10"}
                 />
               </div>
+              <div className="space-y-2">
+                <Label className="text-gray-300">Strategy Version</Label>
+                <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+                  <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
+                    <SelectValue placeholder="Select version" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                    {versions.map((v) => (
+                      <SelectItem key={v.id} value={v.id.toString()}>
+                        Version {v.version_number} - {new Date(v.created_at).toLocaleDateString()}
+                      </SelectItem>
+                    ))}
+                    {versions.length === 0 && (
+                      <SelectItem value="none" disabled>No versions found</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <p className="text-xs text-gray-500">
               This live allocation acts as the strategy wallet on the broker account. New entries are blocked once the strategy wallet or broker margin is exhausted.
@@ -574,6 +659,133 @@ export default function StrategyList() {
                 <Rocket className="h-4 w-4 mr-2" />
               )}
               Deploy Live
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Paper Deploy Modal */}
+      <Dialog open={paperDeployOpen} onOpenChange={setPaperDeployOpen}>
+        <DialogContent className="bg-gray-950 border-gray-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Deploy Strategy to Paper Trading</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-gray-400">
+              {paperDeployStrategy
+                ? `Choose the version for ${paperDeployStrategy.name}.`
+                : "Choose version."}
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-gray-300">Capital Allocation</Label>
+                <Select value={selectedAllocation} onValueChange={setSelectedAllocation}>
+                  <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
+                    <SelectValue placeholder="Select allocation" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                    {strategyAllocations.map((a) => (
+                      <SelectItem key={a.id} value={String(a.id)}>
+                        Existing: ₹{Number(a.allocated_amount).toLocaleString()} (Alloc #{a.id})
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="new" className="text-indigo-400 font-medium">
+                      + Create New Allocation
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {selectedAllocation === "new" && (
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Allocation Amount (₹)</Label>
+                  <Input 
+                    type="number" 
+                    value={newAllocationAmount} 
+                    onChange={(e) => setNewAllocationAmount(e.target.value)}
+                    className="bg-gray-900 border-gray-700 text-white"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-gray-300">Strategy Version</Label>
+                <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+                  <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
+                    <SelectValue placeholder="Select version" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                    {versions.map((v) => (
+                      <SelectItem key={v.id} value={v.id.toString()}>
+                        Version {v.version_number} - {new Date(v.created_at).toLocaleDateString()}
+                      </SelectItem>
+                    ))}
+                    {versions.length === 0 && (
+                      <SelectItem value="none" disabled>No versions found</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-gray-700 text-gray-100"
+              onClick={() => setPaperDeployOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-cyan-600 hover:bg-cyan-500"
+              onClick={handleConfirmPaperDeploy}
+              disabled={deployingId === paperDeployStrategy?.id}
+            >
+              {deployingId === paperDeployStrategy?.id ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FlaskConical className="h-4 w-4 mr-2" />
+              )}
+              Deploy Paper
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Conflict Modal */}
+      <Dialog open={deleteConflictOpen} onOpenChange={setDeleteConflictOpen}>
+        <DialogContent className="bg-gray-950 border-gray-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Cannot Delete Strategy</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-400">
+              The strategy "{conflictedStrategy?.name}" has active deployment records or associated trade data. Deleting it would break historical consistency.
+            </p>
+            <p className="text-sm text-gray-400">
+              Consider archiving this strategy instead to hide it from your main view.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-gray-700 text-gray-100"
+              onClick={() => setDeleteConflictOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              className="border-rose-900/30 text-rose-300 hover:bg-rose-900/50"
+              onClick={handleHaltAndArchive}
+            >
+              Halt & Archive
+            </Button>
+            <Button
+              className="bg-gray-700 hover:bg-gray-600 text-white"
+              onClick={handleArchiveInstead}
+            >
+              Archive Instead
             </Button>
           </DialogFooter>
         </DialogContent>

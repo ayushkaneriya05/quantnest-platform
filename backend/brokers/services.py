@@ -566,8 +566,8 @@ class BrokerService:
         return BrokerService.as_json_safe(catalog)
 
     @staticmethod
-    def get_order_settings(user):
-        settings, _ = OrderSettings.objects.get_or_create(user=user)
+    def get_order_settings(credential):
+        settings, _ = OrderSettings.objects.get_or_create(broker_credential=credential)
         return settings
 
     @staticmethod

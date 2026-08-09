@@ -52,18 +52,13 @@ def auto_create_version(sender, instance, **kwargs):
     if sender == Strategy and kwargs.get('created', False):
         return
 
-    # 2. Update cache for the execution engine immediately, independent of versioning.
-    try:
-        cache.set(f"strategy_config_{strategy.id}", strategy.to_execution_dict(), timeout=None)
-        logger.info(f"Updated execution cache for strategy {strategy.id}")
-    except Exception as e:
-        logger.error(f"Failed to update cache for strategy {strategy.id}: {e}")
-
-    # 3. Check if auto-versioning is enabled
+    # 2. Check if auto-versioning is enabled. Draft edits must not mutate the
+    # execution cache for already deployed allocations; those use immutable
+    # strategy_version_config_{id} entries.
     if not strategy.auto_version_enabled:
         return
 
-    # 4. Check last version time (Debounce for snapshots)
+    # 3. Check last version time (Debounce for snapshots)
     # Reduced to 10 seconds for easier testing and more frequent checkpoints
     last_version = strategy.versions.order_by('-created_at').first()
     
@@ -72,7 +67,7 @@ def auto_create_version(sender, instance, **kwargs):
         if time_since_last < timedelta(seconds=10):
             return
 
-    # 5. Create Snapshot
+    # 4. Create Snapshot
     try:
         StrategySnapshotService.create_snapshot(
             strategy, 
@@ -80,3 +75,13 @@ def auto_create_version(sender, instance, **kwargs):
         )
     except Exception as e:
         logger.error(f"Failed to auto-version strategy {strategy.id}: {e}")
+
+@receiver(post_save, sender=StrategyVersion)
+def cache_version_config(sender, instance, created, **kwargs):
+    """Cache the version-specific execution config on StrategyVersion creation."""
+    if created and instance.config_snapshot:
+        cache.set(
+            f"strategy_version_config_{instance.id}",
+            instance.config_snapshot,
+            timeout=None
+        )

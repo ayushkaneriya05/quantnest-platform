@@ -28,6 +28,7 @@ import { liveTradingApi } from "@/shared/services/liveTradingApi";
 import LivePositionsTable from "./LivePositionsTable";
 import LiveOrdersTable from "./LiveOrdersTable";
 import LiveAllocationUpdateModal from "./components/LiveAllocationUpdateModal";
+import LiveHotSwapModal from "./components/LiveHotSwapModal";
 import {
   Tabs,
   TabsContent,
@@ -48,6 +49,7 @@ export default function LiveStrategies() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
   const [allocationModal, setAllocationModal] = useState({ open: false, session: null });
+  const [hotSwapModal, setHotSwapModal] = useState({ open: false, session: null });
 
   const loadData = async () => {
     try {
@@ -174,6 +176,17 @@ export default function LiveStrategies() {
 
   return (
     <div className="container-padding space-y-6 py-6 lg:py-8">
+      {(!isLiveWsConnected || connectionStatus !== "connected") && (
+        <div className="rounded-xl border border-red-900/50 bg-red-500/10 p-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-medium text-red-200">API Outage / Connection Lost</h4>
+            <p className="text-xs text-red-300/80 mt-1">
+              Live market feed or broker API connection is currently down. Order execution and status updates may be delayed.
+            </p>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <Card className="border-gray-800 bg-gray-900/60">
@@ -205,12 +218,17 @@ export default function LiveStrategies() {
                         statusTone[session.status] || statusTone.STOPPED
                       }
                     >
-                      {session.status}
+                      {session.status === "PAUSED" ? "Paused (Exits Active)" : session.status}
                     </Badge>
                   </div>
                   <div>
-                    <h3 className="font-medium text-white">
+                    <h3 className="font-medium text-white flex items-center gap-2">
                       {session.strategy_name}
+                      {session.allocation?.version_number && (
+                        <Badge className="bg-indigo-500/20 text-indigo-300 border-indigo-500/30 text-[10px] px-1.5 py-0.5 font-mono">
+                          v{session.allocation.version_number}
+                        </Badge>
+                      )}
                     </h3>
                     <p className="text-xs text-gray-500">
                       {session.broker_label ||
@@ -340,6 +358,16 @@ export default function LiveStrategies() {
                     <Settings className="h-4 w-4" />
                   </Button>
 
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10"
+                    title="Hot-Swap Version"
+                    onClick={() => setHotSwapModal({ open: true, session })}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+
                   <div className="w-px h-6 bg-gray-800 mx-2 hidden sm:block"></div>
 
                   <Button
@@ -433,6 +461,15 @@ export default function LiveStrategies() {
                     </div>
                   )}
 
+                  {session.phantom_positions > 0 && (
+                    <div className="rounded-xl border border-amber-900/50 bg-amber-500/5 p-3 text-sm text-amber-200 mb-5">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                        <span>Phantom Position Alert: Strategy holds {session.phantom_positions} virtual positions not matching broker side.</span>
+                      </div>
+                    </div>
+                  )}
+
                   <Tabs defaultValue="positions" className="w-full">
                     <div className="flex items-center justify-between mb-3 border-b border-gray-800 pb-2">
                       <TabsList className="bg-transparent border-0 p-0 h-auto space-x-4">
@@ -483,6 +520,12 @@ export default function LiveStrategies() {
         open={allocationModal.open}
         session={allocationModal.session}
         onOpenChange={(open) => setAllocationModal({ ...allocationModal, open })}
+        onSuccess={loadData}
+      />
+      <LiveHotSwapModal
+        open={hotSwapModal.open}
+        session={hotSwapModal.session}
+        onOpenChange={(open) => setHotSwapModal({ ...hotSwapModal, open })}
         onSuccess={loadData}
       />
     </div>

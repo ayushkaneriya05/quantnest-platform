@@ -24,7 +24,7 @@ class LivePositionAdmin(admin.ModelAdmin):
 @admin.register(LiveStrategyAllocation)
 class LiveStrategyAllocationAdmin(admin.ModelAdmin):
     list_display = ["id", "user", "strategy", "broker_credential", "allocated_capital", "used_capital", "available_capital", "is_over_allocated"]
-    list_filter = ["broker_credential__broker_name", "is_active", "is_over_allocated"]
+    list_filter = ["broker_credential__broker_name", "is_over_allocated"]
 
 
 @admin.register(ExecutionLog)

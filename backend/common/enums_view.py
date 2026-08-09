@@ -18,7 +18,7 @@ from .enums import (
     ExecutionStyle, AutoDisableTriggerType,
     ViolationType, ViolationAction, Severity,
     TransactionType, RebalanceFrequency, Timezone, BacktestStatus,
-    BrokerName, OptimizationMetric, OptimizableParameter
+    BrokerName
 )
 
 
@@ -90,8 +90,6 @@ _ENUM_SOURCES = {
     'TransactionType': TransactionType,
     'RebalanceFrequency': RebalanceFrequency,
     'BacktestStatus': BacktestStatus,
-    'OptimizationMetric': OptimizationMetric,
-    'OptimizableParameter': OptimizableParameter,
 
     'Timezone':Timezone,
 }

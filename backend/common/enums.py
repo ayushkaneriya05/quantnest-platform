@@ -97,7 +97,6 @@ class StrategyStatus(models.TextChoices):
     """Strategy lifecycle status."""
     DRAFT = 'DRAFT', 'Draft'
     ACTIVE = 'ACTIVE', 'Active'
-    PAUSED = 'PAUSED', 'Paused'
     ARCHIVED = 'ARCHIVED', 'Archived'
 
 
@@ -295,8 +294,6 @@ class BrokerName(models.TextChoices):
     IIFL = 'IIFL', 'IIFL Securities'
     ICICI = 'ICICI', 'ICICI Direct'
     HDFC = 'HDFC', 'HDFC Securities'
-    BINANCE = 'BINANCE', 'Binance'
-    BYBIT = 'BYBIT', 'Bybit'
 
 
 class NotificationType(models.TextChoices):
@@ -482,36 +479,3 @@ class ExchangeInstrumentType(models.IntegerChoices):
     # ── BSE-specific ──
     MISC_BSE = 50, 'Misc (BSE)'
 
-
-class OptimizationMetric(models.TextChoices):
-    """Metrics that can be targeted for optimization."""
-    SHARPE = 'SHARPE', 'Sharpe Ratio'
-    RETURN = 'RETURN', 'Total Return'
-    DRAWDOWN = 'DRAWDOWN', 'Min Drawdown'
-    WIN_RATE = 'WIN_RATE', 'Win Rate'
-    PROFIT_FACTOR = 'PROFIT_FACTOR', 'Profit Factor'
-
-
-class OptimizableParameter(models.TextChoices):
-    """Common parameters that can be swept during optimization."""
-    EMA_PERIOD = 'ema_period', 'EMA Period'
-    SMA_PERIOD = 'sma_period', 'SMA Period'
-    WMA_PERIOD = 'wma_period', 'WMA Period'
-    RSI_PERIOD = 'rsi_period', 'RSI Period'
-    RSI_OVERSOLD = 'rsi_oversold', 'RSI Oversold Level'
-    RSI_OVERBOUGHT = 'rsi_overbought', 'RSI Overbought Level'
-    MACD_FAST = 'macd_fast', 'MACD Fast Period'
-    MACD_SLOW = 'macd_slow', 'MACD Slow Period'
-    MACD_SIGNAL = 'macd_signal', 'MACD Signal Period'
-    BOLLINGER_PERIOD = 'bollinger_period', 'Bollinger Period'
-    STD_DEV = 'std_dev', 'Std Deviation Multiplier'
-    SUPERTREND_PERIOD = 'supertrend_period', 'Supertrend ATR Period'
-    SUPERTREND_MULTIPLIER = 'supertrend_multiplier', 'Supertrend Multiplier'
-    ATR_PERIOD = 'atr_period', 'ATR Period'
-    ADX_PERIOD = 'adx_period', 'ADX Period'
-    STOCHASTIC_K_PERIOD = 'stochastic_k_period', 'Stochastic %K Period'
-    STOCHASTIC_D_PERIOD = 'stochastic_d_period', 'Stochastic %D Period'
-    CCI_PERIOD = 'cci_period', 'CCI Period'
-    MFI_PERIOD = 'mfi_period', 'MFI Period'
-    STOP_LOSS_PCT = 'stop_loss_pct', 'Stop Loss %'
-    TARGET_PCT = 'target_pct', 'Target / Take Profit %'

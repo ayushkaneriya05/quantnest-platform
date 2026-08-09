@@ -26,7 +26,7 @@ import PaperTradingDashboard from "@/features/dashboard/pages/paper/PaperTrading
 import PaperCapital from "@/features/dashboard/pages/paper/PaperCapital";
 import PaperAnalytics from "@/features/dashboard/pages/paper/PaperAnalytics";
 import BrokerConnections from "@/features/dashboard/pages/brokers/BrokerConnections";
-import BrokerOrderSettings from "@/features/dashboard/pages/brokers/BrokerOrderSettings";
+import BrokerChargeProfiles from "@/features/dashboard/pages/brokers/BrokerChargeProfiles";
 import BrokerLogs from "@/features/dashboard/pages/brokers/BrokerLogs";
 import LivePortfolio from "@/features/dashboard/pages/live/LivePortfolio";
 import LiveStrategies from "@/features/dashboard/pages/live/LiveStrategies";
@@ -165,7 +165,7 @@ function AppContent() {
 
             {/* Broker + Live Trading routes */}
             <Route path="brokers" element={<BrokerConnections />} />
-            <Route path="brokers/settings" element={<BrokerOrderSettings />} />
+            <Route path="brokers/charge-profiles" element={<BrokerChargeProfiles />} />
             <Route path="brokers/logs" element={<BrokerLogs />} />
             <Route path="live/portfolio" element={<LivePortfolio />} />
             <Route path="live/strategies" element={<LiveStrategies />} />

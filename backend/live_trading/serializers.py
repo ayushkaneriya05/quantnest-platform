@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, SlippageRecord, TradingSession
+from strategies.models import StrategyVersion
 
 
 class TradingSessionSerializer(serializers.ModelSerializer):
@@ -51,7 +52,6 @@ class TradingSessionSerializer(serializers.ModelSerializer):
             user=obj.user,
             strategy=obj.strategy,
             broker_credential=obj.broker_credential,
-            is_active=True,
         ).first()
         if not allocation:
             return None
@@ -67,6 +67,8 @@ class TradingSessionSerializer(serializers.ModelSerializer):
             "unrealized_pnl": str(allocation.unrealized_pnl),
             "total_pnl": str(allocation.total_pnl),
             "is_over_allocated": allocation.is_over_allocated,
+            "version_id": allocation.deployed_version_id,
+            "version_number": allocation.deployed_version.version_number if allocation.deployed_version else None,
             "breach_reason": allocation.breach_reason,
         }
 
@@ -159,6 +161,13 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
     strategy_name = serializers.CharField(source="strategy.name", read_only=True)
     broker_name = serializers.CharField(source="broker_credential.broker_name", read_only=True)
     broker_label = serializers.CharField(source="broker_credential.label", read_only=True)
+    deployed_version = serializers.PrimaryKeyRelatedField(
+        queryset=StrategyVersion.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text='Pinned strategy version ID'
+    )
+    deployed_version_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = LiveStrategyAllocation
@@ -180,12 +189,13 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
             "unrealized_pnl",
             "total_pnl",
             "broker_equity_reference",
-            "is_active",
             "is_over_allocated",
             "breach_reason",
             "last_synced_at",
             "created_at",
             "updated_at",
+            "deployed_version",
+            "deployed_version_detail"
         ]
         read_only_fields = [
             "used_capital",
@@ -201,6 +211,16 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_deployed_version_detail(self, obj):
+        if obj.deployed_version:
+            return {
+                'id': obj.deployed_version.id,
+                'version_number': obj.deployed_version.version_number,
+                'change_notes': obj.deployed_version.change_notes,
+                'created_at': obj.deployed_version.created_at.isoformat(),
+            }
+        return None
 
 
 class ExecutionLogSerializer(serializers.ModelSerializer):

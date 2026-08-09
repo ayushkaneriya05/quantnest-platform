@@ -24,6 +24,7 @@ import {
   Info,
   Power,
   ChevronLeft,
+  DollarSign,
 } from "lucide-react";
 import {
   AreaChart,
@@ -72,34 +73,39 @@ export default function BacktestResults() {
   const [run, setRun] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [equityData, setEquityData] = useState([]);
+  const [chargesTimeline, setChargesTimeline] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pnlMode, setPnlMode] = useState("net"); // "net" or "gross"
 
   const fetchData = useCallback(async (isSilent = true) => {
     if (!isSilent) setIsRefreshing(true);
     try {
-      const [runData, metricsData, equityCurveData] = await Promise.all([
+      const [runData, metricsData, equityCurveData, chargesTimelineData] = await Promise.all([
         backtestApi.getRun(id),
         backtestApi.getRunMetrics(id),
         backtestApi.getRunEquityCurve(id),
+        backtestApi.getRunChargesTimeline(id),
       ]);
       setRun(runData.data);
       setMetrics(metricsData.data);
       setEquityData(
         (equityCurveData.data || []).map((point) => ({
           ...point,
+          rawTimestamp: new Date(point.timestamp).getTime(),
           timestamp: new Date(point.timestamp).toLocaleDateString(),
           equity: parseFloat(point.equity_value),
         })),
       );
-      try {
-        const analyticsResponse = await backtestApi.getRunAnalytics(id);
-        setAnalytics(analyticsResponse.data);
-      } catch (analyticsError) {
-        setAnalytics(null);
-      }
+      setChargesTimeline(chargesTimelineData.data || []);
+      
+      // Lazy load analytics in background without blocking
+      backtestApi.getRunAnalytics(id)
+        .then(res => setAnalytics(res.data))
+        .catch(() => setAnalytics(null));
+
     } catch (error) {
       notify.error("Failed to load backtest");
     } finally {
@@ -107,6 +113,23 @@ export default function BacktestResults() {
       setIsRefreshing(false);
     }
   }, [id, notify]);
+
+  const chartEquityData = useMemo(() => {
+    if (pnlMode === "net") return equityData;
+    const sortedCharges = chargesTimeline;
+    let chargeIndex = 0;
+    let cumulativeCharges = 0;
+    return equityData.map((point) => {
+      while (chargeIndex < sortedCharges.length && sortedCharges[chargeIndex].exitTime <= point.rawTimestamp) {
+        cumulativeCharges += sortedCharges[chargeIndex].charges;
+        chargeIndex += 1;
+      }
+      return {
+        ...point,
+        equity: point.equity + cumulativeCharges,
+      };
+    });
+  }, [equityData, pnlMode, chargesTimeline]);
 
   useEffect(() => {
     fetchData(true);
@@ -225,9 +248,23 @@ export default function BacktestResults() {
             Charts
           </Button>
         </Link>
+        <div className="ml-2 flex bg-gray-800 rounded-lg p-1">
+          <button
+            onClick={() => setPnlMode("net")}
+            className={`px-3 py-1 rounded text-xs font-medium transition-all ${pnlMode === "net" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"}`}
+          >
+            Net
+          </button>
+          <button
+            onClick={() => setPnlMode("gross")}
+            className={`px-3 py-1 rounded text-xs font-medium transition-all ${pnlMode === "gross" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"}`}
+          >
+            Gross
+          </button>
+        </div>
       </div>
     </div>
-  ), [id, run?.status, cancelling, isRefreshing, navigate, fetchData]);
+  ), [id, run?.status, cancelling, isRefreshing, pnlMode, navigate, fetchData]);
 
   useSetPageActions(consolidatedActions);
 
@@ -251,6 +288,15 @@ export default function BacktestResults() {
         <div className="bg-red-900/20 border border-red-800/50 rounded-xl p-4 flex gap-3">
           <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
           <div className="text-red-300 text-sm">{run.error_message}</div>
+        </div>
+      )}
+
+      {run?.config?.instrument_type && ["FUTURES", "OPTIONS"].includes(run.config.instrument_type) && (
+        <div className="bg-amber-900/20 border border-amber-800/50 rounded-xl p-4 flex gap-3 mb-6">
+          <AlertCircle className="h-5 w-5 text-amber-400 shrink-0" />
+          <div className="text-amber-300 text-sm">
+            <strong>F&O Instrument Detected:</strong> This backtest uses underlying spot prices (continuous data) to simulate fills. Real-world derivatives may trade at a premium or discount (contango/backwardation) to the spot price. Please interpret these PnL results with caution.
+          </div>
         </div>
       )}
 
@@ -297,12 +343,12 @@ export default function BacktestResults() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           {
-            label: "Net Profit",
+            label: pnlMode === "net" ? "Net Profit" : "Gross Profit",
             value: formatCurrency(
-              (metrics?.final_capital || 0) - (run?.initial_capital || 0),
+              Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0) + (pnlMode === "gross" ? Number(metrics?.total_charges || 0) : 0)
             ),
             positive:
-              (metrics?.final_capital || 0) - (run?.initial_capital || 0) >= 0,
+              Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0) + (pnlMode === "gross" ? Number(metrics?.total_charges || 0) : 0) >= 0,
             icon: TrendingUp,
           },
           {
@@ -368,7 +414,7 @@ export default function BacktestResults() {
         <CardContent>
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={equityData}>
+              <AreaChart data={chartEquityData}>
                 <defs>
                   <linearGradient
                     id="colorEquity"
@@ -424,9 +470,12 @@ export default function BacktestResults() {
         </CardContent>
       </Card>
 
-      {/* 3-column stats grid */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        <Card className="bg-gray-900/50 border-gray-800">
+      {/* Masonry stats grid */}
+      <div className="grid lg:grid-cols-3 gap-6 items-start">
+
+        {/* Column 1 */}
+        <div className="space-y-6">
+          <Card className="bg-gray-900/50 border-gray-800">
           <CardHeader className="pb-3 border-b border-gray-800/50">
             <CardTitle className="text-md text-white font-semibold flex items-center gap-2">
               <ListIcon className="h-4 w-4 text-indigo-400" />
@@ -506,7 +555,40 @@ export default function BacktestResults() {
               </div>
             </CardContent>
           </Card>
-
+          <Card className="bg-gray-900/50 border-gray-800">
+              <CardHeader className="pb-3 border-b border-gray-800/50">
+                <CardTitle className="text-md text-white font-semibold">
+                  Run Configuration
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-gray-800/50">
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Initial Capital</span>
+                    <span className="font-bold text-white">{formatCurrency(run?.initial_capital)}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Slippage</span>
+                    <span className="font-bold text-white">{formatPercent(run?.slippage_pct)}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Fill Model</span>
+                    <span className="font-bold text-white">{run?.fill_model || "NEXT_OPEN"}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Charge Profile</span>
+                    <span className="font-bold text-white">{run?.charge_profile_detail?.name || "No Charges"}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Include Charges</span>
+                    <span className="font-bold text-white">{run?.include_charges ? "Yes" : "No"}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+        </div>
+        {/* Column 2 */}
+        <div className="space-y-6">
           <Card className="bg-gray-900/50 border-gray-800">
             <CardHeader className="pb-3 border-b border-gray-800/50">
               <CardTitle className="text-md text-white font-semibold">
@@ -562,8 +644,8 @@ export default function BacktestResults() {
                     color: "text-gray-400",
                   },
                   {
-                    label: "Brokerage Paid",
-                    value: formatCurrency(metrics?.total_brokerage),
+                    label: "Charges Paid",
+                    value: formatCurrency(metrics?.total_charges),
                     color: "text-white",
                   },
                   {
@@ -584,37 +666,45 @@ export default function BacktestResults() {
               </div>
             </CardContent>
           </Card>
-
-          <div className="space-y-6">
-            <Card className="bg-gray-900/50 border-gray-800">
+          <Card className="bg-gray-900/50 border-gray-800">
               <CardHeader className="pb-3 border-b border-gray-800/50">
-                <CardTitle className="text-md text-white font-semibold">
-                  Run Configuration
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="divide-y divide-gray-800/50">
-                  <div className="flex justify-between items-center p-4">
-                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Initial Capital</span>
-                    <span className="font-bold text-white">{formatCurrency(run?.initial_capital)}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-4">
-                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Slippage</span>
-                    <span className="font-bold text-white">{formatPercent(run?.slippage_pct)}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-4">
-                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Brokerage Per Trade</span>
-                    <span className="font-bold text-white">{formatCurrency(run?.brokerage_per_trade)}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-4">
-                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Brokerage %</span>
-                    <span className="font-bold text-white">{formatPercent(run?.brokerage_pct)}</span>
-                  </div>
+              <CardTitle className="text-md text-white font-semibold flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-amber-400" /> Charges Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-gray-800/50">
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Total Brokerage</span>
+                  <span className="font-bold text-white">{formatCurrency(metrics?.charges_breakdown?.brokerage || 0)}</span>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gray-900/50 border-gray-800">
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">STT / CTT</span>
+                  <span className="font-bold text-white">{formatCurrency(metrics?.charges_breakdown?.stt || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Exchange Txn</span>
+                  <span className="font-bold text-white">{formatCurrency(metrics?.charges_breakdown?.exchange_txn || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">SEBI / Stamp Duty</span>
+                  <span className="font-bold text-white">{formatCurrency((metrics?.charges_breakdown?.sebi || 0) + (metrics?.charges_breakdown?.stamp_duty || 0))}</span>
+                </div>
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">GST</span>
+                  <span className="font-bold text-white">{formatCurrency(metrics?.charges_breakdown?.gst || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center p-4 bg-gray-800/30">
+                  <span className="text-xs text-white uppercase tracking-wider font-bold">Total Charges</span>
+                  <span className="font-bold text-red-400">{formatCurrency(metrics?.total_charges || 0)}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        {/* Column 3 */}
+        <div className="space-y-6">
+          <Card className="bg-gray-900/50 border-gray-800">
             <CardHeader className="pb-3 border-b border-gray-800/50">
               <CardTitle className="text-md text-white font-semibold">
                 Trade Distribution
@@ -661,7 +751,6 @@ export default function BacktestResults() {
               </div>
             </CardContent>
           </Card>
-
           <Card className="bg-gray-900/50 border-gray-800 border-l-4 border-l-indigo-500">
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
@@ -686,7 +775,7 @@ export default function BacktestResults() {
             </CardContent>
           </Card>
         </div>
-      </div>
+  </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
         <Card className="bg-gray-900/50 border-gray-800 lg:col-span-2">

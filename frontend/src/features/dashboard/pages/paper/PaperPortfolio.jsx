@@ -49,7 +49,7 @@ export default function PaperPortfolio() {
       if (!active) {
         active = activeRes.data?.id
           ? activeRes.data
-          : loadedAccounts.find((account) => account.is_active);
+          : loadedAccounts[0];
       }
         
       setAccounts(loadedAccounts);
@@ -69,17 +69,8 @@ export default function PaperPortfolio() {
     fetchData();
   }, [fetchData]);
 
-  const handleAccountChange = async (accountId) => {
-    try {
-      setLoading(true);
-      await paperApi.activateAccount(Number(accountId));
-      setSelectedAccount(String(accountId));
-      // Data will be re-fetched by child components or here if needed
-    } catch (error) {
-      notify.error("Failed to switch paper account");
-    } finally {
-      setLoading(false);
-    }
+  const handleAccountChange = (accountId) => {
+    setSelectedAccount(String(accountId));
   };
 
   const selectedAccountData = useMemo(
@@ -181,7 +172,7 @@ export default function PaperPortfolio() {
           {activeTab === "overview" && !loading && accounts.length === 0 && (
              <div className="flex items-center gap-3">
                 <h3 className="hidden sm:block text-sm font-bold text-white whitespace-nowrap">Active Virtual Accounts</h3>
-                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 h-10 px-4 shadow-lg shadow-indigo-500/20" onClick={() => window.dispatchEvent(new CustomEvent('open-new-paper-account'))}>
+                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 h-10 px-4 shadow-lg shadow-indigo-500/20 text-white" onClick={() => window.dispatchEvent(new CustomEvent('open-new-paper-account'))}>
                     <Plus className="h-4 w-4 mr-2" /> New Account
                 </Button>
              </div>
@@ -215,7 +206,7 @@ export default function PaperPortfolio() {
 
       {/* Tab Content */}
       <div className="mt-6">
-        {activeTab === "overview" && <PaperTradingDashboard selectedAccountId={selectedAccount} />}
+        {activeTab === "overview" && <PaperTradingDashboard selectedAccountId={selectedAccount} setActiveTab={setActiveTab} />}
         {activeTab === "positions" && <PaperPositions selectedAccountId={selectedAccount} />}
         {activeTab === "orders" && <PaperOrderBook selectedAccountId={selectedAccount} />}
         {activeTab === "trades" && <PaperTradeHistory selectedAccountId={selectedAccount} />}

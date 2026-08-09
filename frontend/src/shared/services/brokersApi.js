@@ -23,9 +23,17 @@ export const brokersApi = {
   getFundsSummary: (id) => api.get(`${BASE_URL}/credentials/${id}/funds-summary/`),
   getOrderbook: (id) => api.get(`${BASE_URL}/credentials/${id}/orderbook/`),
   getSessions: () => api.get(`${BASE_URL}/sessions/`),
-  getSettings: () => api.get(`${BASE_URL}/settings/`),
+  getSettings: (params) => api.get(`${BASE_URL}/settings/`, { params }),
   updateSettings: (id, payload) => api.patch(`${BASE_URL}/settings/${id}/`, payload),
   getLogs: (params) => api.get(`${BASE_URL}/logs/`, { params }),
+
+  // Charge Profiles
+  getChargeProfiles: () => api.get(`${BASE_URL}/charge-profiles/`),
+  getChargeProfile: (id) => api.get(`${BASE_URL}/charge-profiles/${id}/`),
+  createChargeProfile: (payload) => api.post(`${BASE_URL}/charge-profiles/`, payload),
+  updateChargeProfile: (id, payload) => api.patch(`${BASE_URL}/charge-profiles/${id}/`, payload),
+  deleteChargeProfile: (id) => api.delete(`${BASE_URL}/charge-profiles/${id}/`),
+  setDefaultChargeProfile: (id) => api.post(`${BASE_URL}/charge-profiles/${id}/set-default/`),
 };
 
 export default brokersApi;

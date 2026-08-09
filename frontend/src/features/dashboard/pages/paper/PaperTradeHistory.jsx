@@ -19,6 +19,13 @@ export default function PaperTradeHistory({ selectedAccountId }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [pnlMode, setPnlMode] = useState("net");
+
+  const totalCharges = (trade) =>
+    Number(trade.charges_breakdown?.total ?? trade.charges_json?.total_charges ?? 0);
+
+  const displayPnl = (trade) =>
+    pnlMode === "net" ? Number(trade.net_pnl || 0) : Number(trade.net_pnl || 0) + totalCharges(trade);
 
   const fetchData = async () => {
     try {
@@ -53,16 +60,15 @@ export default function PaperTradeHistory({ selectedAccountId }) {
 
   const analytics = useMemo(() => {
     const total = filteredTrades.length;
-    const winners = filteredTrades.filter(
-      (trade) => Number(trade.net_pnl || 0) > 0,
-    );
-    const losers = filteredTrades.filter(
-      (trade) => Number(trade.net_pnl || 0) < 0,
-    );
-    const totalPnl = filteredTrades.reduce(
-      (sum, trade) => sum + Number(trade.net_pnl || 0),
-      0,
-    );
+    const winners = filteredTrades.filter((trade) => {
+      return displayPnl(trade) > 0;
+    });
+    const losers = filteredTrades.filter((trade) => {
+      return displayPnl(trade) < 0;
+    });
+    const totalPnl = filteredTrades.reduce((sum, trade) => {
+      return sum + displayPnl(trade);
+    }, 0);
     return {
       total_trades: total,
       win_rate: total ? (winners.length / total) * 100 : 0,
@@ -71,7 +77,7 @@ export default function PaperTradeHistory({ selectedAccountId }) {
       winning_trades: winners.length,
       losing_trades: losers.length,
     };
-  }, [filteredTrades]);
+  }, [filteredTrades, pnlMode]);
 
   const formatCurrency = (value) =>
     new Intl.NumberFormat("en-IN", {
@@ -144,6 +150,24 @@ export default function PaperTradeHistory({ selectedAccountId }) {
             placeholder="Search symbol..."
             className="pl-9 bg-gray-800 border-gray-700 text-white h-10"
           />
+        </div>
+        <div className="flex gap-1.5 bg-gray-900/50 p-1 rounded-lg border border-gray-800">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setPnlMode("net")}
+            className={`text-xs h-8 px-4 ${pnlMode === "net" ? "bg-indigo-500/10 text-indigo-400" : "text-gray-500 hover:text-gray-300"}`}
+          >
+            Net
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setPnlMode("gross")}
+            className={`text-xs h-8 px-4 ${pnlMode === "gross" ? "bg-indigo-500/10 text-indigo-400" : "text-gray-500 hover:text-gray-300"}`}
+          >
+            Gross
+          </Button>
         </div>
         <div className="flex gap-1.5 bg-gray-900/50 p-1 rounded-lg border border-gray-800">
           {["all", "winning", "losing"].map((value) => (
@@ -241,12 +265,18 @@ export default function PaperTradeHistory({ selectedAccountId }) {
                         {formatDuration(trade.holding_duration_seconds)}
                       </p>
                     </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Charges</p>
+                      <p className="text-gray-300 text-sm">
+                        {formatCurrency(totalCharges(trade))}
+                      </p>
+                    </div>
                     <div className="text-right min-w-24">
                       <p
-                        className={`text-lg font-bold ${trade.is_winner ? "text-emerald-400" : "text-rose-400"}`}
+                        className={`text-lg font-bold ${displayPnl(trade) >= 0 ? "text-emerald-400" : "text-rose-400"}`}
                       >
-                        {trade.is_winner ? "+" : ""}
-                        {formatCurrency(trade.net_pnl)}
+                        {displayPnl(trade) > 0 ? "+" : ""}
+                        {formatCurrency(displayPnl(trade))}
                       </p>
                       <p className="text-[11px] text-gray-500">
                         {parseFloat(trade.pnl_pct).toFixed(2)}%

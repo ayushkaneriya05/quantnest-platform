@@ -6,6 +6,7 @@ SL-distance calculation, and app-managed protection extraction from strategy
 configurations.
 """
 import logging
+from functools import lru_cache
 from datetime import datetime, time
 from decimal import Decimal
 
@@ -25,6 +26,27 @@ DEFAULT_SL_FALLBACK_PCT = 0.01  # 1% of entry price
 DEFAULT_SLIPPAGE_PCT = Decimal("0.0005")
 DEFAULT_RISK_PER_TRADE_AMOUNT = 1000.0
 DEFAULT_CAPITAL_PERCENTAGE = 10.0
+
+
+@lru_cache(maxsize=32)
+def get_exchange_times(exchange='NSE'):
+    """Get market open/close times from ExchangeConfig, with hardcoded fallback.
+
+    Uses LRU cache internally to avoid repeated DB queries within the same process.
+    Cache is reset on process restart.
+    """
+    try:
+        from common.models import ExchangeConfig
+        config = ExchangeConfig.objects.filter(
+            exchange=exchange, is_active=True
+        ).first()
+        if config:
+            return config.market_open, config.market_close
+    except Exception as e:
+        logger.debug(f'ExchangeConfig lookup failed for {exchange}, using defaults: {e}')
+
+    # Fallback to hardcoded defaults
+    return MARKET_OPEN_TIME, MARKET_CLOSE_TIME
 
 
 # ─── Time / Session Helpers ─────────────────────────────────────────

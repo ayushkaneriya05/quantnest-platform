@@ -7,11 +7,13 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import BrokerAPILog, BrokerCredential, BrokerSession, OrderReconciliation
+from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerSession, OrderReconciliation
 from .serializers import (
     BrokerAPILogSerializer,
+    BrokerChargeProfileSerializer,
     BrokerCredentialSerializer,
     BrokerFundsSnapshotSerializer,
     BrokerSessionSerializer,
@@ -193,10 +195,24 @@ class OrderSettingsViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        return Response(OrderSettingsSerializer(BrokerService.get_order_settings(request.user)).data)
+        credential_id = request.query_params.get("credential_id")
+        if not credential_id:
+            return Response({"error": "credential_id is required"}, status=400)
+        from brokers.models import BrokerCredential
+        credential = BrokerCredential.objects.filter(id=credential_id, user=request.user).first()
+        if not credential:
+            return Response({"error": "Broker credential not found"}, status=404)
+        return Response(OrderSettingsSerializer(BrokerService.get_order_settings(credential)).data)
 
     def partial_update(self, request, pk=None):
-        settings_obj = BrokerService.get_order_settings(request.user)
+        credential_id = request.data.get("credential_id")
+        if not credential_id:
+            return Response({"error": "credential_id is required"}, status=400)
+        from brokers.models import BrokerCredential
+        credential = BrokerCredential.objects.filter(id=credential_id, user=request.user).first()
+        if not credential:
+            return Response({"error": "Broker credential not found"}, status=404)
+        settings_obj = BrokerService.get_order_settings(credential)
         serializer = OrderSettingsSerializer(settings_obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -237,19 +253,19 @@ class BrokerAPILogViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = BrokerAPILog.objects.filter(credential__user=self.request.user).select_related("credential")
-        
+
         status_code = self.request.query_params.get("status_code")
         if status_code:
             queryset = queryset.filter(status_code=status_code)
-            
+
         endpoint = self.request.query_params.get("endpoint")
         if endpoint:
             queryset = queryset.filter(endpoint__icontains=endpoint)
-            
+
         broker = self.request.query_params.get("broker")
         if broker:
             queryset = queryset.filter(credential__broker_name=broker)
-            
+
         return queryset.order_by("-created_at")
 
 
@@ -279,3 +295,24 @@ def fyers_broker_callback(request):
         return HttpResponseRedirect(
             f"{redirect_url}?{urlencode({'broker': 'FYERS', 'status': 'failed', 'message': str(exc)})}"
         )
+
+
+class BrokerChargeProfileViewSet(viewsets.ModelViewSet):
+    """CRUD for broker charge profiles with set-default action."""
+    serializer_class = BrokerChargeProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return BrokerChargeProfile.objects.filter(user=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='set-default')
+    def set_default(self, request, pk=None):
+        """Set this profile as the user's default, unsetting others."""
+        profile = self.get_object()
+        # Unset all other defaults for this user
+        BrokerChargeProfile.objects.filter(
+            user=request.user, is_default=True
+        ).exclude(pk=profile.pk).update(is_default=False)
+        profile.is_default = True
+        profile.save(update_fields=['is_default', 'updated_at'])
+        return Response(BrokerChargeProfileSerializer(profile, context={'request': request}).data)

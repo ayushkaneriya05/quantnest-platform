@@ -51,6 +51,7 @@ const routeTitles = {
 
   // Broker + Live Trading routes
   '/dashboard/brokers': { title: 'Broker Connections', subtitle: 'Connect, verify, and activate broker accounts' },
+  '/dashboard/brokers/charge-profiles': { title: 'Broker Charge Profiles', subtitle: 'Manage execution cost modeling for backtests and live PnL' },
   '/dashboard/brokers/settings': { title: 'Broker Order Settings', subtitle: 'Configure execution preferences, slippage, retries, and AMO' },
   '/dashboard/brokers/logs': { title: 'Broker API Logs', subtitle: 'Inspect request traces, latency, and broker responses' },
   '/dashboard/live/strategies': { title: 'Live Strategies', subtitle: 'Monitor deployed strategies and broker sessions' },

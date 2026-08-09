@@ -101,13 +101,13 @@ class LiveMarketDataRegistry:
 
         # Legacy/Strategy Paper Trading
         open_position_symbols = PaperPosition.objects.filter(
-            account__is_active=True,
+            account__sessions__status__in=["RUNNING", "PAUSED"],
             account__user__isnull=False,
         ).values_list("instrument__sym_ticker", flat=True)
         tracked.update(symbol for symbol in open_position_symbols if symbol)
 
         pending_order_symbols = PaperOrder.objects.filter(
-            account__is_active=True,
+            account__sessions__status__in=["RUNNING", "PAUSED"],
             account__user__isnull=False,
             status__in=["PENDING", "PLACED", "PARTIAL_FILL"],
         ).values_list("instrument__sym_ticker", flat=True)
@@ -121,7 +121,7 @@ class LiveMarketDataRegistry:
         tracked.update(symbol for symbol in dashboard_orders if symbol)
 
         active_accounts = (
-            PaperAccount.objects.filter(is_active=True, user__isnull=False)
+            PaperAccount.objects.filter(sessions__status__in=["RUNNING", "PAUSED"], user__isnull=False)
             .prefetch_related("orders__instrument", "positions__instrument")
         )
         for account in active_accounts:
@@ -136,7 +136,7 @@ class LiveMarketDataRegistry:
             Strategy.objects.filter(
                 paper_trading_enabled=True,
                 status=StrategyStatus.ACTIVE,
-                capital_allocation__is_active=True,
+                paper_sessions__status="RUNNING"
             )
             .prefetch_related("watchlist_instruments__instrument")
             .distinct()
@@ -394,7 +394,12 @@ class FyersLiveFeedClient:
                     for strat_data in strategies:
                         def _paper_task(strat_item):
                             try:
-                                PaperStrategyEngine.execute_live_strategy(strat_item["strategy"], symbol=symbol, candle_states=candle_states)
+                                PaperStrategyEngine.process_tick(
+                                    strat_item["strategy"], 
+                                    session=strat_item.get("session"), 
+                                    symbol=symbol, 
+                                    candle_states=candle_states
+                                )
                             except Exception as e:
                                 logger.error("Paper strategy %s error: %s", strat_item["strategy"].id, e)
                         self.thread_pool.submit(_paper_task, strat_data)

@@ -62,7 +62,7 @@ const CustomDialogComponent = ({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => {
-      if (!isOpen) handleClose(false);
+      if (!isOpen) handleClose(type === "prompt" ? null : false);
     }}>
       <DialogContent className="bg-gray-900 border-gray-800 text-white sm:max-w-md">
         <DialogHeader className="flex flex-row items-center gap-4">

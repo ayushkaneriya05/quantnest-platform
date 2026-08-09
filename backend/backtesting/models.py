@@ -44,6 +44,28 @@ class BacktestRun(BaseTimestampModel):
     slippage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.01)
     brokerage_per_trade = models.DecimalField(max_digits=8, decimal_places=2, default=20)
     brokerage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.0003)
+    fill_model = models.CharField(
+        max_length=20,
+        choices=[
+            ('SIGNAL_CLOSE', 'Signal Close'),
+            ('NEXT_OPEN', 'Next Open'),
+            ('VWAP', 'VWAP'),
+        ],
+        default='NEXT_OPEN',
+        help_text='Fill price model: SIGNAL_CLOSE (optimistic), NEXT_OPEN (realistic), VWAP (conservative)'
+    )
+    charge_profile = models.ForeignKey(
+        'brokers.BrokerChargeProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='backtest_runs',
+        help_text='Charge profile for realistic cost simulation'
+    )
+    include_charges = models.BooleanField(
+        default=True,
+        help_text='Whether to include realistic charges (STT, stamp duty, etc.) in PnL'
+    )
     parameters = models.JSONField(
         default=dict,
         blank=True,
@@ -109,6 +131,11 @@ class BacktestTrade(BaseTimestampModel):
     brokerage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     slippage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     net_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    charges_json = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Itemized charge breakdown: {entry_charges: {...}, exit_charges: {...}, total_charges: N}'
+    )
     pnl_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     
     # Risk Metrics
@@ -197,6 +224,7 @@ class BacktestMetrics(BaseTimestampModel):
     # Fees
     total_brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_slippage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_charges = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     avg_mae = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     avg_mfe = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     trade_efficiency = models.DecimalField(max_digits=10, decimal_places=4, default=0)

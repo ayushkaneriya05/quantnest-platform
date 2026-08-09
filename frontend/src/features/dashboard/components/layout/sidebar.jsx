@@ -309,9 +309,9 @@ export default function Sidebar() {
                   currentPath={pathname}
                 />
                 <SidebarLink
-                  to="/dashboard/brokers/settings"
-                  icon={Settings}
-                  label="Order Settings"
+                  to="/dashboard/brokers/charge-profiles"
+                  icon={CreditCard}
+                  label="Charge Profiles"
                   currentPath={pathname}
                 />
                 <SidebarLink

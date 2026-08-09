@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     BrokerAPILogViewSet,
+    BrokerChargeProfileViewSet,
     BrokerCredentialViewSet,
     BrokerSessionViewSet,
     OrderReconciliationViewSet,
@@ -16,6 +17,7 @@ router.register(r"sessions", BrokerSessionViewSet, basename="broker-session")
 router.register(r"settings", OrderSettingsViewSet, basename="broker-settings")
 router.register(r"reconciliation", OrderReconciliationViewSet, basename="order-reconciliation")
 router.register(r"logs", BrokerAPILogViewSet, basename="broker-api-log")
+router.register(r"charge-profiles", BrokerChargeProfileViewSet, basename="charge-profiles")
 
 urlpatterns = [
     path("credentials/fyers/callback/", fyers_broker_callback, name="fyers_broker_callback"),

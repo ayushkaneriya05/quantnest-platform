@@ -11,6 +11,9 @@ import {
   Wallet,
   Terminal,
   TrendingUp,
+  Pause,
+  Play,
+  Square,
 } from "lucide-react";
 
 import { Badge } from "@/shared/components/ui/badge";
@@ -41,7 +44,7 @@ import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
-export default function PaperTradingDashboard({ selectedAccountId }) {
+export default function PaperTradingDashboard({ selectedAccountId, setActiveTab }) {
   const { notify } = useNotifications();
   const { connectionStatus, getTickData, lastMessage } = useWebSocket();
   const refreshTimerRef = React.useRef(null);
@@ -52,7 +55,7 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState({
-    strategy_id: "",
+    allocation_id: "",
     name: "Paper Account",
   });
   const [allocations, setAllocations] = useState([]);
@@ -173,29 +176,56 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
     }
   };
 
-  const handleToggleStatus = async (account) => {
+  const handlePause = async (accountId, sessionId) => {
     try {
       setBusy(true);
-      if (account.is_active) {
-        await paperApi.deactivateAccount(account.id);
-        notify.success(`${account.name} disabled`);
-      } else {
-        await paperApi.activateAccount(account.id);
-        notify.success(`${account.name} activated`);
-      }
+      await paperApi.pauseSession(sessionId);
+      notify.success("Session paused");
       await fetchData();
     } catch (error) {
-      notify.error("Failed to update account status");
+      notify.error("Failed to pause session");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResume = async (accountId, sessionId) => {
+    try {
+      setBusy(true);
+      await paperApi.resumeSession(sessionId);
+      notify.success("Session resumed");
+      await fetchData();
+    } catch (error) {
+      notify.error("Failed to resume session");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStop = async (accountId, sessionId) => {
+    const confirmed = await customConfirm(
+      "Stop Session? This will cancel all orders and close all open positions.",
+      "Stop Session Confirmation",
+      "Stop Session"
+    );
+    if (!confirmed) return;
+    try {
+      setBusy(true);
+      await paperApi.stopSession(sessionId, { close_positions: true });
+      notify.success("Session stopped");
+      await fetchData();
+    } catch (error) {
+      notify.error("Failed to stop session");
     } finally {
       setBusy(false);
     }
   };
 
   const handleCreateAccount = async () => {
-    if (!createForm.strategy_id) return notify.error("Select a strategy allocation");
+    if (!createForm.allocation_id) return notify.error("Select a strategy allocation");
     try {
       setBusy(true);
-      await portfolioApi.createPaperAccount(createForm.strategy_id);
+      await portfolioApi.createPaperAccount(createForm.allocation_id, createForm.name);
       setCreateOpen(false);
       notify.success("Paper account created");
       await fetchData();
@@ -303,7 +333,7 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-white">Active Virtual Accounts</h3>
-            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setCreateOpen(true)}>
+            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-1" /> New Account
             </Button>
           </div>
@@ -318,21 +348,21 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
                 <CardContent>
                    <div className="max-w-xs mx-auto space-y-4">
                     <Select
-                      value={createForm.strategy_id?.toString() || ""}
+                      value={createForm.strategy_id?.toString() || undefined}
                       onValueChange={(val) => setCreateForm({...createForm, strategy_id: val})}
                     >
                       <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white p-2.5 rounded-lg text-sm h-[42px]">
                         <SelectValue placeholder="Select allocation..." />
                       </SelectTrigger>
                       <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                        {allocations.map(a => (
-                          <SelectItem key={a.id} value={a.strategy?.toString() || ""} className="focus:bg-gray-800 focus:text-white">
+                        {allocations.filter(a => a.strategy).map(a => (
+                          <SelectItem key={a.id} value={a.strategy.toString()} className="focus:bg-gray-800 focus:text-white">
                             {a.strategy_name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button className="w-full bg-indigo-600 hover:bg-indigo-700" onClick={handleCreateAccount} disabled={busy || !createForm.strategy_id}>
+                    <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleCreateAccount} disabled={busy || !createForm.strategy_id}>
                       Create First Account
                     </Button>
                   </div>
@@ -346,11 +376,22 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-white text-base font-bold">{account.name}</CardTitle>
                       <Badge 
-                        onClick={(e) => { e.stopPropagation(); handleToggleStatus(account); }}
-                        className={`cursor-pointer transition-all duration-200 hover:scale-105 ${account.is_active ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30" : "bg-gray-500/10 text-gray-400 hover:bg-gray-500/20 border border-gray-700/50"}`}
-                        title={account.is_active ? "Click to Disable" : "Click to Activate"}
+                        className={`transition-all duration-200 ${
+                            account.session_status === 'RUNNING' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                            account.session_status === 'PAUSED' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                            account.session_status === 'STOPPED' ? 'bg-gray-500/20 text-gray-400 border border-gray-500/30' :
+                            'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                        }`}
                       >
-                        {account.is_active ? "Active" : "Disabled"}
+                        {account.session_status === 'RUNNING' ? (
+                            <><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse" /> Running</>
+                        ) : account.session_status === 'PAUSED' ? (
+                            <><span className="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1.5" /> Paused</>
+                        ) : account.session_status === 'STOPPED' ? (
+                            <><span className="w-1.5 h-1.5 rounded-full bg-gray-400 mr-1.5" /> Stopped</>
+                        ) : (
+                            <><span className="w-1.5 h-1.5 rounded-full bg-rose-400 mr-1.5" /> Error</>
+                        )}
                       </Badge>
                     </div>
                     <CardDescription className="text-xs text-gray-500 truncate">Strategy: {account.strategy_name}</CardDescription>
@@ -377,11 +418,35 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
                         })()}
                       </div>
                     </div>
-                    <Link to={`/dashboard/paper/portfolio?account_id=${account.id}`} className="block w-full">
-                      <Button variant="outline" className="w-full border-gray-800 hover:bg-indigo-600 hover:text-white transition-all text-xs h-9">
-                        View Portfolio <RotateCcw className="h-3 w-3 ml-2" />
-                      </Button>
-                    </Link>
+                    <div className="pt-2 flex flex-col gap-2">
+                        {account.session_status === 'PAUSED' && (
+                          <div className="text-[10px] text-amber-500 text-center mb-1 bg-amber-500/10 py-1 rounded">
+                            Exit rules still protecting positions
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                            {account.session_status === 'RUNNING' && (
+                                <Button variant="outline" className="flex-1 border-gray-800 text-gray-300 hover:text-amber-400 hover:bg-amber-400/10 text-xs h-8" onClick={() => handlePause(account.id, account.session_id)} disabled={busy}>
+                                    <Pause className="h-3 w-3 mr-1" /> Pause
+                                </Button>
+                            )}
+                            {(account.session_status === 'PAUSED' || account.session_status === 'STOPPED' || account.session_status === 'ERROR') && (
+                                <Button variant="outline" className="flex-1 border-gray-800 text-gray-300 hover:text-emerald-400 hover:bg-emerald-400/10 text-xs h-8" onClick={() => handleResume(account.id, account.session_id)} disabled={busy}>
+                                    <Play className="h-3 w-3 mr-1" /> {account.session_status === 'STOPPED' ? 'Restart' : 'Resume'}
+                                </Button>
+                            )}
+                            {(account.session_status === 'RUNNING' || account.session_status === 'PAUSED') && (
+                                <Button variant="outline" className="flex-1 border-gray-800 text-gray-300 hover:text-rose-400 hover:bg-rose-400/10 text-xs h-8" onClick={() => handleStop(account.id, account.session_id)} disabled={busy}>
+                                    <Square className="h-3 w-3 mr-1" /> Stop
+                                </Button>
+                            )}
+                        </div>
+                        <Link to={`/dashboard/paper/portfolio?account_id=${account.id}`} className="block w-full">
+                          <Button variant="outline" className="w-full border-gray-800 hover:bg-indigo-600 hover:text-white transition-all text-xs h-8">
+                            View Portfolio <RotateCcw className="h-3 w-3 ml-2" />
+                          </Button>
+                        </Link>
+                    </div>
                   </CardContent>
                 </Card>
               ))
@@ -399,16 +464,16 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
               <div className="space-y-2">
                 <Label>Capital Source</Label>
                 <Select
-                  value={createForm.strategy_id?.toString() || ""}
-                  onValueChange={(val) => setCreateForm({...createForm, strategy_id: val})}
+                  value={createForm.allocation_id?.toString() || undefined}
+                  onValueChange={(val) => setCreateForm({...createForm, allocation_id: val})}
                 >
                   <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white p-2.5 rounded-lg text-sm h-[42px]">
                     <SelectValue placeholder="Select allocation..." />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                    {allocations.map(a => (
-                      <SelectItem key={a.id} value={a.strategy?.toString() || ""} className="focus:bg-gray-800 focus:text-white">
-                        {a.strategy_name} (₹{Number(a.available_amount).toLocaleString()})
+                    {allocations.filter(a => a.strategy && !accounts.some(acc => acc.allocation === a.id)).map(a => (
+                      <SelectItem key={a.id} value={a.id.toString()} className="focus:bg-gray-800 focus:text-white">
+                        {a.strategy_name} (Alloc #{a.id} - ₹{Number(a.available_amount).toLocaleString()})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -426,7 +491,7 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateAccount} className="bg-indigo-600 hover:bg-indigo-700" disabled={busy}>
+              <Button onClick={handleCreateAccount} className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={busy}>
                 Create Account
               </Button>
             </DialogFooter>
@@ -611,7 +676,7 @@ export default function PaperTradingDashboard({ selectedAccountId }) {
       <Card className="bg-gray-900/50 border-gray-800">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-white text-base">Recent Executions</CardTitle>
-          <Button variant="ghost" size="sm" className="text-xs text-indigo-400 hover:text-indigo-300">View History</Button>
+          <Button variant="ghost" size="sm" className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setActiveTab && setActiveTab('trades')}>View History</Button>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">

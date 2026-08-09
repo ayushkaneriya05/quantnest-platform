@@ -8,3 +8,8 @@ class PaperTradingConfig(AppConfig):
 
     def ready(self):
         import paper_trading.signals  # noqa: F401
+        try:
+            from .services import PaperStrategyEngine
+            PaperStrategyEngine.rebuild_runtime_state_from_db()
+        except Exception:
+            pass

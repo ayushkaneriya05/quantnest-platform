@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Card,
   CardContent,
@@ -21,10 +22,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/shared/components/ui/dialog";
-import { Trash2, Edit, RefreshCw } from "lucide-react";
+import { Trash2, Edit, RefreshCw, Play } from "lucide-react";
 import { Switch } from "@/shared/components/ui/switch";
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { strategyApi } from "@/shared/services/strategyApi";
+import PaperHotSwapModal from "./components/PaperHotSwapModal";
+import { RefreshCw as RefreshIcon } from "lucide-react";
+import { formatDateTime } from "@/shared/utils/formatters";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const INITIAL_FORM = {
@@ -34,7 +38,7 @@ const INITIAL_FORM = {
   allocated_percentage: 10,
   auto_rebalance: false,
   rebalance_frequency: "WEEKLY",
-  is_active: true,
+  deployed_version_id: "",
 };
 
 export default function PaperAllocations() {
@@ -48,6 +52,23 @@ export default function PaperAllocations() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [deleteDialog, setDeleteDialog] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [hotSwapModal, setHotSwapModal] = useState({ open: false, session: null });
+  const [strategyVersions, setStrategyVersions] = useState([]);
+
+  useEffect(() => {
+    if (form.strategy) {
+      strategyApi.getVersions(form.strategy).then(res => {
+        // strategyApi.getVersions already returns response.data
+        const versions = Array.isArray(res) ? res : (res?.results || []);
+        setStrategyVersions(versions);
+        if (!editingId && versions.length > 0) {
+          setForm(prev => ({ ...prev, deployed_version_id: String(versions[0].id) }));
+        }
+      }).catch(err => console.error("Failed to fetch versions:", err));
+    } else {
+      setStrategyVersions([]);
+    }
+  }, [form.strategy, editingId]);
 
   const fetchData = async () => {
     try {
@@ -103,7 +124,7 @@ export default function PaperAllocations() {
       allocated_percentage: parseFloat(alloc.allocated_percentage || 10),
       auto_rebalance: alloc.auto_rebalance || false,
       rebalance_frequency: alloc.rebalance_frequency || "WEEKLY",
-      is_active: alloc.is_active !== false,
+      deployed_version_id: alloc.deployed_version ? String(alloc.deployed_version) : "",
     });
     setModalOpen(true);
   };
@@ -168,8 +189,10 @@ export default function PaperAllocations() {
         allocated_percentage: form.allocation_type === "PERCENTAGE" ? parseFloat(form.allocated_percentage) : 0,
         auto_rebalance: form.auto_rebalance,
         rebalance_frequency: form.rebalance_frequency,
-        is_active: form.is_active,
       };
+      if (form.deployed_version_id) {
+        data.deployed_version_id = form.deployed_version_id;
+      }
 
       if (editingId) {
         await portfolioApi.updateAllocation(editingId, data);
@@ -181,7 +204,26 @@ export default function PaperAllocations() {
       fetchData();
       closeModal();
     } catch (error) {
-      notify.error(error?.response?.data?.error || "Failed to save allocation");
+      let errorMsg = "Failed to save allocation";
+      const data = error?.response?.data;
+      if (typeof data === 'object' && data !== null) {
+        if (data.error) errorMsg = data.error;
+        else if (data.detail) errorMsg = data.detail;
+        else if (data.non_field_errors) errorMsg = Array.isArray(data.non_field_errors) ? data.non_field_errors[0] : data.non_field_errors;
+        else {
+           const firstKey = Object.keys(data)[0];
+           if (firstKey) {
+             const firstError = data[firstKey];
+             const msg = Array.isArray(firstError) ? firstError[0] : firstError;
+             // Capitalize key and replace underscores for better readability
+             const displayKey = firstKey.charAt(0).toUpperCase() + firstKey.slice(1).replace(/_/g, ' ');
+             errorMsg = `${displayKey}: ${msg}`;
+           }
+        }
+      } else if (typeof data === 'string') {
+        errorMsg = data;
+      }
+      notify.error(errorMsg);
     }
   };
 
@@ -232,12 +274,28 @@ export default function PaperAllocations() {
             <CardContent className="pt-6">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h4 className="text-white font-semibold text-base">{alloc.strategy_name}</h4>
+                  <h4 className="text-white font-semibold text-base flex items-center gap-2">
+                    {alloc.strategy_name} <span className="text-gray-400 text-sm font-normal">#{alloc.id}</span>
+                    {alloc.deployed_version && (
+                      <Badge className="bg-indigo-500/20 text-indigo-300 border-indigo-500/30 text-[10px] px-1.5 py-0.5 font-mono h-5">
+                        v{alloc.deployed_version_detail?.version_number || alloc.deployed_version}
+                      </Badge>
+                    )}
+                  </h4>
                   <Badge variant="outline" className="mt-1 text-[10px] border-gray-800 text-gray-500">
                     {alloc.allocation_type}
                   </Badge>
                 </div>
                 <div className="flex gap-1">
+                                    <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10" 
+                    onClick={() => setHotSwapModal({ open: true, session: alloc })}
+                    title="Hot-Swap Version"
+                  >
+                    <RefreshIcon className="h-4 w-4" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 hover:text-white" onClick={() => openEditModal(alloc)}>
                     <Edit className="h-4 w-4" />
                   </Button>
@@ -259,9 +317,9 @@ export default function PaperAllocations() {
                   </span>
                 </div>
                 <div className="pt-2 border-t border-gray-800 flex justify-between items-center">
-                  <Badge className={alloc.is_active ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-gray-500/10 text-gray-400"}>
-                    {alloc.is_active ? "Trading Active" : "Paused"}
-                  </Badge>
+                  <Link to="/dashboard/paper" className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                    Manage Session <Play className="h-3 w-3" />
+                  </Link>
                   {alloc.auto_rebalance && (
                     <span className="text-[10px] text-indigo-400 flex items-center gap-1">
                       <RefreshCw className="h-3 w-3" /> Auto-rebalancing
@@ -283,13 +341,28 @@ export default function PaperAllocations() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Select Strategy</Label>
-              <Select value={form.strategy} onValueChange={(v) => setForm({...form, strategy: v})}>
+              <Select disabled={!!editingId} value={form.strategy} onValueChange={(v) => setForm({...form, strategy: v})}>
                 <SelectTrigger className="bg-gray-800 border-gray-700"><SelectValue placeholder="Choose strategy" /></SelectTrigger>
                 <SelectContent>
                   {strategies.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+            {form.strategy && !editingId && (
+              <div className="space-y-2">
+                <Label>Strategy Version</Label>
+                <Select disabled={strategyVersions.length === 0} value={form.deployed_version_id} onValueChange={(v) => setForm({...form, deployed_version_id: v})}>
+                  <SelectTrigger className="bg-gray-800 border-gray-700">
+                    <SelectValue placeholder={strategyVersions.length === 0 ? "No versions available" : "Select Version"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {strategyVersions.map(v => (
+                      <SelectItem key={v.id} value={String(v.id)}>v{v.version_number} {v.created_at ? `(${formatDateTime(v.created_at)})` : ''}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2">
                 <Label>Type</Label>
@@ -321,7 +394,7 @@ export default function PaperAllocations() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={closeModal}>Cancel</Button>
-            <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700">Save Allocation</Button>
+            <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700 text-white">Save Allocation</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -345,6 +418,12 @@ export default function PaperAllocations() {
           </div>
         </DialogContent>
       </Dialog>
+      <PaperHotSwapModal
+        open={hotSwapModal.open}
+        session={hotSwapModal.session}
+        onOpenChange={(open) => setHotSwapModal({ ...hotSwapModal, open })}
+        onSuccess={fetchData}
+      />
     </div>
   );
 }

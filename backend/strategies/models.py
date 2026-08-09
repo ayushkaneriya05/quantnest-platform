@@ -34,7 +34,7 @@ class Strategy(BaseTimestampModel):
     )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    
+
     # Strategy classification
     strategy_type = models.CharField(
         max_length=20,
@@ -56,13 +56,13 @@ class Strategy(BaseTimestampModel):
         choices=InstrumentType.choices,
         default=InstrumentType.STOCK
     )
-    
+
     # Configuration
     auto_version_enabled = models.BooleanField(
         default=False,
         help_text="If true, versions are automatically created on save."
     )
-    
+
     # Visibility and status
     visibility = models.CharField(
         max_length=20,
@@ -74,16 +74,16 @@ class Strategy(BaseTimestampModel):
         choices=StrategyStatus.choices,
         default=StrategyStatus.DRAFT
     )
-    
-    
+
+
     # Trading modes
     paper_trading_enabled = models.BooleanField(default=True)
     live_trading_enabled = models.BooleanField(default=False)
-    
+
     # Sharing permissions
     allow_clone = models.BooleanField(default=False, help_text="Allow other users to clone this strategy")
     allow_backtest = models.BooleanField(default=False, help_text="Allow other users to backtest this strategy")
-    
+
     # Tags
     tags = models.ManyToManyField(StrategyTag, blank=True, related_name='strategies')
 
@@ -100,8 +100,8 @@ class Strategy(BaseTimestampModel):
 
     def to_execution_dict(self):
         """
-        Serializes the strategy and all its nested rules/configs into a single 
-        JSON-serializable dictionary. This is used for caching in Redis to 
+        Serializes the strategy and all its nested rules/configs into a single
+        JSON-serializable dictionary. This is used for caching in Redis to
         avoid database hits during the live execution loop.
         """
         from strategies.services import StrategySnapshotService
@@ -133,6 +133,43 @@ class Strategy(BaseTimestampModel):
             data["risk_profile"] = {}
 
         return data
+
+    def delete(self, *args, **kwargs):
+        """Prevent deletion of strategies with associated trading data.
+
+        Strategies with any historical data (backtests, paper trades, live sessions)
+        must be archived instead of deleted to preserve audit trails.
+        """
+        from django.core.exceptions import ValidationError
+
+        has_paper = (
+            self.capital_allocations.exists()
+            or self.paper_positions.exists()
+            or self.paper_orders.exists()
+            or self.paper_trades.exists()
+        )
+        has_live = (
+            self.live_sessions.exists()
+            or self.live_allocations.exists()
+            or self.live_positions.exists()
+            or self.live_orders.exists()
+        )
+        has_backtest = self.backtest_runs.exists() if hasattr(self, 'backtest_runs') else False
+
+        if has_paper or has_live or has_backtest:
+            parts = []
+            if has_paper:
+                parts.append('paper trading data')
+            if has_live:
+                parts.append('live trading sessions')
+            if has_backtest:
+                parts.append('backtest runs')
+            raise ValidationError(
+                f"Cannot delete strategy '{self.name}': has {', '.join(parts)}. "
+                f"Archive the strategy instead."
+            )
+
+        super().delete(*args, **kwargs)
 
 class StrategyVersion(BaseTimestampModel):
     """
@@ -189,7 +226,7 @@ class EntryOrderConfig(BaseTimestampModel):
         default=LogicalOperator.OR,
         help_text="Logic for combining multiple entry groups (e.g., Group A OR Group B)"
     )
-    
+
     # Execution Style
     execution_style = models.CharField(
         max_length=20,
@@ -205,9 +242,9 @@ class EntryOrderConfig(BaseTimestampModel):
         blank=True,
         help_text="Offset from signal price (positive for above, negative for below)"
     )
-    
+
     allow_partial_entry = models.BooleanField(default=False)
-    
+
     # Cooldown
     entry_cooldown_seconds = models.PositiveIntegerField(
         default=0,
@@ -227,13 +264,13 @@ class ReEntryRule(BaseTimestampModel):
         on_delete=models.CASCADE,
         related_name='reentry_rule'
     )
-    
+
     allow_reentry = models.BooleanField(default=True)
     reentry_cooldown_seconds = models.PositiveIntegerField(
         default=300,
         help_text="Minimum seconds before re-entry"
     )
-    
+
     # Reverse entry
     allow_reverse_entry = models.BooleanField(
         default=False,
@@ -246,14 +283,14 @@ class ReEntryRule(BaseTimestampModel):
 
 class ExitOrderConfig(BaseTimestampModel):
     strategy = models.OneToOneField(Strategy, on_delete=models.CASCADE, related_name='exit_order_config')
-    
+
     exit_group_operator = models.CharField(
         max_length=10,
         choices=LogicalOperator.choices,
         default=LogicalOperator.OR,
         help_text="Logic for combining multiple exit rules"
     )
-    
+
     # Logic for combining exit rule groups
     stop_loss_group_operator = models.CharField(
         max_length=10,
@@ -261,7 +298,7 @@ class ExitOrderConfig(BaseTimestampModel):
         default=LogicalOperator.OR,
         help_text="Logic for combining multiple stop loss groups"
     )
-    
+
     target_group_operator = models.CharField(
         max_length=10,
         choices=LogicalOperator.choices,

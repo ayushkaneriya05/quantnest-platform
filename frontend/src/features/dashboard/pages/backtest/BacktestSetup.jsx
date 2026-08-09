@@ -35,9 +35,11 @@ import {
 import { format } from "date-fns";
 import { backtestApi } from "@/shared/services/backtestApi";
 import { strategyApi } from "@/shared/services/strategyApi";
+import { brokersApi } from "@/shared/services/brokersApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useEnums } from "@/shared/context/EnumsContext";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
+import { Switch } from "@/shared/components/ui/switch";
 
 /* ─── Step Indicator ─── */
 function StepIndicator({ number, title, active }) {
@@ -97,13 +99,33 @@ export default function BacktestSetup() {
     end_date: new Date().toISOString().split("T")[0],
     initial_capital: 100000,
     slippage_pct: 0.05,
-    brokerage_per_trade: 20,
-    brokerage_pct: 0.03,
+    fill_model: "NEXT_OPEN",
+    charge_profile: "",
+    include_charges: true,
   });
+
+  const [chargeProfiles, setChargeProfiles] = useState([]);
 
   useEffect(() => {
     fetchStrategies();
+    fetchChargeProfiles();
   }, []);
+
+  const fetchChargeProfiles = async () => {
+    try {
+      const res = await brokersApi.getChargeProfiles();
+      const profiles = res.data || [];
+      setChargeProfiles(profiles);
+      const defaultProfile = profiles.find(p => p.is_default);
+      if (defaultProfile) {
+        setFormData(prev => ({...prev, charge_profile: defaultProfile.id.toString()}));
+      } else if (profiles.length > 0) {
+        setFormData(prev => ({...prev, charge_profile: profiles[0].id.toString()}));
+      }
+    } catch {
+      //
+    }
+  };
 
   useEffect(() => {
     if (preSelectedStrategy && strategies.length > 0) {
@@ -145,7 +167,11 @@ export default function BacktestSetup() {
 
     try {
       setLoading(true);
-      const response = await backtestApi.createRun(formData);
+      const payload = {
+        ...formData,
+        charge_profile: formData.include_charges && formData.charge_profile ? formData.charge_profile : null,
+      };
+      const response = await backtestApi.createRun(payload);
       notify.success("Backtest created! Initializing simulation…");
       await backtestApi.startRun(response.data.id);
       navigate(`/dashboard/backtest/results/${response.data.id}`);
@@ -359,23 +385,6 @@ export default function BacktestSetup() {
               </div>
               <div className="space-y-2">
                 <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
-                  Brokerage / Trade (₹)
-                </Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.brokerage_per_trade}
-                  onChange={(e) =>
-                    handleChange(
-                      "brokerage_per_trade",
-                      parseFloat(e.target.value)
-                    )
-                  }
-                  className="bg-gray-800/80 border-gray-700 text-white font-mono h-11"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
                   Slippage (%)
                 </Label>
                 <Input
@@ -390,16 +399,51 @@ export default function BacktestSetup() {
               </div>
               <div className="space-y-2">
                 <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
-                  Tx Cost (%)
+                  Fill Model
                 </Label>
-                <Input
-                  type="number"
-                  step="0.001"
-                  value={formData.brokerage_pct}
-                  onChange={(e) =>
-                    handleChange("brokerage_pct", parseFloat(e.target.value))
-                  }
-                  className="bg-gray-800/80 border-gray-700 text-white font-mono h-11"
+                <Select
+                  value={formData.fill_model}
+                  onValueChange={(value) => handleChange("fill_model", value)}
+                >
+                  <SelectTrigger className="bg-gray-800/80 border-gray-700 h-11">
+                    <SelectValue placeholder="Select fill model" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                    <SelectItem value="SIGNAL_CLOSE">Signal Close (T)</SelectItem>
+                    <SelectItem value="NEXT_OPEN">Next Open (T+1)</SelectItem>
+                    <SelectItem value="VWAP">VWAP (Intraday)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
+                  Charge Profile
+                </Label>
+                <Select
+                  value={formData.charge_profile}
+                  onValueChange={(value) => handleChange("charge_profile", value)}
+                  disabled={!formData.include_charges}
+                >
+                  <SelectTrigger className="bg-gray-800/80 border-gray-700 h-11">
+                    <SelectValue placeholder="Select charge profile" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-700 text-white">
+                    {chargeProfiles.map((p) => (
+                      <SelectItem key={p.id} value={p.id.toString()}>
+                        {p.name} {p.is_default && "(Default)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 flex items-center justify-between col-span-full mt-2 pt-4 border-t border-gray-800">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-semibold text-white">Include Charges</Label>
+                  <p className="text-xs text-gray-500">Apply simulated transaction costs to PnL</p>
+                </div>
+                <Switch
+                  checked={formData.include_charges}
+                  onCheckedChange={(checked) => handleChange("include_charges", checked)}
                 />
               </div>
             </div>

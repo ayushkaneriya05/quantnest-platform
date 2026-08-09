@@ -35,7 +35,7 @@ class StrategyRuntimeState:
 
     # Distributed lock TTL: maximum time a single tick is allowed to hold
     # the entry/exit lock before Redis auto-expires it (safety net).
-    LOCK_TTL_SECONDS = 10
+    LOCK_TTL_SECONDS = 30
 
     # Phase constants
     FLAT = "FLAT"

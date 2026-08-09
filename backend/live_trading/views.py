@@ -138,3 +138,63 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
         if strategy_id:
             queryset = queryset.filter(strategy_id=strategy_id)
         return queryset
+
+    @action(detail=True, methods=['post'], url_path='deploy-version')
+    def deploy_version(self, request, pk=None):
+        """Hot-swap the deployed strategy version on a live allocation."""
+        allocation = self.get_object()
+        version_id = request.data.get('version_id')
+
+        if not version_id:
+            return Response(
+                {'error': 'version_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            from strategies.models import StrategyVersion
+            version = StrategyVersion.objects.get(
+                id=version_id,
+                strategy=allocation.strategy
+            )
+        except StrategyVersion.DoesNotExist:
+            return Response(
+                {'error': 'Invalid version for this strategy'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        old_version_id = allocation.deployed_version_id
+        allocation.deployed_version = version
+        allocation.save(update_fields=['deployed_version', 'updated_at'])
+
+        # Update execution cache
+        from django.core.cache import cache
+        cache.set(
+            f"strategy_version_config_{version.id}",
+            version.config_snapshot,
+            timeout=None
+        )
+
+        # Broadcast version change via WebSocket
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"user_{request.user.id}_live",
+            {
+                "type": "live.update",
+                "message": {
+                    "event_type": "VERSION_CHANGE",
+                    "data": {
+                        "allocation_id": allocation.id,
+                        "strategy_id": allocation.strategy_id,
+                        "old_version_id": old_version_id,
+                        "new_version_id": version.id,
+                        "new_version_number": version.version_number,
+                    }
+                }
+            }
+        )
+
+        serializer = self.get_serializer(allocation)
+        return Response(serializer.data)

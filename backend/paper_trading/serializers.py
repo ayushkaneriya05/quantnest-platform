@@ -4,8 +4,9 @@ from common.enums import ProductType
 from .models import (
     PaperAccount, PaperPosition, PaperOrder, PaperTrade,
     Portfolio, CapitalAllocation, FundTransaction,
-    ExposureSnapshot, DailyPerformance
+    ExposureSnapshot, DailyPerformance, PaperTradingSession
 )
+from strategies.models import StrategyVersion
 
 
 class PortfolioSerializer(serializers.ModelSerializer):
@@ -35,7 +36,6 @@ class PortfolioSerializer(serializers.ModelSerializer):
                 "utilized_amount": allocation.utilized_amount,
                 "total_pnl": allocation.total_pnl,
                 "today_pnl": allocation.today_pnl,
-                "is_active": allocation.is_active,
             }
             for allocation in allocations
         ]
@@ -44,6 +44,13 @@ class PortfolioSerializer(serializers.ModelSerializer):
 class CapitalAllocationSerializer(serializers.ModelSerializer):
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     available_amount = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    deployed_version = serializers.PrimaryKeyRelatedField(
+        queryset=StrategyVersion.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text='Pinned strategy version ID'
+    )
+    deployed_version_detail = serializers.SerializerMethodField()
     
     class Meta:
         model = CapitalAllocation
@@ -51,8 +58,19 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
             'id', 'portfolio', 'strategy', 'strategy_name', 'allocation_type',
             'allocated_amount', 'allocated_percentage', 'utilized_amount',
             'available_amount', 'total_pnl', 'today_pnl', 'auto_rebalance',
-            'rebalance_frequency', 'last_rebalance', 'is_active'
+            'rebalance_frequency', 'last_rebalance',
+            'deployed_version', 'deployed_version_detail'
         ]
+
+    def get_deployed_version_detail(self, obj):
+        if obj.deployed_version:
+            return {
+                'id': obj.deployed_version.id,
+                'version_number': obj.deployed_version.version_number,
+                'change_notes': obj.deployed_version.change_notes,
+                'created_at': obj.deployed_version.created_at.isoformat(),
+            }
+        return None
 
     def _get_effective_amount(self, alloc, portfolio_equity):
         if alloc.allocation_type == 'PERCENTAGE':
@@ -151,20 +169,51 @@ class DailyPerformanceSerializer(serializers.ModelSerializer):
             'id', 'date', 'opening_capital', 'closing_capital',
             'realized_pnl', 'unrealized_pnl', 'total_pnl', 'pnl_percentage',
             'trades_count', 'winning_trades', 'losing_trades', 'win_rate',
+            'brokerage_paid', 'taxes_paid',
             'max_exposure', 'avg_exposure'
         ]
 
 
+class PaperTradingSessionSerializer(serializers.ModelSerializer):
+    strategy_name = serializers.CharField(source='strategy.name', read_only=True)
+    is_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaperTradingSession
+        fields = [
+            'id', 'user', 'strategy', 'strategy_name', 'allocation', 'account',
+            'status', 'started_at', 'ended_at', 'trades_count', 'pnl', 'error_message',
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['user', 'started_at', 'ended_at', 'created_at', 'updated_at']
+
+    def get_is_active(self, obj):
+        return obj.status == "RUNNING"
+
+
 class PaperAccountSerializer(serializers.ModelSerializer):
+    strategy_name = serializers.CharField(source='allocation.strategy.name', read_only=True)
+    strategy = serializers.IntegerField(source='allocation.strategy.id', read_only=True)
+    session_status = serializers.SerializerMethodField()
+    session_id = serializers.SerializerMethodField()
+
     class Meta:
         model = PaperAccount
         fields = [
-            'id', 'name', 'initial_balance', 'current_balance',
+            'id', 'name', 'allocation', 'strategy', 'strategy_name', 'initial_balance', 'current_balance',
             'total_pnl', 'realized_pnl', 'unrealized_pnl',
             'today_pnl', 'today_trades', 'margin_used', 'margin_available',
-            'is_active', 'created_at'
+            'session_status', 'session_id', 'created_at'
         ]
         read_only_fields = ['user', 'created_at']
+
+    def get_session_status(self, obj):
+        session = obj.sessions.first()
+        return session.status if session else "STOPPED"
+
+    def get_session_id(self, obj):
+        session = obj.sessions.first()
+        return session.id if session else None
 
 
 class PaperPositionSerializer(serializers.ModelSerializer):
@@ -205,6 +254,7 @@ class PaperTradeSerializer(serializers.ModelSerializer):
     instrument_symbol = serializers.CharField(source='instrument.symbol', read_only=True)
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     is_winner = serializers.BooleanField(read_only=True)
+    charges_breakdown = serializers.SerializerMethodField()
     
     class Meta:
         model = PaperTrade
@@ -212,6 +262,28 @@ class PaperTradeSerializer(serializers.ModelSerializer):
             'id', 'account', 'strategy', 'strategy_name', 'instrument', 'instrument_symbol',
             'side', 'quantity', 'entry_price', 'entry_time',
             'exit_price', 'exit_time', 'exit_reason',
-            'gross_pnl', 'net_pnl', 'pnl_pct',
+            'gross_pnl', 'net_pnl', 'pnl_pct', 'brokerage', 'taxes', 'charges_json', 'charges_breakdown',
             'holding_duration_seconds', 'is_winner'
         ]
+
+    def get_charges_breakdown(self, obj):
+        totals = {
+            'brokerage': 0.0,
+            'stt': 0.0,
+            'exchange_txn': 0.0,
+            'sebi': 0.0,
+            'stamp_duty': 0.0,
+            'gst': 0.0,
+            'total': 0.0,
+        }
+        charges = obj.charges_json or {}
+        totals['total'] = float(charges.get('total_charges', 0) or 0)
+        for leg_name in ('entry_charges', 'exit_charges'):
+            leg = charges.get(leg_name) or {}
+            totals['brokerage'] += float(leg.get('brokerage', 0) or 0)
+            totals['stt'] += float(leg.get('stt', 0) or 0)
+            totals['exchange_txn'] += float(leg.get('exchange_charges', leg.get('exchange', 0)) or 0)
+            totals['sebi'] += float(leg.get('sebi_fee', leg.get('sebi', 0)) or 0)
+            totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
+            totals['gst'] += float(leg.get('gst', 0) or 0)
+        return {key: round(value, 2) for key, value in totals.items()}

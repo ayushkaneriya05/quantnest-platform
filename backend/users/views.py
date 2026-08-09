@@ -656,9 +656,7 @@ def _graceful_shutdown_user(user):
     # 1. Stop all live trading sessions (cancel pending orders, optionally close positions)
     LiveExecutionService.stop_all_sessions(user, close_positions=False)
     
-    # 2. Pause all ACTIVE strategies
-    Strategy.objects.filter(user=user, status='ACTIVE').update(status='PAUSED')
-    
+    # 2. Strategy status is no longer used for execution control, so we don't pause them.
     # 3. Cancel all pending paper orders
     PaperOrder.objects.filter(
         account__user=user, 
@@ -866,16 +864,13 @@ class ActiveSessionsView(APIView):
             user=request.user, expires_at__gt=timezone.now()
         )
 
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-        current_ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META.get("REMOTE_ADDR")
-        current_ua = request.META.get("HTTP_USER_AGENT", "")[:500]
+        current_session_id = request.auth.get("session_id") if request.auth else None
 
         sessions = []
         for session_metadata in active_sessions:
             is_current = (
-                session_metadata.ip_address == current_ip and
-                session_metadata.user_agent == current_ua
-            )
+                str(session_metadata.session_id) == str(current_session_id)
+            ) if current_session_id else False
             sessions.append(
                 {
                     "id": session_metadata.id,

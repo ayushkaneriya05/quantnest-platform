@@ -73,7 +73,20 @@ class Portfolio(BaseTimestampModel):
 
     @property
     def total_value(self):
-        return self.current_capital + self.unrealized_pnl
+        # E = (C + sum_fixed + U) / (1 - sum_pct)
+        fixed_allocs = self.allocations.filter(allocation_type='FIXED')
+        pct_allocs = self.allocations.filter(allocation_type='PERCENTAGE')
+        
+        sum_fixed = sum((alloc.allocated_amount for alloc in fixed_allocs), Decimal("0"))
+        sum_pct = sum((alloc.allocated_percentage for alloc in pct_allocs), Decimal("0")) / Decimal("100")
+        
+        numerator = self.current_capital + sum_fixed + self.unrealized_pnl
+        denominator = Decimal("1") - sum_pct
+        
+        if denominator <= Decimal("0"):
+            return Decimal("0") # Prevent division by zero or negative if over-allocated
+            
+        return numerator / denominator
 
     @property
     def current_drawdown(self):
@@ -91,10 +104,18 @@ class CapitalAllocation(BaseTimestampModel):
         on_delete=models.CASCADE,
         related_name='allocations'
     )
-    strategy = models.OneToOneField(
+    strategy = models.ForeignKey(
         'strategies.Strategy',
         on_delete=models.CASCADE,
-        related_name='capital_allocation'
+        related_name='capital_allocations'
+    )
+    deployed_version = models.ForeignKey(
+        'strategies.StrategyVersion',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='paper_allocations',
+        help_text='Pinned strategy version for this paper allocation'
     )
     
     # Allocation method
@@ -133,7 +154,7 @@ class CapitalAllocation(BaseTimestampModel):
     )
     last_rebalance = models.DateTimeField(null=True, blank=True)
     
-    is_active = models.BooleanField(default=True)
+    include_charges = models.BooleanField(default=True)
     
     class Meta:
         db_table = 'portfolio_allocation'
@@ -256,6 +277,10 @@ class DailyPerformance(BaseTimestampModel):
     winning_trades = models.PositiveIntegerField(default=0)
     losing_trades = models.PositiveIntegerField(default=0)
     
+    # Costs
+    brokerage_paid = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    taxes_paid = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    
     # Exposure
     max_exposure = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     avg_exposure = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -314,8 +339,6 @@ class PaperAccount(BaseTimestampModel):
     # Margins
     margin_used = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     margin_available = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
-    
-    is_active = models.BooleanField(default=True)
     
     class Meta:
         db_table = 'paper_account'
@@ -510,6 +533,9 @@ class PaperTrade(BaseTimestampModel):
     gross_pnl = models.DecimalField(max_digits=12, decimal_places=2)
     net_pnl = models.DecimalField(max_digits=12, decimal_places=2)
     pnl_pct = models.DecimalField(max_digits=8, decimal_places=4)
+    brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    taxes = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    charges_json = models.JSONField(default=dict, blank=True)
     
     # Duration
     holding_duration_seconds = models.PositiveIntegerField(default=0)
@@ -527,3 +553,54 @@ class PaperTrade(BaseTimestampModel):
     @property
     def is_winner(self):
         return self.net_pnl > 0
+
+
+class PaperTradingSession(BaseTimestampModel):
+    """
+    Execution controller for paper trading. Mirrors TradingSession from live trading.
+    Controls whether a paper deployment is RUNNING, PAUSED, or STOPPED.
+    """
+    SESSION_STATUSES = [
+        ("RUNNING", "Running"),
+        ("PAUSED", "Paused"),
+        ("STOPPED", "Stopped"),
+        ("ERROR", "Error"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="paper_sessions"
+    )
+    strategy = models.ForeignKey(
+        'strategies.Strategy',
+        on_delete=models.CASCADE,
+        related_name='paper_sessions'
+    )
+    allocation = models.ForeignKey(
+        'CapitalAllocation',
+        on_delete=models.CASCADE,
+        related_name='paper_sessions'
+    )
+    account = models.ForeignKey(
+        'PaperAccount',
+        on_delete=models.CASCADE,
+        related_name='sessions'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=SESSION_STATUSES,
+        default="PAUSED"
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    trades_count = models.PositiveIntegerField(default=0)
+    pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "paper_trading_session"
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"{self.strategy.name} [Paper: {self.status}]"

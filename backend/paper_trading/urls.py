@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 
 router = DefaultRouter()
+router.register(r'sessions', views.PaperSessionViewSet, basename='paper-session')
 router.register(r'accounts', views.PaperAccountViewSet, basename='paper-account')
 router.register(r'positions', views.PaperPositionViewSet, basename='paper-position')
 router.register(r'orders', views.PaperOrderViewSet, basename='paper-order')

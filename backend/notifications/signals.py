@@ -123,19 +123,8 @@ def handle_strategy_notifications(sender, instance, created, **kwargs):
     # This might trigger too often if we don't check what changed, 
     # but for simplicity we will check if it's paused. 
     # In a real scenario, we might use a custom signal for circuit breaker.
-    if not created and instance.status == StrategyStatus.PAUSED:
-        cache_key = f"strategy_paused_notif_{instance.id}"
-        if not cache.get(cache_key):
-            NotificationService.notify(
-                user=instance.user,
-                title="Strategy Paused",
-                message=f"Your strategy '{instance.name}' has been paused.",
-                notification_type=NotificationType.STRATEGY_PAUSED,
-                severity=Severity.WARNING,
-                strategy=instance,
-                data={"strategy_id": str(instance.id)}
-            )
-            cache.set(cache_key, True, 3600)  # 60 minute cooldown
+    # Strategy pause notifications will be handled by session signals instead
+    pass
 
 @receiver(post_save, sender="paper_trading.PaperAccount")
 def handle_paper_account_notifications(sender, instance, created, **kwargs):

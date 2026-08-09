@@ -4,8 +4,8 @@ from .models import PaperAccount, PaperPosition, PaperOrder, PaperTrade
 
 @admin.register(PaperAccount)
 class PaperAccountAdmin(admin.ModelAdmin):
-    list_display = ['name', 'user', 'initial_balance', 'current_balance', 'total_pnl', 'today_pnl', 'is_active']
-    list_filter = ['is_active']
+    list_display = ['name', 'user', 'initial_balance', 'current_balance', 'total_pnl', 'today_pnl']
+    search_fields = ['name', 'user__username']
     search_fields = ['name', 'user__username']
     readonly_fields = ['created_at', 'updated_at']
 

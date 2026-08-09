@@ -6,6 +6,7 @@ export const liveTradingApi = {
   getSessions: () => api.get(`${BASE_URL}/sessions/`),
   getSummary: () => api.get(`${BASE_URL}/sessions/summary/`),
   deployStrategy: (payload) => api.post(`${BASE_URL}/sessions/deploy/`, payload),
+  deployVersion: (id, payload) => api.post(`${BASE_URL}/allocations/${id}/deploy-version/`, payload),
   pauseSession: (id) => api.post(`${BASE_URL}/sessions/${id}/pause/`),
   resumeSession: (id) => api.post(`${BASE_URL}/sessions/${id}/resume/`),
   stopSession: (id, payload = {}) => api.post(`${BASE_URL}/sessions/${id}/stop/`, payload),

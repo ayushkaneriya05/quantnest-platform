@@ -37,6 +37,7 @@ class TickCache:
         self.paper_positions = {}          # (strategy_id, instrument_id) -> position object
         self.paper_stats = {}              # strategy_id -> dict of daily trades
         self.paper_accounts = {}           # strategy_id -> PaperAccount object
+        self.paper_sessions = {}           # strategy_id -> PaperTradingSession object
         
         self.live_positions = {}           # (session_id, instrument_id) -> position object
         self.live_stats = {}               # session_id -> dict of daily trades
@@ -103,33 +104,37 @@ class TickCache:
         self.terminal_open_orders = new_cache
 
     def _sync_paper_strategies(self):
-        from strategies.models import Strategy
-        from common.enums import StrategyStatus
-        from paper_trading.models import PaperPosition, PaperTrade, PaperOrder
+        from paper_trading.models import PaperPosition, PaperTrade, PaperOrder, PaperTradingSession
         
-        strategies = Strategy.objects.filter(
-            paper_trading_enabled=True,
-            status=StrategyStatus.ACTIVE,
-            capital_allocation__is_active=True
-        ).prefetch_related("watchlist_instruments__instrument")
+        sessions = PaperTradingSession.objects.filter(
+            status__in=["RUNNING", "PAUSED"]
+        ).select_related(
+            "strategy", "allocation", "account", "allocation__deployed_version"
+        ).prefetch_related(
+            "strategy__watchlist_instruments__instrument"
+        ).distinct()
         
         new_strategies = {}
         new_positions = {}
         new_stats = {}
         new_accounts = {}
+        new_sessions = {}
         
         today = timezone.localdate()
+        active_strategies = []
         
-        for strategy in strategies:
+        for session in sessions:
+            strategy = session.strategy
             config = strategy.to_execution_dict()
             strat_id = strategy.id
+            active_strategies.append(strategy)
             
             # Watchlists
             for watch in strategy.watchlist_instruments.all():
                 sym = watch.instrument.sym_ticker
                 if sym not in new_strategies:
                     new_strategies[sym] = []
-                new_strategies[sym].append({"strategy": strategy, "config": config})
+                new_strategies[sym].append({"strategy": strategy, "config": config, "session": session})
                 self.watchlists[(strat_id, watch.instrument.id)] = watch
                 self.instruments[sym] = watch.instrument
             
@@ -142,9 +147,11 @@ class TickCache:
                 "last_exit_time": latest_exit.exit_time if latest_exit else None,
                 "last_entry_time": None # Simplified for now
             }
+            new_accounts[strat_id] = session.account
+            new_sessions[strat_id] = session
         
         # Positions
-        positions = PaperPosition.objects.filter(strategy__in=strategies).select_related("instrument")
+        positions = PaperPosition.objects.filter(strategy__in=active_strategies).select_related("instrument")
         for pos in positions:
             key = (pos.strategy_id, pos.instrument_id)
             new_positions[key] = pos
@@ -152,7 +159,7 @@ class TickCache:
         from paper_trading.services import PaperExecutionService
         # Open Orders
         open_orders = PaperOrder.objects.filter(
-            strategy__in=strategies,
+            strategy__in=active_strategies,
             status__in=PaperExecutionService.STRATEGY_ORDER_STATUSES
         ).select_related("instrument")
         
@@ -163,17 +170,12 @@ class TickCache:
                 new_open_orders[sym] = []
             new_open_orders[sym].append(o)
             
-        # Accounts
-        from paper_trading.models import PaperAccount
-        accounts = PaperAccount.objects.filter(allocation__strategy__in=strategies)
-        for acc in accounts:
-            new_accounts[acc.allocation.strategy_id] = acc
-            
         self.active_paper_strategies = new_strategies
         self.paper_stats = new_stats
         self.paper_positions = new_positions
         self.paper_open_orders = new_open_orders
         self.paper_accounts = new_accounts
+        self.paper_sessions = new_sessions
 
     def _sync_live_sessions(self):
         from live_trading.models import LivePosition, LiveOrder, TradingSession, LiveStrategyAllocation
@@ -221,9 +223,8 @@ class TickCache:
             allocation = LiveStrategyAllocation.objects.filter(
                 user=session.user_id,
                 strategy=session.strategy_id,
-                broker_credential=session.broker_credential_id,
-                is_active=True,
-            ).first()
+                broker_credential=session.broker_credential_id
+            ).select_related('deployed_version').first()
             new_allocations[session.id] = allocation
 
         # Positions
@@ -269,6 +270,9 @@ class TickCache:
 
     def get_paper_open_orders(self, symbol):
         return self.paper_open_orders.get(symbol, [])
+
+    def get_paper_session(self, strategy_id):
+        return self.paper_sessions.get(strategy_id)
 
     def get_paper_account(self, strategy_id):
         return self.paper_accounts.get(strategy_id)

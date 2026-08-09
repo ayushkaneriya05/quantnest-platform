@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Unplug,
   Wallet,
+  Settings,
 } from "lucide-react";
 
 import { Badge } from "@/shared/components/ui/badge";
@@ -23,6 +24,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { brokersApi } from "@/shared/services/brokersApi";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { BrokerOrderSettingsModal } from "./BrokerOrderSettingsModal";
 
 
 const providerTheme = {
@@ -121,6 +123,9 @@ export default function BrokerConnections() {
   const [fundsMap, setFundsMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [busyBroker, setBusyBroker] = useState("");
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsCredentialId, setSettingsCredentialId] = useState(null);
+  const [settingsProviderName, setSettingsProviderName] = useState("");
 
 
   const loadBrokerState = async () => {
@@ -260,14 +265,16 @@ export default function BrokerConnections() {
 
   const pageActions = useMemo(
     () => (
-      <Button
-        variant="outline"
-        onClick={loadBrokerState}
-        className="border-gray-700 text-gray-100"
-      >
-        <RefreshCw className="h-4 w-4 mr-2" />
-        Refresh
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          onClick={loadBrokerState}
+          className="border-gray-700 text-gray-100"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
     ),
     [catalog.length],
   );
@@ -451,6 +458,19 @@ export default function BrokerConnections() {
                     <>
                       <Button
                         variant="outline"
+                        className="border-indigo-800 text-indigo-300 hover:text-indigo-200"
+                        onClick={() => {
+                          setSettingsCredentialId(provider.credential_id);
+                          setSettingsProviderName(provider.display_name);
+                          setSettingsModalOpen(true);
+                        }}
+                        disabled={isBusy}
+                      >
+                        <Settings className="h-4 w-4 mr-2" />
+                        Settings
+                      </Button>
+                      <Button
+                        variant="outline"
                         className="border-gray-700 text-gray-100"
                         onClick={() => connectBroker(provider.broker_name)}
                         disabled={isBusy}
@@ -480,6 +500,16 @@ export default function BrokerConnections() {
           );
         })}
       </div>
+
+      <BrokerOrderSettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => {
+          setSettingsModalOpen(false);
+          setSettingsCredentialId(null);
+        }}
+        credentialId={settingsCredentialId}
+        providerName={settingsProviderName}
+      />
     </div>
   );
 }

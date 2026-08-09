@@ -58,9 +58,9 @@ class RiskEvaluator:
             sl_distance = to_float(sl_distance, 0.0)
 
         if entry_price <= 0:
-            return 1
+            return 0
 
-        quantity = 1
+        quantity = 0
 
         if method == QuantityType.FIXED:
             quantity = to_int(get_any_field(sizing, "fixed_quantity", 1), 1)
@@ -81,9 +81,9 @@ class RiskEvaluator:
             if atr_value > 0:
                 quantity = int(risk_amount / atr_value)
             else:
-                quantity = 1
+                quantity = 0
         else:
-            logger.warning("Unsupported sizing method %s, defaulting to 1", method)
+            logger.warning("Unsupported sizing method %s, rejecting order with quantity 0", method)
 
         # Apply Martingale / Loss Recovery Multiplier
         if stats and "consecutive_losses" in stats:
@@ -94,13 +94,13 @@ class RiskEvaluator:
                     # Quantity = Base * (Multiplier ^ ConsecutiveLosses)
                     quantity = int(quantity * (multiplier ** consecutive_losses))
 
-        quantity = max(quantity or 1, 1)
+        quantity = max(int(quantity or 0), 0)
 
         # Round to lot size for derivatives
         if lot_size and lot_size > 1:
             lots = int(quantity / lot_size)
             if lots < 1:
-                lots = 1  # minimum 1 lot
+                return 0
             quantity = lots * lot_size
 
         return quantity
