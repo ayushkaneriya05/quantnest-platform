@@ -593,7 +593,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
         <Card className="lg:col-span-2 bg-gray-900/50 border-gray-800">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-white text-base">Active Positions</CardTitle>
-            <Link to="#" onClick={(e) => { e.preventDefault(); }} className="text-xs text-indigo-400 hover:text-indigo-300">View All</Link>
+            <Button variant="ghost" size="sm" className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setActiveTab && setActiveTab('positions')}>View All</Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {filteredPositions.length === 0 ? (

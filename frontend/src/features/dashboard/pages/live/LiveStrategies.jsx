@@ -212,13 +212,20 @@ export default function LiveStrategies() {
               <div className="flex flex-col lg:flex-row lg:items-center justify-between p-4 gap-4 hover:bg-gray-800/30 transition-colors">
                 {/* Identity & Status */}
                 <div className="flex items-center gap-4 flex-1">
-                  <div className="flex-shrink-0 w-20">
+                  <div className="flex-shrink-0 min-w-[80px] flex justify-center">
                     <Badge
-                      className={
+                      className={`px-3 py-1.5 text-xs font-semibold text-center flex flex-col items-center leading-tight gap-0.5 ${
                         statusTone[session.status] || statusTone.STOPPED
-                      }
+                      }`}
                     >
-                      {session.status === "PAUSED" ? "Paused (Exits Active)" : session.status}
+                      {session.status === "PAUSED" ? (
+                        <>
+                          <span>Paused</span>
+                          <span className="text-[10px] opacity-80 font-medium">(Exits Active)</span>
+                        </>
+                      ) : (
+                        session.status
+                      )}
                     </Badge>
                   </div>
                   <div>

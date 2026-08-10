@@ -125,7 +125,7 @@ export default function BacktestTradeList() {
 
   useSetPageActions(pageActions);
 
-  if (loading) {
+  if (loading && !run) {
     return (
       <div className="flex justify-center items-center h-96">
         <GlobalLoader />
@@ -389,8 +389,8 @@ export default function BacktestTradeList() {
 
       {/* Trade Details Modal */}
       <Dialog open={!!selectedTrade} onOpenChange={(open) => !open && setSelectedTrade(null)}>
-        <DialogContent className="bg-gray-900 border-gray-800 text-white max-w-2xl max-h-[85vh] overflow-y-auto w-[90vw] [&>button]:text-gray-400 [&>button]:hover:text-white sm:p-6 p-4">
-          <DialogHeader className="mb-4">
+        <DialogContent className="bg-gray-900 border-gray-800 text-white max-w-2xl max-h-[95vh] overflow-y-auto custom-scrollbar w-[90vw] [&>button]:text-gray-400 [&>button]:hover:text-white sm:p-5 p-4">
+          <DialogHeader className="mb-2">
             <div className="flex items-center gap-3">
               <div
                 className={`flex items-center justify-center p-2.5 rounded-xl ${selectedTrade?.side === "BUY" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}
@@ -419,35 +419,35 @@ export default function BacktestTradeList() {
           </DialogHeader>
 
           {selectedTrade && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {/* Financial Summary */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="bg-gray-800/50 rounded-xl p-3 border border-gray-700/50">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="bg-gray-800/50 rounded-xl p-2.5 border border-gray-700/50">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">
                     Entry Price
                   </div>
                   <div className="text-sm font-bold text-white">
                     ₹{parseFloat(selectedTrade.entry_price).toFixed(2)}
                   </div>
                 </div>
-                <div className="bg-gray-800/50 rounded-xl p-3 border border-gray-700/50">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                <div className="bg-gray-800/50 rounded-xl p-2.5 border border-gray-700/50">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">
                     Exit Price
                   </div>
                   <div className="text-sm font-bold text-white">
                     ₹{parseFloat(selectedTrade.exit_price || 0).toFixed(2)}
                   </div>
                 </div>
-                <div className="bg-gray-800/50 rounded-xl p-3 border border-gray-700/50">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                <div className="bg-gray-800/50 rounded-xl p-2.5 border border-gray-700/50">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">
                     Quantity
                   </div>
                   <div className="text-sm font-bold text-gray-300">
                     {selectedTrade.quantity}
                   </div>
                 </div>
-                <div className="bg-gray-800/50 rounded-xl p-3 border border-gray-700/50">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                <div className="bg-gray-800/50 rounded-xl p-2.5 border border-gray-700/50">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">
                     Net P&L
                   </div>
                   <div
@@ -459,13 +459,13 @@ export default function BacktestTradeList() {
               </div>
 
               {/* Advanced Analytics */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Card className="bg-gray-800/30 border-gray-700 shadow-sm">
-                  <CardContent className="p-4 space-y-4">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-700/50 pb-2 flex items-center gap-2">
+                  <CardContent className="p-3 space-y-3">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-700/50 pb-1.5 flex items-center gap-2">
                        <Activity className="w-4 h-4 text-indigo-400" /> Efficiency
                     </h4>
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-gray-400">Max Adverse Excursion (MAE)</span>
                         <span className="font-bold text-red-400">
@@ -490,11 +490,11 @@ export default function BacktestTradeList() {
                 </Card>
 
                 <Card className="bg-gray-800/30 border-gray-700 shadow-sm">
-                  <CardContent className="p-4 space-y-4">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-700/50 pb-2 flex items-center gap-2">
+                  <CardContent className="p-3 space-y-3">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-700/50 pb-1.5 flex items-center gap-2">
                       <DollarSign className="w-4 h-4 text-amber-400" /> Transaction Costs
                     </h4>
-                    <div className="space-y-3">
+                    <div className="space-y-1.5">
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-gray-400">Gross P&L</span>
                         <span className={`font-medium ${parseFloat(selectedTrade.gross_pnl) >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -544,13 +544,13 @@ export default function BacktestTradeList() {
               </div>
 
                {/* Timestamps */}
-              <div className="flex flex-col sm:flex-row justify-between bg-gray-800/40 rounded-xl p-4 border border-gray-700/30 text-xs text-gray-400">
-                <div className="flex flex-col mb-2 sm:mb-0">
-                   <span className="font-semibold uppercase tracking-wider mb-1 opacity-70">Entry Time</span>
+              <div className="flex flex-col sm:flex-row justify-between bg-gray-800/40 rounded-xl p-3 border border-gray-700/30 text-xs text-gray-400 mt-2">
+                <div className="flex flex-col mb-1 sm:mb-0">
+                   <span className="font-semibold uppercase tracking-wider mb-0.5 opacity-70">Entry Time</span>
                    <span className="font-medium text-gray-300">{formatTime(selectedTrade.entry_time)}</span>
                 </div>
                 <div className="flex flex-col sm:text-right">
-                   <span className="font-semibold uppercase tracking-wider mb-1 opacity-70">Exit Time</span>
+                   <span className="font-semibold uppercase tracking-wider mb-0.5 opacity-70">Exit Time</span>
                    <span className="font-medium text-gray-300">{formatTime(selectedTrade.exit_time)}</span>
                 </div>
               </div>
