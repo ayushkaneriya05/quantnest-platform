@@ -126,6 +126,9 @@ class TickCache:
         for session in sessions:
             strategy = session.strategy
             config = strategy.to_execution_dict()
+            if session.allocation and session.allocation.deployed_version:
+                config = session.allocation.deployed_version.config_snapshot
+            sess_id = session.id
             strat_id = strategy.id
             active_strategies.append(strategy)
             
@@ -139,22 +142,25 @@ class TickCache:
                 self.instruments[sym] = watch.instrument
             
             # Stats (Daily Trades)
-            trades_today = PaperTrade.objects.filter(strategy=strategy, exit_time__date=today).count()
-            latest_exit = PaperTrade.objects.filter(strategy=strategy).order_by("-exit_time").first()
-            new_stats[strat_id] = {
+            trades_today = PaperTrade.objects.filter(account=session.account, strategy=strategy, exit_time__date=today).count()
+            latest_exit = PaperTrade.objects.filter(account=session.account, strategy=strategy).order_by("-exit_time").first()
+            new_stats[sess_id] = {
                 "daily_trades": trades_today,
                 "instrument_daily_trades": trades_today, # Simplified for now
                 "last_exit_time": latest_exit.exit_time if latest_exit else None,
                 "last_entry_time": None # Simplified for now
             }
-            new_accounts[strat_id] = session.account
-            new_sessions[strat_id] = session
+            new_accounts[sess_id] = session.account
+            new_sessions[sess_id] = session
         
         # Positions
+        session_map = {s.account_id: s.id for s in sessions}
         positions = PaperPosition.objects.filter(strategy__in=active_strategies).select_related("instrument")
         for pos in positions:
-            key = (pos.strategy_id, pos.instrument_id)
-            new_positions[key] = pos
+            s_id = session_map.get(pos.account_id)
+            if s_id:
+                key = (s_id, pos.instrument_id)
+                new_positions[key] = pos
 
         from paper_trading.services import PaperExecutionService
         # Open Orders
@@ -271,20 +277,20 @@ class TickCache:
     def get_paper_open_orders(self, symbol):
         return self.paper_open_orders.get(symbol, [])
 
-    def get_paper_session(self, strategy_id):
-        return self.paper_sessions.get(strategy_id)
+    def get_paper_session(self, session_id):
+        return self.paper_sessions.get(session_id)
 
-    def get_paper_account(self, strategy_id):
-        return self.paper_accounts.get(strategy_id)
+    def get_paper_account(self, session_id):
+        return self.paper_accounts.get(session_id)
 
     def get_paper_strategies(self, symbol):
         return self.active_paper_strategies.get(symbol, [])
         
-    def get_paper_position(self, strategy_id, instrument_id):
-        return self.paper_positions.get((strategy_id, instrument_id))
+    def get_paper_position(self, session_id, instrument_id):
+        return self.paper_positions.get((session_id, instrument_id))
         
-    def get_paper_stats(self, strategy_id):
-        return self.paper_stats.get(strategy_id, {
+    def get_paper_stats(self, session_id):
+        return self.paper_stats.get(session_id, {
             "daily_trades": 0, 
             "instrument_daily_trades": 0,
             "last_exit_time": None,
