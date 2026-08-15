@@ -304,6 +304,7 @@ class NotificationType(models.TextChoices):
     STRATEGY_PAUSED = 'STRATEGY_PAUSED', 'Strategy Paused'
     STRATEGY_ERROR = 'STRATEGY_ERROR', 'Strategy Error'
     RISK_ALERT = 'RISK_ALERT', 'Risk Alert'
+    SYSTEM_ALERT = 'SYSTEM_ALERT', 'System Alert'
     DAILY_SUMMARY = 'DAILY_SUMMARY', 'Daily Summary'
     COMMUNITY_REPLY = 'COMMUNITY_REPLY', 'Community Reply'
     COMMUNITY_MENTION = 'COMMUNITY_MENTION', 'Community Mention'

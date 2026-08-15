@@ -51,11 +51,13 @@ class BrokerCircuitBreaker:
 
     _CACHE_TIMEOUT = 60 * 60 * 24  # 24 hours
 
-    def __init__(self, name: str, failure_threshold: int = 3, recovery_timeout: int = 30):
+    def __init__(self, name: str, failure_threshold: int = 3, recovery_timeout: int = 30, user=None, credential_label=None):
         self.name = name
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self._key = f"circuit_breaker:{name}"
+        self._user = user
+        self._credential_label = credential_label or name
 
     # ------------------------------------------------------------------
     # Public API
@@ -142,6 +144,25 @@ class BrokerCircuitBreaker:
                 "Broker API calls blocked for %ds.",
                 self.name, failures, self.recovery_timeout,
             )
+            # Notify user if context is available
+            if self._user:
+                throttle_key = f"cb_trip_notif:{self.name}"
+                if not cache.get(throttle_key):
+                    try:
+                        from notifications.services import NotificationService
+                        from common.enums import NotificationType, Severity
+                        NotificationService.notify(
+                            user=self._user,
+                            title="Broker Circuit Breaker Tripped",
+                            message=f"Broker API for '{self._credential_label}' has failed {failures} times consecutively. "
+                                    f"Order execution is temporarily suspended for {self.recovery_timeout}s.",
+                            notification_type=NotificationType.SYSTEM_ALERT,
+                            severity=Severity.CRITICAL,
+                            data={"module": "live", "circuit_breaker": self.name}
+                        )
+                    except Exception:
+                        logger.exception("Failed dispatching circuit breaker trip notification")
+                    cache.set(throttle_key, True, self.recovery_timeout)
         else:
             logger.warning(
                 "CircuitBreaker[%s]: failure %d/%d",

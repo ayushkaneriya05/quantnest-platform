@@ -49,29 +49,32 @@ def handle_new_notification(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender="live_trading.LiveOrder")
 def handle_live_order_notifications(sender, instance, created, **kwargs):
+    cache_key = f"notification_live_order_{instance.id}_{instance.status}"
+    if cache.get(cache_key):
+        return
+
     # Only notify on specific terminal states
     if instance.status == OrderStatus.FILLED:
-        tag = instance.order_tag.upper() if instance.order_tag else ""
         notif_type = NotificationType.TRADE_EXECUTED
         severity = Severity.INFO
         title = "Live Trade Executed"
         
-        if "SL" in tag or "STOP" in tag:
+        if instance.order_type in ["STOP_MARKET", "STOP_LIMIT"]:
             notif_type = NotificationType.SL_HIT
             severity = Severity.WARNING
             title = "Live Stop Loss Hit"
-        elif "TARGET" in tag or "TP" in tag or "TAKE_PROFIT" in tag:
-            notif_type = NotificationType.TARGET_HIT
-            title = "Live Target Hit"
+        elif instance.reduce_only:
+            title = "Live Position Exit Executed"
 
         NotificationService.notify(
             user=instance.user,
             title=title,
-            message=f"Order for {instance.instrument.symbol} was filled at {instance.average_price}",
+            message=f"Order for {instance.instrument.symbol} was filled at {instance.avg_fill_price}",
             notification_type=notif_type,
             severity=severity,
             data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "live"}
         )
+        cache.set(cache_key, True, 86400)
     elif instance.status == OrderStatus.REJECTED:
         NotificationService.notify(
             user=instance.user,
@@ -81,10 +84,45 @@ def handle_live_order_notifications(sender, instance, created, **kwargs):
             severity=Severity.CRITICAL,
             data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "live"}
         )
+        cache.set(cache_key, True, 86400)
+    elif instance.status == OrderStatus.CANCELLED:
+        NotificationService.notify(
+            user=instance.user,
+            title="Live Order Cancelled",
+            message=f"Order for {instance.instrument.symbol} was cancelled.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.WARNING,
+            data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "live"}
+        )
+        cache.set(cache_key, True, 86400)
+    elif instance.status == OrderStatus.EXPIRED:
+        NotificationService.notify(
+            user=instance.user,
+            title="Live Order Expired",
+            message=f"Order for {instance.instrument.symbol} expired before execution.",
+            notification_type=NotificationType.STRATEGY_ERROR,
+            severity=Severity.WARNING,
+            data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "live"}
+        )
+        cache.set(cache_key, True, 86400)
+    elif instance.status == OrderStatus.PARTIAL_FILL:
+        NotificationService.notify(
+            user=instance.user,
+            title="Live Order Partially Filled",
+            message=f"Order for {instance.instrument.symbol} was partially filled.",
+            notification_type=NotificationType.TRADE_EXECUTED,
+            severity=Severity.INFO,
+            data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "live"}
+        )
+        cache.set(cache_key, True, 86400)
 
 
 @receiver(post_save, sender="paper_trading.PaperOrder")
 def handle_paper_order_notifications(sender, instance, created, **kwargs):
+    cache_key = f"notification_paper_order_{instance.id}_{instance.status}"
+    if cache.get(cache_key):
+        return
+
     if instance.status == OrderStatus.FILLED:
         tag = instance.order_tag.upper() if instance.order_tag else ""
         notif_type = NotificationType.TRADE_EXECUTED
@@ -107,6 +145,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
             severity=severity,
             data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "paper"}
         )
+        cache.set(cache_key, True, 86400)
     elif instance.status == OrderStatus.REJECTED:
         NotificationService.notify(
             user=instance.user,
@@ -116,15 +155,76 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
             severity=Severity.WARNING,
             data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "paper"}
         )
+        cache.set(cache_key, True, 86400)
+    elif instance.status == OrderStatus.CANCELLED:
+        NotificationService.notify(
+            user=instance.user,
+            title="Paper Order Cancelled",
+            message=f"Simulated order for {instance.instrument.symbol} was cancelled.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.INFO,
+            data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "paper"}
+        )
+        cache.set(cache_key, True, 86400)
+    elif instance.status == OrderStatus.EXPIRED:
+        NotificationService.notify(
+            user=instance.user,
+            title="Paper Order Expired",
+            message=f"Simulated order for {instance.instrument.symbol} expired before execution.",
+            notification_type=NotificationType.STRATEGY_ERROR,
+            severity=Severity.WARNING,
+            data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "paper"}
+        )
+        cache.set(cache_key, True, 86400)
+    elif instance.status == OrderStatus.PARTIAL_FILL:
+        NotificationService.notify(
+            user=instance.user,
+            title="Paper Order Partially Filled",
+            message=f"Simulated order for {instance.instrument.symbol} was partially filled.",
+            notification_type=NotificationType.TRADE_EXECUTED,
+            severity=Severity.INFO,
+            data={"order_id": str(instance.id), "symbol": instance.instrument.symbol, "module": "paper"}
+        )
+        cache.set(cache_key, True, 86400)
 
 
-@receiver(post_save, sender="strategies.Strategy")
-def handle_strategy_notifications(sender, instance, created, **kwargs):
-    # This might trigger too often if we don't check what changed, 
-    # but for simplicity we will check if it's paused. 
-    # In a real scenario, we might use a custom signal for circuit breaker.
-    # Strategy pause notifications will be handled by session signals instead
-    pass
+@receiver(post_save, sender="live_trading.TradingSession")
+def handle_live_session_notifications(sender, instance, created, **kwargs):
+    if instance.status != "ERROR":
+        return
+    cache_key = f"notification_live_session_error_{instance.id}_{instance.updated_at}"
+    if cache.get(cache_key):
+        return
+    NotificationService.notify(
+        user=instance.user,
+        title="Live Strategy Error",
+        message=instance.error_message or f"Live session for '{instance.strategy.name}' entered error state.",
+        notification_type=NotificationType.STRATEGY_ERROR,
+        severity=Severity.CRITICAL,
+        strategy=instance.strategy,
+        data={"session_id": str(instance.id), "module": "live"}
+    )
+    cache.set(cache_key, True, 86400)
+
+
+@receiver(post_save, sender="paper_trading.PaperTradingSession")
+def handle_paper_session_notifications(sender, instance, created, **kwargs):
+    if instance.status != "ERROR":
+        return
+    cache_key = f"notification_paper_session_error_{instance.id}_{instance.updated_at}"
+    if cache.get(cache_key):
+        return
+    NotificationService.notify(
+        user=instance.user,
+        title="Paper Strategy Error",
+        message=instance.error_message or f"Paper session for '{instance.strategy.name}' entered error state.",
+        notification_type=NotificationType.STRATEGY_ERROR,
+        severity=Severity.CRITICAL,
+        strategy=instance.strategy,
+        data={"session_id": str(instance.id), "module": "paper"}
+    )
+    cache.set(cache_key, True, 86400)
+
 
 @receiver(post_save, sender="paper_trading.PaperAccount")
 def handle_paper_account_notifications(sender, instance, created, **kwargs):
@@ -142,3 +242,35 @@ def handle_paper_account_notifications(sender, instance, created, **kwargs):
                     data={"account_id": str(instance.id), "module": "paper"}
                 )
                 cache.set(cache_key, True, 86400)  # 24 hour cooldown
+
+
+@receiver(post_save, sender="risk_management.RiskViolation")
+def handle_risk_violation_notifications(sender, instance, created, **kwargs):
+    """Safety net: ensure RiskViolation records created outside service layer still trigger notifications."""
+    if not created:
+        return
+    cache_key = f"notification_risk_violation_{instance.id}"
+    if cache.get(cache_key):
+        return
+    # Only notify if the violation was NOT already dispatched by _record_violation.
+    # We check if a matching notification was created in the last 5 seconds.
+    from django.utils import timezone
+    from datetime import timedelta
+    recent_cutoff = timezone.now() - timedelta(seconds=5)
+    already_notified = Notification.objects.filter(
+        user=instance.user,
+        type=NotificationType.RISK_ALERT,
+        created_at__gte=recent_cutoff,
+        data__violation_type=instance.violation_type,
+    ).exists()
+    if not already_notified:
+        NotificationService.notify(
+            user=instance.user,
+            title="Risk Violation Detected",
+            message=instance.message or "A risk violation was recorded.",
+            notification_type=NotificationType.RISK_ALERT,
+            severity=instance.severity or Severity.WARNING,
+            strategy=instance.strategy,
+            data={"violation_type": instance.violation_type, "action_taken": instance.action_taken}
+        )
+    cache.set(cache_key, True, 86400)

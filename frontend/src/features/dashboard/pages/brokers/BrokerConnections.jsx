@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   BadgeCheck,
@@ -26,6 +26,7 @@ import { brokersApi } from "@/shared/services/brokersApi";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { BrokerOrderSettingsModal } from "./BrokerOrderSettingsModal";
 import { BrokerDetailsModal } from "./BrokerDetailsModal";
+import { customConfirm } from "@/shared/components/ui/custom-dialog";
 
 
 const providerTheme = {
@@ -129,11 +130,14 @@ export default function BrokerConnections() {
   const [settingsProviderName, setSettingsProviderName] = useState("");
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [detailsProvider, setDetailsProvider] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
 
-  const loadBrokerState = async () => {
+  const loadBrokerState = useCallback(async () => {
     try {
       setLoading((current) => (catalog.length ? current : true));
+      if (catalog.length > 0) setIsRefreshing(true);
+      
       const [catalogRes, sessionsRes] = await Promise.all([
         brokersApi.getCatalog(),
         brokersApi.getSessions(),
@@ -170,6 +174,7 @@ export default function BrokerConnections() {
           }),
       );
     } catch (error) {
+      console.error("Failed to load broker state", error);
       notify.error(
         error?.response?.data?.detail ||
           error?.response?.data?.error ||
@@ -177,8 +182,9 @@ export default function BrokerConnections() {
       );
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
-  };
+  }, [catalog.length, notify]);
 
   useEffect(() => {
     loadBrokerState();
@@ -272,14 +278,15 @@ export default function BrokerConnections() {
         <Button
           variant="outline"
           onClick={loadBrokerState}
+          disabled={isRefreshing}
           className="border-gray-700 text-gray-100"
         >
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
+          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? "Refreshing..." : "Refresh"}
         </Button>
       </div>
     ),
-    [catalog.length],
+    [catalog.length, isRefreshing, loadBrokerState],
   );
 
   useSetPageActions(pageActions);
@@ -401,7 +408,16 @@ export default function BrokerConnections() {
                       <Button
                         variant="ghost"
                         className="text-red-400 hover:text-red-300 hover:bg-red-950/30 ml-auto px-3"
-                        onClick={() => disconnectBroker(provider)}
+                        onClick={async () => {
+                          const confirmed = await customConfirm(
+                            `Are you sure you want to disconnect ${provider.display_name}? This will instantly stop any live running strategies that are currently using this broker.`,
+                            "Disconnect Broker?",
+                            "Disconnect & Stop Strategies"
+                          );
+                          if (confirmed) {
+                            disconnectBroker(provider);
+                          }
+                        }}
                         disabled={isBusy}
                         title="Disconnect Broker"
                       >

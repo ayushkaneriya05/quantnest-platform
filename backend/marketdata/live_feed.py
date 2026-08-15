@@ -271,6 +271,30 @@ class FyersLiveFeedClient:
         tick_cache.stop_background_sync()
         if cls.socket and getattr(cls.socket, "reconnect", False):
             pass
+        # Notify users with active live sessions about feed disconnection
+        from django.core.cache import cache
+        throttle_key = "market_feed_disconnect_notification"
+        if not cache.get(throttle_key):
+            try:
+                from live_trading.models import TradingSession
+                from notifications.services import NotificationService
+                from common.enums import NotificationType, Severity
+                notified_users = set()
+                for session in TradingSession.objects.filter(status="RUNNING").select_related("user"):
+                    if session.user_id not in notified_users:
+                        NotificationService.notify(
+                            user=session.user,
+                            title="Market Data Feed Disconnected",
+                            message="Live market data feed has disconnected. Strategies may not receive real-time quotes until reconnection.",
+                            notification_type=NotificationType.SYSTEM_ALERT,
+                            severity=Severity.CRITICAL,
+                            data={"module": "marketdata", "close_code": str(code)}
+                        )
+                        notified_users.add(session.user_id)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("Failed dispatching market feed disconnect notification")
+            cache.set(throttle_key, True, 600)  # 10 min throttle
 
     def _on_error(self, message):
         logger.error("Fyers live websocket error: %s", message)

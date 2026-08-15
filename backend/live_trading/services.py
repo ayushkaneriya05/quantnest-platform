@@ -10,7 +10,7 @@ from django.utils import timezone
 from brokers.models import BrokerCredential, BrokerFundsSnapshot, OrderReconciliation, OrderSettings
 from brokers.services import BrokerService
 from rules_engine.utils import compute_sl_distance_from_config
-from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Severity, Side, StrategyStatus, ViolationAction, ViolationType
+from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Severity, Side, StrategyStatus, ViolationAction, ViolationType, NotificationType
 from instruments.models import WatchlistInstrument
 from marketdata.access import StrategyMarketDataService
 from marketdata.streaming import MarketDataStreamer
@@ -443,7 +443,6 @@ class LiveExecutionService:
             LiveStrategyAllocation.objects.filter(
                 user=user,
                 broker_credential=broker_credential,
-                is_active=True,
             ).select_related("strategy")
         )
         total_allocated = sum((Decimal(str(item.allocated_capital or 0)) for item in allocations), Decimal("0"))
@@ -453,6 +452,7 @@ class LiveExecutionService:
             allocation.broker_equity_reference = broker_equity
         total_allocated = sum((Decimal(str(item.allocated_capital or 0)) for item in allocations), Decimal("0"))
         for allocation in allocations:
+            was_over_allocated = allocation.is_over_allocated
             allocation.broker_equity_reference = broker_equity
             allocation.is_over_allocated = broker_equity > 0 and total_allocated > broker_equity
             allocation.breach_reason = (
@@ -461,6 +461,23 @@ class LiveExecutionService:
                 else ""
             )
             allocation.save(update_fields=["allocated_capital", "broker_equity_reference", "is_over_allocated", "breach_reason", "updated_at"])
+            if allocation.is_over_allocated and not was_over_allocated:
+                cache_key = f"live_over_allocation_notification_{allocation.id}"
+                if not cache.get(cache_key):
+                    NotificationService.notify(
+                        user=user,
+                        title="Live Allocation Over Limit",
+                        message=allocation.breach_reason,
+                        notification_type=NotificationType.RISK_ALERT,
+                        severity=Severity.CRITICAL,
+                        strategy=allocation.strategy,
+                        data={
+                            "allocation_id": str(allocation.id),
+                            "broker_credential_id": str(broker_credential.id),
+                            "module": "live",
+                        },
+                    )
+                    cache.set(cache_key, True, 86400)
             LiveExecutionService._sync_allocation_wallet(allocation)
         return allocations
 
@@ -510,7 +527,6 @@ class LiveExecutionService:
             LiveStrategyAllocation.objects.filter(
                 user=user,
                 broker_credential=credential,
-                is_active=True,
             ).exclude(strategy=strategy)
         )
         total_other = sum((Decimal(str(item.allocated_capital or 0)) for item in existing), Decimal("0"))
@@ -530,7 +546,6 @@ class LiveExecutionService:
                 "allocated_percentage": allocated_percentage or Decimal("0"),
                 "available_capital": allocated_capital,
                 "broker_equity_reference": broker_equity,
-                "is_active": True,
                 "is_over_allocated": False,
                 "breach_reason": "",
             },
@@ -595,6 +610,16 @@ class LiveExecutionService:
         LiveExecutionService._sync_allocation_wallet(allocation)
         LiveExecutionService._broadcast_update(user.id, "SESSION_UPDATE", {"session_id": session.id, "status": session.status})
         LiveExecutionService._update_routing_cache(session, add=True)
+
+        NotificationService.notify(
+            user=user,
+            title="Live Strategy Deployed",
+            message=f"Strategy '{strategy.name}' has been deployed to live trading.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.INFO,
+            strategy=strategy,
+            data={"session_id": str(session.id), "module": "live"}
+        )
         return session
 
     @staticmethod
@@ -631,12 +656,34 @@ class LiveExecutionService:
                     LiveExecutionService.cancel_open_order(order)
                 except Exception:
                     logger.exception("Failed cancelling live entry order %s during session pause", order.id)
+                    try:
+                        NotificationService.notify(
+                            user=session.user,
+                            title="Order Cancellation Failed",
+                            message=f"Failed to cancel order {order.id} for {order.instrument.symbol} during session pause. This order may still be active at the broker.",
+                            notification_type=NotificationType.RISK_ALERT,
+                            severity=Severity.CRITICAL,
+                            strategy=session.strategy,
+                            data={"order_id": str(order.id), "symbol": order.instrument.symbol, "module": "live"}
+                        )
+                    except Exception:
+                        logger.exception("Failed dispatching cancel failure notification")
 
         session.status = "PAUSED"
         session.error_message = ""
         session.save(update_fields=["status", "error_message", "updated_at"])
         LiveExecutionService._broadcast_update(session.user_id, "SESSION_UPDATE", {"session_id": session.id, "status": session.status})
         LiveExecutionService._update_routing_cache(session, add=False)
+
+        NotificationService.notify(
+            user=session.user,
+            title="Live Strategy Paused",
+            message=f"Live session for '{session.strategy.name}' has been paused. Pending entry orders cancelled.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.WARNING,
+            strategy=session.strategy,
+            data={"session_id": str(session.id), "module": "live"}
+        )
         return session
 
     @staticmethod
@@ -647,6 +694,18 @@ class LiveExecutionService:
                 LiveExecutionService.cancel_open_order(order)
             except Exception:
                 logger.exception("Failed cancelling live order %s during session stop", order.id)
+                try:
+                    NotificationService.notify(
+                        user=session.user,
+                        title="Order Cancellation Failed",
+                        message=f"Failed to cancel order {order.id} for {order.instrument.symbol} during session stop. This order may still be active at the broker.",
+                        notification_type=NotificationType.RISK_ALERT,
+                        severity=Severity.CRITICAL,
+                        strategy=session.strategy,
+                        data={"order_id": str(order.id), "symbol": order.instrument.symbol, "module": "live"}
+                    )
+                except Exception:
+                    logger.exception("Failed dispatching cancel failure notification")
         if close_positions:
             for position in LivePosition.objects.filter(user=session.user, strategy=session.strategy, broker_credential=session.broker_credential):
                 for order in LiveOrder.objects.filter(
@@ -672,6 +731,16 @@ class LiveExecutionService:
         session.save(update_fields=["status", "ended_at", "error_message", "updated_at"])
         LiveExecutionService._broadcast_update(session.user_id, "SESSION_UPDATE", {"session_id": session.id, "status": session.status})
         LiveExecutionService._update_routing_cache(session, add=False)
+
+        NotificationService.notify(
+            user=session.user,
+            title="Live Strategy Stopped",
+            message=f"Live session for '{session.strategy.name}' has been completely stopped" + (" and positions squared off." if close_positions else "."),
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.CRITICAL,
+            strategy=session.strategy,
+            data={"session_id": str(session.id), "module": "live"}
+        )
         return session
 
     @staticmethod
@@ -681,6 +750,17 @@ class LiveExecutionService:
         session.status = "RUNNING"
         session.error_message = ""
         session.save(update_fields=["status", "error_message", "updated_at"])
+        
+        NotificationService.notify(
+            user=session.user,
+            title="Live Strategy Resumed",
+            message=f"Live session for '{session.strategy.name}' is running again.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.INFO,
+            strategy=session.strategy,
+            data={"session_id": str(session.id), "module": "live"}
+        )
+        
         LiveExecutionService._broadcast_update(session.user_id, "SESSION_UPDATE", {"session_id": session.id, "status": session.status})
         LiveExecutionService._update_routing_cache(session, add=True)
         return session
@@ -963,6 +1043,18 @@ class LiveExecutionService:
             session.status = "PAUSED"
             session.error_message = disable_match.get("message", "Strategy auto-disable triggered")
             session.save(update_fields=["status", "error_message", "updated_at"])
+            try:
+                NotificationService.notify(
+                    user=session.user,
+                    title="Live Strategy Auto-Paused",
+                    message=f"Live session for '{session.strategy.name}' was automatically paused: {session.error_message}",
+                    notification_type=NotificationType.STRATEGY_PAUSED,
+                    severity=Severity.CRITICAL,
+                    strategy=session.strategy,
+                    data={"session_id": str(session.id), "module": "live"}
+                )
+            except Exception:
+                logger.exception("Failed dispatching auto-pause notification")
             raise ValueError(session.error_message)
 
     @staticmethod
@@ -1039,6 +1131,22 @@ class LiveExecutionService:
 
     @staticmethod
     def place_order(session, instrument, side, quantity, order_type=OrderType.MARKET, price=None, trigger_price=None):
+        try:
+            return LiveExecutionService._place_order_internal(session, instrument, side, quantity, order_type, price, trigger_price)
+        except Exception as e:
+            NotificationService.notify(
+                user=session.user,
+                title="Live Order Placement Failed",
+                message=f"Failed to place order for {instrument.symbol}: {str(e)}",
+                notification_type=NotificationType.STRATEGY_ERROR,
+                severity=Severity.CRITICAL,
+                strategy=session.strategy,
+                data={"symbol": instrument.symbol, "module": "live", "error": str(e)}
+            )
+            raise e
+
+    @staticmethod
+    def _place_order_internal(session, instrument, side, quantity, order_type=OrderType.MARKET, price=None, trigger_price=None):
         if session.status != "RUNNING":
             raise ValueError("Live trading session is not running")
 
@@ -1166,6 +1274,24 @@ class LiveExecutionService:
             LiveExecutionService._create_execution_log(order, "CREATED", message="Order record created, preparing for broker submission")
         except Exception as e:
             logger.error(f"Async broker placement failed to load objects: {e}")
+            try:
+                from users.models import User
+                from strategies.models import Strategy
+                user = User.objects.filter(id=TradingSession.objects.filter(id=session_id).values_list('user_id', flat=True).first()).first()
+                strategy = Strategy.objects.filter(id=TradingSession.objects.filter(id=session_id).values_list('strategy_id', flat=True).first()).first()
+                if user:
+                    NotificationService.notify(
+                        user=user,
+                        title="Live Order Submission Failed",
+                        message=f"Internal error prevented order submission to broker. The system will attempt recovery.",
+                        notification_type=NotificationType.STRATEGY_ERROR,
+                        severity=Severity.CRITICAL,
+                        strategy=strategy,
+                        data={"module": "live", "error": str(e)}
+                    )
+                StrategyRuntimeState.mark_closed("live", strategy.id if strategy else 0, instrument_id)
+            except Exception:
+                logger.exception("Failed recovery after async broker placement crash")
             return
 
         broker_result = {}
@@ -1238,6 +1364,18 @@ class LiveExecutionService:
                 order.save(update_fields=["status", "rejection_reason", "updated_at"])
                 LiveExecutionService._create_execution_log(order, "UNKNOWN", message="Broker timeout; status pending verification", latency_ms=latency_ms)
                 # DO NOT restore trade phase. Let the sync task reconcile it.
+                try:
+                    NotificationService.notify(
+                        user=order.user,
+                        title="Live Order Status Unknown",
+                        message=f"Order for {instrument.sym_ticker} timed out after broker network failure. Status is UNKNOWN and pending automatic verification.",
+                        notification_type=NotificationType.RISK_ALERT,
+                        severity=Severity.CRITICAL,
+                        strategy=order.strategy,
+                        data={"order_id": str(order.id), "symbol": instrument.sym_ticker, "module": "live"}
+                    )
+                except Exception:
+                    logger.exception("Failed dispatching UNKNOWN order notification for order %s", order.id)
             else:
                 order.status = OrderStatus.REJECTED
                 order.rejection_reason = str(last_error) if last_error else "Unknown broker error"
@@ -1308,6 +1446,18 @@ class LiveExecutionService:
                 LiveExecutionService.cancel_open_order(order)
             except Exception as e:
                 logger.error(f"Failed to cancel remaining quantity for partial fill: {e}")
+                try:
+                    NotificationService.notify(
+                        user=order.user,
+                        title="Partial Fill Cancel Failed",
+                        message=f"Failed to cancel remaining quantity for {order.instrument.symbol} after partial fill. Position size may differ from expected.",
+                        notification_type=NotificationType.RISK_ALERT,
+                        severity=Severity.WARNING,
+                        strategy=order.strategy,
+                        data={"order_id": str(order.id), "symbol": order.instrument.symbol, "module": "live"}
+                    )
+                except Exception:
+                    logger.exception("Failed dispatching partial fill cancel notification")
 
         return order
 
@@ -2109,6 +2259,17 @@ class LiveExecutionService:
             return synced
         except Exception as e:
             logger.exception("Failed syncing positions for user %s: %s", user.id, e)
+            try:
+                NotificationService.notify(
+                    user=user,
+                    title="Position Sync Failed",
+                    message="Failed to sync positions with broker. Portfolio positions may be out of sync. Will retry automatically.",
+                    notification_type=NotificationType.SYSTEM_ALERT,
+                    severity=Severity.WARNING,
+                    data={"module": "live", "error": str(e)}
+                )
+            except Exception:
+                logger.exception("Failed dispatching position sync failure notification")
             return 0
 
     @staticmethod

@@ -20,6 +20,7 @@ from common.enums import (
     TransactionType,
     ViolationAction,
     ViolationType,
+    NotificationType,
 )
 from marketdata.access import StrategyMarketDataService
 from marketdata.streaming import MarketDataStreamer
@@ -27,6 +28,7 @@ from risk_management.models import PortfolioRiskProfile, RiskViolation
 from risk_management.evaluator import RiskEvaluator
 from strategies.models import Strategy
 from strategy_engine.runtime import StrategyRuntimeState
+from notifications.services import NotificationService
 
 from .models import (
     PaperOrder, PaperPosition, PaperTrade, PaperAccount,
@@ -513,6 +515,16 @@ class PaperExecutionService:
         if deployed_version:
             allocation.deployed_version = deployed_version
             allocation.save(update_fields=['deployed_version', 'updated_at'])
+            
+        NotificationService.notify(
+            user=user,
+            title="Paper Strategy Deployed",
+            message=f"Strategy '{strategy.name}' has been deployed to paper trading.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.INFO,
+            strategy=strategy,
+            data={"session_id": str(session.id), "module": "paper"}
+        )
         return session
 
     @staticmethod
@@ -538,6 +550,16 @@ class PaperExecutionService:
         
         session.status = "PAUSED"
         session.save(update_fields=["status", "updated_at"])
+        
+        NotificationService.notify(
+            user=session.user,
+            title="Paper Strategy Paused",
+            message=f"Paper session for '{session.strategy.name}' has been paused. Pending entry orders cancelled.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.WARNING,
+            strategy=session.strategy,
+            data={"session_id": str(session.id), "module": "paper"}
+        )
         return session
 
     @staticmethod
@@ -570,10 +592,32 @@ class PaperExecutionService:
                     PaperExecutionService._force_close_position(session.strategy, session.account, pos)
                 except Exception as e:
                     logger.error(f"Failed to close paper position {pos.id}: {e}")
+                    try:
+                        NotificationService.notify(
+                            user=session.user,
+                            title="Paper Position Close Failed",
+                            message=f"Failed to close paper position for {pos.instrument.symbol} during session stop. Position may remain open.",
+                            notification_type=NotificationType.STRATEGY_ERROR,
+                            severity=Severity.WARNING,
+                            strategy=session.strategy,
+                            data={"position_id": str(pos.id), "symbol": pos.instrument.symbol, "module": "paper"}
+                        )
+                    except Exception:
+                        logger.exception("Failed dispatching paper position close failure notification")
                     
         session.status = "STOPPED"
         session.ended_at = timezone.now()
         session.save(update_fields=["status", "ended_at", "updated_at"])
+        
+        NotificationService.notify(
+            user=session.user,
+            title="Paper Strategy Stopped",
+            message=f"Paper session for '{session.strategy.name}' has been stopped.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.CRITICAL,
+            strategy=session.strategy,
+            data={"session_id": str(session.id), "module": "paper"}
+        )
         return session
 
     @staticmethod
@@ -585,6 +629,16 @@ class PaperExecutionService:
             session.started_at = timezone.now()
         session.ended_at = None
         session.save(update_fields=["status", "error_message", "started_at", "ended_at", "updated_at"])
+        
+        NotificationService.notify(
+            user=session.user,
+            title="Paper Strategy Resumed",
+            message=f"Paper session for '{session.strategy.name}' is running again.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.INFO,
+            strategy=session.strategy,
+            data={"session_id": str(session.id), "module": "paper"}
+        )
         return session
 
     @staticmethod
@@ -604,8 +658,8 @@ class PaperExecutionService:
             instrument=position.instrument,
             side=close_side,
             quantity=position.quantity,
-            price=Decimal(str(last_price)),
-            reason="SESSION_HALT",
+            fallback_price=Decimal(str(last_price)),
+            exit_reason="SESSION_HALT",
         )
 
     @staticmethod
@@ -620,6 +674,22 @@ class PaperExecutionService:
             actual_value=actual_value,
             action_taken=action_taken,
         )
+        try:
+            NotificationService.notify(
+                user=user,
+                title="Paper risk alert",
+                message=message,
+                notification_type=NotificationType.RISK_ALERT,
+                severity=severity,
+                strategy=strategy,
+                data={
+                    "violation_type": violation_type,
+                    "action_taken": action_taken,
+                    "module": "paper",
+                },
+            )
+        except Exception:
+            logger.exception("Failed dispatching paper risk notification")
 
     @staticmethod
     def _compute_risk_stats(account, strategy, instrument, side, quantity, price):
@@ -764,8 +834,20 @@ class PaperExecutionService:
                     action_taken=ViolationAction.DISABLED,
                     severity=Severity.CRITICAL,
                 )
-                # TODO: Pause the specific paper trading session instead of the strategy
-                pass
+                session = account.sessions.filter(strategy=strategy).exclude(status="STOPPED").first()
+                if session:
+                    session.status = "PAUSED"
+                    session.error_message = message
+                    session.save(update_fields=["status", "error_message", "updated_at"])
+                    NotificationService.notify(
+                        user=account.user,
+                        title="Paper Strategy Auto-Paused",
+                        message=f"Paper session for '{strategy.name}' was paused: {message}",
+                        notification_type=NotificationType.STRATEGY_PAUSED,
+                        severity=Severity.CRITICAL,
+                        strategy=strategy,
+                        data={"session_id": str(session.id), "module": "paper"}
+                    )
                 raise ValueError(f"Strategy auto-disable triggered: {message}")
 
     @staticmethod
@@ -1382,11 +1464,15 @@ class PaperStrategyEngine:
 
                     # Check Strategy-specific limits (Max trades, Max positions)
                     ok, msg = evaluator.check_strategy_limits(config, risk_stats)
-                    if not ok: return False
+                    if not ok:
+                        logger.info("Paper strategy %s entry blocked by strategy limits: %s", strategy.id, msg)
+                        return False
 
                     # Check Portfolio-wide risk
                     ok, msg = evaluator.check_portfolio_risk(config.get("risk_profile", {}), risk_stats)
-                    if not ok: return False
+                    if not ok:
+                        logger.info("Paper strategy %s entry blocked by portfolio risk: %s", strategy.id, msg)
+                        return False
 
                     can_enter, reason = executor.can_enter(risk_stats, timestamp)
                     if not can_enter: return False
@@ -1466,8 +1552,19 @@ class PaperStrategyEngine:
             logger.warning(f"Paper execution lock skipped for {strategy.name} - {instrument.sym_ticker}: {e}")
         except Exception as exc:
             logger.exception("Error executing paper live strategy %s for symbol %s: %s", strategy.id, symbol, exc)
+            try:
+                NotificationService.notify(
+                    user=strategy.user,
+                    title="Paper Strategy Execution Error",
+                    message=f"Paper strategy '{strategy.name}' encountered an error during tick processing for {symbol}.",
+                    notification_type=NotificationType.STRATEGY_ERROR,
+                    severity=Severity.WARNING,
+                    strategy=strategy,
+                    data={"module": "paper", "symbol": symbol, "error": str(exc)}
+                )
+            except Exception:
+                logger.exception("Failed dispatching paper tick error notification")
 
         if refreshed:
             PaperExecutionService.sync_account_state(allocation)
         return refreshed
-

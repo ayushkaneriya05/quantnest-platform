@@ -325,7 +325,7 @@ class StrategyExecutor:
             if special.get("avoid_rbi_policy") and EventCalendarService.is_event_day(current_date, "RBI_POLICY"):
                 active_events.append("RBI_POLICY")
         except Exception as exc:
-            logger.debug("Event calendar lookup failed during strategy evaluation: %s", exc)
+            logger.warning("Event calendar lookup failed during strategy evaluation: %s", exc)
         return active_events
 
     @staticmethod
@@ -339,7 +339,8 @@ class StrategyExecutor:
             if timestamp.tzinfo is None:
                 timestamp = timezone.make_aware(timestamp, dt.timezone.utc)
             return timestamp.astimezone(target_tz)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Timezone localization failed for '%s': %s", timezone_name, exc)
             return timestamp
 
 

@@ -7,10 +7,12 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core import signing
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
-from common.enums import BrokerName, FyersOrderSide, FyersOrderType, OrderStatus
+from common.enums import BrokerName, FyersOrderSide, FyersOrderType, OrderStatus, NotificationType, Severity
+from notifications.services import NotificationService
 
 from .models import BrokerAPILog, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderSettings
 
@@ -22,6 +24,21 @@ except Exception:
 
 
 logger = logging.getLogger(__name__)
+
+
+def notify_broker_session_expired(credential, reason=None):
+    cache_key = f"broker_session_expired_notification_{credential.id}"
+    if cache.get(cache_key):
+        return
+    NotificationService.notify(
+        user=credential.user,
+        title="Broker Session Expired",
+        message=reason or f"Broker session for '{credential.label}' has expired. Reconnect your broker account to continue live trading.",
+        notification_type=NotificationType.SYSTEM_ALERT,
+        severity=Severity.CRITICAL,
+        data={"broker_credential_id": str(credential.id), "module": "broker"}
+    )
+    cache.set(cache_key, True, 3600)
 
 
 BROKER_CATALOG = {
@@ -201,6 +218,7 @@ class FyersAdapter(BaseBrokerAdapter):
         if session.token_expiry <= timezone.now() or not session.is_valid:
             session.is_valid = False
             session.save(update_fields=["is_valid", "updated_at"])
+            notify_broker_session_expired(self.credential)
             raise ValueError("Fyers trading session expired. Reconnect your broker account to continue.")
         return fyersModel.FyersModel(
             client_id=self._client_id(),
@@ -660,6 +678,18 @@ class BrokerService:
             "mobile": profile_data.get("mobile_number", ""),
         }
         credential.save(update_fields=["is_verified", "last_verified_at", "label", "permissions", "updated_at"])
+        if not credential.is_verified:
+            try:
+                NotificationService.notify(
+                    user=credential.user,
+                    title="Broker Verification Failed",
+                    message=f"Broker credential '{credential.label}' failed verification. Please re-authenticate.",
+                    notification_type=NotificationType.SYSTEM_ALERT,
+                    severity=Severity.WARNING,
+                    data={"broker_credential_id": str(credential.id), "module": "broker"}
+                )
+            except Exception:
+                logger.exception("Failed dispatching broker verification failure notification")
         return BrokerService.as_json_safe(result)
 
     @staticmethod
@@ -680,6 +710,25 @@ class BrokerService:
         credential.is_verified = False
         credential.last_verified_at = None
         credential.save(update_fields=["is_active", "is_verified", "last_verified_at", "updated_at"])
+        
+        # Stop running live strategies associated with this credential
+        try:
+            from live_trading.models import TradingSession
+            from live_trading.services import LiveExecutionService
+            active_sessions = TradingSession.objects.filter(broker_credential=credential, status="RUNNING")
+            for session in active_sessions:
+                LiveExecutionService.stop_session(session, close_positions=False)
+        except Exception as e:
+            logger.exception(f"Failed to stop live sessions for disconnected credential {credential.id}: {e}")
+            
+        NotificationService.notify(
+            user=credential.user,
+            title="Broker Disconnected",
+            message=f"Broker connection for '{credential.label}' has been disconnected and all dependent live strategies stopped.",
+            notification_type=NotificationType.SYSTEM_ALERT,
+            severity=Severity.CRITICAL,
+            data={"broker_credential_id": str(credential.id), "module": "broker"}
+        )
         return credential
 
     @staticmethod
@@ -690,6 +739,11 @@ class BrokerService:
             session.last_used_at = timezone.now()
             session.save(update_fields=["last_used_at", "updated_at"])
             return session
+        expired_session = credential.sessions.filter(token_expiry__lte=timezone.now()).order_by("-token_expiry").first()
+        if expired_session:
+            expired_session.is_valid = False
+            expired_session.save(update_fields=["is_valid", "updated_at"])
+            notify_broker_session_expired(credential)
         return BrokerService.get_adapter(credential).create_session()
 
     @staticmethod
