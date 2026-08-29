@@ -39,7 +39,6 @@ export default function StrategyAutoDisableConfig() {
     threshold_count: 5,
     auto_reenable: false,
     cooldown_hours: 24,
-    require_manual_review: true,
     is_active: true
   });
 
@@ -82,7 +81,6 @@ export default function StrategyAutoDisableConfig() {
         threshold_count: rule.threshold_count,
         auto_reenable: rule.auto_reenable ?? false,
         cooldown_hours: rule.cooldown_hours ?? 24,
-        require_manual_review: rule.require_manual_review ?? true,
         is_active: rule.is_active ?? true
       });
     } else {
@@ -94,7 +92,6 @@ export default function StrategyAutoDisableConfig() {
         threshold_count: 5,
         auto_reenable: false,
         cooldown_hours: 24,
-        require_manual_review: true,
         is_active: true
       });
     }

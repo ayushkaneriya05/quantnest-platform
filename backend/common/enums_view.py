@@ -9,13 +9,13 @@ from rest_framework.response import Response
 from .enums import (
     StrategyType, MarketType, Exchange, InstrumentType, OptionType,
     OrderType, OrderStatus, Side, ProductType, StrategyStatus, StrategyVisibility,
-    CandleTimeframe, CandleCompletionRule, CandlePart, MarketSession,
+    CandleTimeframe, CandlePart, MarketSession,
     CandlePatternType,
     LogicalOperator, RuleType,
     OperandType,
     ComparisonOperator,
     QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
-    ExecutionStyle, AutoDisableTriggerType,
+    AutoDisableTriggerType,
     ViolationType, ViolationAction, Severity,
     TransactionType, RebalanceFrequency, Timezone, BacktestStatus,
     BrokerName
@@ -58,7 +58,7 @@ _ENUM_SOURCES = {
 
     # Candle / time
     'CandleTimeframe': CandleTimeframe,
-    'CandleCompletionRule': CandleCompletionRule,
+
     'CandlePart': CandlePart,
     'CandlePatternType': CandlePatternType,
     'MarketSession': MarketSession,
@@ -78,7 +78,7 @@ _ENUM_SOURCES = {
     'ExpiryType': ExpiryType,
 
     # Entry config
-    'ExecutionStyle': ExecutionStyle,
+
 
     # Risk management
     'AutoDisableTriggerType': AutoDisableTriggerType,

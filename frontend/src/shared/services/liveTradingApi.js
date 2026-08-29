@@ -11,7 +11,6 @@ export const liveTradingApi = {
   resumeSession: (id) => api.post(`${BASE_URL}/sessions/${id}/resume/`),
   stopSession: (id, payload = {}) => api.post(`${BASE_URL}/sessions/${id}/stop/`, payload),
   stopAllSessions: (payload = {}) => api.post(`${BASE_URL}/sessions/stop-all/`, payload),
-  runSessionOnce: (id, payload = {}) => api.post(`${BASE_URL}/sessions/${id}/run-once/`, payload),
   syncSession: (id, payload = {}) => api.post(`${BASE_URL}/sessions/${id}/sync/`, payload),
   updateAllocation: (id, payload) => api.post(`${BASE_URL}/sessions/${id}/update-allocation/`, payload),
   getOrders: () => api.get(`${BASE_URL}/orders/`),

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Instrument, WatchlistInstrument
+from .models import Instrument, WatchlistInstrument, ExecutionRoute
 
 
 @admin.register(Instrument)
@@ -16,3 +16,9 @@ class WatchlistInstrumentAdmin(admin.ModelAdmin):
     list_filter = ['strategy']
     autocomplete_fields = ['instrument', 'strategy']
     search_fields = ['instrument__sym_ticker', 'strategy__name']
+
+@admin.register(ExecutionRoute)
+class ExecutionRouteAdmin(admin.ModelAdmin):
+    list_display = ['watchlist_instrument','target_instrument', 'target_underlying_instrument', 'route_type', 'created_at']
+    list_filter = ['route_type']
+    autocomplete_fields = ['watchlist_instrument', 'target_instrument', 'target_underlying_instrument']

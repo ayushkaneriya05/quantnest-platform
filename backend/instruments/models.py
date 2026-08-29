@@ -2,11 +2,10 @@
 Instruments app - asset metadata, filtering, and option selection rules.
 """
 from django.db import models
-from django.conf import settings
 from common.models import BaseTimestampModel
 from common.enums import (
     Exchange, InstrumentType, OptionType, StrikeSelectionLogic, 
-    ExpiryType, ComparisonOperator, FyersSegment, ExchangeInstrumentType,
+    ExpiryType, FyersSegment, ExchangeInstrumentType,
     QuantityType
 )
 
@@ -242,10 +241,6 @@ class ExecutionRoute(BaseTimestampModel):
         max_digits=6, decimal_places=2, null=True, blank=True,
         help_text='For CAPITAL_BASED method: percent of portfolio capital to allocate'
     )
-    risk_per_trade_amount = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True,
-        help_text='For RISK_FIXED method: fixed rupee amount to risk per trade'
-    )
     risk_per_trade_percentage = models.DecimalField(
         max_digits=6, decimal_places=2, null=True, blank=True,
         help_text='For RISK_PERCENTAGE method: percent of portfolio capital to risk per trade'
@@ -261,7 +256,6 @@ class ExecutionRoute(BaseTimestampModel):
             "sizing_method": self.sizing_method,
             "fixed_quantity": self.fixed_quantity,
             "capital_percentage": self.capital_percentage,
-            "risk_per_trade_amount": self.risk_per_trade_amount,
             "risk_per_trade_percentage": self.risk_per_trade_percentage,
         }
 

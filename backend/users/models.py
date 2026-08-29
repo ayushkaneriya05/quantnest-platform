@@ -63,7 +63,7 @@ class APIKey(models.Model):
 
     @property
     def masked_key(self):
-        return f"{self.prefix}{'•' * 20}"
+        return f"{self.prefix}{'*' * 20}"
 
 
 class BackupCode(models.Model):

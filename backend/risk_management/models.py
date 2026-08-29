@@ -41,33 +41,9 @@ class PositionSizingRule(BaseTimestampModel):
     )
     
     # Risk-based sizing
-    risk_per_trade_amount = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True,
-        help_text="Fixed rupee amount to risk per trade"
-    )
     risk_per_trade_percentage = models.DecimalField(
         max_digits=5, decimal_places=2, default=1.00, null=True, blank=True,
         help_text="Percentage of capital to risk per trade"
-    )
-    
-    # Loss Recovery (Martingale)
-    loss_recovery_mode = models.BooleanField(
-        default=False,
-        help_text="Increase position size after a loss (Martingale)"
-    )
-    loss_recovery_multiplier = models.DecimalField(
-        max_digits=5, decimal_places=2, default=2.00,
-        help_text="Multiplier for position size after a loss"
-    )
-    
-    # Strategy Limits
-    max_daily_trades = models.PositiveIntegerField(
-        default=10,
-        help_text="Maximum number of trades per day for this strategy"
-    )
-    max_open_positions = models.PositiveIntegerField(
-        default=5,
-        help_text="Maximum concurrent open positions for this strategy"
     )
     
     class Meta:
@@ -167,7 +143,6 @@ class StrategyAutoDisable(BaseTimestampModel):
         default=24,
         help_text="Hours before auto re-enable"
     )
-    require_manual_review = models.BooleanField(default=True)
     
     is_active = models.BooleanField(default=True)
     

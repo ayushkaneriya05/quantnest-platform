@@ -16,6 +16,13 @@ class TradingSession(BaseTimestampModel):
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_sessions")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.CASCADE, related_name="live_sessions")
+    allocation = models.OneToOneField(
+        "live_trading.LiveStrategyAllocation",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="session",
+    )
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_sessions")
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
@@ -188,6 +195,26 @@ class LivePosition(BaseTimestampModel):
     class Meta:
         db_table = "live_position"
         unique_together = ["user", "strategy", "broker_credential", "instrument", "side"]
+
+
+class LiveTrade(BaseTimestampModel):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_trades")
+    strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_trades")
+    allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="trades")
+    broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_trades")
+    instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE, related_name="live_trades")
+    exit_order = models.ForeignKey(LiveOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name="closed_trades")
+    side = models.CharField(max_length=10, choices=Side.choices)
+    quantity = models.PositiveIntegerField()
+    entry_price = models.DecimalField(max_digits=12, decimal_places=4)
+    entry_time = models.DateTimeField()
+    exit_price = models.DecimalField(max_digits=12, decimal_places=4)
+    exit_time = models.DateTimeField()
+    realized_pnl = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = "live_trade"
+        ordering = ["-exit_time"]
 
 
 class ExecutionLog(BaseTimestampModel):

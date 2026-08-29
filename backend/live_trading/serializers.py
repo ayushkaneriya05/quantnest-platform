@@ -38,7 +38,12 @@ class TradingSessionSerializer(serializers.ModelSerializer):
         read_only_fields = ["started_at", "ended_at", "trades_count", "pnl", "error_message", "created_at", "updated_at"]
 
     def get_open_positions(self, obj):
-        return obj.strategy.live_positions.filter(user=obj.user).count()
+        if not obj.allocation_id:
+            return obj.strategy.live_positions.filter(user=obj.user).count()
+        return obj.strategy.live_positions.filter(
+            user=obj.user,
+            allocation_id=obj.allocation_id,
+        ).count()
 
     def get_active_orders(self, obj):
         return obj.orders.filter(status__in=["PENDING", "PLACED", "PARTIAL_FILL"]).count()
@@ -48,11 +53,7 @@ class TradingSessionSerializer(serializers.ModelSerializer):
         return bool(latest)
 
     def get_allocation(self, obj):
-        allocation = LiveStrategyAllocation.objects.filter(
-            user=obj.user,
-            strategy=obj.strategy,
-            broker_credential=obj.broker_credential,
-        ).first()
+        allocation = obj.allocation
         if not allocation:
             return None
         return {

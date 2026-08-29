@@ -1,6 +1,11 @@
 from django.contrib import admin
-from .models import PaperAccount, PaperPosition, PaperOrder, PaperTrade
+from .models import PaperAccount, PaperPosition, PaperOrder, PaperTrade, Portfolio
 
+@admin.register(Portfolio)
+class PortfolioAdmin(admin.ModelAdmin):
+    list_display = ['user', 'initial_capital', 'current_capital', 'created_at', 'updated_at']
+    search_fields = ['user__username']
+    readonly_fields = ['created_at', 'updated_at']
 
 @admin.register(PaperAccount)
 class PaperAccountAdmin(admin.ModelAdmin):

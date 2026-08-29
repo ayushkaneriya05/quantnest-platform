@@ -6,6 +6,7 @@ from django.dispatch import receiver
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from common.enums import NotificationType, Severity, OrderStatus, StrategyStatus
+from common.cache_keys import CacheKeys
 
 # Ensure these imports don't fail by avoiding circular dependencies.
 # We'll import models inside the receiver or use string-based signals where possible.
@@ -49,7 +50,7 @@ def handle_new_notification(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender="live_trading.LiveOrder")
 def handle_live_order_notifications(sender, instance, created, **kwargs):
-    cache_key = f"notification_live_order_{instance.id}_{instance.status}"
+    cache_key = CacheKeys.NOTIF_LIVE_ORDER.format(order_id=instance.id, status=instance.status)
     if cache.get(cache_key):
         return
 
@@ -119,7 +120,7 @@ def handle_live_order_notifications(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender="paper_trading.PaperOrder")
 def handle_paper_order_notifications(sender, instance, created, **kwargs):
-    cache_key = f"notification_paper_order_{instance.id}_{instance.status}"
+    cache_key = CacheKeys.NOTIF_PAPER_ORDER.format(order_id=instance.id, status=instance.status)
     if cache.get(cache_key):
         return
 
@@ -192,7 +193,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
 def handle_live_session_notifications(sender, instance, created, **kwargs):
     if instance.status != "ERROR":
         return
-    cache_key = f"notification_live_session_error_{instance.id}_{instance.updated_at}"
+    cache_key = CacheKeys.NOTIF_LIVE_SESSION_ERROR.format(session_id=instance.id, updated_at=instance.updated_at)
     if cache.get(cache_key):
         return
     NotificationService.notify(
@@ -211,7 +212,7 @@ def handle_live_session_notifications(sender, instance, created, **kwargs):
 def handle_paper_session_notifications(sender, instance, created, **kwargs):
     if instance.status != "ERROR":
         return
-    cache_key = f"notification_paper_session_error_{instance.id}_{instance.updated_at}"
+    cache_key = CacheKeys.NOTIF_PAPER_SESSION_ERROR.format(session_id=instance.id, updated_at=instance.updated_at)
     if cache.get(cache_key):
         return
     NotificationService.notify(
@@ -231,7 +232,7 @@ def handle_paper_account_notifications(sender, instance, created, **kwargs):
     if instance.initial_balance > 0:
         threshold = instance.initial_balance * Decimal('0.10')  # 10% remaining
         if instance.margin_available < threshold:
-            cache_key = f"risk_alert_paper_{instance.id}"
+            cache_key = CacheKeys.NOTIF_RISK_ALERT_PAPER.format(account_id=instance.id)
             if not cache.get(cache_key):
                 NotificationService.notify(
                     user=instance.user,
@@ -249,10 +250,9 @@ def handle_risk_violation_notifications(sender, instance, created, **kwargs):
     """Safety net: ensure RiskViolation records created outside service layer still trigger notifications."""
     if not created:
         return
-    cache_key = f"notification_risk_violation_{instance.id}"
+    cache_key = CacheKeys.NOTIF_RISK_VIOLATION.format(violation_id=instance.id)
     if cache.get(cache_key):
         return
-    # Only notify if the violation was NOT already dispatched by _record_violation.
     # We check if a matching notification was created in the last 5 seconds.
     from django.utils import timezone
     from datetime import timedelta

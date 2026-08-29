@@ -7,7 +7,7 @@ optimization, and Monte Carlo simulations.
 from django.db import models
 from django.conf import settings
 from common.models import BaseTimestampModel
-from common.enums import BacktestStatus, Side, CandleTimeframe
+from common.enums import BacktestStatus, Side
 
 
 class BacktestRun(BaseTimestampModel):

@@ -406,6 +406,7 @@ export default function ExitRulesBuilder() {
                                 onChangeParams={(v) => handleUpdateRule(group.id, rule.id, 'operand_a_params', v, type)}
                                 onChangeTimeframe={(v) => handleUpdateRule(group.id, rule.id, 'operand_a_timeframe', v, type)}
                                 placeholder="Select Data"
+                                ruleType={type}
                               />
 
                               <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
@@ -434,6 +435,7 @@ export default function ExitRulesBuilder() {
                                 onChangeParams={(v) => handleUpdateRule(group.id, rule.id, 'operand_b_params', v, type)}
                                 onChangeTimeframe={(v) => handleUpdateRule(group.id, rule.id, 'operand_b_timeframe', v, type)}
                                 placeholder="Compare To"
+                                ruleType={type}
                               />
                             </div>
 

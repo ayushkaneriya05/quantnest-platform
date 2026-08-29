@@ -85,6 +85,7 @@ def derive_protection_levels(strategy_config, side, entry_price):
         "target_rule_type": target_rule_types[0] if target_rule_types else None,
         "has_dynamic_stop": has_dynamic_stop,
         "has_dynamic_target": has_dynamic_target,
+        "sl_distance": sl_distance,
     }
 
 
@@ -185,6 +186,12 @@ def _derive_static_target_price(rule, side, entry_price, sl_distance):
         if isinstance(op_b_params, dict):
             val = to_float(op_b_params.get("value"), 0.0)
         distance = abs(val) if val != 0 else None
+    elif op_a == OperandType.POSITION_RR_RATIO:
+        val = 0.0
+        op_b_params = get_any_field(rule, "operand_b_params")
+        if isinstance(op_b_params, dict):
+            val = to_float(op_b_params.get("value"), 0.0)
+        distance = (sl_distance * abs(val)) if (sl_distance and sl_distance > 0 and val != 0) else None
 
     if distance is None:
         return None

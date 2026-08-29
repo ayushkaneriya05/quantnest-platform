@@ -124,7 +124,6 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
         sizing_method: route.sizing_method,
         fixed_quantity: route.fixed_quantity,
         capital_percentage: route.capital_percentage,
-        risk_per_trade_amount: route.risk_per_trade_amount,
         risk_per_trade_percentage: route.risk_per_trade_percentage,
       });
       setExpiryPreference(route.expiry_preference || 'NEAREST');
@@ -542,8 +541,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
                   <SelectContent>
                     <SelectItem value="FIXED">Fixed Quantity</SelectItem>
                     <SelectItem value="CAPITAL_BASED">Capital Based</SelectItem>
-                    <SelectItem value="RISK_FIXED">Risk (Fixed Amount)</SelectItem>
-                    <SelectItem value="RISK_PERCENTAGE">Risk (Percentage)</SelectItem>
+                    <SelectItem value="RISK_BASED">Risk Based (%)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -574,22 +572,9 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
                 </div>
               )}
               
-              {sizingConfig.sizing_method === 'RISK_FIXED' && (
+              {sizingConfig.sizing_method === 'RISK_BASED' && (
                 <div className="space-y-2 col-span-2 sm:col-span-1">
-                  <Label className="text-xs text-gray-400">Risk Amount (₹)</Label>
-                  <Input
-                    type="number"
-                    min="0" step="100"
-                    value={sizingConfig.risk_per_trade_amount || 1000}
-                    onChange={(e) => updateSizing('risk_per_trade_amount', e.target.value)}
-                    className="h-9 bg-gray-950 border-gray-800"
-                  />
-                </div>
-              )}
-
-              {sizingConfig.sizing_method === 'RISK_PERCENTAGE' && (
-                <div className="space-y-2 col-span-2 sm:col-span-1">
-                  <Label className="text-xs text-gray-400">Risk Percentage (%)</Label>
+                  <Label className="text-xs text-gray-400">Risk per Trade (%)</Label>
                   <Input
                     type="number"
                     min="0" max="100" step="0.1"

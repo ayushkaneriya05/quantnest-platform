@@ -81,7 +81,8 @@ class OrderSettings(BaseTimestampModel):
         db_table = "broker_order_settings"
 
     def __str__(self):
-        return f"Order Settings - {self.user.username}"
+        username = self.broker_credential.user.username if self.broker_credential and self.broker_credential.user else "Unknown"
+        return f"Order Settings - {username}"
 
 
 class OrderReconciliation(BaseTimestampModel):

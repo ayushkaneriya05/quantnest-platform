@@ -45,7 +45,6 @@ export default function TimeRulesEditor() {
     start_time: '09:15',
     end_time: '15:30',
     candle_timeframe: '5m',
-    candle_completion_rule: 'ON_CLOSE',
     timezone: 'Asia/Kolkata',
     avoid_earnings: false,
     avoid_news: false,
@@ -84,7 +83,6 @@ export default function TimeRulesEditor() {
           start_time: rule.start_time || '09:15',
           end_time: rule.end_time || '15:30',
           candle_timeframe: rule.candle_timeframe || '5m',
-          candle_completion_rule: rule.candle_completion_rule || 'ON_CLOSE',
           timezone: rule.timezone || 'Asia/Kolkata',
           no_trade_windows: rule.no_trade_windows || [],
         }));
@@ -124,7 +122,6 @@ export default function TimeRulesEditor() {
         start_time: formData.start_time,
         end_time: formData.end_time,
         candle_timeframe: formData.candle_timeframe,
-        candle_completion_rule: formData.candle_completion_rule,
         timezone: formData.timezone,
         no_trade_windows: formData.no_trade_windows.filter(w => w.start && w.end),
       };
@@ -315,24 +312,9 @@ export default function TimeRulesEditor() {
             </div>
           </div>
           
-          {/* Candle completion & timezone row */}
+          {/* timezone row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-gray-500">Candle Completion</Label>
-              <Select 
-                value={formData.candle_completion_rule} 
-                onValueChange={(v) => setFormData({ ...formData, candle_completion_rule: v })}
-              >
-                <SelectTrigger className="bg-gray-800/60 border-gray-700 h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(enums.CandleCompletionRule || []).map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+
             <div className="space-y-1.5">
               <Label className="text-xs text-gray-500">Timezone</Label>
               <Select 

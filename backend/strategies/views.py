@@ -4,19 +4,17 @@ Views for the strategies app.
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
 from brokers.models import BrokerCredential
 from live_trading.services import LiveExecutionService
 from paper_trading.services import PortfolioService
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
-from paper_trading.serializers import PaperAccountSerializer
-from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig, ReEntryRule
+from .models import Strategy, StrategyTag, EntryOrderConfig, ExitOrderConfig
 from .serializers import (
     StrategyListSerializer, StrategyDetailSerializer, StrategyCreateSerializer,
     StrategyVersionSerializer, StrategyTagSerializer,
-    EntryOrderConfigSerializer, ExitOrderConfigSerializer, ReEntryRuleSerializer
+    EntryOrderConfigSerializer, ExitOrderConfigSerializer
 )
-from .services import StrategySnapshotService
+from .services import StrategySnapshotService, StrategyDeploymentService
 
 
 class StrategyTagViewSet(viewsets.ModelViewSet):
@@ -77,63 +75,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
 
-    def _activate_for_deployment(self, strategy):
-        update_fields = []
-        if strategy.status != 'ACTIVE':
-            strategy.status = 'ACTIVE'
-            update_fields.append('status')
-        if update_fields:
-            strategy.save(update_fields=[*update_fields, 'updated_at'])
-        return strategy
-
-    def _deployment_errors(self, strategy, mode='paper'):
-        errors = []
-        if not strategy.watchlist_instruments.exists():
-            errors.append('Add at least one instrument to the strategy watchlist.')
-
-        active_entry_groups = strategy.rule_groups.filter(rule_type='ENTRY', is_active=True).prefetch_related('rules')
-        if not active_entry_groups.exists():
-            errors.append('Add at least one active entry rule group.')
-        elif not active_entry_groups.filter(rules__is_active=True).exists():
-            errors.append('Every deployable strategy needs at least one active entry rule.')
-
-        empty_active_groups = [
-            group.name or f'Group #{group.id}'
-            for group in active_entry_groups
-            if not group.rules.filter(is_active=True).exists()
-        ]
-        if empty_active_groups:
-            errors.append(f"Remove or complete empty active entry groups: {', '.join(empty_active_groups)}.")
-
-        if not hasattr(strategy, 'position_sizing_rule'):
-            errors.append('Configure position sizing before deployment.')
-        else:
-            sizing = strategy.position_sizing_rule
-            if sizing.max_daily_trades < 1:
-                errors.append('Max daily trades must be at least 1.')
-            if sizing.max_open_positions < 1:
-                errors.append('Max open positions must be at least 1.')
-
-            if sizing.sizing_method in {'RISK_FIXED', 'RISK_PERCENTAGE'} and not self._has_static_stop_distance(strategy):
-                errors.append('Risk-based sizing requires a fixed, trailing, or emergency stop-loss distance.')
-
-        has_stop_loss = strategy.rule_groups.filter(
-            rule_type='STOP_LOSS',
-            is_active=True,
-            rules__is_active=True,
-        ).exists()
-        if mode == 'live' and not has_stop_loss:
-            errors.append('Live deployment requires at least one active stop-loss rule.')
-
-        return errors
-
-    def _has_static_stop_distance(self, strategy):
-        for group in strategy.rule_groups.filter(rule_type='STOP_LOSS', is_active=True).prefetch_related('rules'):
-            for rule in group.rules.filter(is_active=True):
-                if rule.operand_a_type in ['POSITION_PNL_POINTS', 'POSITION_PNL_PERCENTAGE', 'TRAILING_PEAK_OFFSET'] and rule.operand_b_type == 'CONSTANT':
-                    return True
-        return False
-
     @action(detail=True, methods=['post'])
     def clone(self, request, pk=None):
         """Clone an existing strategy."""
@@ -161,23 +102,13 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 defaults={
                     'entry_side': config.entry_side,
                     'entry_group_operator': config.entry_group_operator,
-                    'execution_style': config.execution_style,
+                    'order_type': config.order_type,
                     'price_offset': config.price_offset,
-                    'allow_partial_entry': config.allow_partial_entry,
-                    'entry_cooldown_seconds': config.entry_cooldown_seconds,
+                    'cooldown_seconds': config.cooldown_seconds,
                 }
             )
 
-        if hasattr(original, 'reentry_rule'):
-            config = original.reentry_rule
-            ReEntryRule.objects.update_or_create(
-                strategy=new_strategy,
-                defaults={
-                    'allow_reentry': config.allow_reentry,
-                    'reentry_cooldown_seconds': config.reentry_cooldown_seconds,
-                    'allow_reverse_entry': config.allow_reverse_entry,
-                }
-            )
+
 
         # Clone exit config
         if hasattr(original, 'exit_order_config'):
@@ -198,12 +129,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     'sizing_method': sizing.sizing_method,
                     'fixed_quantity': sizing.fixed_quantity,
                     'capital_percentage': sizing.capital_percentage,
-                    'risk_per_trade_amount': sizing.risk_per_trade_amount,
                     'risk_per_trade_percentage': sizing.risk_per_trade_percentage,
-                    'max_daily_trades': sizing.max_daily_trades,
-                    'max_open_positions': sizing.max_open_positions,
-                    'loss_recovery_mode': sizing.loss_recovery_mode,
-                    'loss_recovery_multiplier': sizing.loss_recovery_multiplier,
                 }
             )
 
@@ -216,7 +142,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 threshold_count=auto_disable_rule.threshold_count,
                 auto_reenable=auto_disable_rule.auto_reenable,
                 cooldown_hours=auto_disable_rule.cooldown_hours,
-                require_manual_review=auto_disable_rule.require_manual_review,
                 is_active=auto_disable_rule.is_active,
             )
 
@@ -237,10 +162,10 @@ class StrategyViewSet(viewsets.ModelViewSet):
     def deploy_paper(self, request, pk=None):
         strategy = self.get_object()
         try:
-            errors = self._deployment_errors(strategy, mode='paper')
+            errors = StrategyDeploymentService.validate_for_deployment(strategy, mode='paper')
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
-            self._activate_for_deployment(strategy)
+            StrategyDeploymentService.activate_for_deployment(strategy)
             if not strategy.paper_trading_enabled:
                 strategy.paper_trading_enabled = True
                 strategy.save(update_fields=['paper_trading_enabled', 'updated_at'])
@@ -304,10 +229,10 @@ class StrategyViewSet(viewsets.ModelViewSet):
         broker_credential = None
         broker_credential_id = request.data.get('broker_credential')
         try:
-            errors = self._deployment_errors(strategy, mode='live')
+            errors = StrategyDeploymentService.validate_for_deployment(strategy, mode='live')
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
-            self._activate_for_deployment(strategy)
+            StrategyDeploymentService.activate_for_deployment(strategy)
             if broker_credential_id:
                 broker_credential = BrokerCredential.objects.get(
                     id=broker_credential_id,
@@ -325,6 +250,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 {
                     'strategy': StrategyDetailSerializer(strategy, context={'request': request}).data,
                     'session_id': session.id,
+                    'allocation_id': session.allocation_id,
                     'broker_credential': session.broker_credential_id,
                     'status': session.status,
                     'message': 'Strategy deployed to live trading',
@@ -410,9 +336,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
         if not hasattr(obj, 'entry_order_config'):
             EntryOrderConfig.objects.create(strategy=obj)
 
-        # Ensure ReEntryRule exists
-        if not hasattr(obj, 'reentry_rule'):
-            ReEntryRule.objects.create(strategy=obj)
 
         # Ensure ExitOrderConfig exists
         if not hasattr(obj, 'exit_order_config'):
@@ -450,84 +373,25 @@ class StrategyViewSet(viewsets.ModelViewSet):
         """
         strategy = self.get_object()
 
-        if strategy.status == 'ARCHIVED':
+        try:
+            from .services import StrategyLifecycleService
+            result = StrategyLifecycleService.halt_and_archive(strategy, request.user)
+            return Response(result)
+        except ValueError as e:
             return Response(
-                {'error': 'Strategy is already archived'},
+                {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        from live_trading.models import TradingSession, LivePosition
-        from live_trading.services import LiveExecutionService
-        from django.utils import timezone
-        active_sessions = list(TradingSession.objects.filter(
-            strategy=strategy,
-            status__in=['RUNNING', 'PAUSED']
-        ).select_related('broker_credential'))
-
-        closed_positions = 0
-        open_positions = LivePosition.objects.filter(
-            strategy=strategy,
-            quantity__gt=0
-        ).select_related('instrument', 'broker_credential')
-
-        for position in open_positions:
-            session = next(
-                (
-                    item for item in active_sessions
-                    if item.broker_credential_id == position.broker_credential_id
-                ),
-                active_sessions[0] if active_sessions else None,
+        except RuntimeError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_409_CONFLICT
             )
-            if not session:
-                return Response(
-                    {'error': f'No active live session found to close position {position.id}'},
-                    status=status.HTTP_409_CONFLICT,
-                )
-
-            exit_side = 'SELL' if position.side == 'BUY' else 'BUY'
-            order = LiveExecutionService.place_order(
-                session=session,
-                instrument=position.instrument,
-                side=exit_side,
-                quantity=position.quantity,
-                order_type='MARKET',
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-            import time
-            for _ in range(5):
-                LiveExecutionService.sync_orders_from_broker(
-                    request.user,
-                    credential=session.broker_credential,
-                    force=True,
-                )
-                order.refresh_from_db()
-                if order.status == 'FILLED':
-                    break
-                time.sleep(1)
-            if order.status != 'FILLED':
-                return Response(
-                    {
-                        'error': f'Close order {order.id} for position {position.id} is {order.status}; archive aborted.',
-                        'order_id': order.id,
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
-            closed_positions += 1
-
-        for session in active_sessions:
-            session.status = 'STOPPED'
-            session.ended_at = timezone.now()
-            session.save(update_fields=['status', 'ended_at', 'updated_at'])
-
-        # Archive the strategy
-        strategy.status = 'ARCHIVED'
-        strategy.save(update_fields=['status', 'updated_at'])
-
-        return Response({
-            'status': 'archived',
-            'sessions_stopped': len(active_sessions),
-            'positions_closing': closed_positions,
-            'message': f"Strategy '{strategy.name}' archived after closing {closed_positions} live position(s)."
-        })
 
     @action(detail=True, methods=['get'], url_path='tunable-parameters')
     def tunable_parameters(self, request, pk=None):
@@ -547,14 +411,6 @@ class EntryOrderConfigViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return EntryOrderConfig.objects.filter(strategy__user=self.request.user)
 
-
-class ReEntryRuleViewSet(viewsets.ModelViewSet):
-    """ViewSet for re-entry rules."""
-    serializer_class = ReEntryRuleSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return ReEntryRule.objects.filter(strategy__user=self.request.user)
 
 
 class ExitOrderConfigViewSet(viewsets.ModelViewSet):

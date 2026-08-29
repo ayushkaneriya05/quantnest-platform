@@ -1,17 +1,21 @@
 from decimal import Decimal
 from rest_framework import serializers
-from common.enums import ProductType
 from .models import (
     PaperAccount, PaperPosition, PaperOrder, PaperTrade,
     Portfolio, CapitalAllocation, FundTransaction,
-    ExposureSnapshot, DailyPerformance, PaperTradingSession
+    DailyPerformance, PaperTradingSession
 )
 from strategies.models import StrategyVersion
 
 
 class PortfolioSerializer(serializers.ModelSerializer):
-    total_value = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
-    current_drawdown = serializers.DecimalField(max_digits=5, decimal_places=2, read_only=True)
+    total_value = serializers.SerializerMethodField()
+    current_drawdown = serializers.SerializerMethodField()
+    invested_value = serializers.SerializerMethodField()
+    realized_pnl = serializers.SerializerMethodField()
+    unrealized_pnl = serializers.SerializerMethodField()
+    today_pnl = serializers.SerializerMethodField()
+    today_trades = serializers.SerializerMethodField()
     allocations = serializers.SerializerMethodField()
     
     class Meta:
@@ -33,15 +37,39 @@ class PortfolioSerializer(serializers.ModelSerializer):
                 "strategy_name": allocation.strategy.name,
                 "allocated_amount": allocation.allocated_amount,
                 "allocated_percentage": allocation.allocated_percentage,
-                "utilized_amount": allocation.utilized_amount,
-                "total_pnl": allocation.total_pnl,
-                "today_pnl": allocation.today_pnl,
+                "utilized_amount": str(allocation.utilized_amount),
+                "total_pnl": str(allocation.total_pnl),
+                "today_pnl": str(allocation.today_pnl),
             }
             for allocation in allocations
         ]
 
+    def get_total_value(self, obj):
+        return obj.total_value
+
+    def get_current_drawdown(self, obj):
+        return obj.current_drawdown
+
+    def get_invested_value(self, obj):
+        return obj.invested_value
+
+    def get_realized_pnl(self, obj):
+        return obj.realized_pnl
+
+    def get_unrealized_pnl(self, obj):
+        return obj.unrealized_pnl
+
+    def get_today_pnl(self, obj):
+        return obj.today_pnl
+
+    def get_today_trades(self, obj):
+        return obj.today_trades
+
 
 class CapitalAllocationSerializer(serializers.ModelSerializer):
+    utilized_amount = serializers.SerializerMethodField()
+    total_pnl = serializers.SerializerMethodField()
+    today_pnl = serializers.SerializerMethodField()
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     available_amount = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     deployed_version = serializers.PrimaryKeyRelatedField(
@@ -61,6 +89,15 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
             'rebalance_frequency', 'last_rebalance',
             'deployed_version', 'deployed_version_detail'
         ]
+
+    def get_utilized_amount(self, obj):
+        return obj.utilized_amount
+
+    def get_total_pnl(self, obj):
+        return obj.total_pnl
+
+    def get_today_pnl(self, obj):
+        return obj.today_pnl
 
     def get_deployed_version_detail(self, obj):
         if obj.deployed_version:
@@ -149,17 +186,6 @@ class FundTransactionSerializer(serializers.ModelSerializer):
         read_only_fields = ['balance_before', 'balance_after', 'created_at']
 
 
-class ExposureSnapshotSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ExposureSnapshot
-        fields = [
-            'id', 'snapshot_time', 'total_exposure', 'exposure_percentage',
-            'long_exposure', 'short_exposure', 'net_exposure',
-            'exposure_by_asset_type', 'exposure_by_sector', 'exposure_by_strategy',
-            'open_positions_count'
-        ]
-
-
 class DailyPerformanceSerializer(serializers.ModelSerializer):
     win_rate = serializers.DecimalField(max_digits=5, decimal_places=2, read_only=True)
     
@@ -167,16 +193,17 @@ class DailyPerformanceSerializer(serializers.ModelSerializer):
         model = DailyPerformance
         fields = [
             'id', 'date', 'opening_capital', 'closing_capital',
-            'realized_pnl', 'unrealized_pnl', 'total_pnl', 'pnl_percentage',
+            'total_pnl', 'pnl_percentage',
             'trades_count', 'winning_trades', 'losing_trades', 'win_rate',
-            'brokerage_paid', 'taxes_paid',
-            'max_exposure', 'avg_exposure'
+            'brokerage_paid', 'taxes_paid'
         ]
 
 
 class PaperTradingSessionSerializer(serializers.ModelSerializer):
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     is_active = serializers.SerializerMethodField()
+    trades_count = serializers.SerializerMethodField()
+    pnl = serializers.SerializerMethodField()
 
     class Meta:
         model = PaperTradingSession
@@ -190,12 +217,25 @@ class PaperTradingSessionSerializer(serializers.ModelSerializer):
     def get_is_active(self, obj):
         return obj.status == "RUNNING"
 
+    def get_trades_count(self, obj):
+        return obj.account.trades.count()
+
+    def get_pnl(self, obj):
+        return obj.account.total_pnl
+
 
 class PaperAccountSerializer(serializers.ModelSerializer):
-    strategy_name = serializers.CharField(source='allocation.strategy.name', read_only=True)
-    strategy = serializers.IntegerField(source='allocation.strategy.id', read_only=True)
+    strategy_name = serializers.SerializerMethodField()
+    strategy = serializers.SerializerMethodField()
     session_status = serializers.SerializerMethodField()
     session_id = serializers.SerializerMethodField()
+    total_pnl = serializers.SerializerMethodField()
+    realized_pnl = serializers.SerializerMethodField()
+    unrealized_pnl = serializers.SerializerMethodField()
+    today_pnl = serializers.SerializerMethodField()
+    today_trades = serializers.SerializerMethodField()
+    margin_used = serializers.SerializerMethodField()
+    margin_available = serializers.SerializerMethodField()
 
     class Meta:
         model = PaperAccount
@@ -211,9 +251,36 @@ class PaperAccountSerializer(serializers.ModelSerializer):
         session = obj.sessions.first()
         return session.status if session else "STOPPED"
 
+    def get_strategy_name(self, obj):
+        return obj.allocation.strategy.name if obj.allocation else None
+
+    def get_strategy(self, obj):
+        return obj.allocation.strategy_id if obj.allocation else None
+
     def get_session_id(self, obj):
         session = obj.sessions.first()
         return session.id if session else None
+
+    def get_total_pnl(self, obj):
+        return obj.total_pnl
+
+    def get_realized_pnl(self, obj):
+        return obj.realized_pnl
+
+    def get_unrealized_pnl(self, obj):
+        return obj.unrealized_pnl
+
+    def get_today_pnl(self, obj):
+        return obj.today_pnl
+
+    def get_today_trades(self, obj):
+        return obj.today_trades
+
+    def get_margin_used(self, obj):
+        return obj.margin_used
+
+    def get_margin_available(self, obj):
+        return obj.margin_available
 
 
 class PaperPositionSerializer(serializers.ModelSerializer):

@@ -16,7 +16,6 @@ router.register(r'trades', views.PaperTradeViewSet, basename='paper-trade')
 router.register(r'portfolios', views.PortfolioViewSet, basename='portfolio')
 router.register(r'allocations', views.CapitalAllocationViewSet, basename='allocation')
 router.register(r'transactions', views.FundTransactionViewSet, basename='transaction')
-router.register(r'exposure', views.ExposureSnapshotViewSet, basename='exposure')
 router.register(r'performance', views.DailyPerformanceViewSet, basename='performance')
 
 urlpatterns = [

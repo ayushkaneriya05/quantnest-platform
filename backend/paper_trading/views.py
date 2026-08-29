@@ -1,18 +1,17 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-
-from strategies.models import Strategy
+from common.enums import CapitalAllocationType
 from .models import (
     PaperAccount, PaperPosition, PaperOrder, PaperTrade,
-    Portfolio, CapitalAllocation, FundTransaction, ExposureSnapshot, DailyPerformance,
+    Portfolio, CapitalAllocation, FundTransaction, DailyPerformance,
     PaperTradingSession
 )
 from .serializers import (
     PaperAccountSerializer, PaperPositionSerializer,
     PaperOrderSerializer, PaperTradeSerializer,
     PortfolioSerializer, CapitalAllocationSerializer,
-    FundTransactionSerializer, ExposureSnapshotSerializer,
+    FundTransactionSerializer,
     DailyPerformanceSerializer, PaperTradingSessionSerializer
 )
 from .services import PaperExecutionService, PortfolioService
@@ -96,13 +95,6 @@ class PortfolioViewSet(viewsets.ModelViewSet):
         data = DailyPerformance.objects.filter(portfolio=portfolio).order_by('date')
         return Response(DailyPerformanceSerializer(data, many=True).data)
 
-    @action(detail=False, methods=['get'])
-    def exposure_history(self, request):
-        portfolio = PortfolioService.get_or_create_portfolio(request.user)
-        data = ExposureSnapshot.objects.filter(portfolio=portfolio).order_by('-snapshot_time')[:200]
-        return Response(ExposureSnapshotSerializer(data, many=True).data)
-
-
 class CapitalAllocationViewSet(viewsets.ModelViewSet):
     """ViewSet for capital allocations."""
     serializer_class = CapitalAllocationSerializer
@@ -141,7 +133,7 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         alloc_type = serializer.validated_data.get('allocation_type', instance.allocation_type)
         deployed_version_id = request.data.get('deployed_version_id')
 
-        if alloc_type == 'FIXED':
+        if alloc_type == CapitalAllocationType.FIXED:
             val = serializer.validated_data.get('allocated_amount', instance.allocated_amount)
         else:
             val = serializer.validated_data.get('allocated_percentage', instance.allocated_percentage)
@@ -229,13 +221,8 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         allocation.deployed_version = version
         allocation.save(update_fields=['deployed_version', 'updated_at'])
 
-        # Update execution cache with version config
-        from django.core.cache import cache
-        cache.set(
-            f"strategy_version_config_{version.id}",
-            version.config_snapshot,
-            timeout=None
-        )
+        for session in allocation.paper_sessions.filter(status="RUNNING"):
+            PaperExecutionService._publish_execution_event("VERSION_CHANGE", session, "paper")
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)
@@ -248,23 +235,6 @@ class FundTransactionViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return FundTransaction.objects.filter(portfolio__user=self.request.user)
-
-
-class ExposureSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for exposure snapshots."""
-    serializer_class = ExposureSnapshotSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return ExposureSnapshot.objects.filter(portfolio__user=self.request.user)
-
-    @action(detail=False, methods=['get'])
-    def latest(self, request):
-        """Get latest exposure snapshot."""
-        snapshot = self.get_queryset().first()
-        if snapshot:
-            return Response(self.get_serializer(snapshot).data)
-        return Response({})
 
 
 class DailyPerformanceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -418,13 +388,6 @@ class PaperOrderViewSet(viewsets.ReadOnlyModelViewSet):
         return PaperOrder.objects.filter(
             account__user=self.request.user
         ).select_related('instrument', 'strategy')
-
-    @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
-        order = PaperExecutionService.cancel_pending_order(pk)
-        if order:
-            return Response(self.get_serializer(order).data)
-        return Response({'error': 'Order not found or not pending'}, status=400)
 
 
 class PaperTradeViewSet(viewsets.ReadOnlyModelViewSet):

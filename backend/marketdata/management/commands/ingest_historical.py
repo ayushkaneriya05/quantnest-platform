@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from django.core.management.base import BaseCommand
 from instruments.models import Instrument
-from marketdata.services import FyersHistoricalDataService
+from marketdata.services import MarketDataService
 
 class Command(BaseCommand):
     help = 'Ingest historical candle data from Fyers into Timescale/PostgreSQL'
@@ -64,7 +64,7 @@ class Command(BaseCommand):
         total_upserted = 0
         for symbol in symbols:
             self.stdout.write(f"  Fetching {symbol}...")
-            candles = FyersHistoricalDataService.fetch_and_store(symbol, date_from, date_to, timeframe=timeframe)
+            candles = MarketDataService.backfill_candles_from_broker(symbol, date_from, date_to, timeframe=timeframe)
             
             if candles:
                 count = len(candles)

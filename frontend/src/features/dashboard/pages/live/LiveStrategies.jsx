@@ -441,21 +441,7 @@ export default function LiveStrategies() {
                       >
                         <RotateCw className="mr-2 h-3 w-3" /> Sync Orders
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-gray-700 text-gray-200 h-8 bg-gray-900/50 hover:bg-gray-800"
-                        onClick={() =>
-                          runAction(
-                            `run-${session.id}`,
-                            () => liveTradingApi.runSessionOnce(session.id),
-                            "Manual cycle executed",
-                          )
-                        }
-                        disabled={busyAction === `run-${session.id}`}
-                      >
-                        <Zap className="mr-2 h-3 w-3" /> Run Once
-                      </Button>
+
                     </div>
                   </div>
 

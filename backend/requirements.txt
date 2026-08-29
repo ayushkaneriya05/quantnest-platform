@@ -39,3 +39,5 @@ fyers-apiv3
 python-dateutil
 
 pandas-ta
+numba 
+pyzmq

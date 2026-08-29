@@ -83,6 +83,16 @@ class Side(models.TextChoices):
     SELL = 'SELL', 'Sell'
 
 
+class TradePhase(models.TextChoices):
+    """Execution phase of a trade."""
+    FLAT = 'FLAT', 'Flat'
+    ENTRY_PENDING = 'ENTRY_PENDING', 'Entry Pending'
+    OPEN = 'OPEN', 'Open'
+    PARTIAL_EXIT_PENDING = 'PARTIAL_EXIT_PENDING', 'Partial Exit Pending'
+    EXIT_PENDING = 'EXIT_PENDING', 'Exit Pending'
+    CLOSED = 'CLOSED', 'Closed'
+
+
 class ProductType(models.TextChoices):
     """Broker product type (aligned with Fyers API)."""
     CNC = 'CNC', 'Cash and Carry (Equity delivery)'
@@ -120,11 +130,7 @@ class CandleTimeframe(models.TextChoices):
     W1 = '1W', '1 Week'
 
 
-class CandleCompletionRule(models.TextChoices):
-    """When to evaluate candle-based rules."""
-    ON_CLOSE = 'ON_CLOSE', 'On Candle Close'
-    ON_OPEN = 'ON_OPEN', 'On Candle Open'
-    REAL_TIME = 'REAL_TIME', 'Real-time Tick'
+
 
 
 class CandlePart(models.TextChoices):
@@ -227,7 +233,7 @@ class OperandType(models.TextChoices):
     POSITION_PNL_POINTS = 'POSITION_PNL_POINTS', 'Position PnL Points'
     TRAILING_PEAK_OFFSET = 'TRAILING_PEAK_OFFSET', 'Trailing Peak Offset'
     ENTRY_PRICE = 'ENTRY_PRICE', 'Entry Price'
-    TIME_DECAY = 'TIME_DECAY', 'Time Decay Exit'
+    POSITION_RR_RATIO = 'POSITION_RR_RATIO', 'Position Risk:Reward Ratio'
 
     # Math/Constant
     CONSTANT = 'CONSTANT', 'Constant Value'
@@ -241,24 +247,14 @@ class ComparisonOperator(models.TextChoices):
     LESS_EQUAL = 'LTE', 'Less Than or Equal'
     CROSSES_ABOVE = 'CROSSES_ABOVE', 'Crosses Above'
     CROSSES_BELOW = 'CROSSES_BELOW', 'Crosses Below'
+    NOT_EQUAL = 'NEQ', 'Not Equal To'
 
 
 class QuantityType(models.TextChoices):
-    """Position sizing method."""
+    """How position quantity is determined."""
     FIXED = 'FIXED', 'Fixed Quantity'
     CAPITAL_BASED = 'CAPITAL_BASED', 'Capital Based'
-    RISK_FIXED = 'RISK_FIXED', 'Risk Based (Fixed Amount)'
-    RISK_PERCENTAGE = 'RISK_PERCENTAGE', 'Risk Based (% of Capital)'
-    VOLATILITY_ADJUSTED = 'VOLATILITY_ADJUSTED', 'Volatility Adjusted (ATR)'
-
-
-class ExecutionStyle(models.TextChoices):
-    """Unified entry execution logic."""
-    LTP = 'LTP', 'Market (Instant)'
-    MARKET_AT_CLOSE = 'MARKET_AT_CLOSE', 'Market at Close'
-    LIMIT_OFFSET = 'LIMIT_OFFSET', 'Limit with Offset'
-    STOP_BREAKOUT = 'STOP_BREAKOUT', 'Stop at Breakout'
-    AT_OPEN = 'AT_OPEN', 'Market at Next Open'
+    RISK_BASED = 'RISK_BASED', 'Risk Based (%)'
 
 
 class CapitalAllocationType(models.TextChoices):

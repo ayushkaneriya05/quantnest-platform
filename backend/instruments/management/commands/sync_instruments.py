@@ -7,12 +7,13 @@ Usage:
     py manage.py sync_instruments --delete-stale
 """
 import logging
+import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 import requests
 from django.core.management.base import BaseCommand
-from django.db import transaction, IntegrityError
+from django.db import transaction
 
 from instruments.models import Instrument
 
@@ -77,6 +78,18 @@ INST_TYPE_MAP = {
     36: "COMMODITY",
     37: "COMMODITY",
 }
+
+# All data fields that map_entry produces (excluding sym_ticker which is the lookup key)
+SYNC_FIELDS = [
+    'fy_token', 'exchange_token', 'symbol', 'name', 'short_name', 'display_name',
+    'description', 'isin', 'exchange', 'segment', 'series', 'ex_inst_type',
+    'instrument_type', 'option_type', 'currency_code', 'strike_price', 'expiry_date',
+    'underlying_symbol', 'underlying_fy_token', 'lot_size', 'tick_size', 'qty_freeze',
+    'qty_multiplier', 'face_value', 'circuit_limit_upper', 'circuit_limit_lower',
+    'trading_session', 'previous_close', 'previous_oi', 'is_mtf_tradable', 'mtf_margin',
+    'asm_gsm_flag', 'has_options', 'has_futures', 'stream', 'is_tradeable', 'is_active',
+    'last_sync_date',
+]
 
 
 def _safe_decimal(value, default=None):
@@ -174,27 +187,6 @@ def map_entry(sym_ticker, data):
     }
 
 
-def _has_business_references(instrument):
-    for relation in instrument._meta.related_objects:
-        if relation.related_model._meta.label == "marketdata.Candle":
-            continue
-        accessor = relation.get_accessor_name()
-        if not accessor:
-            continue
-        try:
-            related = getattr(instrument, accessor)
-            if hasattr(related, "exists") and related.exists():
-                return True
-            if hasattr(related, "all") and related.all().exists():
-                return True
-        except relation.related_model.DoesNotExist:
-            continue
-        except Exception:
-            logger.debug("Could not inspect relation %s for %s", accessor, instrument)
-            return True
-    return False
-
-
 class Command(BaseCommand):
     help = "Sync instrument master data from Fyers public JSON files"
 
@@ -226,6 +218,18 @@ class Command(BaseCommand):
         total_deactivated = 0
         total_errors = 0
 
+        # Prefetch ALL existing instruments once for the entire run.
+        # This avoids re-querying 200K+ rows before every source file.
+        t0 = time.monotonic()
+        existing_qs = Instrument.objects.values_list('id', 'sym_ticker', 'fy_token')
+        existing_by_ticker = {}
+        existing_by_token = {}
+        for row_id, sym_ticker, fy_token in existing_qs.iterator(chunk_size=10000):
+            rec = {'id': row_id, 'sym_ticker': sym_ticker, 'fy_token': fy_token}
+            existing_by_ticker[sym_ticker] = rec
+            existing_by_token[fy_token] = rec
+        self.stdout.write(f"  Prefetched {len(existing_by_ticker)} existing instruments in {time.monotonic() - t0:.1f}s")
+
         for source_key in sources:
             url = SOURCES[source_key]
             self.stdout.write(f"\nSyncing {source_key} from {url}")
@@ -244,12 +248,21 @@ class Command(BaseCommand):
                 continue
 
             self.stdout.write(f"  Downloaded {len(data)} entries")
-            created, updated, errors, synced_tokens = self._sync_source(data, dry_run)
+
+            t1 = time.monotonic()
+            created, updated, errors, synced_tokens = self._sync_source(
+                data, dry_run, existing_by_ticker, existing_by_token,
+            )
+            self.stdout.write(f"  Synced in {time.monotonic() - t1:.1f}s")
 
             deleted = 0
             deactivated = 0
             if delete_stale and not dry_run and synced_tokens and source_key in SOURCE_FILTERS:
-                deleted, deactivated = self._cleanup_stale_source(source_key, synced_tokens)
+                t2 = time.monotonic()
+                deleted, deactivated = self._cleanup_stale_source(
+                    source_key, synced_tokens, existing_by_ticker, existing_by_token,
+                )
+                self.stdout.write(f"  Stale cleanup in {time.monotonic() - t2:.1f}s")
 
             prefix = "[DRY RUN] " if dry_run else ""
             self.stdout.write(self.style.SUCCESS(
@@ -268,11 +281,14 @@ class Command(BaseCommand):
             f"{total_deleted} deleted, {total_deactivated} deactivated, {total_errors} errors"
         ))
 
-    def _sync_source(self, data, dry_run):
+    def _sync_source(self, data, dry_run, existing_by_ticker, existing_by_token):
         created = 0
         updated = 0
         errors = 0
         synced_tokens = set()
+
+        stale_updates = []
+        all_instruments = []  # Single list for upsert
 
         for sym_ticker, entry in data.items():
             try:
@@ -284,68 +300,190 @@ class Command(BaseCommand):
 
                 mapped["fy_token"] = fy_token
                 mapped.pop("sym_ticker", None)
-
                 synced_tokens.add(fy_token)
-                if dry_run:
+
+                # Handle fy_token recycled by the exchange to a different sym_ticker
+                existing_token_row = existing_by_token.get(fy_token)
+                if existing_token_row and existing_token_row['sym_ticker'] != sym_ticker:
+                    stale_id = existing_token_row['id']
+                    new_stale_token = f"STALE_{stale_id}_{fy_token}"[:30]
+                    stale_inst = Instrument(id=stale_id, fy_token=new_stale_token, is_active=False)
+                    stale_updates.append(stale_inst)
+
+                    # Update memory maps so subsequent iterations don't collide
+                    del existing_by_token[fy_token]
+                    existing_token_row['fy_token'] = new_stale_token
+                    existing_by_token[new_stale_token] = existing_token_row
+
+                # Count creates vs updates for reporting
+                existing_ticker_row = existing_by_ticker.get(sym_ticker)
+                if existing_ticker_row:
+                    updated += 1
+                else:
                     created += 1
+
+                if dry_run:
                     continue
 
-                try:
-                    _, was_created = Instrument.objects.update_or_create(
-                        sym_ticker=sym_ticker,
-                        defaults=mapped,
-                    )
-                    if was_created:
-                        created += 1
-                    else:
-                        updated += 1
-                except IntegrityError as exc:
-                    if "fy_token" in str(exc) and "unique constraint" in str(exc).lower():
-                        # Another instrument holds this fy_token. Free it up.
-                        stale_inst = Instrument.objects.filter(fy_token=fy_token).exclude(sym_ticker=sym_ticker).first()
-                        if stale_inst:
-                            stale_inst.fy_token = f"STALE_{stale_inst.id}_{stale_inst.fy_token}"[:30]
-                            stale_inst.is_active = False
-                            stale_inst.save(update_fields=['fy_token', 'is_active'])
-                            
-                        # Try again
-                        _, was_created = Instrument.objects.update_or_create(
-                            sym_ticker=sym_ticker,
-                            defaults=mapped,
-                        )
-                        if was_created:
-                            created += 1
-                        else:
-                            updated += 1
-                    else:
-                        raise exc
+                # Build a single Instrument object — bulk_create with update_conflicts
+                # handles both INSERT (new) and UPDATE (existing) in one SQL statement.
+                inst = Instrument(sym_ticker=sym_ticker, **mapped)
+                all_instruments.append(inst)
+
+                # Track new entries in memory maps
+                if not existing_ticker_row:
+                    new_rec = {'id': None, 'sym_ticker': sym_ticker, 'fy_token': fy_token}
+                    existing_by_ticker[sym_ticker] = new_rec
+                    existing_by_token[fy_token] = new_rec
+
             except Exception as exc:
                 errors += 1
                 if errors <= 10:
                     logger.warning("  Error processing %s: %s", sym_ticker, exc)
 
+        if not dry_run:
+            try:
+                with transaction.atomic():
+                    # Step 1: Free up recycled fy_tokens (tiny list, usually 0)
+                    if stale_updates:
+                        Instrument.objects.bulk_update(stale_updates, ['fy_token', 'is_active'], batch_size=2000)
+
+                    # Step 2: Upsert all instruments in one shot.
+                    # This generates: INSERT INTO ... ON CONFLICT (sym_ticker) DO UPDATE SET ...
+                    # which is a SINGLE SQL statement per batch instead of one per row.
+                    if all_instruments:
+                        Instrument.objects.bulk_create(
+                            all_instruments,
+                            update_conflicts=True,
+                            unique_fields=['sym_ticker'],
+                            update_fields=SYNC_FIELDS,
+                            batch_size=2000,
+                        )
+
+            except Exception as exc:
+                logger.error("Bulk database operation failed: %s", exc)
+                errors += created + updated
+                created = 0
+                updated = 0
+
         return created, updated, errors, synced_tokens
 
-    def _cleanup_stale_source(self, source_key, synced_tokens):
-        stale_qs = (
+    def _cleanup_stale_source(self, source_key, synced_tokens, existing_by_ticker, existing_by_token):
+        """
+        Delete/deactivate instruments that are no longer in the Fyers master JSON.
+
+        Performance strategy:
+        - Stale set computed via Python set subtraction (no SQL NOT IN).
+        - Business reference check via bulk WHERE IN queries.
+        - Unreferenced instruments deleted via raw SQL in small committed chunks
+          to bypass Django's O(N) cascade collector and prevent massive table locks.
+        """
+        source_filter = SOURCE_FILTERS[source_key]
+
+        # Fetch (id, fy_token) for this source segment — fast with (exchange, segment) index
+        source_instruments = (
             Instrument.objects
-            .filter(**SOURCE_FILTERS[source_key], is_active=True)
-            .exclude(fy_token__in=synced_tokens)
-            .only("id", "fy_token", "sym_ticker")
+            .filter(**source_filter, is_active=True)
+            .values_list('id', 'fy_token')
         )
 
-        deleted = 0
-        deactivated_ids = []
-        for instrument in stale_qs.iterator(chunk_size=1000):
-            if _has_business_references(instrument):
-                deactivated_ids.append(instrument.id)
-                continue
-            with transaction.atomic():
-                instrument.delete()
-            deleted += 1
+        source_token_to_id = {}
+        for inst_id, fy_token in source_instruments.iterator(chunk_size=10000):
+            source_token_to_id[fy_token] = inst_id
 
+        # Stale = in DB but NOT in downloaded JSON
+        stale_tokens = set(source_token_to_id.keys()) - synced_tokens
+        if not stale_tokens:
+            return 0, 0
+
+        stale_ids = [source_token_to_id[token] for token in stale_tokens]
+        self.stdout.write(f"    Found {len(stale_ids)} stale instruments to process")
+
+        # Determine which stale instruments have business references (skip Candle & MarketEvent)
+        SKIP_LABELS = {"marketdata.Candle", "marketdata.MarketEvent"}
+        referenced_ids = set()
+        
+        self.stdout.write("    Checking business references...")
+        t_ref_start = time.monotonic()
+        for relation in Instrument._meta.related_objects:
+            if relation.related_model._meta.label in SKIP_LABELS:
+                continue
+
+            field_name = getattr(relation.field, 'name', None)
+            if not field_name:
+                continue
+
+            try:
+                for i in range(0, len(stale_ids), 2000):
+                    chunk = stale_ids[i:i + 2000]
+                    refs = (
+                        relation.related_model.objects
+                        .filter(**{f"{field_name}__in": chunk})
+                        .values_list(field_name, flat=True)
+                        .distinct()
+                    )
+                    referenced_ids.update(refs)
+            except Exception as exc:
+                logger.debug("Could not inspect relation %s: %s", field_name, exc)
+                referenced_ids.update(stale_ids)
+        
+        self.stdout.write(f"    Reference check complete in {time.monotonic() - t_ref_start:.1f}s")
+
+        delete_ids = list(set(stale_ids) - referenced_ids)
+        deactivate_ids = list(referenced_ids & set(stale_ids))
+
+        deleted = 0
         deactivated = 0
-        if deactivated_ids:
-            deactivated = Instrument.objects.filter(id__in=deactivated_ids).update(is_active=False)
+
+        # Bulk delete unreferenced instruments in chunks
+        if delete_ids:
+            from django.db import connection
+
+            candle_table = "marketdata_candle"
+            event_table = "marketdata_marketevent"
+            instrument_table = Instrument._meta.db_table
+
+            self.stdout.write(f"    Deleting {len(delete_ids)} unreferenced instruments...")
+            t_del_start = time.monotonic()
+            
+            # Process in small chunks, committing each one to avoid giant locks
+            for i in range(0, len(delete_ids), 2000):
+                chunk = delete_ids[i:i + 2000]
+                
+                try:
+                    cursor = connection.cursor()
+                   
+                    cursor.execute("SET session_replication_role = 'replica';")
+                    try:
+                        with transaction.atomic():
+                            cursor.execute(f"DELETE FROM {candle_table} WHERE instrument_id = ANY(%s)", [chunk])
+                            cursor.execute(f"DELETE FROM {event_table} WHERE instrument_id = ANY(%s)", [chunk])
+                            cursor.execute(f"DELETE FROM {instrument_table} WHERE id = ANY(%s)", [chunk])
+                    finally:
+                        cursor.execute("SET session_replication_role = 'origin';")
+                        
+                    deleted += len(chunk)
+                except Exception as exc:
+                    logger.error("Failed to raw delete chunk of stale instruments: %s", exc)
+                    # Fallback to deactivate if strict foreign key constraint fails
+                    deactivate_ids.extend(chunk)
+
+            self.stdout.write(f"    Deletion complete in {time.monotonic() - t_del_start:.1f}s")
+
+            # Update memory maps
+            id_to_token = {source_token_to_id[token]: token for token in stale_tokens}
+            for inst_id in delete_ids:
+                token = id_to_token.get(inst_id)
+                if token:
+                    rec = existing_by_token.pop(token, None)
+                    if rec:
+                        existing_by_ticker.pop(rec['sym_ticker'], None)
+
+        # Bulk deactivate referenced instruments (or ones that failed raw deletion)
+        if deactivate_ids:
+            for i in range(0, len(deactivate_ids), 2000):
+                chunk = deactivate_ids[i:i + 2000]
+                with transaction.atomic():
+                    deactivated += Instrument.objects.filter(id__in=chunk).update(is_active=False)
 
         return deleted, deactivated

@@ -34,32 +34,12 @@ class Portfolio(BaseTimestampModel):
         max_digits=15, decimal_places=2, default=0,
         help_text="Current available capital"
     )
-    invested_value = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
-        help_text="Value currently in positions"
-    )
-    
-    # Performance
-    realized_pnl = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
-        help_text="Total realized profit/loss"
-    )
-    unrealized_pnl = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
-        help_text="Current unrealized P&L"
-    )
-    
     # High watermark for drawdown
     peak_value = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
         help_text="Highest portfolio value achieved"
     )
     peak_date = models.DateField(null=True, blank=True)
-    
-    # Daily tracking
-    today_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    today_trades = models.PositiveIntegerField(default=0)
-    
     
     is_active = models.BooleanField(default=True)
     
@@ -89,10 +69,56 @@ class Portfolio(BaseTimestampModel):
         return numerator / denominator
 
     @property
+    def invested_value(self):
+        return sum(
+            (position.invested_value
+             for account in self.user.paper_accounts.all()
+             for position in account.positions.all()),
+            Decimal("0"),
+        )
+
+    @property
+    def realized_pnl(self):
+        return sum(
+            (trade.net_pnl
+             for account in self.user.paper_accounts.all()
+             for trade in account.trades.all()),
+            Decimal("0"),
+        )
+
+    @property
+    def unrealized_pnl(self):
+        return sum(
+            (position.unrealized_pnl
+             for account in self.user.paper_accounts.all()
+             for position in account.positions.all()),
+            Decimal("0"),
+        )
+
+    @property
+    def today_pnl(self):
+        from django.utils import timezone
+        realized_today = sum(
+            (trade.net_pnl
+             for account in self.user.paper_accounts.all()
+             for trade in account.trades.filter(exit_time__date=timezone.localdate())),
+            Decimal("0"),
+        )
+        return realized_today + self.unrealized_pnl
+
+    @property
+    def today_trades(self):
+        from django.utils import timezone
+        return sum(
+            account.trades.filter(exit_time__date=timezone.localdate()).count()
+            for account in self.user.paper_accounts.all()
+        )
+
+    @property
     def current_drawdown(self):
         if self.peak_value <= 0:
             return 0
-        return ((self.peak_value - self.current_capital) / self.peak_value) * 100
+        return ((self.peak_value - self.total_value) / self.peak_value) * 100
 
 
 class CapitalAllocation(BaseTimestampModel):
@@ -135,16 +161,6 @@ class CapitalAllocation(BaseTimestampModel):
         help_text="Percentage of portfolio allocated"
     )
     
-    # Current state
-    utilized_amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
-        help_text="Amount currently in positions"
-    )
-    
-    # Performance tracking
-    total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    today_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
     # Auto-rebalancing
     auto_rebalance = models.BooleanField(default=False)
     rebalance_frequency = models.CharField(
@@ -153,9 +169,7 @@ class CapitalAllocation(BaseTimestampModel):
         default=RebalanceFrequency.WEEKLY
     )
     last_rebalance = models.DateTimeField(null=True, blank=True)
-    
-    include_charges = models.BooleanField(default=True)
-    
+        
     class Meta:
         db_table = 'portfolio_allocation'
         verbose_name = 'Capital Allocation'
@@ -174,6 +188,21 @@ class CapitalAllocation(BaseTimestampModel):
     @property
     def available_amount(self):
         return max(self.effective_allocated - self.utilized_amount, Decimal("0"))
+
+    @property
+    def utilized_amount(self):
+        account = getattr(self, "paper_account", None)
+        return account.margin_used if account else Decimal("0")
+
+    @property
+    def total_pnl(self):
+        account = getattr(self, "paper_account", None)
+        return account.total_pnl if account else Decimal("0")
+
+    @property
+    def today_pnl(self):
+        account = getattr(self, "paper_account", None)
+        return account.today_pnl if account else Decimal("0")
 
 
 class FundTransaction(BaseTimestampModel):
@@ -211,45 +240,6 @@ class FundTransaction(BaseTimestampModel):
         return f"{self.transaction_type}: {sign}{self.amount}"
 
 
-class ExposureSnapshot(BaseTimestampModel):
-    """
-    Point-in-time snapshot of portfolio exposure.
-    """
-    portfolio = models.ForeignKey(
-        Portfolio,
-        on_delete=models.CASCADE,
-        related_name='exposure_snapshots'
-    )
-    
-    snapshot_time = models.DateTimeField()
-    
-    # Overall exposure
-    total_exposure = models.DecimalField(max_digits=15, decimal_places=2)
-    exposure_percentage = models.DecimalField(max_digits=5, decimal_places=2)
-    
-    # Long/Short breakdown
-    long_exposure = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    short_exposure = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    net_exposure = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
-    # Breakdowns
-    exposure_by_asset_type = models.JSONField(default=dict, blank=True)
-    exposure_by_sector = models.JSONField(default=dict, blank=True)
-    exposure_by_strategy = models.JSONField(default=dict, blank=True)
-    
-    # Position count
-    open_positions_count = models.PositiveIntegerField(default=0)
-    
-    class Meta:
-        db_table = 'portfolio_exposure_snapshot'
-        verbose_name = 'Exposure Snapshot'
-        verbose_name_plural = 'Exposure Snapshots'
-        ordering = ['-snapshot_time']
-
-    def __str__(self):
-        return f"Exposure at {self.snapshot_time.strftime('%Y-%m-%d %H:%M')}"
-
-
 class DailyPerformance(BaseTimestampModel):
     """
     Daily performance record for the portfolio.
@@ -266,9 +256,6 @@ class DailyPerformance(BaseTimestampModel):
     opening_capital = models.DecimalField(max_digits=15, decimal_places=2)
     closing_capital = models.DecimalField(max_digits=15, decimal_places=2)
     
-    # P&L
-    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     pnl_percentage = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     
@@ -281,9 +268,6 @@ class DailyPerformance(BaseTimestampModel):
     brokerage_paid = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     taxes_paid = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     
-    # Exposure
-    max_exposure = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    avg_exposure = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     
     class Meta:
         db_table = 'portfolio_daily_performance'
@@ -327,19 +311,6 @@ class PaperAccount(BaseTimestampModel):
     initial_balance = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
     current_balance = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
     
-    # P&L
-    total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
-    # Daily tracking
-    today_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    today_trades = models.PositiveIntegerField(default=0)
-    
-    # Margins
-    margin_used = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    margin_available = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
-    
     class Meta:
         db_table = 'paper_account'
         verbose_name = 'Paper Account'
@@ -351,14 +322,40 @@ class PaperAccount(BaseTimestampModel):
     def reset(self):
         """Reset account to initial state."""
         self.current_balance = self.initial_balance
-        self.total_pnl = 0
-        self.realized_pnl = 0
-        self.unrealized_pnl = 0
-        self.today_pnl = 0
-        self.today_trades = 0
-        self.margin_used = 0
-        self.margin_available = self.initial_balance
         self.save()
+
+    @property
+    def realized_pnl(self):
+        return self.trades.aggregate(value=models.Sum("net_pnl"))["value"] or Decimal("0")
+
+    @property
+    def unrealized_pnl(self):
+        return self.positions.aggregate(value=models.Sum("unrealized_pnl"))["value"] or Decimal("0")
+
+    @property
+    def total_pnl(self):
+        return self.realized_pnl + self.unrealized_pnl
+
+    @property
+    def today_pnl(self):
+        from django.utils import timezone
+        realized_today = self.trades.filter(
+            exit_time__date=timezone.localdate()
+        ).aggregate(value=models.Sum("net_pnl"))["value"] or Decimal("0")
+        return realized_today + self.unrealized_pnl
+
+    @property
+    def today_trades(self):
+        from django.utils import timezone
+        return self.trades.filter(exit_time__date=timezone.localdate()).count()
+
+    @property
+    def margin_used(self):
+        return self.positions.aggregate(value=models.Sum("margin_blocked"))["value"] or Decimal("0")
+
+    @property
+    def margin_available(self):
+        return max(Decimal("0"), self.current_balance - self.margin_used)
 
 
 class PaperPosition(BaseTimestampModel):
@@ -594,9 +591,15 @@ class PaperTradingSession(BaseTimestampModel):
     )
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
-    trades_count = models.PositiveIntegerField(default=0)
-    pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     error_message = models.TextField(blank=True)
+
+    @property
+    def trades_count(self):
+        return self.account.trades.count()
+
+    @property
+    def pnl(self):
+        return self.account.total_pnl
 
     class Meta:
         db_table = "paper_trading_session"

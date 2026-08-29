@@ -14,7 +14,6 @@ from .serializers import (
     RiskViolationSerializer
 )
 
-
 class PositionSizingRuleViewSet(viewsets.ModelViewSet):
     """ViewSet for position sizing rules."""
     serializer_class = PositionSizingRuleSerializer
@@ -27,12 +26,21 @@ class PositionSizingRuleViewSet(viewsets.ModelViewSet):
             qs = qs.filter(strategy_id=strategy_id)
         return qs
 
+    def create(self, request, *args, **kwargs):
+        strategy_id = request.data.get('strategy')
+        if strategy_id:
+            instance = PositionSizingRule.objects.filter(strategy_id=strategy_id, strategy__user=request.user).first()
+            if instance:
+                serializer = self.get_serializer(instance, data=request.data, partial=True)
+                serializer.is_valid(raise_exception=True)
+                self.perform_update(serializer)
+                return Response(serializer.data)
+        return super().create(request, *args, **kwargs)
 
 class PortfolioRiskProfileViewSet(viewsets.ModelViewSet):
     """ViewSet for portfolio risk profile (singleton per user)."""
     serializer_class = PortfolioRiskProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
     def get_queryset(self):
         return PortfolioRiskProfile.objects.filter(user=self.request.user)
     

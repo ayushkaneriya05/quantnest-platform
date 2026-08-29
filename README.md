@@ -97,7 +97,7 @@ Paper trading supports:
 
 - Strategy deployment through `deploy-paper`.
 - Paper accounts tied to strategy allocations.
-- Live tick processing via `PaperStrategyEngine`.
+- Live tick processing via `PaperExecutionService`.
 - Strategy-driven paper orders.
 - Paper positions and trade history.
 - PnL, margin, exposure, and allocation sync.

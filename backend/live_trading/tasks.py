@@ -8,22 +8,6 @@ from .services import LiveExecutionService
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="live_trading.run_active_sessions")
-def run_active_sessions(symbol=None):
-    processed = 0
-    for session in TradingSession.objects.filter(status="RUNNING").select_related("strategy", "broker_credential"):
-        try:
-            if LiveExecutionService.execute_session_once(session, symbol=symbol):
-                processed += 1
-        except Exception as exc:
-            logger.exception(
-                "Live session %s tick failed for strategy '%s': %s",
-                session.id, session.strategy.name, exc,
-            )
-    return {"processed_sessions": processed}
-
-
-
 @shared_task(name="live_trading.reconcile_all_active_accounts")
 def reconcile_all_active_accounts():
     """

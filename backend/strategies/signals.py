@@ -2,7 +2,7 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.utils import timezone
 from datetime import timedelta
-from .models import Strategy, EntryOrderConfig, ReEntryRule, ExitOrderConfig, StrategyVersion
+from .models import Strategy, EntryOrderConfig, ExitOrderConfig, StrategyVersion
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
 from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
 from .services import StrategySnapshotService
@@ -15,13 +15,11 @@ logger = logging.getLogger(__name__)
 def create_strategy_configs(sender, instance, created, **kwargs):
     if created:
         EntryOrderConfig.objects.create(strategy=instance)
-        ReEntryRule.objects.create(strategy=instance)
         ExitOrderConfig.objects.create(strategy=instance)
         PositionSizingRule.objects.create(strategy=instance)
 
 @receiver(post_save, sender=Strategy)
 @receiver(post_save, sender=EntryOrderConfig)
-@receiver(post_save, sender=ReEntryRule)
 @receiver(post_save, sender=ExitOrderConfig)
 @receiver(post_save, sender=TimeRule)
 @receiver(post_save, sender=SpecialEventFilter)
@@ -54,7 +52,6 @@ def auto_create_version(sender, instance, **kwargs):
 
     # 2. Check if auto-versioning is enabled. Draft edits must not mutate the
     # execution cache for already deployed allocations; those use immutable
-    # strategy_version_config_{id} entries.
     if not strategy.auto_version_enabled:
         return
 
@@ -75,13 +72,3 @@ def auto_create_version(sender, instance, **kwargs):
         )
     except Exception as e:
         logger.error(f"Failed to auto-version strategy {strategy.id}: {e}")
-
-@receiver(post_save, sender=StrategyVersion)
-def cache_version_config(sender, instance, created, **kwargs):
-    """Cache the version-specific execution config on StrategyVersion creation."""
-    if created and instance.config_snapshot:
-        cache.set(
-            f"strategy_version_config_{instance.id}",
-            instance.config_snapshot,
-            timeout=None
-        )

@@ -8,3 +8,4 @@ class StrategiesConfig(AppConfig):
 
     def ready(self):
         import strategies.signals
+        return super().ready()

@@ -31,7 +31,7 @@ class ExecutionRouteSerializer(serializers.ModelSerializer):
             'target_underlying_instrument', 'expiry_preference', 'avoid_same_day_expiry',
             'buy_signal_option_type', 'sell_signal_option_type', 'strike_selection',
             'override_sizing', 'sizing_method', 'fixed_quantity', 
-            'capital_percentage', 'risk_per_trade_amount', 'risk_per_trade_percentage',
+            'capital_percentage', 'risk_per_trade_percentage',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']

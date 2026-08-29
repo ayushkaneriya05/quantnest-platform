@@ -7,6 +7,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .live_feed import LiveMarketDataRegistry
 from .streaming import MarketDataStreamer
+from .quote_store import QuoteStore
 from .services import MarketDataService
 
 
@@ -18,7 +19,7 @@ remove_client_subscription = database_sync_to_async(
     LiveMarketDataRegistry.remove_client_subscription,
     thread_sensitive=True,
 )
-get_cached_quote = sync_to_async(MarketDataStreamer.get_cached_quote, thread_sensitive=True)
+get_latest_quote = sync_to_async(QuoteStore.get_latest, thread_sensitive=True)
 get_live_quote_from_fyers = sync_to_async(MarketDataService.get_live_quote_from_fyers, thread_sensitive=True)
 
 
@@ -69,7 +70,7 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
                 await self.send(json.dumps({"status": "subscribed", "instrument": normalized_instrument}))
 
                 # Immediate Push: Send the last known price instantly
-                cached_quote = await get_cached_quote(normalized_instrument)
+                cached_quote = await get_latest_quote(normalized_instrument)
                 if not cached_quote:
                     cached_quote = await get_live_quote_from_fyers(normalized_instrument)
                     

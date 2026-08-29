@@ -1,5 +1,6 @@
 from common.enums import OperandType
 from common.trading_utils import get_any_field
+from rules_engine.indicators import INDICATOR_OPERANDS
 
 class IndicatorRequirementAnalyzer:
     """
@@ -76,16 +77,7 @@ class IndicatorRequirementAnalyzer:
             return 0
             
         lookback = cls.MIN_LOOKBACK
-        
-        # Determine if it's an indicator
-        indicator_types = {
-            OperandType.SMA, OperandType.EMA, OperandType.WMA, OperandType.HMA, OperandType.ALMA, OperandType.KAMA, OperandType.DEMA, OperandType.TEMA,
-            OperandType.RSI, OperandType.MACD, OperandType.BOLLINGER_BANDS, OperandType.SUPERTREND, OperandType.ADX, OperandType.DMI, OperandType.STOCHASTIC, OperandType.ATR,
-            OperandType.CCI, OperandType.WILLIAMS_R, OperandType.OBV, OperandType.MFI, OperandType.PIVOT_POINT, OperandType.KELTNER_CHANNEL, OperandType.DONCHIAN_CHANNEL, OperandType.PARABOLIC_SAR, OperandType.ICHIMOKU_CLOUD,
-            OperandType.CANDLE_PATTERN
-        }
-        
-        if op_type in indicator_types:
+        if op_type in INDICATOR_OPERANDS:
             lookback = cls._get_indicator_lookback(op_type, params)
             
         # Add recursive source check

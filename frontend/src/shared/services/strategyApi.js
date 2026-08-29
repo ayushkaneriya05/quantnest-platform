@@ -156,18 +156,7 @@ export const exitConfigApi = {
   },
 };
 
-// Re-entry Rules
-export const reentryRuleApi = {
-  get: async (id) => {
-    const response = await api.get(`${STRATEGIES_URL}reentry-rules/${id}/`);
-    return response.data;
-  },
 
-  update: async (id, data) => {
-    const response = await api.patch(`${STRATEGIES_URL}reentry-rules/${id}/`, data);
-    return response.data;
-  },
-};
 
 // Tags logic attached to strategyApi
 strategyApi.getTags = async () => {

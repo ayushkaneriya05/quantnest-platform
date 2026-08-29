@@ -1,6 +1,6 @@
 import logging
 from celery import shared_task
-from .services import PaperStrategyEngine, PortfolioService
+from .services import PortfolioService
 from .models import Portfolio
 
 logger = logging.getLogger(__name__)
@@ -11,15 +11,6 @@ def daily_performance_snapshot():
     created = 0
     for portfolio in Portfolio.objects.filter(is_active=True):
         PortfolioService.take_daily_snapshot(portfolio)
-        created += 1
-    return {"snapshots": created}
-
-
-@shared_task(name="paper_trading.exposure_snapshot")
-def exposure_snapshot():
-    created = 0
-    for portfolio in Portfolio.objects.filter(is_active=True):
-        PortfolioService.take_exposure_snapshot(portfolio)
         created += 1
     return {"snapshots": created}
 

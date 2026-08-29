@@ -2,9 +2,8 @@ import re
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.core.cache import cache
-
 from .services import MarketDataService
+from .quote_store import QuoteStore
 
 
 class MarketDataStreamer:
@@ -13,17 +12,13 @@ class MarketDataStreamer:
         return re.sub(r"[^a-zA-Z0-9\-_.]", "_", symbol)
 
     @classmethod
-    def _cache_key(cls, symbol):
-        return MarketDataService.quote_cache_key(symbol)
-
-    @classmethod
     def normalize_symbol(cls, symbol):
         return MarketDataService.normalize_symbol(symbol)
 
     @classmethod
-    def update_quote(cls, symbol, quote):
+    def publish_tick(cls, symbol, quote):
         symbol = cls.normalize_symbol(symbol)
-        payload = MarketDataService.cache_quote(symbol, quote)
+        payload = QuoteStore.set_latest(symbol, quote)
         channel_layer = get_channel_layer()
         if channel_layer is None:
             return payload
@@ -67,17 +62,3 @@ class MarketDataStreamer:
         )
         return message
 
-    @classmethod
-    def get_cached_quote(cls, symbol):
-        symbol = cls.normalize_symbol(symbol)
-        return cache.get(cls._cache_key(symbol))
-
-    @classmethod
-    def poll_latest_candle_quote(cls, symbol, resolution="1m"):
-        # ALWAYS prioritize official broker quote to capture post-market adjustments / pre-open prices for the UI
-        official_quote = MarketDataService.get_live_quote_from_fyers(symbol)
-        if official_quote:
-            return official_quote
-            
-        # Fallback to fabricating quote from local candle database only if broker API fails
-        return MarketDataService.latest_quote_from_storage(symbol, timeframe=resolution)

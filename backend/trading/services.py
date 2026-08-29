@@ -11,7 +11,6 @@ from rest_framework.exceptions import ValidationError
 
 from instruments.models import Instrument
 from marketdata.live_feed import LiveMarketDataRegistry
-from marketdata.streaming import MarketDataStreamer
 
 from .models import Account, Order, Position, TradeHistory, Watchlist, ClosedPositionLog
 from .signals import order_status_changed, position_changed
@@ -130,11 +129,15 @@ class TradingOrderService:
             raise ValidationError("Market is currently closed. Market orders are only allowed during trading hours.")
 
         symbol = instrument.sym_ticker or instrument.symbol
-        quote = MarketDataStreamer.get_cached_quote(symbol)
+        from marketdata.quote_store import QuoteStore
+        quote = QuoteStore.get_latest(symbol)
         
         if not quote:
             # Fallback to live API, then DB storage
-            quote = MarketDataStreamer.poll_latest_candle_quote(symbol)
+            from marketdata.services import MarketDataService
+            quote = MarketDataService.get_live_quote_from_fyers(symbol)
+            if not quote:
+                quote = MarketDataService.latest_quote_from_storage(symbol)
 
         price = quote.get("price") if quote else None
         if price in (None, "", 0, "0"):
@@ -496,10 +499,14 @@ class TradingOrderService:
     @classmethod
     def unrealized_pnl_for_position(cls, position):
         symbol = position.instrument.sym_ticker or position.instrument.symbol
-        quote = MarketDataStreamer.get_cached_quote(symbol)
+        from marketdata.quote_store import QuoteStore
+        quote = QuoteStore.get_latest(symbol)
         
         if not quote:
-            quote = MarketDataStreamer.poll_latest_candle_quote(symbol)
+            from marketdata.services import MarketDataService
+            quote = MarketDataService.get_live_quote_from_fyers(symbol)
+            if not quote:
+                quote = MarketDataService.latest_quote_from_storage(symbol)
             
         price = quote.get("price") if quote else None
         if price in (None, "", 0, "0"):

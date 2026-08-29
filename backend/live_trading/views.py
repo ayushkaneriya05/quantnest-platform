@@ -1,4 +1,4 @@
-from rest_framework import permissions, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -22,7 +22,9 @@ class TradingSessionViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return TradingSession.objects.filter(user=self.request.user).select_related("strategy", "broker_credential")
+        return TradingSession.objects.filter(user=self.request.user).select_related(
+            "strategy", "broker_credential", "allocation__deployed_version"
+        )
 
     @action(detail=False, methods=["post"])
     def deploy(self, request):
@@ -30,13 +32,16 @@ class TradingSessionViewSet(viewsets.ModelViewSet):
         credential = None
         if request.data.get("broker_credential"):
             credential = BrokerCredential.objects.get(id=request.data["broker_credential"], user=request.user)
-        session = LiveExecutionService.deploy_strategy(
-            request.user,
-            strategy,
-            credential,
-            allocation_amount=request.data.get("allocation_amount"),
-            allocation_percentage=request.data.get("allocation_percentage"),
-        )
+        try:
+            session = LiveExecutionService.deploy_strategy(
+                request.user,
+                strategy,
+                credential,
+                allocation_amount=request.data.get("allocation_amount"),
+                allocation_percentage=request.data.get("allocation_percentage"),
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(session).data)
 
     @action(detail=False, methods=["get"])
@@ -64,17 +69,11 @@ class TradingSessionViewSet(viewsets.ModelViewSet):
         )
         return Response(self.get_serializer(sessions, many=True).data)
 
-    @action(detail=True, methods=["post"], url_path="run-once")
-    def run_once(self, request, pk=None):
-        return Response({"processed": LiveExecutionService.execute_session_once(self.get_object(), symbol=request.data.get("symbol"))})
-
     @action(detail=True, methods=["post"], url_path="update-allocation")
     def update_allocation(self, request, pk=None):
         session = self.get_object()
         allocation = LiveExecutionService.update_allocation(
-            request.user,
-            session.strategy,
-            session.broker_credential,
+            session=session,
             allocation_amount=request.data.get("allocation_amount"),
             allocation_percentage=request.data.get("allocation_percentage"),
         )
@@ -163,38 +162,12 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        old_version_id = allocation.deployed_version_id
         allocation.deployed_version = version
         allocation.save(update_fields=['deployed_version', 'updated_at'])
 
-        # Update execution cache
-        from django.core.cache import cache
-        cache.set(
-            f"strategy_version_config_{version.id}",
-            version.config_snapshot,
-            timeout=None
-        )
-
-        # Broadcast version change via WebSocket
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"user_{request.user.id}_live",
-            {
-                "type": "live.update",
-                "message": {
-                    "event_type": "VERSION_CHANGE",
-                    "data": {
-                        "allocation_id": allocation.id,
-                        "strategy_id": allocation.strategy_id,
-                        "old_version_id": old_version_id,
-                        "new_version_id": version.id,
-                        "new_version_number": version.version_number,
-                    }
-                }
-            }
-        )
+        session = getattr(allocation, "session", None)
+        if session and session.status == "RUNNING":
+            LiveExecutionService._publish_execution_event("VERSION_CHANGE", session, "live")
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)

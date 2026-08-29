@@ -1,6 +1,7 @@
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
 from django.core.cache import cache
+from common.cache_keys import CacheKeys
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class SafeJWTAuthentication(JWTAuthentication):
         session_id = validated_token.get("session_id")
         
         if session_id:
-            cache_key = f"auth_session_valid_{session_id}"
+            cache_key = CacheKeys.AUTH_SESSION.format(session_id=session_id)
             is_valid = cache.get(cache_key)
 
             if is_valid is None:

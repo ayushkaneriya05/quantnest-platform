@@ -20,7 +20,7 @@ class PortfolioRiskProfileAdmin(admin.ModelAdmin):
 @admin.register(StrategyAutoDisable)
 class StrategyAutoDisableAdmin(admin.ModelAdmin):
     list_display = ['name', 'strategy', 'trigger_type', 'threshold_value', 'is_active']
-    list_filter = ['trigger_type', 'is_active', 'require_manual_review']
+    list_filter = ['trigger_type', 'is_active']
 
 
 @admin.register(RiskViolation)

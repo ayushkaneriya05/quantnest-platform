@@ -4,7 +4,7 @@ Rules Engine app - trading rules, signals, time filters, stop loss, and targets.
 from django.db import models
 from common.models import BaseTimestampModel
 from common.enums import (
-    CandleTimeframe, CandleCompletionRule, MarketSession, LogicalOperator,
+    CandleTimeframe, MarketSession, LogicalOperator,
     RuleType, OperandType, ComparisonOperator, Timezone
 )
 
@@ -51,11 +51,7 @@ class TimeRule(BaseTimestampModel):
         choices=CandleTimeframe.choices,
         default=CandleTimeframe.M5
     )
-    candle_completion_rule = models.CharField(
-        max_length=20,
-        choices=CandleCompletionRule.choices,
-        default=CandleCompletionRule.ON_CLOSE
-    )
+
     
     # No-trade windows (JSON array of {start, end} objects)
     no_trade_windows = models.JSONField(
@@ -142,7 +138,8 @@ class RuleGroup(BaseTimestampModel):
             ('PARTIAL_EXIT', 'Partial Exit'),
             ('MOVE_TO_BREAKEVEN', 'Move Stop Loss to Breakeven')
         ],
-        default='EXIT_ALL'
+        null=True,
+        blank=True,
     )
     action_params = models.JSONField(
         null=True,

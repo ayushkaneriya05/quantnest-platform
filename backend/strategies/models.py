@@ -7,7 +7,7 @@ from common.models import BaseTimestampModel
 from common.enums import (
     StrategyType, MarketType, Exchange, InstrumentType,
     StrategyStatus, StrategyVisibility, OrderType, QuantityType,
-    LogicalOperator, EntryPriceLogic, ExecutionStyle
+    LogicalOperator, EntryPriceLogic, Side
 )
 
 
@@ -119,19 +119,6 @@ class Strategy(BaseTimestampModel):
             }
         )
 
-        risk_profile = getattr(self.user, "risk_profile", None)
-        if risk_profile:
-            data["risk_profile"] = {
-                "max_daily_loss_amount": float(risk_profile.max_daily_loss_amount) if risk_profile.max_daily_loss_amount is not None else None,
-                "max_daily_loss_percentage": float(risk_profile.max_daily_loss_percentage),
-                "max_exposure_percentage": float(risk_profile.max_exposure_percentage),
-                "max_per_instrument_exposure": float(risk_profile.max_per_instrument_exposure),
-                "max_drawdown_percentage": float(risk_profile.max_drawdown_percentage),
-                "alert_on_breach": risk_profile.alert_on_breach,
-            }
-        else:
-            data["risk_profile"] = {}
-
         return data
 
     def delete(self, *args, **kwargs):
@@ -213,9 +200,9 @@ class EntryOrderConfig(BaseTimestampModel):
 
     # Trade direction for this strategy
     entry_side = models.CharField(
-        max_length=10,
-        choices=[('BUY', 'Buy / Long'), ('SELL', 'Sell / Short')],
-        default='BUY',
+        max_length=4,
+        choices=Side.choices,
+        default=Side.BUY,
         help_text="Trade direction: BUY for Long entries, SELL for Short entries"
     )
 
@@ -228,11 +215,11 @@ class EntryOrderConfig(BaseTimestampModel):
     )
 
     # Execution Style
-    execution_style = models.CharField(
+    order_type = models.CharField(
         max_length=20,
-        choices=ExecutionStyle.choices,
-        default=ExecutionStyle.LTP,
-        help_text="Unified entry logic (e.g. Market at Close, Limit with Offset)"
+        choices=OrderType.choices,
+        default=OrderType.MARKET,
+        help_text="Order type to place on entry signal (MARKET)"
     )
     price_offset = models.DecimalField(
         max_digits=10,
@@ -240,45 +227,17 @@ class EntryOrderConfig(BaseTimestampModel):
         default=0,
         null=True,
         blank=True,
-        help_text="Offset from signal price (positive for above, negative for below)"
+        help_text="Limit price offset from signal close price"
     )
 
-    allow_partial_entry = models.BooleanField(default=False)
-
     # Cooldown
-    entry_cooldown_seconds = models.PositiveIntegerField(
+    cooldown_seconds = models.PositiveIntegerField(
         default=0,
-        help_text="Minimum seconds between entries"
+        help_text="Minimum seconds between any trade entries on this instrument"
     )
 
     def __str__(self):
         return f"{self.strategy.name} - Entry Config"
-
-
-class ReEntryRule(BaseTimestampModel):
-    """
-    Re-entry rules after position exit.
-    """
-    strategy = models.OneToOneField(
-        Strategy,
-        on_delete=models.CASCADE,
-        related_name='reentry_rule'
-    )
-
-    allow_reentry = models.BooleanField(default=True)
-    reentry_cooldown_seconds = models.PositiveIntegerField(
-        default=300,
-        help_text="Minimum seconds before re-entry"
-    )
-
-    # Reverse entry
-    allow_reverse_entry = models.BooleanField(
-        default=False,
-        help_text="Allow reversing position on opposite signal"
-    )
-
-    def __str__(self):
-        return f"{self.strategy.name} - Re-entry Rules"
 
 
 class ExitOrderConfig(BaseTimestampModel):

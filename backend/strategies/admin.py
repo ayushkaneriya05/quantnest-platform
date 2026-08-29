@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ReEntryRule
+from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig
 
 
 @admin.register(StrategyTag)
@@ -13,18 +13,13 @@ class EntryOrderConfigInline(admin.StackedInline):
     extra = 0
 
 
-class ReEntryRuleInline(admin.StackedInline):
-    model = ReEntryRule
-    extra = 0
-
-
 @admin.register(Strategy)
 class StrategyAdmin(admin.ModelAdmin):
     list_display = ['name', 'user', 'strategy_type', 'market_type', 'status', 'visibility', 'created_at']
     list_filter = ['strategy_type', 'market_type', 'status', 'visibility', 'exchange']
     search_fields = ['name', 'user__username', 'description']
     readonly_fields = ['created_at', 'updated_at']
-    inlines = [EntryOrderConfigInline, ReEntryRuleInline]
+    inlines = [EntryOrderConfigInline]
     
     fieldsets = (
         ('Basic Info', {

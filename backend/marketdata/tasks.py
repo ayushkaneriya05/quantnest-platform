@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from .live_feed import LiveMarketDataRegistry
-from .services import FyersHistoricalDataService, MarketDataService
+from .services import MarketDataService
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def backfill_missing_candles(symbol, lookback_days=10, timeframe="1m", **_ignore
 
     while chunk_start <= end_date:
         chunk_end = min(chunk_start + timedelta(days=chunk_days), end_date)
-        fetched = FyersHistoricalDataService.fetch_and_store(
+        fetched = MarketDataService.backfill_candles_from_broker(
             symbol=normalized_symbol,
             date_from=chunk_start.isoformat(),
             date_to=chunk_end.isoformat(),
@@ -60,8 +60,7 @@ def fetch_live_candles_from_broker():
     This replaces the local tick-based candle aggregator with perfectly accurate historical data.
     """
     from .streaming import MarketDataStreamer
-    from .candle_engine import LiveCandleStore
-    
+
     symbols = LiveMarketDataRegistry.get_symbols()
     if not symbols:
         return {"fetched_symbols": 0}
@@ -72,7 +71,7 @@ def fetch_live_candles_from_broker():
     fetched_count = 0
     for symbol in symbols:
         try:
-            fetched = FyersHistoricalDataService.fetch_and_store(
+            fetched = MarketDataService.backfill_candles_from_broker(
                 symbol=symbol,
                 date_from=start_dt.isoformat(),
                 date_to=end_dt.isoformat(),
@@ -85,17 +84,6 @@ def fetch_live_candles_from_broker():
                 latest_candle = fetched[-1]
                 candle_obj = SimpleNamespace(**latest_candle)
                 MarketDataStreamer.publish_candle_update(symbol, candle_obj, event_type="candle.closed")
-                
-                # Update Redis buffer
-                serialized = {
-                    "time": int(latest_candle["time"].timestamp()),
-                    "open": float(latest_candle["open"]),
-                    "high": float(latest_candle["high"]),
-                    "low": float(latest_candle["low"]),
-                    "close": float(latest_candle["close"]),
-                    "volume": int(latest_candle["volume"]),
-                }
-                LiveCandleStore.update_buffer(symbol, "1m", serialized)
                 
                 fetched_count += 1
         except Exception as exc:
@@ -111,7 +99,7 @@ def reconcile_daily_market_data():
     If the benchmark index returns no data for the 1D timeframe, it means it was a mock session or holiday.
     We then safely wipe all fake candles recorded today across ALL symbols.
     """
-    from .services import FyersHistoricalDataService
+    from .services import MarketDataService
     from .models import Candle
     
     end_dt = timezone.now()
@@ -121,7 +109,7 @@ def reconcile_daily_market_data():
     
     try:
         # Check if the benchmark index has a 1D candle for today
-        fetched = FyersHistoricalDataService.fetch_and_store(
+        fetched = MarketDataService.backfill_candles_from_broker(
             symbol=benchmark_symbol,
             date_from=start_dt.isoformat(),
             date_to=end_dt.isoformat(),
@@ -135,15 +123,7 @@ def reconcile_daily_market_data():
             # Delete all candles recorded today for ALL symbols
             deleted, _ = Candle.objects.filter(time__gte=start_dt, time__lt=end_dt).delete()
             logger.info(f"Deleted {deleted} fake mock candles from database.")
-            
-            # Flush Redis candle cache
-            from .candle_engine import redis_client
-            keys = redis_client.keys("marketdata:candles:*")
-            # If django cache uses prefixes, the keys above will have them.
-            if keys:
-                redis_client.delete(*keys)
-                logger.info(f"Flushed {len(keys)} Redis candle cache keys.")
-                
+
             return {"status": "wiped_mock_data", "deleted": deleted}
             
         else:

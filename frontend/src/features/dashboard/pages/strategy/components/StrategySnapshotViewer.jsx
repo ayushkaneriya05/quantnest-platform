@@ -50,7 +50,7 @@ export default function StrategySnapshotViewer({ snapshot, previousSnapshot }) {
     // 2. Configs
     compareObjects('Entry Configuration', current.entry_order_config, prev.entry_order_config);
     compareObjects('Exit Configuration', current.exit_order_config, prev.exit_order_config);
-    compareObjects('Re-Entry Configuration', current.reentry_rule, prev.reentry_rule);
+
     compareObjects('Time/Session', current.time_rule, prev.time_rule);
     compareObjects('Special Events', current.special_event_filter, prev.special_event_filter);
 

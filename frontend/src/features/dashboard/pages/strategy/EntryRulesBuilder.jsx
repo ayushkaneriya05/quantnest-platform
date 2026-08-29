@@ -449,6 +449,7 @@ export default function EntryRulesBuilder() {
                                   onChangeParams={(v) => handleUpdateRule(group.id, rule.id, 'operand_a_params', v)}
                                   onChangeTimeframe={(v) => handleUpdateRule(group.id, rule.id, 'operand_a_timeframe', v)}
                                   placeholder="Select Data"
+                                  ruleType="ENTRY"
                                 />
 
                                 {/* Comparison */}
@@ -479,6 +480,7 @@ export default function EntryRulesBuilder() {
                                   onChangeParams={(v) => handleUpdateRule(group.id, rule.id, 'operand_b_params', v)}
                                   onChangeTimeframe={(v) => handleUpdateRule(group.id, rule.id, 'operand_b_timeframe', v)}
                                   placeholder="Compare To"
+                                  ruleType="ENTRY"
                                 />
                                 
                               </div>

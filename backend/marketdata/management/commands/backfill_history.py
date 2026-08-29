@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from django.core.management.base import BaseCommand
 from instruments.models import Instrument
 
-from marketdata.services import FyersHistoricalDataService
+from marketdata.services import MarketDataService
 
 
 class Command(BaseCommand):
@@ -33,7 +33,7 @@ class Command(BaseCommand):
             chunk_start = start_date
             while chunk_start <= end_date:
                 chunk_end = min(chunk_start + timedelta(days=90), end_date)
-                candles = FyersHistoricalDataService.fetch_and_store(
+                candles = MarketDataService.backfill_candles_from_broker(
                     symbol=symbol,
                     date_from=chunk_start.isoformat(),
                     date_to=chunk_end.isoformat(),

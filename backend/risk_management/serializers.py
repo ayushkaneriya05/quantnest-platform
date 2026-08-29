@@ -14,32 +14,22 @@ class PositionSizingRuleSerializer(serializers.ModelSerializer):
         model = PositionSizingRule
         fields = [
             'id', 'strategy', 'sizing_method', 'fixed_quantity', 'capital_percentage',
-            'risk_per_trade_amount', 'risk_per_trade_percentage',
-            'loss_recovery_mode', 'loss_recovery_multiplier',
-            'max_daily_trades', 'max_open_positions',
+            'risk_per_trade_percentage',
         ]
 
     def validate(self, attrs):
         method = attrs.get('sizing_method', getattr(self.instance, 'sizing_method', None))
         fixed_quantity = attrs.get('fixed_quantity', getattr(self.instance, 'fixed_quantity', None))
         capital_percentage = attrs.get('capital_percentage', getattr(self.instance, 'capital_percentage', None))
-        risk_amount = attrs.get('risk_per_trade_amount', getattr(self.instance, 'risk_per_trade_amount', None))
         risk_percentage = attrs.get('risk_per_trade_percentage', getattr(self.instance, 'risk_per_trade_percentage', None))
-        max_daily = attrs.get('max_daily_trades', getattr(self.instance, 'max_daily_trades', None))
-        max_open = attrs.get('max_open_positions', getattr(self.instance, 'max_open_positions', None))
 
         if method == QuantityType.FIXED and (fixed_quantity is None or fixed_quantity < 1):
             raise serializers.ValidationError({'fixed_quantity': 'Fixed quantity must be at least 1.'})
         if method == QuantityType.CAPITAL_BASED and (capital_percentage is None or capital_percentage <= 0 or capital_percentage > 100):
             raise serializers.ValidationError({'capital_percentage': 'Capital percentage must be between 0 and 100.'})
-        if method == QuantityType.RISK_FIXED and (risk_amount is None or risk_amount <= 0):
-            raise serializers.ValidationError({'risk_per_trade_amount': 'Risk amount must be greater than zero.'})
-        if method == QuantityType.RISK_PERCENTAGE and (risk_percentage is None or risk_percentage <= 0 or risk_percentage > 10):
+        if method == QuantityType.RISK_BASED and (risk_percentage is None or risk_percentage <= 0 or risk_percentage > 10):
             raise serializers.ValidationError({'risk_per_trade_percentage': 'Risk percentage must be between 0 and 10.'})
-        if max_daily is None or max_daily < 1:
-            raise serializers.ValidationError({'max_daily_trades': 'Max daily trades must be at least 1.'})
-        if max_open is None or max_open < 1:
-            raise serializers.ValidationError({'max_open_positions': 'Max open positions must be at least 1.'})
+        
         return attrs
 
 
@@ -77,7 +67,7 @@ class StrategyAutoDisableSerializer(serializers.ModelSerializer):
         model = StrategyAutoDisable
         fields = [
             'id', 'strategy', 'name', 'trigger_type', 'threshold_value', 'threshold_count',
-            'auto_reenable', 'cooldown_hours', 'require_manual_review', 'is_active'
+            'auto_reenable', 'cooldown_hours', 'is_active'
         ]
 
     def validate(self, attrs):

@@ -12,6 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from common.enums import BrokerName, FyersOrderSide, FyersOrderType, OrderStatus, NotificationType, Severity
+from common.cache_keys import CacheKeys
 from notifications.services import NotificationService
 
 from .models import BrokerAPILog, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderSettings
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def notify_broker_session_expired(credential, reason=None):
-    cache_key = f"broker_session_expired_notification_{credential.id}"
+    cache_key = CacheKeys.BROKER_SESSION_EXPIRED.format(credential_id=credential.id)
     if cache.get(cache_key):
         return
     NotificationService.notify(
@@ -176,7 +177,6 @@ class BaseBrokerAdapter:
 
 class ZerodhaAdapter(BaseBrokerAdapter):
     broker_name = BrokerName.ZERODHA
-
 
 
 class FyersAdapter(BaseBrokerAdapter):
@@ -415,7 +415,6 @@ class FyersAdapter(BaseBrokerAdapter):
 
 BROKER_ADAPTERS = {
     BrokerName.ZERODHA: ZerodhaAdapter,
-
     BrokerName.FYERS: FyersAdapter,
 }
 

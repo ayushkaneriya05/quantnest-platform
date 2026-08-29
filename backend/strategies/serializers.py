@@ -2,7 +2,7 @@
 Serializers for the strategies app.
 """
 from rest_framework import serializers
-from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig, ReEntryRule
+from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig
 from common.enums import LogicalOperator
 
 
@@ -21,15 +21,15 @@ class EntryOrderConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = EntryOrderConfig
         fields = [
-            'id', 'strategy', 'entry_side', 'entry_group_operator', 'execution_style', 'price_offset',
-            'allow_partial_entry', 'entry_cooldown_seconds'
+            'id', 'strategy', 'entry_side', 'entry_group_operator', 'order_type', 'price_offset',
+            'cooldown_seconds'
         ]
 
     def validate(self, attrs):
-        cooldown = attrs.get('entry_cooldown_seconds', getattr(self.instance, 'entry_cooldown_seconds', None))
+        cooldown = attrs.get('cooldown_seconds', getattr(self.instance, 'cooldown_seconds', None))
 
         if cooldown is not None and cooldown < 0:
-            raise serializers.ValidationError({'entry_cooldown_seconds': 'Entry cooldown cannot be negative.'})
+            raise serializers.ValidationError({'cooldown_seconds': 'Cooldown cannot be negative.'})
         return attrs
 
 
@@ -37,22 +37,6 @@ class ExitOrderConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExitOrderConfig
         fields = ['id', 'exit_group_operator', 'stop_loss_group_operator', 'target_group_operator']
-
-
-class ReEntryRuleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ReEntryRule
-        fields = [
-            'id', 'allow_reentry', 'reentry_cooldown_seconds',
-            'allow_reverse_entry'
-        ]
-
-    def validate(self, attrs):
-        cooldown = attrs.get('reentry_cooldown_seconds', getattr(self.instance, 'reentry_cooldown_seconds', None))
-
-        if cooldown is not None and cooldown < 0:
-            raise serializers.ValidationError({'reentry_cooldown_seconds': 'Re-entry cooldown cannot be negative.'})
-        return attrs
 
 
 class StrategyDetailSerializer(serializers.ModelSerializer):
@@ -68,7 +52,6 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
     )
     entry_order_config = EntryOrderConfigSerializer(read_only=True)
     exit_order_config = ExitOrderConfigSerializer(read_only=True)
-    reentry_rule = ReEntryRuleSerializer(read_only=True)
     
     class Meta:
         model = Strategy
@@ -78,7 +61,7 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
             'paper_trading_enabled', 'live_trading_enabled',
             'allow_clone', 'allow_backtest',
             'user', 'user_username', 'tags', 'tag_ids',
-            'entry_order_config', 'exit_order_config', 'reentry_rule',
+            'entry_order_config', 'exit_order_config',
             'auto_version_enabled',
             'created_at', 'updated_at'
         ]

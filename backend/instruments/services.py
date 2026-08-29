@@ -1,8 +1,34 @@
 from datetime import date
 from .models import Instrument
-
+from common.enums import InstrumentType
 class InstrumentResolver:
     """Resolves the actual execution instrument from a signal instrument + route config."""
+
+    @staticmethod
+    def execution_instrument_ids(strategy):
+        """Return watchlist and routed execution instrument IDs for a strategy."""
+        instrument_ids = set()
+        for watch in strategy.watchlist_instruments.all():
+            if watch.instrument_id:
+                instrument_ids.add(watch.instrument_id)
+            for route in watch.execution_routes.all():
+                if route.target_instrument_id:
+                    instrument_ids.add(route.target_instrument_id)
+                if route.route_type in {"FUTURES", "OPTIONS"}:
+                    underlying = (
+                        route.target_underlying_instrument.symbol
+                        if route.target_underlying_instrument_id
+                        else watch.instrument.symbol
+                    )
+                    instrument_ids.update(
+                        Instrument.objects.filter(
+                            instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
+                            underlying_symbol=underlying,
+                            is_active=True,
+                            is_tradable=True,
+                        ).values_list("id", flat=True)
+                    )
+        return sorted(instrument_ids)
     
     @staticmethod
     def resolve(watchlist_instrument, signal_side, spot_price=None):
@@ -88,7 +114,7 @@ class InstrumentResolver:
         expiry_filter = {'expiry_date__gt': today} if getattr(route, 'avoid_same_day_expiry', False) else {'expiry_date__gte': today}
         
         qs = Instrument.objects.filter(
-            instrument_type='FUTURE',
+            instrument_type=InstrumentType.FUTURE,
             underlying_symbol=underlying,
             is_active=True,
             **expiry_filter
@@ -105,7 +131,7 @@ class InstrumentResolver:
         expiry_filter = {'expiry_date__gt': today} if getattr(route, 'avoid_same_day_expiry', False) else {'expiry_date__gte': today}
         
         qs = Instrument.objects.filter(
-            instrument_type='OPTION',
+            instrument_type=InstrumentType.OPTION,
             underlying_symbol=underlying,
             option_type=option_type,
             is_active=True,

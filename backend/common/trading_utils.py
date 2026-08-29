@@ -133,8 +133,3 @@ def to_int(value, default=0):
         return int(float(value))
     except (TypeError, ValueError):
         return default
-
-
-# Backward-compatible aliases used by older modules.
-_to_float = to_float
-_get_field = get_any_field

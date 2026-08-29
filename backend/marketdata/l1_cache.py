@@ -1,7 +1,6 @@
 import threading
 import time
 import logging
-from django.db import models
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -29,28 +28,17 @@ class TickCache:
         self._thread = None
         
         # In-Memory State Dictionaries
-        self.active_paper_strategies = {}  # symbol -> list of dicts {"strategy": obj, "config": dict}
-        self.active_live_sessions = {}     # symbol -> list of session objects
         self.terminal_open_orders = {}     # symbol -> list of order objects
         self.paper_open_orders = {}        # symbol -> list of PaperOrder objects
         
-        self.paper_positions = {}          # (strategy_id, instrument_id) -> position object
-        self.paper_stats = {}              # strategy_id -> dict of daily trades
         self.paper_accounts = {}           # strategy_id -> PaperAccount object
-        self.paper_sessions = {}           # strategy_id -> PaperTradingSession object
         
-        self.live_positions = {}           # (session_id, instrument_id) -> position object
-        self.live_stats = {}               # session_id -> dict of daily trades
         self.live_open_orders = {}         # session_id -> list of LiveOrder objects
         self.live_allocations = {}         # session_id -> allocation object
-        self.instruments = {}              # symbol -> instrument object
-
-        self.watchlists = {}               # (strategy_id, instrument_id) -> watch object
-        
         # Last sync time
         self.last_sync = None
 
-    def start_background_sync(self, interval_seconds=3):
+    def start_background_sync(self, interval_seconds=1):
         with self._sync_lock:
             if self._running:
                 return
@@ -114,54 +102,19 @@ class TickCache:
             "strategy__watchlist_instruments__instrument"
         ).distinct()
         
-        new_strategies = {}
-        new_positions = {}
-        new_stats = {}
         new_accounts = {}
-        new_sessions = {}
         
         today = timezone.localdate()
         active_strategies = []
         
         for session in sessions:
             strategy = session.strategy
-            config = strategy.to_execution_dict()
-            if session.allocation and session.allocation.deployed_version:
-                config = session.allocation.deployed_version.config_snapshot
             sess_id = session.id
             strat_id = strategy.id
             active_strategies.append(strategy)
             
-            # Watchlists
-            for watch in strategy.watchlist_instruments.all():
-                sym = watch.instrument.sym_ticker
-                if sym not in new_strategies:
-                    new_strategies[sym] = []
-                new_strategies[sym].append({"strategy": strategy, "config": config, "session": session})
-                self.watchlists[(strat_id, watch.instrument.id)] = watch
-                self.instruments[sym] = watch.instrument
-            
-            # Stats (Daily Trades)
-            trades_today = PaperTrade.objects.filter(account=session.account, strategy=strategy, exit_time__date=today).count()
-            latest_exit = PaperTrade.objects.filter(account=session.account, strategy=strategy).order_by("-exit_time").first()
-            new_stats[sess_id] = {
-                "daily_trades": trades_today,
-                "instrument_daily_trades": trades_today, # Simplified for now
-                "last_exit_time": latest_exit.exit_time if latest_exit else None,
-                "last_entry_time": None # Simplified for now
-            }
             new_accounts[sess_id] = session.account
-            new_sessions[sess_id] = session
         
-        # Positions
-        session_map = {s.account_id: s.id for s in sessions}
-        positions = PaperPosition.objects.filter(strategy__in=active_strategies).select_related("instrument")
-        for pos in positions:
-            s_id = session_map.get(pos.account_id)
-            if s_id:
-                key = (s_id, pos.instrument_id)
-                new_positions[key] = pos
-
         from paper_trading.services import PaperExecutionService
         # Open Orders
         open_orders = PaperOrder.objects.filter(
@@ -176,81 +129,24 @@ class TickCache:
                 new_open_orders[sym] = []
             new_open_orders[sym].append(o)
             
-        self.active_paper_strategies = new_strategies
-        self.paper_stats = new_stats
-        self.paper_positions = new_positions
         self.paper_open_orders = new_open_orders
         self.paper_accounts = new_accounts
-        self.paper_sessions = new_sessions
 
     def _sync_live_sessions(self):
-        from live_trading.models import LivePosition, LiveOrder, TradingSession, LiveStrategyAllocation
+        from live_trading.models import LiveOrder, TradingSession
         from common.enums import StrategyStatus
         
         sessions = TradingSession.objects.filter(
             status="RUNNING", 
             strategy__status=StrategyStatus.ACTIVE
-        ).select_related("strategy", "broker_credential")
+        ).select_related("strategy", "broker_credential", "allocation__deployed_version", "allocation__broker_credential")
         
-        new_sessions = {}
-        new_positions = {}
-        new_stats = {}
         new_allocations = {}
         today = timezone.localdate()
 
         from live_trading.services import LiveExecutionService
         for session in sessions:
-            for watch in session.strategy.watchlist_instruments.all():
-                sym = watch.instrument.sym_ticker
-                if sym not in new_sessions:
-                    new_sessions[sym] = []
-                new_sessions[sym].append(session)
-                self.watchlists[(session.strategy_id, watch.instrument.id)] = watch
-                self.instruments[sym] = watch.instrument
-            
-            # Stats
-            trades_today = LiveOrder.objects.filter(
-                session=session, 
-                executed_at__date=today,
-                status__in=LiveExecutionService.FILLED_ORDER_STATUSES
-            ).count()
-            latest_exit = LiveOrder.objects.filter(
-                session=session, status__in=LiveExecutionService.FILLED_ORDER_STATUSES
-            ).exclude(executed_at__isnull=True).order_by("-executed_at").first()
-            
-            new_stats[session.id] = {
-                "daily_trades": trades_today,
-                "instrument_daily_trades": trades_today,
-                "last_exit_time": latest_exit.executed_at if latest_exit else None,
-                "last_entry_time": None
-            }
-            
-            # Allocation
-            allocation = LiveStrategyAllocation.objects.filter(
-                user=session.user_id,
-                strategy=session.strategy_id,
-                broker_credential=session.broker_credential_id
-            ).select_related('deployed_version').first()
-            new_allocations[session.id] = allocation
-
-        # Positions
-        session_map = {
-            (s.user_id, s.strategy_id, s.broker_credential_id): s.id 
-            for s in sessions
-        }
-        
-        if sessions:
-            from django.db.models import Q
-            q_objects = Q()
-            for s in sessions:
-                q_objects |= Q(user_id=s.user_id, strategy_id=s.strategy_id, broker_credential_id=s.broker_credential_id)
-            
-            positions = LivePosition.objects.filter(q_objects).select_related("instrument")
-            for pos in positions:
-                s_id = session_map.get((pos.user_id, pos.strategy_id, pos.broker_credential_id))
-                if s_id:
-                    key = (s_id, pos.instrument_id)
-                    new_positions[key] = pos
+            new_allocations[session.id] = session.allocation
 
         # Open Orders
         open_orders = LiveOrder.objects.filter(
@@ -263,9 +159,6 @@ class TickCache:
                 new_open_orders[o.session_id] = []
             new_open_orders[o.session_id].append(o)
 
-        self.active_live_sessions = new_sessions
-        self.live_positions = new_positions
-        self.live_stats = new_stats
         self.live_open_orders = new_open_orders
         self.live_allocations = new_allocations
 
@@ -274,54 +167,24 @@ class TickCache:
     def get_terminal_orders(self, symbol):
         return self.terminal_open_orders.get(symbol, [])
 
+
     def get_paper_open_orders(self, symbol):
         return self.paper_open_orders.get(symbol, [])
 
-    def get_paper_session(self, session_id):
-        return self.paper_sessions.get(session_id)
 
     def get_paper_account(self, session_id):
         return self.paper_accounts.get(session_id)
 
-    def get_paper_strategies(self, symbol):
-        return self.active_paper_strategies.get(symbol, [])
-        
-    def get_paper_position(self, session_id, instrument_id):
-        return self.paper_positions.get((session_id, instrument_id))
-        
-    def get_paper_stats(self, session_id):
-        return self.paper_stats.get(session_id, {
-            "daily_trades": 0, 
-            "instrument_daily_trades": 0,
-            "last_exit_time": None,
-            "last_entry_time": None
-        })
-
-    def get_live_sessions(self, symbol):
-        return self.active_live_sessions.get(symbol, [])
-
-    def get_live_position(self, session_id, instrument_id):
-        return self.live_positions.get((session_id, instrument_id))
 
     def get_live_open_orders(self, session_id):
         return self.live_open_orders.get(session_id, [])
 
+
     def get_live_allocation(self, session_id):
         return self.live_allocations.get(session_id)
 
-    def get_live_stats(self, session_id):
-        return self.live_stats.get(session_id, {
-            "daily_trades": 0, 
-            "instrument_daily_trades": 0,
-            "last_exit_time": None,
-            "last_entry_time": None
-        })
 
-    def get_instrument(self, symbol):
-        return self.instruments.get(symbol)
 
-    def get_watchlist_instrument(self, strategy_id, instrument_id):
-        return self.watchlists.get((strategy_id, instrument_id))
 
 # Expose global instance
 tick_cache = TickCache()

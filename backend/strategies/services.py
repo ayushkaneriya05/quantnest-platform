@@ -1,6 +1,6 @@
 import logging
 from django.db import transaction
-from .models import Strategy, StrategyVersion, EntryOrderConfig, ExitOrderConfig, ReEntryRule
+from .models import Strategy, StrategyVersion, EntryOrderConfig, ExitOrderConfig
 from .serializers import StrategyDetailSerializer
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
 from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
@@ -71,8 +71,7 @@ class StrategySnapshotService:
             if 'entry_order_config' in snapshot:
                 StrategySnapshotService._restore_entry_config(strategy, snapshot['entry_order_config'])
 
-            if 'reentry_rule' in snapshot:
-                StrategySnapshotService._restore_reentry_rule(strategy, snapshot['reentry_rule'])
+
                 
             if 'exit_order_config' in snapshot:
                 StrategySnapshotService._restore_exit_config(strategy, snapshot['exit_order_config'])
@@ -161,12 +160,7 @@ class StrategySnapshotService:
         Constructs a clean JSON dictionary of the strategy state.
         Uses DRF serializers where appropriate but ensures flattened structure for snapshot.
         """
-        # We can re-use the detail serializer but might need more specific handling
-        # Using the detail serializer is a good start as it includes most things
-        from .serializers import StrategyDetailSerializer
-        # We need to ensure deep nested fields like rules are included fully
-        # The default DetailSerializer might be read_only or flattened differently
-        
+      
         # Let's build a custom robust dict
         data = {
             'name': strategy.name,
@@ -178,7 +172,7 @@ class StrategySnapshotService:
         }
 
         # 1:1 Relations — use try/except to handle RelatedObjectDoesNotExist
-        for rel_name in ('entry_order_config', 'exit_order_config', 'reentry_rule', 'time_rule', 'special_event_filter', 'position_sizing_rule'):
+        for rel_name in ('entry_order_config', 'exit_order_config', 'time_rule', 'special_event_filter', 'position_sizing_rule'):
             try:
                 rel_obj = getattr(strategy, rel_name)
                 if rel_obj is not None:
@@ -221,8 +215,6 @@ class StrategySnapshotService:
             # Rules
             g_data['rules'] = [StrategySnapshotService._model_to_dict(r, exclude=['id', 'rule_group', 'created_at', 'updated_at']) for r in group.rules.all()]
             
-            
-            
             groups.append(g_data)
         
         data['rule_groups'] = groups
@@ -232,9 +224,7 @@ class StrategySnapshotService:
     def _model_to_dict(instance, exclude=None):
         from django.forms.models import model_to_dict
         d = model_to_dict(instance, exclude=exclude)
-        # Handle decimal/time/date serialization if needed (DRF JSONRenderer handles it usually, but raw model_to_dict might not for JSONField storage)
-        # JSONField in model will handle basic types. Decimal might need casting to string or float.
-        # For simplicity, we assume Django's JSONEncoder will handle it or we cast decimals.
+
         for key, value in d.items():
             import decimal
             import datetime
@@ -255,10 +245,6 @@ class StrategySnapshotService:
     @staticmethod
     def _restore_entry_config(strategy, data):
         EntryOrderConfig.objects.update_or_create(strategy=strategy, defaults=data)
-
-    @staticmethod
-    def _restore_reentry_rule(strategy, data):
-        ReEntryRule.objects.update_or_create(strategy=strategy, defaults=data)
 
     @staticmethod
     def _restore_exit_config(strategy, data):
@@ -320,3 +306,137 @@ class StrategySnapshotService:
                     )
             except Instrument.DoesNotExist:
                 logger.warning("Watchlist instrument %s not found during restore", inst_id)
+
+
+class StrategyLifecycleService:
+    @staticmethod
+    def halt_and_archive(strategy, user):
+        """
+        Close all open positions and archive the strategy.
+        Returns a dict with status information.
+        """
+        if strategy.status == 'ARCHIVED':
+            raise ValueError('Strategy is already archived')
+
+        from live_trading.models import TradingSession, LivePosition
+        from live_trading.services import LiveExecutionService
+        from django.utils import timezone
+        import time
+
+        active_sessions = list(TradingSession.objects.filter(
+            strategy=strategy,
+            status__in=['RUNNING', 'PAUSED']
+        ).select_related('broker_credential'))
+
+        closed_positions = 0
+        open_positions = LivePosition.objects.filter(
+            strategy=strategy,
+            quantity__gt=0
+        ).select_related('instrument', 'broker_credential')
+
+        for position in open_positions:
+            session = next(
+                (
+                    item for item in active_sessions
+                    if item.broker_credential_id == position.broker_credential_id
+                ),
+                active_sessions[0] if active_sessions else None,
+            )
+            if not session:
+                raise ValueError(f"No active live session found to close position {position.id}")
+
+            exit_side = 'SELL' if position.side == 'BUY' else 'BUY'
+            order = LiveExecutionService.place_order(
+                session=session,
+                instrument=position.instrument,
+                side=exit_side,
+                quantity=position.quantity,
+                order_type='MARKET',
+            )
+            
+            for _ in range(5):
+                LiveExecutionService.sync_orders_from_broker(
+                    user,
+                    credential=session.broker_credential,
+                    force=True,
+                )
+                order.refresh_from_db()
+                if order.status == 'FILLED':
+                    break
+                time.sleep(1)
+                
+            if order.status != 'FILLED':
+                raise RuntimeError(
+                    f"Close order {order.id} for position {position.id} is {order.status}; archive aborted."
+                )
+            closed_positions += 1
+
+        for session in active_sessions:
+            session.status = 'STOPPED'
+            session.ended_at = timezone.now()
+            session.save(update_fields=['status', 'ended_at', 'updated_at'])
+
+        strategy.status = 'ARCHIVED'
+        strategy.save(update_fields=['status', 'updated_at'])
+
+        return {
+            'status': 'archived',
+            'sessions_stopped': len(active_sessions),
+            'positions_closing': closed_positions,
+            'message': f"Strategy '{strategy.name}' archived after closing {closed_positions} live position(s)."
+        }
+
+
+class StrategyDeploymentService:
+    @staticmethod
+    def _has_static_stop_distance(strategy):
+        for group in strategy.rule_groups.filter(rule_type='STOP_LOSS', is_active=True).prefetch_related('rules'):
+            for rule in group.rules.filter(is_active=True):
+                if rule.operand_a_type in ['POSITION_PNL_POINTS', 'POSITION_PNL_PERCENTAGE', 'TRAILING_PEAK_OFFSET'] and rule.operand_b_type == 'CONSTANT':
+                    return True
+        return False
+
+    @staticmethod
+    def validate_for_deployment(strategy, mode='paper'):
+        errors = []
+        if not strategy.watchlist_instruments.exists():
+            errors.append('Add at least one instrument to the strategy watchlist.')
+
+        active_entry_groups = strategy.rule_groups.filter(rule_type='ENTRY', is_active=True).prefetch_related('rules')
+        if not active_entry_groups.exists():
+            errors.append('Add at least one active entry rule group.')
+        elif not active_entry_groups.filter(rules__is_active=True).exists():
+            errors.append('Every deployable strategy needs at least one active entry rule.')
+
+        empty_active_groups = [
+            group.name or f'Group #{group.id}'
+            for group in active_entry_groups
+            if not group.rules.filter(is_active=True).exists()
+        ]
+        if empty_active_groups:
+            errors.append(f"Remove or complete empty active entry groups: {', '.join(empty_active_groups)}.")
+
+        if not hasattr(strategy, 'position_sizing_rule'):
+            errors.append('Configure position sizing before deployment.')
+        else:
+            sizing = strategy.position_sizing_rule
+
+            if sizing.sizing_method == 'RISK_BASED' and not StrategyDeploymentService._has_static_stop_distance(strategy):
+                errors.append('Risk-based sizing requires a fixed, trailing, or emergency stop-loss distance.')
+
+        has_stop_loss = strategy.rule_groups.filter(
+            rule_type='STOP_LOSS',
+            is_active=True,
+            rules__is_active=True,
+        ).exists()
+        if mode == 'live' and not has_stop_loss:
+            errors.append('Live deployment requires at least one active stop-loss rule.')
+
+        return errors
+
+    @staticmethod
+    def activate_for_deployment(strategy):
+        if strategy.status != 'ACTIVE':
+            strategy.status = 'ACTIVE'
+            strategy.save(update_fields=['status', 'updated_at'])
+        return strategy

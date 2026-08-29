@@ -7,7 +7,7 @@ import qrcode
 import qrcode.image.svg
 from allauth.account.models import EmailAddress
 from django.conf import settings
-from django.contrib.auth import get_user_model, logout
+from django.contrib.auth import get_user_model
 from django.core import signing
 from django.utils import timezone
 from django_otp import devices_for_user
@@ -23,7 +23,7 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 from dj_rest_auth.jwt_auth import set_jwt_cookies
-
+from common.cache_keys import CacheKeys
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import RegisterView, SocialLoginView
@@ -157,7 +157,7 @@ class CustomLogoutView(LogoutView):
                 session_id = token_obj.payload.get("session_id")
                 if session_id:
                     UserSession.objects.filter(session_id=session_id).delete()
-                    cache.delete(f"auth_session_valid_{session_id}")
+                    cache.delete(CacheKeys.AUTH_SESSION.format(session_id=session_id))
         except Exception as e:
             logger.error(f"Error deleting session on logout: {e}")
             
@@ -645,7 +645,6 @@ class APIKeyDeleteView(APIView):
 
 def _graceful_shutdown_user(user):
     """Stop all active trading operations for a user."""
-    from strategies.models import Strategy
     from paper_trading.models import PaperOrder, PaperAccount
     from brokers.models import BrokerCredential
     from backtesting.models import BacktestRun
@@ -769,7 +768,7 @@ class AccountDeleteView(APIView):
         UserSession.objects.filter(user=user).delete()
         
         # Anonymize community content
-        from community.models import Post, Comment, StrategyRoom
+        from community.models import Post
         Post.objects.filter(author=user).update(is_anonymous=True) if hasattr(Post, 'is_anonymous') else None
         # We leave the author pointing to the soft-deleted anonymized user, so that's actually enough
         # The user's name is "deleted_user_X" so their posts will show up as from "deleted_user_X"
@@ -780,7 +779,6 @@ class AccountDeleteView(APIView):
         )
         # Clear the HTTP-only JWT cookies to prevent phantom session errors
         from dj_rest_auth.jwt_auth import unset_jwt_cookies
-        from django.conf import settings
         unset_jwt_cookies(response)
         return response
 
@@ -901,7 +899,7 @@ class RevokeSessionView(APIView):
             if session:
                 session_id = session.session_id
                 session.delete()
-                cache.delete(f"auth_session_valid_{session_id}")
+                cache.delete(CacheKeys.AUTH_SESSION.format(session_id=session_id))
                 return Response({"detail": "Session revoked."}, status=status.HTTP_200_OK)
             return Response({"error": "Session not found."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
@@ -1062,5 +1060,5 @@ def _blacklist_all_tokens(user, exclude_session_id=None):
         sessions = sessions.exclude(session_id=exclude_session_id)
         
     for session in sessions:
-        cache.delete(f"auth_session_valid_{session.session_id}")
+        cache.delete(CacheKeys.AUTH_SESSION.format(session_id=session.session_id))
     sessions.delete()

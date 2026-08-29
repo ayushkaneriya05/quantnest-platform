@@ -42,12 +42,6 @@ export const portfolioApi = {
   // Transactions
   getTransactions: () => axiosInstance.get(`${BASE_URL}/transactions/`),
 
-  // Exposure
-  getLatestExposure: () => axiosInstance.get(`${BASE_URL}/exposure/latest/`),
-  getExposureHistory: () => axiosInstance.get(`${BASE_URL}/exposure/`),
-  getExposureTimeline: () =>
-    axiosInstance.get(`${BASE_URL}/portfolios/exposure_history/`),
-
   // Performance
   getPerformanceHistory: (startDate, endDate) => {
     let url = `${BASE_URL}/performance/range/?`;

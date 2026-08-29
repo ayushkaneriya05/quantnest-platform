@@ -1,8 +1,5 @@
 import { useState, useEffect } from "react";
-import {
-  Card,
-  CardContent,
-} from "@/shared/components/ui/card";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import {
@@ -45,10 +42,18 @@ export default function PaperWallet() {
     }
     try {
       if (type === "DEPOSIT") {
-        await portfolioApi.deposit(portfolio.id, parseFloat(amount), "Paper Fund Addition");
+        await portfolioApi.deposit(
+          portfolio.id,
+          parseFloat(amount),
+          "Paper Fund Addition",
+        );
         notify.success(`₹${amount} added to Paper Wallet`);
       } else {
-        await portfolioApi.withdraw(portfolio.id, parseFloat(amount), "Paper Fund Removal");
+        await portfolioApi.withdraw(
+          portfolio.id,
+          parseFloat(amount),
+          "Paper Fund Removal",
+        );
         notify.success(`₹${amount} removed from Paper Wallet`);
       }
       setAmount("");
@@ -58,7 +63,10 @@ export default function PaperWallet() {
     }
   };
 
-  if (loading) return <div className="h-40 flex items-center justify-center">Loading...</div>;
+  if (loading)
+    return (
+      <div className="h-40 flex items-center justify-center">Loading...</div>
+    );
 
   return (
     <div className="space-y-6">
@@ -67,9 +75,14 @@ export default function PaperWallet() {
           <CardContent className="pt-6">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-indigo-300 text-sm font-medium">Virtual Balance</p>
+                <p className="text-indigo-300 text-sm font-medium">
+                  Virtual Balance
+                </p>
                 <h3 className="text-3xl font-black text-white mt-1">
-                  ₹{(portfolio?.current_capital || 0).toLocaleString("en-IN")}
+                  ₹
+                  {Number(portfolio?.current_capital || 0).toLocaleString(
+                    "en-IN",
+                  )}
                 </h3>
                 <p className="text-xs text-indigo-400/80 mt-2 flex items-center gap-1">
                   <ShieldCheck className="h-3 w-3" />
@@ -86,7 +99,9 @@ export default function PaperWallet() {
         <Card className="bg-gray-900/40 border-gray-800">
           <CardContent className="pt-6 space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Adjust Paper Funds</label>
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                Adjust Paper Funds
+              </label>
               <div className="flex gap-2">
                 <Input
                   type="number"
@@ -95,13 +110,13 @@ export default function PaperWallet() {
                   onChange={(e) => setAmount(e.target.value)}
                   className="bg-gray-800 border-gray-700 text-white"
                 />
-                <Button 
+                <Button
                   onClick={() => handleAction("DEPOSIT")}
                   className="bg-emerald-600 hover:bg-emerald-500 shrink-0"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
-                <Button 
+                <Button
                   onClick={() => handleAction("WITHDRAW")}
                   variant="outline"
                   className="border-rose-800 text-rose-400 hover:bg-rose-500/10 shrink-0"
@@ -124,7 +139,9 @@ export default function PaperWallet() {
           </div>
           <div>
             <p className="text-xs text-gray-500">Total Profits Settled</p>
-            <p className="text-sm font-bold text-emerald-400">₹{(portfolio?.realized_pnl || 0).toLocaleString("en-IN")}</p>
+            <p className="text-sm font-bold text-emerald-400">
+              ₹{Number(portfolio?.realized_pnl || 0).toLocaleString("en-IN")}
+            </p>
           </div>
         </div>
         <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/10 flex items-center gap-4">
@@ -134,7 +151,12 @@ export default function PaperWallet() {
           <div>
             <p className="text-xs text-gray-500">Total Capital Allocated</p>
             <p className="text-sm font-bold text-indigo-400">
-              ₹{(portfolio?.allocations?.reduce((sum, a) => sum + parseFloat(a.allocated_amount || 0), 0) || 0).toLocaleString("en-IN")}
+              ₹
+              {Math.max(
+                0,
+                Number(portfolio?.total_value || 0) -
+                  Number(portfolio?.current_capital || 0),
+              ).toLocaleString("en-IN")}
             </p>
           </div>
         </div>

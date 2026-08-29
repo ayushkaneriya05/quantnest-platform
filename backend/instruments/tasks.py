@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 from django.core.cache import cache
+from common.cache_keys import CacheKeys
 from .models import Instrument
 
 @shared_task(name="instruments.sync_fyers_master")
@@ -33,10 +34,10 @@ def sync_fyers_master():
     if active_count < 10000 and total_count > 20000:
         logger.critical(f"CRITICAL: Only {active_count} active instruments found after sync. This indicates a malformed master file. Disabling all derivatives.")
         Instrument.objects.filter(instrument_type__in=['FUTURE', 'OPTION']).update(is_active=False)
-        cache.set("master_sync_status", "CRITICAL_FAILURE", timeout=86400)
+        cache.set(CacheKeys.MASTER_SYNC_STATUS, "CRITICAL_FAILURE", timeout=86400)
         return {"status": "critical_failure", "active_count": active_count}
         
-    cache.set("master_sync_status", "SUCCESS", timeout=86400)
-    cache.set("master_sync_active_count", active_count, timeout=86400)
+    cache.set(CacheKeys.MASTER_SYNC_STATUS, "SUCCESS", timeout=86400)
+    cache.set(CacheKeys.MASTER_SYNC_ACTIVE_COUNT, active_count, timeout=86400)
 
     return {"status": "ok", "active_count": active_count}

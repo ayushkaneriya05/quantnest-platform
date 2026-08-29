@@ -1,20 +1,19 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-import pytz
 from decouple import config
 from django.conf import settings
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 
 from .calendar_service import EventCalendarService
 from .live_feed import LiveMarketDataRegistry
-from .models import MarketDataToken, MarketEvent
-from .services import HistoricalCandleService, MarketDataService
-from .streaming import MarketDataStreamer
+from .models import MarketEvent
+from .services import ChartDataService, MarketDataService
+from .quote_store import QuoteStore
 from .utils import refresh_fyers_token, _get_token_row, _get_today_eod
 from instruments.models import Instrument
 
@@ -45,10 +44,11 @@ def latest_tick_data(request):
         return JsonResponse({"error": "Instrument symbol is required"}, status=400)
 
     normalized = MarketDataService.normalize_symbol(symbol)
-    quote = (
-        MarketDataStreamer.get_cached_quote(normalized)
-        or MarketDataStreamer.poll_latest_candle_quote(normalized)
-    )
+    quote = QuoteStore.get_latest(normalized)
+    if not quote:
+        quote = MarketDataService.get_live_quote_from_fyers(normalized)
+    if not quote:
+        quote = MarketDataService.latest_quote_from_storage(normalized)
     if not quote:
         return JsonResponse(_empty_quote_payload(normalized))
     return JsonResponse({**quote, "available": True})
@@ -63,7 +63,11 @@ def live_quote(request):
 
     normalized = MarketDataService.normalize_symbol(symbol)
     LiveMarketDataRegistry.add_symbols([normalized])
-    quote = MarketDataStreamer.get_cached_quote(normalized) or MarketDataStreamer.poll_latest_candle_quote(normalized)
+    quote = QuoteStore.get_latest(normalized)
+    if not quote:
+        quote = MarketDataService.get_live_quote_from_fyers(normalized)
+    if not quote:
+        quote = MarketDataService.latest_quote_from_storage(normalized)
     if not quote:
         return JsonResponse({"error": "Quote unavailable"}, status=404)
     return JsonResponse(quote)
@@ -79,7 +83,11 @@ def live_indices(request):
     }
     payload = []
     for name, symbol in indices.items():
-        quote = MarketDataStreamer.get_cached_quote(symbol) or MarketDataStreamer.poll_latest_candle_quote(symbol)
+        quote = QuoteStore.get_latest(symbol)
+        if not quote:
+            quote = MarketDataService.get_live_quote_from_fyers(symbol)
+        if not quote:
+            quote = MarketDataService.latest_quote_from_storage(symbol)
         if quote:
             payload.append(
                 {
@@ -129,7 +137,7 @@ def ohlc_data(request):
         return JsonResponse({"error": "Instrument symbol is required"}, status=400)
 
     try:
-        candles_data = HistoricalCandleService.list_candles(
+        candles_data = ChartDataService.list_candles(
             symbol=MarketDataService.normalize_symbol(symbol),
             resolution=resolution,
             limit=500,
@@ -160,7 +168,7 @@ def candles(request):
         return JsonResponse({"detail": "symbol is required"}, status=400)
 
     try:
-        payload = HistoricalCandleService.chart_window(
+        payload = ChartDataService.chart_window(
             symbol=symbol,
             resolution=resolution,
             limit=limit,

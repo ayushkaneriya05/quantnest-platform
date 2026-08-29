@@ -8,14 +8,12 @@ from django.utils import timezone
 
 from common.enums import BacktestStatus, OrderType, Side
 from common.trading_utils import (
-    get_any_field,
     minutes_since_session_open,
     get_exchange_times,
 )
 from rules_engine.utils import compute_sl_distance_from_config
 from marketdata.calendar_service import EventCalendarService
 from marketdata.access import StrategyMarketDataService
-from marketdata.services import FyersDataService
 from marketdata.services import MarketDataService
 from risk_management.evaluator import RiskEvaluator
 from rules_engine.evaluator import RuleEvaluator
@@ -34,6 +32,28 @@ class BacktestCancelled(Exception):
 class BacktestEngine:
     """
     Core engine for simulating strategy performance against historical data.
+
+    IMPORTANT LIMITATIONS vs. Live/Paper Trading:
+    ─────────────────────────────────────────────
+    1. **Intra-candle execution order is simulated, not real.**
+       The engine processes completed candles sequentially. Within a single bar
+       it assumes the price path: Open → High → Low → Close (for long entries)
+       or Open → Low → High → Close (for short entries). Real markets may move
+       in any order within the bar, so SL/Target fills are approximations.
+
+    2. **Slippage and fill probability are modeled, not observed.**
+       Live/paper trading uses the actual bid/ask or LTP at execution time.
+       The backtest applies a configurable slippage percentage to the candle
+       price but cannot replicate real order-book depth.
+
+    3. **Entry signals are vectorised (pre-computed across all bars), whereas
+       live/paper trading evaluates signals dynamically per tick.** This means
+       the backtest evaluates *all* entry rules once upfront and then iterates
+       bar-by-bar, while live trading may see different indicator values for
+       the same bar timestamp due to partial data.
+
+    4. **No real broker interaction.** There is no connection latency,
+       partial-fill logic, or circuit-breaker rejection.
     """
 
     def __init__(self, run_id=None, run_instance=None):
@@ -53,12 +73,10 @@ class BacktestEngine:
         if self.run.parameters:
             self._deep_merge(self.config, self.run.parameters)
 
-        self.risk_snapshot = copy.deepcopy(self.run.risk_profile_snapshot or {})
         self.initial_capital = float(self.run.initial_capital)
         self.current_capital = self.initial_capital
 
         self.data_resolution = MarketDataService.normalize_timeframe(self.config.get("time_rule", {}).get("candle_timeframe", "5m"))
-        self.candle_completion_rule = self.config.get("time_rule", {}).get("candle_completion_rule", "ON_CLOSE")
 
         self.risk_evaluator = RiskEvaluator(self.initial_capital)
 
@@ -230,7 +248,6 @@ class BacktestEngine:
 
                 base_evaluator = RuleEvaluator(
                     df,
-                    candle_completion_rule=self.candle_completion_rule,
                     mtf_data=mtf_data,
                     mtf_indicator_engines=mtf_indicator_engines
                 )
@@ -248,14 +265,14 @@ class BacktestEngine:
                     "mtf_data": mtf_data,
                     "base_timeframe": base_timeframe,
                     "executor": executor,
-                    "entry_signals": executor.evaluate_entry_signals(executor.completed_signal_frame(df)),
+                    "entry_signals": executor.evaluate_entry_signals(df),
                 }
                 self.instrument_states[instrument_id] = {
-                    "reentry_count": 0,
+                    "instrument_daily_trades": 0,
                     "last_exit_time": None,
                     "last_entry_time": None,
                     "last_trade": None,
-                    "last_candle": None,
+                    "last_candle": None,    
                     "pending_entry_order": None,
                 }
                 all_timestamps.update(df.index.tolist())
@@ -290,7 +307,7 @@ class BacktestEngine:
                     daily_stats = {"trades": 0, "pnl": 0.0}
                     self.halt_state = {"active_until": None, "reason": None}
                     for state in self.instrument_states.values():
-                        state["reentry_count"] = 0
+                        state["instrument_daily_trades"] = 0
                         state["last_exit_time"] = None
 
                     # Bug #2 fix: Populate active_events_today for special event filters
@@ -316,21 +333,6 @@ class BacktestEngine:
                     open_pos = self.open_positions.get(instrument_id)
                     stats = self._build_runtime_stats(candle, daily_stats, context["instrument"], timestamp)
 
-                    # Portfolio risk evaluation (replaces non-existent evaluate_halt_conditions)
-                    risk_profile = self.risk_snapshot.get("profile", {})
-                    portfolio_eval = self.risk_evaluator.evaluate_portfolio_risk(risk_profile, stats)
-                    if portfolio_eval.get("breached"):
-                        self._apply_portfolio_halt(portfolio_eval, timestamp)
-                        if open_pos:
-                            self.open_position = open_pos
-                            self.close_position(timestamp, float(candle["close"]), "Portfolio Risk Breach")
-                            state["last_exit_time"] = timestamp
-                            state["reentry_count"] += 1
-                            daily_stats["trades"] += 1
-                            daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
-                            open_pos = None
-
-                    # Bug #4 fix: Act on auto_disable_rules result
                     auto_disable_eval = self.risk_evaluator.evaluate_auto_disable_rules(
                         self.config.get("auto_disable_rules", []),
                         stats,
@@ -340,7 +342,7 @@ class BacktestEngine:
                             self.open_position = open_pos
                             self.close_position(timestamp, float(candle["close"]), "Auto-Disable Triggered")
                             state["last_exit_time"] = timestamp
-                            state["reentry_count"] += 1
+                            state["instrument_daily_trades"] += 1
                             daily_stats["trades"] += 1
                             daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
                             open_pos = None
@@ -357,6 +359,7 @@ class BacktestEngine:
                         pos_state = {
                             "avg_price": float(open_pos["entry_price"]),
                             "side": open_pos["side"],
+                            "current_price": float(candle["close"]),
                             "peak_price": float(open_pos.get("peak_price", candle["high"] if open_pos["side"] == Side.BUY else candle["low"])),
                             "trailing_stop": open_pos.get("trailing_stop"),
                             "trailing_sl": open_pos.get("trailing_sl"),
@@ -365,64 +368,95 @@ class BacktestEngine:
                             "sl_distance": compute_sl_distance_from_config(self.config, open_pos["entry_price"]),
                             "instrument_expiry_date": getattr(open_pos.get("instrument"), "expiry_date", None),
                         }
-                        # Update peak price tracking
+                        # Update peak price tracking first
                         if open_pos["side"] == Side.BUY:
                             pos_state["peak_price"] = max(pos_state["peak_price"], float(candle["high"]))
+                            pos_state["pnl_points"] = pos_state["current_price"] - pos_state["avg_price"]
                         else:
                             pos_state["peak_price"] = min(pos_state["peak_price"], float(candle["low"]))
+                            pos_state["pnl_points"] = pos_state["avg_price"] - pos_state["current_price"]
+                        pos_state["pnl_percentage"] = (
+                            (pos_state["pnl_points"] / pos_state["avg_price"]) * 100
+                            if pos_state["avg_price"]
+                            else 0.0
+                        )
+                        
+                        # INTRA-CANDLE FAST-PATH EVALUATION (Simulates _evaluate_fast_path in engine.py)
+                        stop_price = open_pos.get("protected_stop_price")
+                        target_price = open_pos.get("protected_target_price")
+                        fast_hit = False
+                        fast_reason = None
+                        exit_price = float(candle["close"])
+                        
+                        if stop_price is not None:
+                            if open_pos["side"] == Side.BUY and float(candle["low"]) <= stop_price:
+                                fast_hit, fast_reason, exit_price = True, "Stop Loss Hit", stop_price
+                            elif open_pos["side"] == Side.SELL and float(candle["high"]) >= stop_price:
+                                fast_hit, fast_reason, exit_price = True, "Stop Loss Hit", stop_price
+                                
+                        if not fast_hit and target_price is not None:
+                            if open_pos["side"] == Side.BUY and float(candle["high"]) >= target_price:
+                                fast_hit, fast_reason, exit_price = True, "Target Hit", target_price
+                            elif open_pos["side"] == Side.SELL and float(candle["low"]) <= target_price:
+                                fast_hit, fast_reason, exit_price = True, "Target Hit", target_price
 
+                        if fast_hit:
+                            self.close_position(timestamp, exit_price, fast_reason)
+                            daily_stats["trades"] += 1
+                            daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
+                            
+                            if open_pos["quantity"] <= 0:
+                                state["last_exit_time"] = timestamp
+                                state["instrument_daily_trades"] += 1
+                                open_pos = None
+                            continue
+
+                        # SLOW-PATH EXIT LOGIC
                         executor = context["executor"]
                         should_exit, reason, action, action_params = executor.evaluate_exit_logic(pos_state, df.iloc[:df.index.get_loc(timestamp)+1], timestamp)
-
-                        reverse_enabled = self.config.get("reentry_rule", {}).get("allow_reverse_entry", False)
-                        entry_side = executor.entry_config.get("entry_side", Side.BUY)
-                        if (
-                            not should_exit
-                            and reverse_enabled
-                            and not is_in_no_trade_zone
-                            and entry_side != open_pos["side"]
-                            and bool(context["entry_signals"].get(timestamp, False))
-                        ):
-                            should_exit = True
-                            reason = "Reverse Entry Signal"
-                            action = "EXIT_ALL"
-                            action_params = {}
 
                         # Preserve trailing state for backtest persistence
                         open_pos["trailing_stop"] = pos_state.get("trailing_stop")
                         open_pos["trailing_sl"] = pos_state.get("trailing_sl")
                         open_pos["trailing_target"] = pos_state.get("trailing_target")
                         open_pos["peak_price"] = pos_state.get("peak_price")
+                        open_pos["avg_price"] = pos_state["avg_price"]
+                        open_pos["current_price"] = pos_state["current_price"]
+                        open_pos["pnl_points"] = pos_state["pnl_points"]
+                        open_pos["pnl_percentage"] = pos_state["pnl_percentage"]
 
                         if should_exit:
-                            if action == 'MOVE_TO_BREAKEVEN':
-                                if not open_pos.get(f'breakeven_{reason}'):
-                                    open_pos['protected_stop_price'] = open_pos['entry_price']
-                                    open_pos[f'breakeven_{reason}'] = True
-                            elif action == 'PARTIAL_EXIT':
-                                exit_pct = float(action_params.get('exit_pct', 50))
-                                if not open_pos.get(f'partial_exit_{reason}'):
-                                    exit_qty = int(open_pos["quantity"] * (exit_pct / 100.0))
-                                    if exit_qty > 0:
-                                        self.close_position(timestamp, float(candle["close"]), f"Partial Exit ({exit_pct}%): {reason}", exit_qty=exit_qty)
-                                        daily_stats["trades"] += 1
-                                        daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
-                                        open_pos[f'partial_exit_{reason}'] = True
-                            else:
-                                self.close_position(timestamp, float(candle["close"]), reason)
-                                state["last_exit_time"] = timestamp
-                                state["reentry_count"] += 1
+                            from strategy_engine.exit_actions import process_exit_action
+                            decision = process_exit_action(
+                                action=action,
+                                params=action_params,
+                                position=open_pos,
+                                reason=reason,
+                            )
+                            
+                            # Apply state updates (like marking partial_exit evaluated)
+                            if decision.state_updates:
+                                open_pos.update(decision.state_updates)
+                                
+                            if decision.should_send_order:
+                                self.close_position(
+                                    timestamp, 
+                                    float(candle["close"]), 
+                                    decision.reason, 
+                                    exit_qty=decision.quantity
+                                )
                                 daily_stats["trades"] += 1
                                 daily_stats["pnl"] += float(self.trades_to_create[-1].net_pnl)
-                                open_pos = None
+                                
+                                if open_pos["quantity"] <= 0:
+                                    state["last_exit_time"] = timestamp
+                                    state["instrument_daily_trades"] += 1
+                                    open_pos = None
 
-                    entry_side = context["executor"].entry_config.get("entry_side", Side.BUY)
-                    allow_entry = not open_pos or (open_pos and open_pos["side"] == entry_side)
-
-                    if allow_entry:
+                    if not open_pos:
                         executor = context["executor"]
 
-                        # 1. Handle Pending Entries (from ON_CLOSE/ON_OPEN signal in previous candle)
+                        # 1. Handle pending entries from the prior completed candle.
                         pending_orders = state.get("pending_entry_order")
                         if pending_orders:
                             if not isinstance(pending_orders, list):
@@ -451,7 +485,7 @@ class BacktestEngine:
                             orders = self.place_order(
                                 timestamp, candle, context["instrument"], daily_stats, executor=executor,
                             )
-                            if self.run.fill_model in ("NEXT_OPEN", "VWAP") and self.candle_completion_rule in ("ON_CLOSE", "ON_OPEN"):
+                            if self.run.fill_model in ("NEXT_OPEN", "VWAP"):
                                 state["pending_entry_order"] = orders or None
                                 continue
 
@@ -523,37 +557,25 @@ class BacktestEngine:
                 pass
             return None
 
-    def place_order(self, timestamp, candle, instrument, daily_stats, executor=None, signal_candle=None):
+    def place_order(self, timestamp, candle, instrument, daily_stats, executor=None):
         """
         Build entry order intents using the same strategy/risk checks used by
         paper/live at order placement time. Returns a list of orders (one for each route).
         """
         executor = executor or self.executor
-        sig = signal_candle if signal_candle is not None else candle
-        otype, entry_price, trigger_price = executor.resolve_entry_order(sig, execution_candle=candle)
+        otype, entry_price = executor.resolve_entry_order(candle)
         entry_side = executor.entry_config.get("entry_side", Side.BUY)
 
         order_price = entry_price
-        if order_price is None and trigger_price is not None:
-            order_price = trigger_price
         if order_price is None:
             order_price = float(candle["close"])
         order_price = float(order_price)
 
         entry_price = float(entry_price) if entry_price is not None else None
-        trigger_price = float(trigger_price) if trigger_price is not None else None
         if otype == OrderType.MARKET:
             entry_price = None
 
         stats = self._build_runtime_stats(candle, daily_stats, instrument, timestamp)
-
-        ok, _ = self.risk_evaluator.check_strategy_limits(self.config, stats)
-        if not ok:
-            return []
-
-        ok, _ = self.risk_evaluator.check_portfolio_risk(self.config.get("risk_profile", {}), stats)
-        if not ok:
-            return []
 
         # Step 1: Resolve execution instrument
         from instruments.models import WatchlistInstrument
@@ -591,19 +613,24 @@ class BacktestEngine:
 
         orders = []
         for exec_instrument, exec_side, sizing_config in safe_resolutions:
-            if not sizing_config:
-                sizing_config = self.config
-
+            from strategy_engine.sizing import compute_position_size
             # Step 4: Calculate quantity with lot size rounding
             lot_size = getattr(exec_instrument, 'lot_size', 1) or 1
-            quantity = self.risk_evaluator.calculate_quantity(sizing_config, order_price, stats=stats, lot_size=lot_size)
+            quantity = compute_position_size(
+                risk_evaluator=self.risk_evaluator,
+                sizing_config=sizing_config,
+                price=order_price,
+                sl_distance=None,
+                lot_size=lot_size,
+                strategy_config=self.config
+            )
+            
             if quantity <= 0:
                 continue
 
             orders.append({
                 "order_type": otype,
                 "entry_price": entry_price,
-                "trigger_price": trigger_price,
                 "signal_close": float(sig["close"]),
                 "side": exec_side,
                 "quantity": quantity,
@@ -629,35 +656,10 @@ class BacktestEngine:
         otype = order["order_type"]
         entry_side = order["side"]
         entry_price = order.get("entry_price")
-        trigger_price = order.get("trigger_price")
         candle_high = float(candle["high"])
         candle_low = float(candle["low"])
         candle_open = float(candle["open"])
-
-        if otype in (OrderType.STOP_LIMIT, OrderType.STOP_MARKET) and trigger_price is not None:
-            trigger_price = float(trigger_price)
-            if entry_side == Side.BUY and candle_high < trigger_price:
-                return None
-            if entry_side == Side.SELL and candle_low > trigger_price:
-                return None
-            if entry_side == Side.BUY and candle_open >= trigger_price:
-                return candle_open
-            if entry_side == Side.SELL and candle_open <= trigger_price:
-                return candle_open
-            return float(entry_price) if entry_price is not None else trigger_price
-
-        if otype == OrderType.LIMIT and entry_price is not None:
-            entry_price = float(entry_price)
-            if entry_side == Side.BUY and candle_low > entry_price:
-                return None
-            if entry_side == Side.SELL and candle_high < entry_price:
-                return None
-            if entry_side == Side.BUY and candle_open <= entry_price:
-                return candle_open
-            if entry_side == Side.SELL and candle_open >= entry_price:
-                return candle_open
-            return entry_price
-
+        
         if entry_price is not None:
             return float(entry_price)
 
@@ -710,6 +712,9 @@ class BacktestEngine:
             existing_pos["entry_price"] = avg_price
             return
 
+        from rules_engine.utils import derive_protection_levels
+        protection = derive_protection_levels(self.config, side, price)
+
         self.open_position = {
             "side": side,
             "entry_time": timestamp,
@@ -721,6 +726,8 @@ class BacktestEngine:
             "trailing_sl": None,
             "trailing_target": None,
             "signal_instrument_id": signal_instrument_id,
+            "protected_stop_price": protection.get("protected_stop_price"),
+            "protected_target_price": protection.get("protected_target_price"),
         }
         self.open_positions[dict_key] = self.open_position
 
@@ -802,6 +809,7 @@ class BacktestEngine:
         if exit_qty and exit_qty < pos["quantity"]:
             pos["quantity"] -= exit_qty
         else:
+            pos["quantity"] = 0  # CRITICAL FIX: Ensure caller sees quantity=0
             self.open_position = None
             dict_key = pos.get("signal_instrument_id") or pos["instrument"].id
             self.open_positions.pop(dict_key, None)
@@ -969,9 +977,12 @@ class BacktestEngine:
         open_pos = self.open_positions.get(instrument.id)
 
         atr_value = 0.0
-        if getattr(self, "rule_evaluator", None) and getattr(self.rule_evaluator, "indicator_engine", None):
+        base_timeframe = MarketDataService.normalize_timeframe(self.data_resolution)
+        evaluator = self.rule_evaluators.get((instrument.id, base_timeframe))
+        
+        if evaluator and getattr(evaluator, "indicator_engine", None):
             from common.enums import OperandType
-            atr_series = self.rule_evaluator.indicator_engine.get_series(OperandType.ATR, {"period": 14})
+            atr_series = evaluator.indicator_engine.get_series(OperandType.ATR, {"period": 14})
             if atr_series is not None and not atr_series.empty:
                 if timestamp in atr_series.index:
                     atr_value = float(atr_series.loc[timestamp])
@@ -981,8 +992,7 @@ class BacktestEngine:
         return {
             "daily_pnl": daily_stats.get("pnl", 0.0),
             "daily_trades": daily_stats.get("trades", 0),
-            "instrument_daily_trades": state.get("reentry_count", 0),
-            "consecutive_losses": getattr(self, "consecutive_losses", 0),
+            "instrument_daily_trades": state.get("instrument_daily_trades", 0),
             "last_exit_time": state.get("last_exit_time"),
             "last_entry_time": state.get("last_entry_time"),
             "open_positions": len(self.open_positions),
@@ -992,6 +1002,7 @@ class BacktestEngine:
             "strategy_allocation_pct": (self._total_exposure() / self.initial_capital) * 100 if self.initial_capital else 0,
             "instrument_exposure_pct": ((float(candle["close"]) * open_pos["quantity"]) / self.initial_capital) * 100 if open_pos and self.initial_capital else 0,
             "consecutive_losses": self._current_consecutive_losses(),
+            "consecutive_wins": self._current_consecutive_wins(),
             "win_rate": self._current_win_rate(),
             "weekly_pnl": self._pnl_over_window(timestamp, 7),
             "monthly_pnl": self._pnl_over_window(timestamp, 30),
@@ -1000,22 +1011,6 @@ class BacktestEngine:
             "minutes_since_open": minutes_since_session_open(timestamp.time()),
             "custom_value": daily_stats.get("custom_value", 0),
         }
-
-    def _apply_halt_state(self, halt_eval, timestamp):
-        duration = halt_eval.get("max_halt_duration_minutes", 0)
-        active_until = datetime.combine(timestamp.date(), time(23, 59, 59)) if duration == 0 else timestamp + pd.Timedelta(minutes=duration)
-        self.halt_state = {"active_until": active_until, "reason": "Trade Halt"}
-
-    def _apply_portfolio_halt(self, portfolio_eval, timestamp):
-        if portfolio_eval.get("breached"):
-            breach_msg = "Portfolio Risk Breach"
-            breaches = portfolio_eval.get("breaches", [])
-            if breaches:
-                breach_msg = breaches[0].get("message", breach_msg)
-            self.halt_state = {
-                "active_until": datetime.combine(timestamp.date(), time(23, 59, 59)),
-                "reason": breach_msg,
-            }
 
     def _is_halted(self, timestamp):
         """Check if trading is currently halted."""
@@ -1058,70 +1053,22 @@ class BacktestEngine:
         except (ObjectDoesNotExist, self.run.DoesNotExist):
             raise BacktestCancelled()
 
-    def _get_active_groups(self, rule_type):
-        return [
-            group
-            for group in self.config.get("rule_groups", [])
-            if get_any_field(group, "rule_type") == rule_type and get_any_field(group, "is_active", True)
-        ]
 
-    def _get_rules(self, group, *possible_keys):
-        for key in possible_keys:
-            rules = get_any_field(group, key)
-            if rules:
-                return list(rules)
-        return []
-
-    def _get_rule_evaluator(self, resolution):
-        resolution = MarketDataService.normalize_timeframe(resolution or self.data_resolution)
-        cache_key = (self.instrument.id, resolution)
-        if cache_key in self.rule_evaluators:
-            return self.rule_evaluators[cache_key]
-
-        if not self.instrument:
-            raise ValueError("Backtest instrument is not initialized")
-
-        start_dt = datetime.combine(self.run.start_date, datetime.min.time())
-        end_dt = datetime.combine(self.run.end_date, datetime.max.time())
-        df = FyersDataService.get_backtest_candles(
-            symbol=self.instrument.sym_ticker,
-            resolution=resolution,
-            start_dt=start_dt,
-            end_dt=end_dt,
-            fetch_missing=True,
-            clean=True,
-            persist=True,
-        )
-        if df.empty:
-            logger.warning("No data found for timeframe override %s; falling back to base resolution", resolution)
-            return self.rule_evaluator
-
-        evaluator = RuleEvaluator(df)
-        self.market_data_cache[cache_key] = df
-        self.rule_evaluators[cache_key] = evaluator
-        return evaluator
-
-
-
-    def _minutes_in_trade(self, timestamp):
-        if not self.open_position:
-            return 0
-        return max(int((timestamp - self.open_position["entry_time"]).total_seconds() / 60), 0)
-
-    def _current_trade_loss_pct(self, price):
-        if not self.open_position:
-            return 0
-        entry = self.open_position["entry_price"]
-        if entry <= 0:
-            return 0
-        loss = ((entry - price) / entry) * 100 if self.open_position["side"] == Side.BUY else ((price - entry) / entry) * 100
-        return max(loss, 0)
 
 
     def _current_consecutive_losses(self):
         streak = 0
         for trade in reversed(self.trades_to_create):
             if float(trade.net_pnl) < 0:
+                streak += 1
+            else:
+                break
+        return streak
+
+    def _current_consecutive_wins(self):
+        streak = 0
+        for trade in reversed(self.trades_to_create):
+            if float(trade.net_pnl) > 0:
                 streak += 1
             else:
                 break
@@ -1151,13 +1098,6 @@ class BacktestEngine:
 
     def _set_active_context(self, instrument_id, instrument):
         self.instrument = instrument
-        cache_key = (instrument.id, self.data_resolution)
-        if cache_key not in self.rule_evaluators:
-            cache_key = next(
-                (key for key in self.rule_evaluators if key[0] == instrument.id),
-                cache_key,
-            )
-        self.rule_evaluator = self.rule_evaluators.get(cache_key)
         self.open_position = self.open_positions.get(instrument_id)
         state = self.instrument_states[instrument_id]
         self.last_entry_time = state.get("last_entry_time")

@@ -10,8 +10,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
 from kombu.exceptions import OperationalError
 from .models import (
-    BacktestRun, BacktestTrade, BacktestMetrics, EquityCurvePoint,
-    MonteCarloRun, MonteCarloResult
+    BacktestRun, BacktestMetrics, MonteCarloRun
 )
 from .serializers import (
     BacktestRunSerializer, BacktestRunListSerializer, BacktestRunDetailSerializer,
@@ -19,7 +18,6 @@ from .serializers import (
     MonteCarloRunSerializer, MonteCarloResultSerializer
 )
 from common.enums import BacktestStatus
-from risk_management.models import PortfolioRiskProfile
 from strategies.services import StrategySnapshotService
 from .tasks import run_backtest_task, run_monte_carlo_task
 from .analytics import BacktestAnalytics
@@ -126,25 +124,11 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
             change_notes=f"Auto-snapshot for backtest: {serializer.validated_data.get('name', 'Unnamed')}"
         )
 
-        risk_profile = PortfolioRiskProfile.objects.filter(user=self.request.user).first()
-        risk_profile_snapshot = {}
-        if risk_profile:
-            risk_profile_snapshot = {
-                'profile': {
-                    'max_daily_loss_amount': float(risk_profile.max_daily_loss_amount) if risk_profile.max_daily_loss_amount is not None else None,
-                    'max_daily_loss_percentage': float(risk_profile.max_daily_loss_percentage),
-                    'max_exposure_percentage': float(risk_profile.max_exposure_percentage),
-                    'max_per_instrument_exposure': float(risk_profile.max_per_instrument_exposure),
-                    'max_drawdown_percentage': float(risk_profile.max_drawdown_percentage),
-                    'alert_on_breach': risk_profile.alert_on_breach,
-                },
-            }
-        
         serializer.save(
             user=self.request.user, 
             strategy_version=version,
             config_snapshot=version.config_snapshot,
-            risk_profile_snapshot=risk_profile_snapshot,
+            risk_profile_snapshot={},
         )
     
     @action(detail=True, methods=['post'])

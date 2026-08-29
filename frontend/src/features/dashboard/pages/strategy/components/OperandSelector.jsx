@@ -92,7 +92,7 @@ export const PARAM_CONFIG = {
   ],
   OBV: [],
   PIVOT_POINT: [],
-  TIME_DECAY: [],
+  POSITION_RR_RATIO: [],
   POSITION_PNL_PERCENTAGE: [],
   POSITION_PNL_POINTS: [],
   TRAILING_PEAK_OFFSET: [],
@@ -112,7 +112,8 @@ export default function OperandSelector({
   onChangeParams, 
   onChangeTimeframe,
   hideTimeframe = false,
-  placeholder = "Select Operand"
+  placeholder = "Select Operand",
+  ruleType
 }) {
   const { enums } = useEnums();
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -121,7 +122,7 @@ export default function OperandSelector({
   const options = enums.OperandType || [];
   
   const priceData = ['LTP', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME', 'VWAP', 'HL2', 'HLC3', 'OHLC4', 'CURRENT_DAY_OPEN', 'PREV_WEEK_HIGH', 'PREV_WEEK_LOW'];
-  const stateData = ['POSITION_PNL_PERCENTAGE', 'POSITION_PNL_POINTS', 'TRAILING_PEAK_OFFSET', 'ENTRY_PRICE', 'TIME_DECAY'];
+  const stateData = ['POSITION_PNL_PERCENTAGE', 'POSITION_PNL_POINTS', 'TRAILING_PEAK_OFFSET', 'ENTRY_PRICE', 'POSITION_RR_RATIO'];
   const mathData = ['CONSTANT', 'MATH_EXPRESSION'];
 
   const candleData = ['CANDLE_PATTERN', 'CANDLE_BODY_SIZE'];
@@ -129,7 +130,7 @@ export default function OperandSelector({
   const groupedOptions = {
     "Price Action & Volume": options.filter(o => priceData.includes(o.value)),
     "Candle Analysis": options.filter(o => candleData.includes(o.value)),
-    "Position State (Exit)": options.filter(o => stateData.includes(o.value)),
+    ...(ruleType !== 'ENTRY' ? { "Position State (Exit)": options.filter(o => stateData.includes(o.value)) } : {}),
     "Math & Constants": options.filter(o => mathData.includes(o.value)),
     "Technical Indicators": options.filter(o => !priceData.includes(o.value) && !stateData.includes(o.value) && !mathData.includes(o.value) && !candleData.includes(o.value))
   };

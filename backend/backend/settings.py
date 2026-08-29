@@ -16,15 +16,9 @@ CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CHANNEL_REDIS_URL = config("CHANNEL_REDIS_URL", default=REDIS_URL)
 USE_IN_MEMORY_CHANNEL_LAYER = config("USE_IN_MEMORY_CHANNEL_LAYER", default=DEBUG, cast=bool)
-LIVE_MARKET_DEFAULT_SYMBOLS = config(
-    "LIVE_MARKET_DEFAULT_SYMBOLS",
-    default="NSE:NIFTY50-INDEX,NSE:NIFTYBANK-INDEX,BSE:SENSEX-INDEX",
-    cast=Csv(),
-)
 
 
 INSTALLED_APPS = [
-    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -47,21 +41,16 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "channels",
-    # Existing apps
+    # Apps
     "trading",
     "marketdata",
-    # Algo Trading apps (Phase 1)
     "common",
     "strategies",
     "instruments",
     "rules_engine",
-    # Algo Trading apps (Phase 2)
     "risk_management",
-    # Algo Trading apps (Phase 3)
     "backtesting",
-    # Algo Trading apps (Phase 4)
     "paper_trading",
-    # Algo Trading apps (Phase 5-10)
     "brokers",
     "live_trading",
     "analytics",
@@ -303,10 +292,6 @@ CELERY_TASK_ROUTES = {
     "reputation.*": {"queue": "analytics"},
 }
 CELERY_BEAT_SCHEDULE = {
-    "portfolio-exposure-snapshot-every-15-mins": {
-        "task": "paper_trading.exposure_snapshot",
-        "schedule": 15 * 60,
-    },
     "portfolio-daily-performance-nightly": {
         "task": "paper_trading.daily_performance_snapshot",
         "schedule": crontab(hour=0, minute=5),

@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor
+
 import logging
 from decimal import Decimal
 
@@ -7,28 +7,21 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from brokers.models import BrokerCredential, BrokerFundsSnapshot, OrderReconciliation, OrderSettings
+from brokers.models import BrokerCredential, OrderReconciliation
 from brokers.services import BrokerService
-from rules_engine.utils import compute_sl_distance_from_config
-from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Severity, Side, StrategyStatus, ViolationAction, ViolationType, NotificationType
-from instruments.models import WatchlistInstrument
-from marketdata.access import StrategyMarketDataService
+from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Severity, Side, StrategyStatus, NotificationType
+from marketdata.quote_store import QuoteStore
 from marketdata.streaming import MarketDataStreamer
 from notifications.services import NotificationService
-from paper_trading.services import PaperStrategyEngine
-from risk_management.evaluator import RiskEvaluator
-from risk_management.models import PortfolioRiskProfile, RiskViolation
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
-from strategy_engine.executor import StrategyExecutor
 from strategy_engine.runtime import StrategyRuntimeState
 from .cache import LiveBrokerStateCache
-from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, SlippageRecord, TradingSession, LivePortfolio
+from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession, LivePortfolio
 
 logger = logging.getLogger(__name__)
-
 
 class LivePortfolioService:
     @staticmethod
@@ -72,7 +65,6 @@ class LiveExecutionService:
 
     # Dedicated thread pool for async broker API network calls.
     # Prevents slow broker API responses from blocking tick evaluation.
-    _execution_pool = ThreadPoolExecutor(max_workers=32, thread_name_prefix="live_exec")
 
     ORDERBOOK_SYNC_TTL_SECONDS = 2
     BROKER_STATE_STALE_SECONDS = 8
@@ -110,6 +102,33 @@ class LiveExecutionService:
             logging.getLogger(__name__).warning("Failed to trigger routing cache update: %s", e)
 
     @staticmethod
+    def _publish_execution_event(action: str, session, scope: str = "live"):
+        from django.core.cache import cache
+        import json
+        
+        try:
+            if hasattr(cache, 'client'):
+                redis_client = cache.client.get_client()
+            else:
+                import redis
+                from django.conf import settings
+                redis_url = getattr(settings, 'CHANNEL_REDIS_URL', 'redis://localhost:6379/0')
+                redis_client = redis.from_url(redis_url)
+                
+            from instruments.services import InstrumentResolver
+            inst_ids = InstrumentResolver.execution_instrument_ids(session.strategy)
+            payload = {
+                "action": action,
+                "scope": scope,
+                "session_id": str(session.id),
+                "strategy_id": str(session.strategy_id),
+                "instrument_ids": inst_ids
+            }
+            redis_client.publish("execution_control", json.dumps(payload))
+        except Exception as e:
+            logger.error(f"Failed to publish execution event {action} for {session.id}: {e}")
+
+    @staticmethod
     def _broadcast_update(user_id, event_type, data):
         channel_layer = get_channel_layer()
         if channel_layer:
@@ -125,38 +144,6 @@ class LiveExecutionService:
             )
 
     @staticmethod
-    def _record_violation(
-        user,
-        strategy,
-        violation_type,
-        message,
-        threshold_value=None,
-        actual_value=None,
-        action_taken=ViolationAction.BLOCKED,
-        severity=Severity.WARNING,
-    ):
-        RiskViolation.objects.create(
-            user=user,
-            strategy=strategy,
-            violation_type=violation_type,
-            severity=severity,
-            message=message,
-            threshold_value=threshold_value,
-            actual_value=actual_value,
-            action_taken=action_taken,
-        )
-        try:
-            NotificationService.notify(
-                user,
-                title="Live risk alert",
-                message=message,
-                strategy=strategy,
-                severity=severity,
-            )
-        except Exception:
-            logger.exception("Failed dispatching live risk notification")
-
-    @staticmethod
     def _session_sync_cache_key(session_id):
         return f"live_trading:orderbook_sync:{session_id}"
 
@@ -168,10 +155,6 @@ class LiveExecutionService:
             return Decimal(str(value))
         except Exception:
             return Decimal(str(default))
-
-    @staticmethod
-    def _latest_funds_snapshot(credential):
-        return BrokerFundsSnapshot.objects.filter(credential=credential).order_by("-snapshot_time", "-created_at").first()
 
     @staticmethod
     def _is_state_stale(state_wrapper, max_age_seconds=None):
@@ -358,6 +341,11 @@ class LiveExecutionService:
                 from live_trading.tasks import refresh_broker_funds
                 refresh_broker_funds.delay(credential.id)
                 return cached.get("payload") or {}
+                
+        if async_refresh and not force:
+            from live_trading.tasks import refresh_broker_funds
+            refresh_broker_funds.delay(credential.id)
+            return cached.get("payload") if cached else {}
 
         funds_payload = BrokerService.get_funds(credential)
         snapshot = BrokerService.record_funds_snapshot(credential, funds_payload)
@@ -482,13 +470,25 @@ class LiveExecutionService:
         return allocations
 
     @staticmethod
-    def _resolve_live_allocation(user, strategy, credential, allocation_amount=None, allocation_percentage=None):
+    def _resolve_live_allocation(
+        user,
+        strategy,
+        credential,
+        allocation_amount=None,
+        allocation_percentage=None,
+        allow_existing=False,
+    ):
         portfolio = LivePortfolioService.get_or_create_portfolio(user)
-        capital_allocation = None
-        try:
-            capital_allocation = portfolio.live_allocations.filter(strategy=strategy).first()
-        except Exception:
-            capital_allocation = None
+        existing_allocation = LiveStrategyAllocation.objects.filter(
+            user=user,
+            strategy=strategy,
+            broker_credential=credential,
+        ).first()
+        if existing_allocation and not allow_existing:
+            raise ValueError(
+                "A live allocation already exists for this strategy and broker. "
+                "Update the existing allocation instead."
+            )
 
         latest_funds = LiveExecutionService._sync_funds_from_broker(credential)
         broker_equity = LiveExecutionService._to_decimal(
@@ -509,13 +509,13 @@ class LiveExecutionService:
             allocation_type = CapitalAllocationType.FIXED
             allocated_capital = Decimal(str(allocation_amount))
             allocated_percentage = Decimal("0")
-        elif capital_allocation:
-            allocation_type = capital_allocation.allocation_type
+        elif existing_allocation:
+            allocation_type = existing_allocation.allocation_type
             if allocation_type == CapitalAllocationType.PERCENTAGE:
-                allocated_percentage = Decimal(str(capital_allocation.allocated_percentage or 0))
-                allocated_capital = capital_allocation.effective_allocated
+                allocated_percentage = Decimal(str(existing_allocation.allocated_percentage or 0))
+                allocated_capital = (allocated_percentage / Decimal("100")) * broker_equity
             else:
-                allocated_capital = Decimal(str(capital_allocation.allocated_amount or 0))
+                allocated_capital = Decimal(str(existing_allocation.allocated_capital or 0))
                 allocated_percentage = Decimal("0")
         else:
             raise ValueError("Live deployment requires a broker capital allocation amount or percentage")
@@ -535,21 +535,29 @@ class LiveExecutionService:
                 f"Live allocation exceeds broker equity. Requested={allocated_capital}, already allocated={total_other}, broker equity={broker_equity}"
             )
 
-        allocation, _ = LiveStrategyAllocation.objects.update_or_create(
-            user=user,
-            strategy=strategy,
-            broker_credential=credential,
-            defaults={
-                "portfolio": portfolio,
-                "allocation_type": allocation_type,
-                "allocated_capital": allocated_capital,
-                "allocated_percentage": allocated_percentage or Decimal("0"),
-                "available_capital": allocated_capital,
-                "broker_equity_reference": broker_equity,
-                "is_over_allocated": False,
-                "breach_reason": "",
-            },
-        )
+        if existing_allocation:
+            allocation = existing_allocation
+            allocation.portfolio = portfolio
+            allocation.allocation_type = allocation_type
+            allocation.allocated_capital = allocated_capital
+            allocation.allocated_percentage = allocated_percentage or Decimal("0")
+            allocation.available_capital = allocated_capital
+            allocation.broker_equity_reference = broker_equity
+            allocation.is_over_allocated = False
+            allocation.breach_reason = ""
+            allocation.save()
+        else:
+            allocation = LiveStrategyAllocation.objects.create(
+                user=user,
+                strategy=strategy,
+                broker_credential=credential,
+                portfolio=portfolio,
+                allocation_type=allocation_type,
+                allocated_capital=allocated_capital,
+                allocated_percentage=allocated_percentage or Decimal("0"),
+                available_capital=allocated_capital,
+                broker_equity_reference=broker_equity,
+            )
         return LiveExecutionService._sync_allocation_wallet(allocation)
 
     @staticmethod
@@ -591,9 +599,10 @@ class LiveExecutionService:
         )
 
         session, _ = TradingSession.objects.update_or_create(
-            user=user,
-            strategy=strategy,
+            allocation=allocation,
             defaults={
+                "user": user,
+                "strategy": strategy,
                 "broker_credential": credential,
                 "status": "RUNNING",
                 "started_at": timezone.now(),
@@ -602,14 +611,14 @@ class LiveExecutionService:
             },
         )
 
-        # Risk state is warmed for fast execution. Strategy execution config is
         # read from the allocation's deployed StrategyVersion when pinned.
         from risk_management.cache import RiskCache
-        RiskCache.sync_from_db(user, strategy)
+        RiskCache.sync_from_db("LIVE", session.id)
 
         LiveExecutionService._sync_allocation_wallet(allocation)
         LiveExecutionService._broadcast_update(user.id, "SESSION_UPDATE", {"session_id": session.id, "status": session.status})
         LiveExecutionService._update_routing_cache(session, add=True)
+        LiveExecutionService._publish_execution_event("SESSION_START", session, "live")
 
         NotificationService.notify(
             user=user,
@@ -624,13 +633,19 @@ class LiveExecutionService:
 
     @staticmethod
     @transaction.atomic
-    def update_allocation(user, strategy, credential, allocation_amount=None, allocation_percentage=None):
+    def update_allocation(session, allocation_amount=None, allocation_percentage=None):
+        user = session.user
+        strategy = session.strategy
+        credential = session.broker_credential
+        if not session.allocation_id:
+            raise ValueError("This live session is not linked to an allocation")
         allocation = LiveExecutionService._resolve_live_allocation(
             user,
             strategy,
             credential,
             allocation_amount=allocation_amount,
             allocation_percentage=allocation_percentage,
+            allow_existing=True,
         )
         LiveExecutionService._broadcast_update(user.id, "ALLOCATION_UPDATE", {
             "strategy_id": strategy.id,
@@ -678,12 +693,13 @@ class LiveExecutionService:
         NotificationService.notify(
             user=session.user,
             title="Live Strategy Paused",
-            message=f"Live session for '{session.strategy.name}' has been paused. Pending entry orders cancelled.",
+            message=f"Strategy '{session.strategy.name}' has been paused manually.",
             notification_type=NotificationType.SYSTEM_ALERT,
             severity=Severity.WARNING,
             strategy=session.strategy,
             data={"session_id": str(session.id), "module": "live"}
         )
+        LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
         return session
 
     @staticmethod
@@ -707,7 +723,14 @@ class LiveExecutionService:
                 except Exception:
                     logger.exception("Failed dispatching cancel failure notification")
         if close_positions:
-            for position in LivePosition.objects.filter(user=session.user, strategy=session.strategy, broker_credential=session.broker_credential):
+            position_query = LivePosition.objects.filter(
+                user=session.user,
+                strategy=session.strategy,
+                broker_credential=session.broker_credential,
+            )
+            if session.allocation_id:
+                position_query = position_query.filter(allocation_id=session.allocation_id)
+            for position in position_query:
                 for order in LiveOrder.objects.filter(
                     user=session.user,
                     strategy=session.strategy,
@@ -725,13 +748,35 @@ class LiveExecutionService:
                     order_type=OrderType.MARKET,
                     price=position.current_price or position.avg_price,
                 )
-        session.status = "STOPPED"
-        session.ended_at = timezone.now()
-        session.error_message = ""
+        # Check if any positions failed to close (e.g. stock hit circuit breaker, broker rejected order)
+        has_open_positions = False
+        if close_positions:
+            has_open_positions = LivePosition.objects.filter(
+                user=session.user, 
+                strategy=session.strategy, 
+                broker_credential=session.broker_credential,
+                quantity__gt=0
+            ).exists()
+            if session.allocation_id:
+                has_open_positions = LivePosition.objects.filter(
+                    allocation_id=session.allocation_id,
+                    quantity__gt=0,
+                ).exists()
+            
+        if has_open_positions:
+            session.status = "STOPPING"
+            session.error_message = "Positions failed to close during square-off. Manual operator review required."
+            logger.warning(f"Session {session.id} marked STOPPING due to orphaned open positions.")
+        else:
+            session.status = "STOPPED"
+            session.ended_at = timezone.now()
+            session.error_message = ""
+            
         session.save(update_fields=["status", "ended_at", "error_message", "updated_at"])
         LiveExecutionService._broadcast_update(session.user_id, "SESSION_UPDATE", {"session_id": session.id, "status": session.status})
         LiveExecutionService._update_routing_cache(session, add=False)
 
+        LiveExecutionService._publish_execution_event("SESSION_STOP", session, "live")
         NotificationService.notify(
             user=session.user,
             title="Live Strategy Stopped",
@@ -754,12 +799,13 @@ class LiveExecutionService:
         NotificationService.notify(
             user=session.user,
             title="Live Strategy Resumed",
-            message=f"Live session for '{session.strategy.name}' is running again.",
+            message=f"Strategy '{session.strategy.name}' has been resumed.",
             notification_type=NotificationType.SYSTEM_ALERT,
             severity=Severity.INFO,
             strategy=session.strategy,
             data={"session_id": str(session.id), "module": "live"}
         )
+        LiveExecutionService._publish_execution_event("SESSION_START", session, "live")
         
         LiveExecutionService._broadcast_update(session.user_id, "SESSION_UPDATE", {"session_id": session.id, "status": session.status})
         LiveExecutionService._update_routing_cache(session, add=True)
@@ -798,16 +844,17 @@ class LiveExecutionService:
                 instrument=order.instrument,
             ).first()
             if position:
+                base_inst = LiveExecutionService._get_base_instrument(order.strategy, order.instrument)
                 trade_state = StrategyRuntimeState.mark_open(
                     "live",
-                    order.strategy_id,
-                    order.instrument_id,
-                    position_id=position.id,
+                    order.session_id or 0,
+                    base_inst.id,
                     side=position.side,
                     quantity=position.quantity,
                     avg_price=position.avg_price,
                     config=LiveExecutionService._execution_config_for_order(order),
                     opened_at=position.opened_at,
+                    execution_instrument_id=position.instrument_id,
                 )
                 StrategyRuntimeState.update_position_state(
                     "live-position",
@@ -820,120 +867,34 @@ class LiveExecutionService:
                     },
                 )
                 return
+        base_inst = LiveExecutionService._get_base_instrument(order.strategy, order.instrument)
         StrategyRuntimeState.mark_closed(
             "live",
-            order.strategy_id,
-            order.instrument_id,
-            reason=f"Order {status.lower()}",
+            order.session_id or 0,
+            base_inst.id,
         )
 
     @staticmethod
     def _resolve_price(instrument, fallback_price=None):
-        try:
-            return StrategyMarketDataService.get_quote(instrument, fallback_price=fallback_price)
-        except ValueError:
-            return Decimal(str(instrument.previous_close or 0))
-
-    @staticmethod
-    def _risk_stats(user, strategy, instrument, quantity, price):
-        from datetime import timedelta
-        from paper_trading.models import DailyPerformance
-
-        strategy_positions = LivePosition.objects.filter(user=user, strategy=strategy)
-        broker_credential = (
-            TradingSession.objects.filter(user=user, strategy=strategy, status__in=["RUNNING", "PAUSED", "ERROR"])
-            .values_list("broker_credential_id", flat=True)
-            .first()
-        )
-        positions_state = LiveBrokerStateCache.get_positions_state(user.id, broker_credential) if broker_credential else {}
-        broker_positions = (positions_state or {}).get("payload") or []
-        portfolio = LivePortfolioService.get_or_create_portfolio(user)
-        exposure = sum(
-            (
-                LiveExecutionService._to_decimal(pos.get("current_price") or pos.get("avg_price"))
-                * Decimal(str(pos.get("quantity") or 0))
-                for pos in broker_positions
-            ),
-            Decimal("0"),
-        )
-        strategy_exposure = sum(
-            (Decimal(str(pos.current_price or pos.avg_price)) * pos.quantity for pos in strategy_positions),
-            Decimal("0"),
-        )
-        instrument_exposure = sum(
-            (
-                LiveExecutionService._to_decimal(pos.get("current_price") or pos.get("avg_price"))
-                * Decimal(str(pos.get("quantity") or 0))
-                for pos in broker_positions
-                if pos.get("symbol") == instrument.sym_ticker
-            ),
-            Decimal("0"),
-        )
-        payload_exposure = Decimal(str(quantity)) * Decimal(str(price))
-        if quantity:
-            exposure += payload_exposure
-            strategy_exposure += payload_exposure
-            instrument_exposure += payload_exposure
-        funds_state = LiveBrokerStateCache.get_funds_state(user.id, broker_credential) if broker_credential else {}
-        funds_payload = (funds_state or {}).get("payload") or {}
-        broker_equity = LiveExecutionService._to_decimal(
-            funds_payload.get("net_equity") or funds_payload.get("available_margin") or portfolio.total_value or 0
-        )
-        portfolio_value = float(broker_equity or portfolio.total_value or portfolio.current_capital or 0)
-        daily_pnl = float(portfolio.today_pnl or 0)
-
-        today = timezone.localdate()
-        entry_config = getattr(strategy, "entry_order_config", None)
-        entry_side = getattr(entry_config, "entry_side", Side.BUY) if entry_config else Side.BUY
-        exit_side = Side.SELL if entry_side == Side.BUY else Side.BUY
-
-        # Count completed trade exits, not raw entry+exit orders.
-        completed_trade_query = LiveOrder.objects.filter(
-            user=user,
-            strategy=strategy,
-            status__in=LiveExecutionService.FILLED_ORDER_STATUSES,
-            side=exit_side,
-        ).exclude(executed_at__isnull=True)
-
-        from risk_management.cache import RiskCache
-        consecutive_losses = RiskCache.get_stats(user.id, strategy.id).get("consecutive_losses", 0)
-
-        # Weekly and monthly PnL from daily performance records
-        weekly_pnl = float(
-            DailyPerformance.objects.filter(
-                portfolio=portfolio, date__gte=today - timedelta(days=7),
-            ).aggregate(v=Sum("total_pnl"))["v"] or 0
-        )
-        monthly_pnl = float(
-            DailyPerformance.objects.filter(
-                portfolio=portfolio, date__gte=today - timedelta(days=30),
-            ).aggregate(v=Sum("total_pnl"))["v"] or 0
-        )
-
-        return {
-            "open_positions": strategy_positions.count(),
-            "daily_trades": completed_trade_query.filter(executed_at__date=today).count(),
-            "daily_pnl": daily_pnl,
-            "total_exposure": float(exposure),
-            "drawdown": float(portfolio.current_drawdown or 0),
-            "strategy_allocation_pct": (float(strategy_exposure) / portfolio_value * 100) if portfolio_value > 0 else 0,
-            "instrument_exposure_pct": (float(instrument_exposure) / portfolio_value * 100) if portfolio_value > 0 else 0,
-            "consecutive_losses": consecutive_losses,
-            "max_consecutive_losses": 0,
-            "weekly_pnl": weekly_pnl,
-            "monthly_pnl": monthly_pnl,
-            "broker_equity": float(broker_equity),
-            "available_margin": float(LiveExecutionService._to_decimal(funds_payload.get("available_margin"))),
-            "used_margin": float(LiveExecutionService._to_decimal(funds_payload.get("used_margin"))),
-        }
+        quote = QuoteStore.get_latest(instrument.sym_ticker)
+        if quote and quote.get("price") is not None:
+            return Decimal(str(quote["price"]))
+        if fallback_price is not None:
+            return Decimal(str(fallback_price))
+        return Decimal(str(instrument.previous_close or 0))
 
     @staticmethod
     def _get_active_allocation(session):
-        return LiveStrategyAllocation.objects.filter(
-            user=session.user,
-            strategy=session.strategy,
-            broker_credential=session.broker_credential,
-        ).first()
+        if not session.allocation_id:
+            return None
+        allocation = session.allocation
+        if (
+            allocation.user_id != session.user_id
+            or allocation.strategy_id != session.strategy_id
+            or allocation.broker_credential_id != session.broker_credential_id
+        ):
+            raise ValueError("Live session allocation does not match its strategy or broker")
+        return allocation
 
     @staticmethod
     def _estimate_required_capital(quantity, price, slippage_pct=Decimal("0.005")):
@@ -959,22 +920,7 @@ class LiveExecutionService:
         available_margin = LiveExecutionService._to_decimal(funds_payload.get("available_margin") or funds_payload.get("cash_balance"))
         required_capital = LiveExecutionService._estimate_required_capital(quantity, price)
 
-        entry_config = getattr(session.strategy, "entry_order_config", None)
-        allow_partial = bool(getattr(entry_config, "allow_partial_entry", False)) if entry_config else False
-
         if allocation.available_capital < required_capital or available_margin < required_capital:
-            if allow_partial and price:
-                cap = min(Decimal(str(allocation.available_capital)), available_margin)
-                lot_size = instrument.lot_size or 1
-                if lot_size > 1:
-                    max_lots = int(cap / (Decimal(str(price)) * Decimal(str(lot_size))))
-                    adjusted_qty = max(max_lots, 0) * lot_size
-                else:
-                    adjusted_qty = int(cap / Decimal(str(price)))
-
-                if adjusted_qty >= max(lot_size, 1):
-                    required_capital = LiveExecutionService._estimate_required_capital(adjusted_qty, price)
-                    return allocation, required_capital, adjusted_qty
             reason = []
             if allocation.available_capital < required_capital:
                 reason.append(f"allocation available={allocation.available_capital}")
@@ -989,72 +935,14 @@ class LiveExecutionService:
     @staticmethod
     def _validate_live_risk(session, instrument, quantity, price):
         LiveExecutionService._ensure_fresh_broker_state(session.user, session.broker_credential)
-        portfolio = LivePortfolioService.get_or_create_portfolio(session.user)
-        evaluator = RiskEvaluator(portfolio.total_value or portfolio.current_capital or 0)
-        stats = LiveExecutionService._risk_stats(session.user, session.strategy, instrument, quantity, price)
-        ok, msg = evaluator.check_strategy_limits(session.strategy, stats)
-        if not ok:
-            LiveExecutionService._record_violation(
-                session.user,
-                session.strategy,
-                ViolationType.MAX_TRADES if "daily trades" in msg.lower() else ViolationType.POSITION_SIZE,
-                f"Live strategy blocked: {msg}",
-            )
-            raise ValueError(msg)
+        from risk_management.auto_disable import AutoDisableGate
+        from risk_management.cache import RiskCache
 
-        profile = PortfolioRiskProfile.objects.filter(user=session.user).first()
-        portfolio_eval = evaluator.evaluate_portfolio_risk(profile, stats)
-        if portfolio_eval.get("breached"):
-            breach = (portfolio_eval.get("breaches") or [{}])[0]
-            LiveExecutionService._record_violation(
-                session.user,
-                session.strategy,
-                breach.get("violation_type") or ViolationType.EXPOSURE,
-                f"Live portfolio risk violation: {breach.get('message', 'Portfolio risk breached')}",
-                threshold_value=breach.get("threshold_value"),
-                actual_value=breach.get("actual_value"),
-                action_taken=ViolationAction.BLOCKED,
-                severity=breach.get("severity") or Severity.CRITICAL,
-            )
-            raise ValueError(breach.get("message", "Portfolio risk breached"))
-
-        strategy_stats = {
-            **stats,
-            "open_positions": LivePosition.objects.filter(user=session.user, strategy=session.strategy).count(),
-            "daily_trades": stats.get("daily_trades", 0),
-        }
-        auto_disable_eval = evaluator.evaluate_auto_disable_rules(
-            session.strategy.auto_disable_rules.filter(is_active=True),
-            strategy_stats,
-        )
-        if auto_disable_eval.get("should_disable"):
-            disable_match = (auto_disable_eval.get("matches") or [{}])[0]
-            LiveExecutionService._record_violation(
-                session.user,
-                session.strategy,
-                ViolationType.CONSECUTIVE_LOSS,
-                f"Strategy auto-disable triggered: {disable_match.get('message', 'Strategy paused')}",
-                threshold_value=disable_match.get("threshold"),
-                actual_value=disable_match.get("actual_value"),
-                action_taken=ViolationAction.DISABLED,
-                severity=Severity.CRITICAL,
-            )
-            # Strategy status no longer controls execution, only the session does
-            session.status = "PAUSED"
-            session.error_message = disable_match.get("message", "Strategy auto-disable triggered")
-            session.save(update_fields=["status", "error_message", "updated_at"])
-            try:
-                NotificationService.notify(
-                    user=session.user,
-                    title="Live Strategy Auto-Paused",
-                    message=f"Live session for '{session.strategy.name}' was automatically paused: {session.error_message}",
-                    notification_type=NotificationType.STRATEGY_PAUSED,
-                    severity=Severity.CRITICAL,
-                    strategy=session.strategy,
-                    data={"session_id": str(session.id), "module": "live"}
-                )
-            except Exception:
-                logger.exception("Failed dispatching auto-pause notification")
+        stats = RiskCache.get_or_rebuild("LIVE", session.user_id, session.id)
+        allocation = session.allocation
+        capital = allocation.allocated_capital if allocation else Decimal("0")
+        match = AutoDisableGate.evaluate(session, stats, capital)
+        if match:
             raise ValueError(session.error_message)
 
     @staticmethod
@@ -1120,20 +1008,11 @@ class LiveExecutionService:
         )
 
     @staticmethod
-    def _has_pending_order(session, instrument, side=None):
-        from marketdata.l1_cache import tick_cache
-        open_orders = tick_cache.get_live_open_orders(session.id)
-        for o in open_orders:
-            if getattr(o, "instrument_id", getattr(getattr(o, "instrument", None), "id", None)) == instrument.id:
-                if side is None or o.side == side:
-                    return True
-        return False
-
-    @staticmethod
-    def place_order(session, instrument, side, quantity, order_type=OrderType.MARKET, price=None, trigger_price=None):
+    def place_order(session, instrument, side, quantity, order_type=OrderType.MARKET, price=None):
         try:
-            return LiveExecutionService._place_order_internal(session, instrument, side, quantity, order_type, price, trigger_price)
+            return LiveExecutionService._place_order_internal(session, instrument, side, quantity, order_type, price)
         except Exception as e:
+            logger.exception("Live order placement failed")
             NotificationService.notify(
                 user=session.user,
                 title="Live Order Placement Failed",
@@ -1146,9 +1025,21 @@ class LiveExecutionService:
             raise e
 
     @staticmethod
-    def _place_order_internal(session, instrument, side, quantity, order_type=OrderType.MARKET, price=None, trigger_price=None):
+    def _place_order_internal(session, instrument, side, quantity, order_type=OrderType.MARKET, price=None):
         if session.status != "RUNNING":
             raise ValueError("Live trading session is not running")
+            
+        existing_unknown = LiveOrder.objects.filter(
+            session=session,
+            instrument=instrument,
+            status="UNKNOWN"
+        ).exists()
+        if existing_unknown:
+            logger.warning(
+                f"Skipping order placement: Session {session.id} has an UNKNOWN order "
+                f"for {instrument.symbol}. Pending automatic verification."
+            )
+            return None
 
         BrokerService.ensure_session(session.broker_credential)
         LiveExecutionService._ensure_fresh_broker_state(session.user, session.broker_credential)
@@ -1156,18 +1047,7 @@ class LiveExecutionService:
         max_retries = settings.max_retries if settings else 2
         retry_delay = (settings.retry_delay_ms if settings else 500) / 1000.0
         order_timeout = settings.order_timeout_seconds if settings else 30
-        default_slippage = Decimal(str(settings.default_slippage_pct)) if settings and settings.default_slippage_pct else Decimal("0")
-
-        expected_price = Decimal(str(price)) if price is not None else LiveExecutionService._resolve_price(instrument, trigger_price)
-
-        if default_slippage > 0 and expected_price > 0 and order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT}:
-            slippage_amt = expected_price * (default_slippage / Decimal("100"))
-            tick_size = Decimal(str(getattr(instrument, 'tick_size', "0.05") or "0.05"))
-            if side == Side.BUY:
-                expected_price = expected_price + slippage_amt
-            else:
-                expected_price = expected_price - slippage_amt
-            expected_price = (expected_price / tick_size).quantize(Decimal("1"), rounding="ROUND_HALF_UP") * tick_size
+        expected_price = Decimal(str(price)) if price is not None else LiveExecutionService._resolve_price(instrument)
 
         reduce_only = bool(
             LivePosition.objects.filter(
@@ -1198,29 +1078,22 @@ class LiveExecutionService:
         import uuid
         temp_order_id = f"live_pending_{uuid.uuid4().hex}"
 
+        base_inst = LiveExecutionService._get_base_instrument(session.strategy, instrument) if session.strategy else instrument
         if reduce_only:
             StrategyRuntimeState.mark_exit_pending(
                 "live",
-                session.strategy_id,
-                instrument.id,
-                order_id=temp_order_id,
-                reason="Exit order submitted",
+                session.id,
+                base_inst.id,
             )
         else:
             StrategyRuntimeState.mark_entry_pending(
                 "live",
-                session.strategy_id,
-                instrument.id,
+                session.id,
+                base_inst.id,
                 side=side,
-                order_id=temp_order_id,
-                order_type=order_type,
-                requested_price=float(expected_price) if expected_price is not None else None,
-                trigger_price=float(trigger_price) if trigger_price is not None else None,
             )
 
-        # Offload DB writes and broker call to threadpool
-        LiveExecutionService._execution_pool.submit(
-            LiveExecutionService._async_broker_placement,
+        order = LiveExecutionService._execute_broker_placement(
             temp_order_id,
             session.id,
             instrument.id,
@@ -1228,27 +1101,29 @@ class LiveExecutionService:
             quantity,
             order_type,
             expected_price,
-            trigger_price,
             reduce_only,
             order_timeout,
             max_retries,
             retry_delay,
             float(required_capital)
         )
-        return temp_order_id
+        return order
 
     @classmethod
-    def _async_broker_placement(cls, temp_order_id, session_id, instrument_id, side, quantity, order_type, expected_price, trigger_price, reduce_only, order_timeout, max_retries, retry_delay, required_capital):
-        """Runs in _execution_pool, away from tick evaluation."""
+    def _execute_broker_placement(cls, temp_order_id, session_id, instrument_id, side, quantity, order_type, expected_price, reduce_only, order_timeout, max_retries, retry_delay, required_capital):
+        """Executes a broker placement synchronously.."""
         from live_trading.models import LiveOrder, TradingSession
         from instruments.models import Instrument
-        from brokers.models import OrderSettings
 
+        session = None
+        order = None
         try:
             session = TradingSession.objects.get(id=session_id)
             instrument = Instrument.objects.get(id=instrument_id)
             settings = getattr(session.broker_credential, 'order_settings', None)
-            allocation = session.strategy.live_allocations.filter(portfolio__user=session.user, broker_credential=session.broker_credential).first()
+            allocation = session.allocation
+            if not allocation:
+                raise ValueError("Live session is not linked to an allocation")
             
             # Now create the order record asynchronously!
             order = LiveOrder.objects.create(
@@ -1266,14 +1141,13 @@ class LiveExecutionService:
                 product_type=LiveExecutionService._resolve_product_type(instrument),
                 side=side,
                 price=expected_price,
-                trigger_price=trigger_price,
                 quantity=int(quantity),
                 status=OrderStatus.PENDING,
                 validity="DAY",
             )
             LiveExecutionService._create_execution_log(order, "CREATED", message="Order record created, preparing for broker submission")
         except Exception as e:
-            logger.error(f"Async broker placement failed to load objects: {e}")
+            logger.exception("Async broker placement failed to load objects or create order")
             try:
                 from users.models import User
                 from strategies.models import Strategy
@@ -1289,7 +1163,9 @@ class LiveExecutionService:
                         strategy=strategy,
                         data={"module": "live", "error": str(e)}
                     )
-                StrategyRuntimeState.mark_closed("live", strategy.id if strategy else 0, instrument_id)
+                state = StrategyRuntimeState.trade_state("live", session_id, instrument_id)
+                revert_phase = StrategyRuntimeState.OPEN if state.get("quantity", 0) > 0 else StrategyRuntimeState.CLOSED
+                StrategyRuntimeState.update_trade_state("live", session_id, instrument_id, {"phase": revert_phase})
             except Exception:
                 logger.exception("Failed recovery after async broker placement crash")
             return
@@ -1311,7 +1187,6 @@ class LiveExecutionService:
                         "order_type": order_type,
                         "product_type": order.product_type,
                         "price": str(expected_price),
-                        "trigger_price": str(trigger_price) if trigger_price is not None else None,
                         "fallback_price": str(expected_price),
                         "validity": order.validity,
                         # Idempotency key — unique per order DB record.
@@ -1436,8 +1311,22 @@ class LiveExecutionService:
             )
 
         if broker_status in LiveExecutionService.ACTIVE_ORDER_STATUSES:
-            StrategyRuntimeState.update_live_order_status(order, broker_status)
-        elif broker_status == OrderStatus.FILLED:
+            base_inst = LiveExecutionService._get_base_instrument(order.strategy, order.instrument) if order.strategy else order.instrument
+            if reduce_only:
+                StrategyRuntimeState.mark_exit_pending(
+                    "live",
+                    session.id,
+                    base_inst.id,
+                )
+            else:
+                StrategyRuntimeState.mark_entry_pending(
+                    "live",
+                    session.id,
+                    base_inst.id,
+                    side=side,
+                )
+
+        if broker_status in LiveExecutionService.FILLED_ORDER_STATUSES and filled_quantity > 0:
             LiveExecutionService._apply_fill_to_position(order, filled_quantity, fill_price)
 
         # Handle Partial Fills
@@ -1462,9 +1351,29 @@ class LiveExecutionService:
         return order
 
     @staticmethod
+    def _get_base_instrument(strategy, execution_instrument):
+        watches = strategy.watchlist_instruments.all()
+        for w in watches:
+            if w.instrument_id == execution_instrument.id:
+                return w.instrument
+        for w in watches:
+            routes = w.execution_routes.all()
+            for r in routes:
+                if r.target_instrument_id == execution_instrument.id:
+                    return w.instrument
+            if execution_instrument.instrument_type in ['OPTION', 'FUTURE']:
+                if execution_instrument.underlying_symbol == w.instrument.symbol:
+                    return w.instrument
+                for r in routes:
+                    if r.target_underlying_instrument and execution_instrument.underlying_symbol == r.target_underlying_instrument.symbol:
+                        return w.instrument
+        return execution_instrument
+
+    @staticmethod
+    @transaction.atomic
     def _apply_fill_to_position(order, filled_quantity=None, fill_price=None):
         opposite_side = Side.SELL if order.side == Side.BUY else Side.BUY
-        opposite_position = LivePosition.objects.filter(
+        opposite_position = LivePosition.objects.select_for_update().filter(
             user=order.user,
             strategy=order.strategy,
             broker_credential=order.broker_credential,
@@ -1481,6 +1390,21 @@ class LiveExecutionService:
                 if opposite_position.side == Side.BUY
                 else (opposite_position.avg_price - fill_price) * closed_qty
             )
+            LiveTrade.objects.create(
+                user=order.user,
+                strategy=order.strategy or opposite_position.strategy,
+                allocation=order.allocation or opposite_position.allocation,
+                broker_credential=order.broker_credential,
+                instrument=order.instrument,
+                exit_order=order,
+                side=opposite_position.side,
+                quantity=closed_qty,
+                entry_price=opposite_position.avg_price,
+                entry_time=opposite_position.opened_at,
+                exit_price=fill_price,
+                exit_time=timezone.now(),
+                realized_pnl=pnl,
+            )
             opposite_position.quantity -= closed_qty
             opposite_position.realized_pnl += pnl
             opposite_position.day_pnl += pnl
@@ -1489,25 +1413,26 @@ class LiveExecutionService:
 
             # Record consecutive losses in Redis
             from risk_management.cache import RiskCache
-            if order.strategy_id:
-                RiskCache.record_trade_result(order.user_id, order.strategy_id, float(pnl))
+            if pnl is not None and order.session_id:
+                RiskCache.record_trade_result("LIVE", order.user_id, order.session_id, float(pnl))
 
             if opposite_position.quantity > 0:
                 opposite_position.save(update_fields=["quantity", "realized_pnl", "day_pnl", "current_price", "unrealized_pnl", "updated_at"])
                 # Initialize trade_state before conditional block to prevent NameError
                 # when strategy_id is falsy (manually-placed position on partial close).
                 trade_state = {}
+                base_inst = LiveExecutionService._get_base_instrument(order.strategy, opposite_position.instrument)
                 if opposite_position.strategy_id:
                     trade_state = StrategyRuntimeState.mark_open(
                         "live",
-                        opposite_position.strategy_id,
-                        opposite_position.instrument_id,
-                        position_id=opposite_position.id,
+                        order.session_id or 0,
+                        base_inst.id,
                         side=opposite_position.side,
                         quantity=opposite_position.quantity,
                         avg_price=opposite_position.avg_price,
                         config=LiveExecutionService._execution_config_for_order(order),
                         opened_at=opposite_position.opened_at,
+                        execution_instrument_id=opposite_position.instrument_id,
                     )
                 StrategyRuntimeState.update_position_state(
                     "live-position",
@@ -1523,22 +1448,24 @@ class LiveExecutionService:
                 )
                 LiveExecutionService._broadcast_update(order.user_id, "POSITION_UPDATE", {"position_id": opposite_position.id, "quantity": opposite_position.quantity})
             else:
+                base_inst = LiveExecutionService._get_base_instrument(order.strategy, opposite_position.instrument)
                 if opposite_position.strategy_id:
                     StrategyRuntimeState.mark_closed(
                         "live",
-                        opposite_position.strategy_id,
-                        opposite_position.instrument_id,
-                        reason="Exit fill completed",
+                        order.session_id or 0,
+                        base_inst.id,
                     )
                 StrategyRuntimeState.clear_position_state("live-position", opposite_position.id)
                 opposite_position.delete()
                 LiveExecutionService._broadcast_update(order.user_id, "POSITION_UPDATE", {"position_id": opposite_position.id, "quantity": 0})
-            order.session.trades_count += 1
-            order.session.pnl += pnl
-            order.session.save(update_fields=["trades_count", "pnl", "updated_at"])
+            session = order.session.__class__.objects.select_for_update().get(id=order.session_id)
+            session.trades_count += 1
+            session.pnl += pnl
+            session.save(update_fields=["trades_count", "pnl", "updated_at"])
 
             # Update Global Portfolio Realized PnL + Peak Tracking
             portfolio = LivePortfolioService.get_or_create_portfolio(order.user)
+            portfolio = portfolio.__class__.objects.select_for_update().get(id=portfolio.id)
             portfolio.realized_pnl += pnl
             portfolio.today_pnl += pnl
             portfolio.today_trades += 1
@@ -1560,7 +1487,7 @@ class LiveExecutionService:
 
             # Sync Capital Allocation P&L for this strategy
             if order.allocation_id:
-                allocation = order.allocation
+                allocation = order.allocation.__class__.objects.select_for_update().get(id=order.allocation_id)
                 allocation.utilized_amount = LivePortfolioService._live_allocation_utilized(allocation)
                 allocation.total_pnl += pnl
                 allocation.today_pnl += pnl
@@ -1569,47 +1496,61 @@ class LiveExecutionService:
 
             remaining -= closed_qty
 
-        # Refresh Risk Cache for the hot-path (execute_session_once)
+        # Refresh Risk Cache
         from risk_management.cache import RiskCache
-        portfolio = LivePortfolioService.get_or_create_portfolio(order.user)
-        portfolio_value = float(portfolio.total_value or 0)
-        RiskCache.sync_on_fill(order.user_id, portfolio_value)
+        if order.session_id:
+            RiskCache.sync_on_fill("LIVE", order.session_id)
+            session = order.session
+            if session and session.allocation:
+                from risk_management.auto_disable import AutoDisableGate
+                stats = RiskCache.get_stats("LIVE", order.user_id, order.session_id)
+                AutoDisableGate.evaluate(session, stats, session.allocation.allocated_capital)
 
         if remaining > 0:
-            position, created = LivePosition.objects.get_or_create(
-                user=order.user,
-                strategy=order.strategy,
-                broker_credential=order.broker_credential,
-                instrument=order.instrument,
-                side=order.side,
-                defaults={
-                    "allocation": order.allocation,
-                    "source_type": order.source_type,
-                    "product_type": order.product_type,
-                    "quantity": remaining,
-                    "avg_price": fill_price,
-                    "current_price": fill_price,
-                    "last_broker_sync": timezone.now(),
-                },
-            )
-            if not created:
-                total_qty = position.quantity + remaining
-                position.avg_price = ((position.avg_price * position.quantity) + (fill_price * remaining)) / total_qty
-                position.quantity = total_qty
-                position.current_price = fill_price
-                position.allocation = order.allocation
-                position.last_broker_sync = timezone.now()
-                position.save(update_fields=["allocation", "avg_price", "quantity", "current_price", "last_broker_sync", "updated_at"])
+            from django.db import transaction
+            with transaction.atomic():
+                position = LivePosition.objects.select_for_update().filter(
+                    user=order.user,
+                    strategy=order.strategy,
+                    broker_credential=order.broker_credential,
+                    instrument=order.instrument,
+                    side=order.side,
+                ).first()
+                
+                if not position:
+                    position = LivePosition.objects.create(
+                        user=order.user,
+                        strategy=order.strategy,
+                        broker_credential=order.broker_credential,
+                        instrument=order.instrument,
+                        side=order.side,
+                        allocation=order.allocation,
+                        source_type=order.source_type,
+                        product_type=order.product_type,
+                        quantity=remaining,
+                        avg_price=fill_price,
+                        current_price=fill_price,
+                        last_broker_sync=timezone.now(),
+                    )
+                else:
+                    total_qty = position.quantity + remaining
+                    position.avg_price = ((position.avg_price * position.quantity) + (fill_price * remaining)) / total_qty
+                    position.quantity = total_qty
+                    position.current_price = fill_price
+                    position.allocation = order.allocation
+                    position.last_broker_sync = timezone.now()
+                    position.save(update_fields=["allocation", "avg_price", "quantity", "current_price", "last_broker_sync", "updated_at"])
+            base_inst = LiveExecutionService._get_base_instrument(order.strategy, order.instrument) if order.strategy else order.instrument
             trade_state = StrategyRuntimeState.mark_open(
                 "live",
-                order.strategy_id,
-                order.instrument_id,
-                position_id=position.id,
+                order.session_id or 0,
+                base_inst.id,
                 side=position.side,
                 quantity=position.quantity,
                 avg_price=position.avg_price,
                 config=LiveExecutionService._execution_config_for_order(order),
                 opened_at=position.opened_at,
+                execution_instrument_id=order.instrument_id,
             ) if order.strategy_id else {}
             StrategyRuntimeState.update_position_state(
                 "live-position",
@@ -1626,6 +1567,9 @@ class LiveExecutionService:
             LiveExecutionService._broadcast_update(order.user_id, "POSITION_UPDATE", {"position_id": position.id, "quantity": position.quantity})
         if order.allocation_id:
             LiveExecutionService._sync_allocation_wallet(order.allocation)
+
+        from live_trading.cache import LiveBrokerStateCache
+        LiveBrokerStateCache.invalidate_on_fill(order.user_id, order.broker_credential_id)
 
     @staticmethod
     def _sync_order_from_row(order, row):
@@ -1755,280 +1699,60 @@ class LiveExecutionService:
             synced.append(LiveExecutionService._sync_order_from_row(order, row) if row else order)
         return synced
 
-    @staticmethod
-    def _update_position_mtm(position, last_price):
-        position.current_price = last_price
-        position.unrealized_pnl = (
-            (last_price - position.avg_price) * position.quantity
-            if position.side == Side.BUY
-            else (position.avg_price - last_price) * position.quantity
-        )
-        position.day_pnl = position.realized_pnl + position.unrealized_pnl
-        position.save(update_fields=["current_price", "unrealized_pnl", "day_pnl", "updated_at"])
-        return position
-
-    @staticmethod
-    def execute_session_once(session, symbol=None, candle_states=None):
-        """Process a single strategy session tick.
-
-        Wrapped with a distributed Redis lock so that two concurrent Celery
-        workers processing ticks for the same (session, instrument) cannot
-        both enter or exit a position simultaneously.
+    @classmethod
+    def run_zmq_subscriber(cls):
         """
-        if session.status not in ("RUNNING", "PAUSED") or session.strategy.status != StrategyStatus.ACTIVE:
-            return False
-
-        # 1. Load Strategy Snapshot & Initialize Unified Executor
-        from marketdata.l1_cache import tick_cache
-        allocation = tick_cache.get_live_allocation(session.id)
-        config = None
-
-        if allocation and allocation.deployed_version_id:
+        Runs continuously in a background process/thread, listening to the StrategyOrderRouter 
+        ZeroMQ publisher for any 'LIVE' scope OrderRequests.
+        """
+        import zmq
+        import json
+        from strategy_engine.router import OrderRequest
+        from live_trading.models import TradingSession
+        from instruments.models import Instrument
+        
+        context = zmq.Context.instance()
+        socket = context.socket(zmq.SUB)
+        socket.bind("tcp://127.0.0.1:5555")
+        socket.setsockopt_string(zmq.SUBSCRIBE, "LIVE")
+        
+        logger.info("LiveExecutionService ZMQ Subscriber listening for LIVE orders...")
+        
+        while True:
+            req = None
             try:
-                version = allocation.deployed_version
-                if version:
-                    config = version.config_snapshot
-            except Exception:
-                pass
-
-        if not config:
-            config = session.strategy.to_execution_dict()
-
-        executor = StrategyExecutor(config)
-        # 2. Get Real-time Risk Stats from Redis (Avoid DB hit)
-        from risk_management.cache import RiskCache
-        risk_stats = RiskCache.get_stats(session.user_id, session.strategy_id)
-
-        # In HFT Fanning, we only process the specific symbol that triggered the tick
-        if not symbol:
-            return False
-
-        from marketdata.l1_cache import tick_cache
-        instrument = tick_cache.get_instrument(symbol)
-        if not instrument:
-            return False
-
-        timestamp = timezone.now()
-        no_trade_zone = executor.is_in_no_trade_zone(timestamp)
-
-        # Do NOT sync open orders synchronously here. It blocks the ThreadPool and makes an API call.
-        # LiveExecutionService.sync_open_orders(session, symbol=symbol)
-
-        processed = False
-
-        # Acquire distributed lock per (session, instrument) so concurrent
-        # workers cannot double-enter or double-exit the same position.
-        try:
-            with StrategyRuntimeState.execution_lock(
-                "live", session.strategy_id, instrument.id
-            ):
-                processed = LiveExecutionService.process_tick(
-                    allocation=session,
+                topic, message = socket.recv_multipart()
+                data = json.loads(message.decode('utf-8'))
+                req = OrderRequest(**data)
+                
+                # Rehydrate objects
+                session = TradingSession.objects.select_related('broker_credential').get(id=req.session_id)
+                instrument = Instrument.objects.get(id=req.instrument_id)
+                
+                cls.place_order(
+                    session=session,
                     instrument=instrument,
-                    config=config,
-                    executor=executor,
-                    risk_stats=risk_stats,
-                    timestamp=timestamp,
-                    no_trade_zone=no_trade_zone,
-                    symbol=symbol,
-                    candle_states=candle_states,
-                ) or processed
-        except RuntimeError as lock_err:
-            # Lock could not be acquired — another worker is processing this
-            # instrument right now. Skip this tick to prevent duplicate execution.
-            logger.warning(
-                "Skipping tick for session=%s instrument=%s: %s",
-                session.id, instrument.sym_ticker, lock_err,
-            )
-
-        return processed
-
-    @staticmethod
-    def process_tick(
-        allocation,
-        instrument,
-        config,
-        executor,
-        risk_stats,
-        timestamp,
-        no_trade_zone,
-        symbol=None,
-        candle_states=None,
-    ):
-        """Inner tick processor — runs inside the distributed execution lock."""
-        base_timeframe, mtf_data = StrategyMarketDataService.get_multi_timeframe_data(config, instrument, candle_states=candle_states)
-        candle_df = mtf_data.get(base_timeframe)
-        if candle_df is None or candle_df.empty:
-            return False
-        executor = StrategyExecutor(config, mtf_data=mtf_data)
-
-        last_price = Decimal(str(candle_df["close"].iloc[-1]))
-        signal_df = executor.completed_signal_frame(candle_df)
-        if signal_df is None or signal_df.empty:
-            return False
-        from marketdata.l1_cache import tick_cache
-        position = tick_cache.get_live_position(allocation.id, instrument.id)
-        if not position and hasattr(instrument, "underlying_symbol") and instrument.underlying_symbol:
-            underlying = tick_cache.get_instrument(instrument.underlying_symbol)
-            if underlying:
-                position = tick_cache.get_live_position(allocation.id, underlying.id)
-
-        entry_side = executor.entry_config.get("entry_side", Side.BUY)
-        risk_stats = tick_cache.get_live_stats(allocation.id)
-        trade_state = StrategyRuntimeState.trade_state("live", allocation.strategy_id, instrument.id)
-
-        if position:
-            # EXIT EVALUATION
-            state = StrategyRuntimeState.build_position_state(
-                config=config,
-                position=position,
-                side=position.side,
-                avg_price=position.avg_price,
-                current_price=position.current_price or position.avg_price,
-                opened_at=position.opened_at,
-                identifier=position.id,
-                scope="live-position",
-            )
-            should_exit, reason, action, action_params = executor.evaluate_exit_logic(state, candle_df, timestamp)
-
-            # Reverse entry check
-            reverse_enabled = config.get("reentry_rule", {}).get("allow_reverse_entry", False)
-            if not should_exit and reverse_enabled and not no_trade_zone:
-                entry_signals = executor.evaluate_entry_signals(signal_df)
-                if entry_signals.iloc[-1] and entry_side != position.side:
-                    should_exit = True
-                    reason = "Reverse Entry Signal"
-                    action = "EXIT_ALL"
-                    action_params = {}
-
-            StrategyRuntimeState.update_position_state(
-                "live-position",
-                position.id,
-                {
-                    "trailing_stop": state.get("trailing_stop"),
-                    "peak_price": state.get("peak_price"),
-                },
-            )
-
-            exit_side = Side.SELL if position.side == Side.BUY else Side.BUY
-            if (
-                should_exit
-                and trade_state.get("phase") != StrategyRuntimeState.EXIT_PENDING
-                and not LiveExecutionService._has_pending_order(allocation, instrument, exit_side)
-            ):
-                if action == 'MOVE_TO_BREAKEVEN':
-                    if not state.get(f'breakeven_{reason}'):
-                        state['protected_stop_price'] = state['avg_price']
-                        StrategyRuntimeState.update_position_state("live-position", position.id, {
-                            "protected_stop_price": state['avg_price'],
-                            f"breakeven_{reason}": True
-                        })
-                elif action == 'PARTIAL_EXIT':
-                    exit_pct = float(action_params.get('exit_pct', 50))
-                    if not state.get(f'partial_exit_{reason}'):
-                        exit_qty = int(position.quantity * (exit_pct / 100.0))
-                        if exit_qty > 0:
-                            StrategyRuntimeState.mark_exit_pending("live", allocation.strategy_id, instrument.id, reason=f"Partial Exit ({exit_pct}%): {reason}")
-                            LiveExecutionService.place_strategy_order(
-                                session=allocation, instrument=position.instrument,
-                                side=exit_side, quantity=exit_qty, order_type="MARKET", price=last_price,
-                            )
-                            StrategyRuntimeState.update_position_state("live-position", position.id, {f'partial_exit_{reason}': True})
-                else:
-                    StrategyRuntimeState.mark_exit_pending("live", allocation.strategy_id, instrument.id, reason=reason)
-                    LiveExecutionService.place_strategy_order(
-                        session=allocation, instrument=position.instrument,
-                        side=exit_side, quantity=position.quantity, order_type="MARKET", price=last_price,
-                    )
-                    return True
-
-                # If reverse entry was triggered, we allow re-entry
-                if reason == "Reverse Entry Signal":
-                    position = None
-        else:
-            if no_trade_zone:
-                return False
-
-            # ENTRY EVALUATION
-            funds_payload = LiveExecutionService._sync_funds_from_broker(allocation.broker_credential, async_refresh=True)
-            broker_margin = LiveExecutionService._to_decimal(funds_payload.get("available_margin", 0))
-
-            from marketdata.l1_cache import tick_cache
-            allocation_res = tick_cache.get_live_allocation(allocation.id)
-            if allocation_res:
-                alloc_available = Decimal(str(allocation_res.available_capital or allocation_res.allocated_capital))
-                sizing_capital = min(alloc_available, broker_margin)
-            else:
-                sizing_capital = broker_margin
-
-            evaluator = RiskEvaluator(sizing_capital)
-
-            ok, msg = evaluator.check_strategy_limits(config, risk_stats)
-            if not ok:
-                return False
-
-            ok, msg = evaluator.check_portfolio_risk(config.get("risk_profile", {}), risk_stats)
-            if not ok:
-                return False
-
-            can_enter, reason = executor.can_enter(risk_stats, timestamp)
-            if not can_enter:
-                return False
-            if trade_state.get("phase") in {StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING}:
-                return False
-
-            signals = executor.evaluate_entry_signals(signal_df)
-            if signals.iloc[-1]:
-                from instruments.services import InstrumentResolver
-                from marketdata.l1_cache import tick_cache
-                watch = tick_cache.get_watchlist_instrument(allocation.strategy_id, instrument.id)
-                if not watch:
-                    return False
-                resolutions = InstrumentResolver.resolve(
-                    watch, entry_side, spot_price=float(last_price)
+                    side=req.side,
+                    quantity=req.qty,
+                    order_type=req.order_type,
+                    price=req.target_price,
                 )
-
-                for exec_instrument, exec_side, sizing_config in resolutions:
-                    if LiveExecutionService._has_pending_order(allocation, exec_instrument):
+                logger.info(f"ZMQ order placed: {req.side} {req.qty} {instrument.sym_ticker} reason={getattr(req, 'reason', 'N/A')}")
+            except Exception as e:
+                session_id = getattr(req, "session_id", "unknown")
+                instrument_id = getattr(req, "instrument_id", "unknown")
+                logger.error(f"ZMQ Subscriber Error for session {session_id}: {e}", exc_info=True)
+                # Revert phase to prevent permanent state lock
+                try:
+                    if req is None:
                         continue
-
-                    # Step 2: Get execution price and lot size
-                    exec_price = StrategyMarketDataService.get_quote(exec_instrument, fallback_price=last_price)
-                    lot_size = getattr(exec_instrument, 'lot_size', 1) or 1
-
-                    # Step 3: Determine sizing config
-                    if not sizing_config:
-                        sizing_config = config
-
-                    # Step 4: Calculate quantity with lot-size rounding
-                    quantity = evaluator.calculate_quantity(sizing_config, exec_price, stats=risk_stats, lot_size=lot_size)
-
-                    current_candle = (
-                        candle_df.iloc[-1]
-                        if executor.candle_completion_rule in ("ON_CLOSE", "ON_OPEN")
-                        else signal_df.iloc[-1]
-                    )
-                    otype, resolved_entry_price, trigger_price = executor.resolve_entry_order(
-                        signal_df.iloc[-1],
-                        execution_candle=current_candle,
-                    )
-
-                    # If entering a derivative/different instrument, original signal-based limit prices don't map cleanly. Force MARKET.
-                    if exec_instrument.id != instrument.id:
-                        otype = "MARKET"
-                        resolved_entry_price = exec_price
-                        trigger_price = None
-
-                    LiveExecutionService.place_strategy_order(
-                        session=allocation, instrument=exec_instrument,
-                        side=exec_side,
-                        quantity=quantity, order_type=otype,
-                        price=resolved_entry_price,
-                        trigger_price=trigger_price,
-                    )
-            return True
-
-        return False
+                    state = StrategyRuntimeState.trade_state("live", req.session_id, req.instrument_id)
+                    if state.get("phase") in (StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING):
+                        revert_phase = StrategyRuntimeState.OPEN if state.get("quantity", 0) > 0 else StrategyRuntimeState.CLOSED
+                        StrategyRuntimeState.update_trade_state("live", req.session_id, req.instrument_id, {"phase": revert_phase})
+                        logger.info(f"Reverted phase to {revert_phase} for session {req.session_id} instrument {req.instrument_id}")
+                except Exception:
+                    logger.exception("Failed to revert trade phase after ZMQ error")
 
     @staticmethod
     @transaction.atomic
@@ -2049,39 +1773,45 @@ class LiveExecutionService:
         """Initialize and recover Redis runtime state from DB positions on startup."""
         from strategy_engine.runtime import StrategyRuntimeState
         from risk_management.cache import RiskCache
-        from django.contrib.auth import get_user_model
-        from strategies.models import Strategy
+        from live_trading.models import TradingSession
 
-        active_positions = LivePosition.objects.filter(quantity__gt=0).select_related('strategy', 'instrument', 'user')
+        active_positions = LivePosition.objects.filter(quantity__gt=0).select_related('strategy', 'instrument', 'user', 'allocation')
         recovered = 0
-        strategies_seen = set()
+        sessions_seen = set()
 
         for pos in active_positions:
             if not pos.strategy_id:
                 continue
-            state = StrategyRuntimeState.trade_state("live", pos.strategy_id, pos.instrument_id)
-            if not state.get("phase"):
+            session_id = None
+            if pos.allocation:
+                session_id = TradingSession.objects.filter(
+                    strategy_id=pos.allocation.strategy_id, 
+                    broker_credential_id=pos.allocation.broker_credential_id
+                ).values_list('id', flat=True).first()
+            base_inst = LiveExecutionService._get_base_instrument(pos.strategy, pos.instrument)
+            state = StrategyRuntimeState.trade_state("live", session_id or 0, base_inst.id)
+            if state.get("phase") != StrategyRuntimeState.OPEN:
+                config = pos.allocation.deployed_version.config_snapshot if pos.allocation and pos.allocation.deployed_version_id else pos.strategy.to_execution_dict()
                 StrategyRuntimeState.mark_open(
                     "live",
-                    pos.strategy_id,
-                    pos.instrument_id,
-                    position_id=pos.id,
+                    session_id or 0,
+                    base_inst.id,
                     side=pos.side,
                     quantity=pos.quantity,
                     avg_price=pos.avg_price,
-                    config=pos.strategy.to_execution_dict(),
+                    config=config,
                     opened_at=pos.opened_at,
+                    execution_instrument_id=pos.instrument_id,
                 )
                 recovered += 1
-            strategies_seen.add((pos.user_id, pos.strategy_id))
+            if session_id:
+                sessions_seen.add(session_id)
 
-        for user_id, strategy_id in strategies_seen:
+        for session_id in sessions_seen:
             try:
-                user = get_user_model().objects.get(id=user_id)
-                strategy = Strategy.objects.get(id=strategy_id)
-                RiskCache.sync_from_db(user, strategy)
+                RiskCache.sync_from_db("LIVE", session_id)
             except Exception:
-                logger.exception("Failed to rehydrate risk cache for live strategy %s", strategy_id)
+                logger.exception("Failed to rehydrate risk cache for live session %s", session_id)
 
         if recovered > 0:
             logger.info("Recovered %s missing runtime states from live DB positions.", recovered)

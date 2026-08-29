@@ -1,16 +1,15 @@
 import logging
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as py_timezone
 from decimal import Decimal
 from math import ceil
 
 import pandas as pd
-import requests
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
+from common.cache_keys import CacheKeys
 
 from instruments.models import Instrument
 
@@ -19,12 +18,11 @@ from .utils import get_active_fyers_access_token, ist
 
 logger = logging.getLogger(__name__)
 
-
 class MarketStatusService:
     """
     Service to check if the market is currently open using Fyers API.
     """
-    CACHE_KEY = "market_status:nse_equity"
+    CACHE_KEY = CacheKeys.MARKET_STATUS
     CACHE_TIMEOUT = 120  # 2 minutes
 
     @classmethod
@@ -75,110 +73,7 @@ class MarketStatusService:
         return True
 
 
-TIMEFRAME_CONFIG = {
-    "1m": {"unit": "minute", "bin_size": 1},
-    "3m": {"unit": "minute", "bin_size": 3},
-    "5m": {"unit": "minute", "bin_size": 5},
-    "15m": {"unit": "minute", "bin_size": 15},
-    "30m": {"unit": "minute", "bin_size": 30},
-    "1H": {"unit": "hour", "bin_size": 1},
-    "4H": {"unit": "hour", "bin_size": 4},
-    "1D": {"unit": "day", "bin_size": 1},
-    "1W": {"unit": "week", "bin_size": 1},
-}
-
-
-
-@dataclass
-class CandleState:
-    symbol: str
-    timeframe: str
-    time: datetime
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int = 0
-
-
-class CandleRepository:
-    @staticmethod
-    def get_instrument(symbol):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        return Instrument.objects.filter(sym_ticker=normalized).first()
-
-    @classmethod
-    def upsert_candles(cls, symbol, timeframe, candles):
-        if not candles:
-            return 0
-
-        instrument = cls.get_instrument(symbol)
-        normalized = MarketDataService.normalize_symbol(symbol)
-        timeframe = MarketDataService.normalize_timeframe(timeframe)
-        if timeframe not in ("1m", "1D"):
-            logger.warning(
-                "Skipping %s %s candle(s) for %s; canonical candle storage is 1m and 1D only",
-                len(candles),
-                timeframe,
-                normalized,
-            )
-            return 0
-        unique_rows = {}
-
-        for candle in candles:
-            candle_time = candle["time"]
-            if timezone.is_naive(candle_time):
-                candle_time = timezone.make_aware(candle_time, py_timezone.utc)
-            
-            key = (normalized, timeframe, candle_time)
-            unique_rows[key] = Candle(
-                instrument=instrument,
-                symbol=normalized,
-                timeframe=timeframe,
-                time=candle_time,
-                open=Decimal(str(candle["open"])),
-                high=Decimal(str(candle["high"])),
-                low=Decimal(str(candle["low"])),
-                close=Decimal(str(candle["close"])),
-                volume=int(candle.get("volume", 0) or 0),
-            )
-            
-        rows = list(unique_rows.values())
-
-        with transaction.atomic():
-            Candle.objects.bulk_create(
-                rows,
-                update_conflicts=True,
-                unique_fields=["symbol", "timeframe", "time"],
-                update_fields=["open", "high", "low", "close", "volume", "instrument", "updated_at"],
-            )
-        return len(rows)
-
-    @classmethod
-    def list_candles(cls, symbol, timeframe="1m", limit=200, start_dt=None, end_dt=None):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        timeframe = MarketDataService.normalize_timeframe(timeframe)
-        queryset = Candle.objects.filter(symbol=normalized, timeframe=timeframe)
-        if start_dt is not None:
-            queryset = queryset.filter(time__gte=start_dt)
-        if end_dt is not None:
-            queryset = queryset.filter(time__lte=end_dt)
-        if limit is None:
-            candles = list(queryset.order_by("time"))
-        else:
-            candles = list(queryset.order_by("-time")[: int(limit or 200)])
-            candles.reverse()
-        return candles
-
-    @classmethod
-    def latest_candle(cls, symbol, timeframe="1m"):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        timeframe = MarketDataService.normalize_timeframe(timeframe)
-        return (
-            Candle.objects.filter(symbol=normalized, timeframe=timeframe)
-            .order_by("-time")
-            .first()
-        )
+SUPPORTED_TIMEFRAMES = ("1m", "3m", "5m", "15m", "30m", "1H", "4H", "1D", "1W")
 
 class MarketDataService:
     RESOLUTION_TO_FYERS = {
@@ -192,11 +87,6 @@ class MarketDataService:
         "1D": "D",
         "1W": "W",
     }
-    # Reduced from 6 hours to 10 seconds to prevent massive Redis
-    # memory leaks from storing millions of quotes for inactive symbols.
-    QUOTE_CACHE_TIMEOUT_SECONDS = 60
-
-
     @classmethod
     def normalize_symbol(cls, symbol):
         if not symbol:
@@ -246,33 +136,9 @@ class MarketDataService:
             "4H": "4H",
         }
         normalized = aliases.get(value, value)
-        if normalized not in TIMEFRAME_CONFIG:
+        if normalized not in SUPPORTED_TIMEFRAMES:
             raise ValueError(f"Unsupported timeframe '{timeframe}'")
         return normalized
-
-    @classmethod
-    def quote_cache_key(cls, symbol):
-        return f"marketdata:quote:{cls.normalize_symbol(symbol)}"
-
-    @classmethod
-    def get_cached_quote(cls, symbol):
-        return cache.get(cls.quote_cache_key(symbol))
-
-    @classmethod
-    def cache_quote(cls, symbol, quote):
-        normalized = cls.normalize_symbol(symbol)
-        payload = {
-            **quote,
-            "symbol": normalized,
-            "updated_at": timezone.now().isoformat(),
-        }
-        cache.set(cls.quote_cache_key(normalized), payload, timeout=cls.QUOTE_CACHE_TIMEOUT_SECONDS)
-        return payload
-
-    @classmethod
-    def _candle_list_cache_key(cls, symbol, timeframe):
-        return f"marketdata:candles:{cls.normalize_symbol(symbol)}:{cls.normalize_timeframe(timeframe)}"
-
 
     @classmethod
     def serialize_candle(cls, candle):
@@ -304,7 +170,7 @@ class MarketDataService:
         timeframe = cls.normalize_timeframe(timeframe)
 
         if timeframe in ("1m", "1D"):
-            candles = CandleRepository.list_candles(
+            candles = cls.list_raw_candles(
                 symbol=normalized,
                 timeframe=timeframe,
                 limit=limit,
@@ -361,65 +227,8 @@ class MarketDataService:
         return candles
 
     @classmethod
-    def serialize_candle_state(cls, candle):
-        return {
-            "time": int(candle.time.timestamp()),
-            "open": float(candle.open),
-            "high": float(candle.high),
-            "low": float(candle.low),
-            "close": float(candle.close),
-            "volume": int(candle.volume or 0),
-        }
-
-    @classmethod
-    def aggregate_candles(cls, candles, timeframe):
-        config = TIMEFRAME_CONFIG[cls.normalize_timeframe(timeframe)]
-        bucketed = {}
-
-        for candle in sorted(candles or [], key=lambda item: item.time):
-            bucket_time = cls.align_time(candle.time, config["unit"], config["bin_size"])
-            bucket_key = bucket_time.isoformat()
-            if bucket_key not in bucketed:
-                bucketed[bucket_key] = CandleState(
-                    symbol=candle.symbol,
-                    timeframe=timeframe,
-                    time=bucket_time,
-                    open=float(candle.open),
-                    high=float(candle.high),
-                    low=float(candle.low),
-                    close=float(candle.close),
-                    volume=int(candle.volume or 0),
-                )
-                continue
-
-            current = bucketed[bucket_key]
-            current.high = max(current.high, float(candle.high))
-            current.low = min(current.low, float(candle.low))
-            current.close = float(candle.close)
-            current.volume += int(candle.volume or 0)
-
-        return [bucketed[key] for key in sorted(bucketed.keys())]
-
-    @staticmethod
-    def align_time(timestamp, unit, bin_size):
-        if timezone.is_naive(timestamp):
-            timestamp = timezone.make_aware(timestamp, py_timezone.utc)
-        if unit == "minute":
-            aligned_minute = (timestamp.minute // bin_size) * bin_size
-            return timestamp.replace(minute=aligned_minute, second=0, microsecond=0)
-        if unit == "hour":
-            aligned_hour = (timestamp.hour // bin_size) * bin_size
-            return timestamp.replace(hour=aligned_hour, minute=0, second=0, microsecond=0)
-        if unit == "day":
-            return timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-        if unit == "week":
-            start_of_day = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-            return start_of_day - timedelta(days=start_of_day.weekday())
-        raise ValueError(f"Unsupported unit '{unit}'")
-
-    @classmethod
     def latest_quote_from_storage(cls, symbol, timeframe="1m"):
-        latest_candle = CandleRepository.latest_candle(symbol, timeframe=timeframe)
+        latest_candle = cls.latest_candle(symbol, timeframe=timeframe)
         if latest_candle is None:
             return None
             
@@ -437,21 +246,20 @@ class MarketDataService:
         except Exception as e:
             logger.debug(f"Could not calculate historical daily change for {symbol}: {e}")
 
-        return cls.cache_quote(
-            symbol,
-            {
-                "price": float(latest_candle.close),
-                "open": float(latest_candle.open),
-                "high": float(latest_candle.high),
-                "low": float(latest_candle.low),
-                "close": float(latest_candle.close),
-                "volume": int(latest_candle.volume or 0),
-                "timestamp": latest_candle.time.isoformat(),
-                "resolution": timeframe,
-                "change": change,
-                "change_percent": change_percent,
-            },
-        )
+        return {
+            "symbol": cls.normalize_symbol(symbol),
+            "price": float(latest_candle.close),
+            "open": float(latest_candle.open),
+            "high": float(latest_candle.high),
+            "low": float(latest_candle.low),
+            "close": float(latest_candle.close),
+            "volume": int(latest_candle.volume or 0),
+            "timestamp": latest_candle.time.isoformat(),
+            "updated_at": latest_candle.time.isoformat(),
+            "resolution": timeframe,
+            "change": change,
+            "change_percent": change_percent,
+        }
 
     @classmethod
     def get_live_quote_from_fyers(cls, symbol):
@@ -475,37 +283,113 @@ class MarketDataService:
                     if not tt_val:
                         tt_val = int(timezone.now().timestamp())
                     dt = datetime.fromtimestamp(int(tt_val), tz=py_timezone.utc)
-                    return cls.cache_quote(
-                        normalized,
-                        {
-                            "price": float(quote_data.get("lp", 0)),
-                            
-                            # Backward compatibility keys
-                            "open": float(quote_data.get("open_price", 0)),
-                            "high": float(quote_data.get("high_price", 0)),
-                            "low": float(quote_data.get("low_price", 0)),
-                            "close": float(quote_data.get("prev_close_price", 0)),
-                            
-                            # New, perfectly accurate daily keys
-                            "day_open": float(quote_data.get("open_price", 0)),
-                            "day_high": float(quote_data.get("high_price", 0)),
-                            "day_low": float(quote_data.get("low_price", 0)),
-                            "prev_close": float(quote_data.get("prev_close_price", 0)),
-                            "volume": int(quote_data.get("volume", 0)),
-                            "timestamp": dt.isoformat(),
-                            "resolution": "1m",
-                            "change": float(quote_data.get("ch", 0)),
-                            "change_percent": float(quote_data.get("chp", 0)),
-                        },
-                    )
+                    return {
+                        "symbol": normalized,
+                        "price": float(quote_data.get("lp", 0)),
+                        
+                        # Backward compatibility keys
+                        "open": float(quote_data.get("open_price", 0)),
+                        "high": float(quote_data.get("high_price", 0)),
+                        "low": float(quote_data.get("low_price", 0)),
+                        "close": float(quote_data.get("prev_close_price", 0)),
+                        
+                        # New, perfectly accurate daily keys
+                        "day_open": float(quote_data.get("open_price", 0)),
+                        "day_high": float(quote_data.get("high_price", 0)),
+                        "day_low": float(quote_data.get("low_price", 0)),
+                        "prev_close": float(quote_data.get("prev_close_price", 0)),
+                        "volume": int(quote_data.get("volume", 0)),
+                        "timestamp": dt.isoformat(),
+                        "resolution": "1m",
+                        "change": float(quote_data.get("ch", 0)),
+                        "change_percent": float(quote_data.get("chp", 0)),
+                        "updated_at": dt.isoformat(),
+                    }
         except Exception as e:
             logger.error(f"Error fetching live quote from Fyers for {symbol}: {e}")
         return None
 
 
-class FyersHistoricalDataService:
+    @staticmethod
+    def get_instrument(symbol):
+        normalized = MarketDataService.normalize_symbol(symbol)
+        return Instrument.objects.filter(sym_ticker=normalized).first()
+
     @classmethod
-    def fetch_candles(cls, symbol, timeframe, date_from, date_to):
+    def upsert_candles(cls, symbol, timeframe, candles):
+        if not candles:
+            return 0
+
+        instrument = cls.get_instrument(symbol)
+        normalized = MarketDataService.normalize_symbol(symbol)
+        timeframe = MarketDataService.normalize_timeframe(timeframe)
+        if timeframe not in ("1m", "1D"):
+            logger.warning(
+                "Skipping %s %s candle(s) for %s; canonical candle storage is 1m and 1D only",
+                len(candles),
+                timeframe,
+                normalized,
+            )
+            return 0
+        unique_rows = {}
+
+        for candle in candles:
+            candle_time = candle["time"]
+            if timezone.is_naive(candle_time):
+                candle_time = timezone.make_aware(candle_time, py_timezone.utc)
+            
+            key = (normalized, timeframe, candle_time)
+            unique_rows[key] = Candle(
+                instrument=instrument,
+                symbol=normalized,
+                timeframe=timeframe,
+                time=candle_time,
+                open=Decimal(str(candle["open"])),
+                high=Decimal(str(candle["high"])),
+                low=Decimal(str(candle["low"])),
+                close=Decimal(str(candle["close"])),
+                volume=int(candle.get("volume", 0) or 0),
+            )
+            
+        rows = list(unique_rows.values())
+
+        with transaction.atomic():
+            Candle.objects.bulk_create(
+                rows,
+                update_conflicts=True,
+                unique_fields=["symbol", "timeframe", "time"],
+                update_fields=["open", "high", "low", "close", "volume", "instrument", "updated_at"],
+            )
+        return len(rows)
+
+    @classmethod
+    def list_raw_candles(cls, symbol, timeframe="1m", limit=200, start_dt=None, end_dt=None):
+        normalized = MarketDataService.normalize_symbol(symbol)
+        timeframe = MarketDataService.normalize_timeframe(timeframe)
+        queryset = Candle.objects.filter(symbol=normalized, timeframe=timeframe)
+        if start_dt is not None:
+            queryset = queryset.filter(time__gte=start_dt)
+        if end_dt is not None:
+            queryset = queryset.filter(time__lte=end_dt)
+        if limit is None:
+            candles = list(queryset.order_by("time"))
+        else:
+            candles = list(queryset.order_by("-time")[: int(limit or 200)])
+            candles.reverse()
+        return candles
+
+    @classmethod
+    def latest_candle(cls, symbol, timeframe="1m"):
+        normalized = MarketDataService.normalize_symbol(symbol)
+        timeframe = MarketDataService.normalize_timeframe(timeframe)
+        return (
+            Candle.objects.filter(symbol=normalized, timeframe=timeframe)
+            .order_by("-time")
+            .first()
+        )
+
+    @classmethod
+    def fetch_candles_from_broker(cls, symbol, timeframe, date_from, date_to):
         access_token = get_active_fyers_access_token()
         if not access_token:
             logger.error("No active Fyers access token found")
@@ -525,7 +409,6 @@ class FyersHistoricalDataService:
                 return int(dt.timestamp())
             if "-" in val_str:
                 dt = datetime.fromisoformat(val_str[:10]).replace(tzinfo=py_timezone.utc)
-                # If we only have a date, set time to end of day to include the full day
                 if len(val_str) <= 10:
                      dt = dt.replace(hour=23, minute=59, second=59)
                 return int(dt.timestamp())
@@ -534,7 +417,7 @@ class FyersHistoricalDataService:
         params = {
             "symbol": MarketDataService.normalize_symbol(symbol),
             "resolution": api_resolution,
-            "date_format": "0",  # 0 means epoch seconds
+            "date_format": "0",
             "range_from": str(_to_fyers_epoch(date_from)),
             "range_to": str(_to_fyers_epoch(date_to)),
             "cont_flag": "0",
@@ -549,7 +432,6 @@ class FyersHistoricalDataService:
             return None
 
         if data.get("s") == "no_data":
-            # Expected behavior when fetching data during off-hours or gaps
             return []
 
         if data.get("s") != "ok":
@@ -571,15 +453,14 @@ class FyersHistoricalDataService:
         return candles
 
     @classmethod
-    def fetch_and_store(cls, symbol, date_from, date_to, timeframe="1m"):
-        # Canonical storage is 1m and 1D. Higher timeframes are derived at read time.
-        candles = cls.fetch_candles(symbol, timeframe, date_from, date_to)
+    def backfill_candles_from_broker(cls, symbol, date_from, date_to, timeframe="1m"):
+        candles = cls.fetch_candles_from_broker(symbol, timeframe, date_from, date_to)
         if candles:
-            CandleRepository.upsert_candles(symbol, timeframe, candles)
+            cls.upsert_candles(symbol, timeframe, candles)
         return candles
 
 
-class HistoricalCandleService:
+class ChartDataService:
     MAX_LIMIT = 1000
     DEFAULT_LIMIT = 240
     MAX_SYNC_FETCH_DAYS = 120
@@ -637,8 +518,6 @@ class HistoricalCandleService:
                     end_dt=end_dt,
                 )
             
-            # Fallback: if we still don't have enough candles (e.g. broker API failed or gap),
-            # just query the DB without start_dt to get the latest available data before end_dt.
             if not candles:
                 candles = cls.list_candles(
                     symbol=normalized,
@@ -721,11 +600,12 @@ class HistoricalCandleService:
         timeframe = MarketDataService.normalize_timeframe(timeframe)
         db_timeframe = "1D" if timeframe in {"1D", "1W"} else "1m"
         normalized = MarketDataService.normalize_symbol(symbol)
-        
-        lock_key = (
-            "marketdata:chart_fetch:"
-            f"{normalized}:"
-            f"{db_timeframe}:{start_dt.date().isoformat()}:{end_dt.date().isoformat()}"
+        db_timeframe = MarketDataService.normalize_timeframe(timeframe)
+        lock_key = CacheKeys.CHART_FETCH_LOCK.format(
+            symbol=normalized,
+            timeframe=db_timeframe,
+            start=start_dt.date().isoformat(),
+            end=end_dt.date().isoformat()
         )
         if cache.get(lock_key):
             return 0
@@ -753,7 +633,7 @@ class HistoricalCandleService:
         api_failed = False
         while chunk_start <= end_date:
             chunk_end = min(chunk_start + timedelta(days=chunk_days), end_date)
-            fetched = FyersHistoricalDataService.fetch_and_store(
+            fetched = MarketDataService.backfill_candles_from_broker(
                 symbol=symbol,
                 date_from=chunk_start.isoformat(),
                 date_to=chunk_end.isoformat(),
@@ -773,114 +653,5 @@ class HistoricalCandleService:
         return fetched_total
 
 
-class FyersDataService:
-    """
-    Backward-compatible facade used by existing strategy/backtesting modules.
-    """
 
-    @classmethod
-    def get_backtest_candles(
-        cls,
-        symbol,
-        resolution,
-        start_dt,
-        end_dt,
-        fetch_missing=True,
-        clean=True,
-        persist=True,
-    ):
-        timeframe = MarketDataService.normalize_timeframe(resolution)
-        start_dt = cls._coerce_datetime(start_dt, start_of_day=True)
-        end_dt = cls._coerce_datetime(end_dt, start_of_day=False)
-        db_timeframe = "1D" if timeframe in {"1D", "1W"} else "1m"
-
-        candles = CandleRepository.list_candles(
-            symbol=symbol,
-            timeframe=db_timeframe,
-            limit=None,
-            start_dt=start_dt,
-            end_dt=end_dt,
-        )
-
-        needs_fetch = False
-        if fetch_missing:
-            if not candles:
-                needs_fetch = True
-            else:
-                first_candle_dt = candles[0].time.date()
-                last_candle_dt = candles[-1].time.date()
-                # If there's a > 4 day gap (to account for long weekends/holidays) at start or end, fetch data
-                if (first_candle_dt - start_dt.date()).days > 4 or (end_dt.date() - last_candle_dt).days > 4:
-                    needs_fetch = True
-
-        if needs_fetch:
-            chunk_start = start_dt.date()
-            end_date_limit = end_dt.date()
-            fetched_any = False
-            
-            while chunk_start <= end_date_limit:
-                chunk_end = min(chunk_start + timedelta(days=90), end_date_limit)
-                fetched = FyersHistoricalDataService.fetch_and_store(
-                    symbol=symbol,
-                    date_from=chunk_start.isoformat(),
-                    date_to=chunk_end.isoformat(),
-                    timeframe=db_timeframe,
-                )
-                if fetched:
-                    fetched_any = True
-                chunk_start = chunk_end + timedelta(days=1)
-                
-            if fetched_any:
-                candles = CandleRepository.list_candles(
-                    symbol=symbol,
-                    timeframe=db_timeframe,
-                    limit=None,
-                    start_dt=start_dt,
-                    end_dt=end_dt,
-                )
-
-        if timeframe not in ("1m", "1D"):
-            candles = MarketDataService.aggregate_candles(candles, timeframe)
-
-        records = [
-            {
-                "timestamp": candle.time,
-                "open": candle.open,
-                "high": candle.high,
-                "low": candle.low,
-                "close": candle.close,
-                "volume": candle.volume,
-            }
-            for candle in candles
-        ]
-        df = pd.DataFrame(records)
-        if df.empty:
-            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-        if clean:
-            return cls.normalize_candles_df(df)
-        return df
-
-    @classmethod
-    def normalize_candles_df(cls, df):
-        if df is None or df.empty:
-            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-
-        normalized = df.copy()
-        normalized["timestamp"] = pd.to_datetime(normalized["timestamp"])
-        normalized = normalized.sort_values("timestamp")
-        normalized = normalized.drop_duplicates(subset=["timestamp"], keep="last")
-        normalized = normalized.set_index("timestamp")
-        normalized.index.name = "timestamp"
-        return normalized[["open", "high", "low", "close", "volume"]]
-
-    @staticmethod
-    def _coerce_datetime(value, start_of_day):
-        if isinstance(value, datetime):
-            if timezone.is_naive(value):
-                return timezone.make_aware(value, py_timezone.utc)
-            return value
-        if isinstance(value, date):
-            base = datetime.combine(value, time.min if start_of_day else time.max)
-            return timezone.make_aware(base, py_timezone.utc)
-        raise TypeError(f"Unsupported date value: {value!r}")
 
