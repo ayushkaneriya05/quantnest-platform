@@ -102,10 +102,10 @@ export const strategyApi = {
 
   deployLive: async (id, options = {}) => {
     const payload = {};
-    if (options?.brokerCredential) payload.broker_credential = options.brokerCredential;
+    if (options?.versionId) payload.version_id = options.versionId;
     if (options?.allocationAmount) payload.allocation_amount = options.allocationAmount;
     if (options?.allocationPercentage) payload.allocation_percentage = options.allocationPercentage;
-    if (options?.versionId) payload.version_id = options.versionId;
+    if (options?.brokerCredential) payload.broker_credential = options.brokerCredential;
     const response = await api.post(`${STRATEGIES_URL}strategies/${id}/deploy-live/`, payload);
     return response.data;
   },

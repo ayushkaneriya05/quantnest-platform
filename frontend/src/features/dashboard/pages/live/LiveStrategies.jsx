@@ -16,10 +16,7 @@ import {
 
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/shared/components/ui/card";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
@@ -48,10 +45,16 @@ export default function LiveStrategies() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
-  const [allocationModal, setAllocationModal] = useState({ open: false, session: null });
-  const [hotSwapModal, setHotSwapModal] = useState({ open: false, session: null });
+  const [allocationModal, setAllocationModal] = useState({
+    open: false,
+    session: null,
+  });
+  const [hotSwapModal, setHotSwapModal] = useState({
+    open: false,
+    session: null,
+  });
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [sessionsRes, positionsRes, ordersRes] = await Promise.all([
@@ -73,7 +76,7 @@ export default function LiveStrategies() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify]);
 
   const handleLiveUpdate = useCallback((payload) => {
     if (payload?.event_type === "SESSION_UPDATE" && payload?.data?.session_id) {
@@ -106,34 +109,53 @@ export default function LiveStrategies() {
     loadData();
   }, []);
 
-  const runAction = async (key, action, successMessage) => {
-    try {
-      setBusyAction(key);
-      await action();
-      if (successMessage) notify.success(successMessage);
-      await loadData();
-    } catch (error) {
-      notify.error(
-        error?.response?.data?.detail || "Live trading action failed",
-      );
-    } finally {
-      setBusyAction("");
-    }
-  };
+  const runAction = useCallback(
+    async (key, action, successMessage) => {
+      try {
+        setBusyAction(key);
+        await action();
+        if (successMessage) notify.success(successMessage);
+        await loadData();
+      } catch (error) {
+        notify.error(
+          error?.response?.data?.detail || "Live trading action failed",
+        );
+      } finally {
+        setBusyAction("");
+      }
+    },
+    [notify, loadData],
+  );
 
   const pageActions = useMemo(
     () => (
       <>
         <div className="hidden lg:flex items-center gap-4 mr-2 text-xs font-medium border-r border-gray-700 pr-4">
           <div className="flex items-center gap-1.5">
-            <div className={`h-2 w-2 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500" : "bg-amber-500"}`} />
-            <span className={connectionStatus === "connected" ? "text-emerald-400" : "text-amber-400"}>
-              {connectionStatus === "connected" ? "Market Data" : "Market Data Offline"}
+            <div
+              className={`h-2 w-2 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500" : "bg-amber-500"}`}
+            />
+            <span
+              className={
+                connectionStatus === "connected"
+                  ? "text-emerald-400"
+                  : "text-amber-400"
+              }
+            >
+              {connectionStatus === "connected"
+                ? "Market Data"
+                : "Market Data Offline"}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className={`h-2 w-2 rounded-full ${isLiveWsConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
-            <span className={isLiveWsConnected ? "text-emerald-400" : "text-amber-400"}>
+            <div
+              className={`h-2 w-2 rounded-full ${isLiveWsConnected ? "bg-emerald-500" : "bg-amber-500"}`}
+            />
+            <span
+              className={
+                isLiveWsConnected ? "text-emerald-400" : "text-amber-400"
+              }
+            >
               {isLiveWsConnected ? "Live Feed" : "Feed Offline"}
             </span>
           </div>
@@ -169,7 +191,14 @@ export default function LiveStrategies() {
         </Button>
       </>
     ),
-    [busyAction, connectionStatus, isLiveWsConnected, navigate, loadData],
+    [
+      busyAction,
+      connectionStatus,
+      isLiveWsConnected,
+      navigate,
+      loadData,
+      runAction,
+    ],
   );
 
   useSetPageActions(pageActions);
@@ -180,9 +209,12 @@ export default function LiveStrategies() {
         <div className="rounded-xl border border-red-900/50 bg-red-500/10 p-4 flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
           <div>
-            <h4 className="text-sm font-medium text-red-200">API Outage / Connection Lost</h4>
+            <h4 className="text-sm font-medium text-red-200">
+              API Outage / Connection Lost
+            </h4>
             <p className="text-xs text-red-300/80 mt-1">
-              Live market feed or broker API connection is currently down. Order execution and status updates may be delayed.
+              Live market feed or broker API connection is currently down. Order
+              execution and status updates may be delayed.
             </p>
           </div>
         </div>
@@ -221,7 +253,9 @@ export default function LiveStrategies() {
                       {session.status === "PAUSED" ? (
                         <>
                           <span>Paused</span>
-                          <span className="text-[10px] opacity-80 font-medium">(Exits Active)</span>
+                          <span className="text-[10px] opacity-80 font-medium">
+                            (Exits Active)
+                          </span>
                         </>
                       ) : (
                         session.status
@@ -233,7 +267,7 @@ export default function LiveStrategies() {
                       {session.strategy_name}
                       {session.allocation?.version_number && (
                         <Badge className="bg-indigo-500/20 text-indigo-300 border-indigo-500/30 text-[10px] px-1.5 py-0.5 font-mono">
-                          v{session.allocation.version_number}
+                          v{session.allocation?.version_number}
                         </Badge>
                       )}
                     </h3>
@@ -275,28 +309,28 @@ export default function LiveStrategies() {
                   </div>
                 </div>
 
-                {session.allocation && (
+                {session.allocation ? (
                   <div className="flex items-center gap-6 text-xs text-gray-400 flex-wrap">
                     <span>
                       Allocated:{" "}
                       <span className="text-gray-200">
-                        Rs {formatNumber(session.allocation.allocated_capital)}
+                        Rs {formatNumber(session.allocation?.allocated_capital)}
                       </span>
                     </span>
                     <span>
                       Used:{" "}
                       <span className="text-gray-200">
-                        Rs {formatNumber(session.allocation.used_capital)}
+                        Rs {formatNumber(session.allocation?.used_capital)}
                       </span>
                     </span>
                     <span>
                       Available:{" "}
                       <span className="text-gray-200">
-                        Rs {formatNumber(session.allocation.available_capital)}
+                        Rs {formatNumber(session.allocation?.available_capital)}
                       </span>
                     </span>
                   </div>
-                )}
+                ) : null}
 
                 {/* Actions */}
                 <div className="flex items-center gap-1 justify-end flex-shrink-0 mt-4 lg:mt-0">
@@ -354,7 +388,7 @@ export default function LiveStrategies() {
                   >
                     <Power className="h-4 w-4" />
                   </Button>
-                  
+
                   <Button
                     size="icon"
                     variant="ghost"
@@ -441,7 +475,6 @@ export default function LiveStrategies() {
                       >
                         <RotateCw className="mr-2 h-3 w-3" /> Sync Orders
                       </Button>
-
                     </div>
                   </div>
 
@@ -458,7 +491,11 @@ export default function LiveStrategies() {
                     <div className="rounded-xl border border-amber-900/50 bg-amber-500/5 p-3 text-sm text-amber-200 mb-5">
                       <div className="flex items-center gap-2">
                         <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                        <span>Phantom Position Alert: Strategy holds {session.phantom_positions} virtual positions not matching broker side.</span>
+                        <span>
+                          Phantom Position Alert: Strategy holds{" "}
+                          {session.phantom_positions} virtual positions not
+                          matching broker side.
+                        </span>
                       </div>
                     </div>
                   )}
@@ -512,7 +549,9 @@ export default function LiveStrategies() {
       <LiveAllocationUpdateModal
         open={allocationModal.open}
         session={allocationModal.session}
-        onOpenChange={(open) => setAllocationModal({ ...allocationModal, open })}
+        onOpenChange={(open) =>
+          setAllocationModal({ ...allocationModal, open })
+        }
         onSuccess={loadData}
       />
       <LiveHotSwapModal

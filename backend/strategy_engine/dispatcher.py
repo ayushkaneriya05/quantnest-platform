@@ -88,7 +88,7 @@ class OrderDispatcher:
                 )
             except Exception as e:
                 logger.error(f"Sizing error for {exec_inst.id}: {e}")
-                qty = lot_size
+                qty = 0
                 
             if qty <= 0:
                 continue

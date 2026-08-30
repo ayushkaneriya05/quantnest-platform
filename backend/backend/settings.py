@@ -306,7 +306,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     "live-trading-reconcile-oms": {
         "task": "live_trading.reconcile_all_active_accounts",
-        "schedule": 5 * 60, # Every 5 minutes
+        "schedule": 60, # Every 1 minute
     },
     "analytics-refresh-daily-reports": {
         "task": "analytics.refresh_daily_reports",

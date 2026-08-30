@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderReconciliation, OrderSettings
+from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderSettings
 
 
 class BrokerCredentialSerializer(serializers.ModelSerializer):
@@ -57,33 +57,10 @@ class OrderSettingsSerializer(serializers.ModelSerializer):
         model = OrderSettings
         fields = [
             "id",
-            "default_slippage_pct",
             "order_timeout_seconds",
-            "max_retries",
-            "retry_delay_ms",
-            "partial_fill_action",
-            "use_amo_orders",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]
-
-
-class OrderReconciliationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OrderReconciliation
-        fields = [
-            "id",
-            "broker_order_id",
-            "internal_order_id",
-            "broker_status",
-            "internal_status",
-            "discrepancy_type",
-            "resolved",
-            "resolved_at",
-            "notes",
-            "created_at",
-        ]
-        read_only_fields = ["created_at"]
 
 
 class BrokerAPILogSerializer(serializers.ModelSerializer):

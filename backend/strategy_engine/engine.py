@@ -161,7 +161,7 @@ class StrategyExecutionEngine:
         if not position:
             return
         # Skip if an order is already in-flight
-        if position.get("trade_phase") in (TradePhase.EXIT_PENDING, TradePhase.PARTIAL_EXIT_PENDING):
+        if position.get("phase") in (TradePhase.EXIT_PENDING, TradePhase.PARTIAL_EXIT_PENDING):
             return
             
         last_price = shm.get_latest_price()
@@ -212,7 +212,7 @@ class StrategyExecutionEngine:
         if not position:
             return None
             
-        if position.get("trade_phase") in (TradePhase.EXIT_PENDING, TradePhase.PARTIAL_EXIT_PENDING):
+        if position.get("phase") in (TradePhase.EXIT_PENDING, TradePhase.PARTIAL_EXIT_PENDING):
             return position
 
         should_exit, reason, action, params = executor.evaluate_exit_logic(position, base_df)

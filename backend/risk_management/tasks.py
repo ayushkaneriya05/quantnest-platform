@@ -42,10 +42,13 @@ def check_and_reenable_strategies():
             session.error_message = f"Auto-reenabled after {rule.cooldown_hours}h cooldown"
             session.save(update_fields=["status", "error_message", "updated_at"])
             reenabled_count += 1
+            # Publish event for paper session auto-reenable
+            from paper_trading.services import PaperExecutionService
+            PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
             
     # Check live sessions
     live_sessions = TradingSession.objects.filter(
-        status="PAUSED", 
+        status="PAUSED",
         strategy_id__in=strategy_ids
     )
     for session in live_sessions:
@@ -55,5 +58,8 @@ def check_and_reenable_strategies():
             session.error_message = f"Auto-reenabled after {rule.cooldown_hours}h cooldown"
             session.save(update_fields=["status", "error_message", "updated_at"])
             reenabled_count += 1
+            # Publish event for live session auto-reenable
+            from live_trading.services import LiveExecutionService
+            LiveExecutionService._publish_execution_event("SESSION_START", session, "live")
 
     return {"reenabled": reenabled_count}

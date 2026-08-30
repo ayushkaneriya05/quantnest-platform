@@ -11,8 +11,7 @@ class CacheKeys:
     BROKER_FUNDS = "funds:{user_id}:{credential_id}"                            # TTL: 60s
     BROKER_POSITIONS = "positions:{user_id}:{credential_id}"                    # TTL: 60s
     BROKER_ORDERS = "active_orders:{user_id}:{credential_id}"                   # TTL: 60s
-    STRATEGY_WALLET = "strategy_wallet:{strategy_id}:{credential_id}"           # TTL: 300s
-    
+
     # Risk State
     RISK_SESSION = "risk_state:{scope}:user_{user_id}:session_{session_id}"             # TTL: 24h
     RISK_LOCK = "risk_lock:{scope}:{user_id}:{session_id}"                              # TTL: 5s

@@ -10,14 +10,13 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerSession, OrderReconciliation
+from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerSession
 from .serializers import (
     BrokerAPILogSerializer,
     BrokerChargeProfileSerializer,
     BrokerCredentialSerializer,
     BrokerFundsSnapshotSerializer,
     BrokerSessionSerializer,
-    OrderReconciliationSerializer,
     OrderSettingsSerializer,
 )
 from .services import BrokerService
@@ -217,26 +216,6 @@ class OrderSettingsViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
-
-
-class OrderReconciliationViewSet(viewsets.ModelViewSet):
-    serializer_class = OrderReconciliationSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return OrderReconciliation.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-    @action(detail=True, methods=["post"])
-    def resolve(self, request, pk=None):
-        item = self.get_object()
-        item.resolved = True
-        item.resolved_at = timezone.now()
-        item.notes = request.data.get("notes", item.notes)
-        item.save(update_fields=["resolved", "resolved_at", "notes", "updated_at"])
-        return Response(self.get_serializer(item).data)
 
 
 from rest_framework.pagination import PageNumberPagination

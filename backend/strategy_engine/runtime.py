@@ -233,7 +233,7 @@ class StrategyRuntimeState:
             "sl_distance": compute_sl_distance_from_config(config, _avg_price),
             "protected_stop_price": runtime_state.get("protected_stop_price"),
             "protected_target_price": runtime_state.get("protected_target_price"),
-            "trade_phase": runtime_state.get("phase"),
+            "phase": runtime_state.get("phase"),
             "quantity": runtime_state.get("quantity", getattr(position, "quantity", 0) if position else 0),
             "execution_instrument_id": runtime_state.get("execution_instrument_id", getattr(position, "instrument_id", None) if position else None),
         })

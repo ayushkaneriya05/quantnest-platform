@@ -107,7 +107,7 @@ class PortfolioService:
             balance_before=balance_before,
             balance_after=portfolio.current_capital,
             notes=notes,
-        )
+        )   
 
     @staticmethod
     @transaction.atomic
@@ -346,7 +346,7 @@ class PaperExecutionService:
         return sess or 0
 
     @staticmethod
-    def deploy_session(user, strategy, allocation, account, deployed_version=None, initial_status="RUNNING"):
+    def deploy_session(user, strategy, allocation, account, initial_status="RUNNING"):
         from paper_trading.models import PaperTradingSession
         from django.utils import timezone
         
@@ -362,10 +362,13 @@ class PaperExecutionService:
                 "error_message": "",
             }
         )
-        if deployed_version:
-            allocation.deployed_version = deployed_version
-            allocation.save(update_fields=['deployed_version', 'updated_at'])
-            
+
+        from risk_management.cache import RiskCache
+        RiskCache.sync_from_db("PAPER", session.id)
+        
+        if initial_status == "RUNNING":
+            PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
+        
         NotificationService.notify(
             user=user,
             title="Paper Strategy Deployed",
@@ -375,38 +378,18 @@ class PaperExecutionService:
             strategy=strategy,
             data={"session_id": str(session.id), "module": "paper"}
         )
-        if initial_status == "RUNNING":
-            PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
         return session
 
     @staticmethod
     def pause_session(session):
-        from paper_trading.models import PaperOrder, PaperPosition
-        from common.enums import OrderStatus
-        # Query pending orders
-        pending_orders = PaperOrder.objects.filter(
-            account=session.account,
-            strategy=session.strategy,
-            status__in=PaperExecutionService.STRATEGY_ORDER_STATUSES
-        )
-        for order in pending_orders:
-            # Cancel entry orders, keep exit orders alive
-            has_position = PaperPosition.objects.filter(
-                account=session.account,
-                instrument=order.instrument
-            ).exists()
-            if not has_position:
-                order.status = OrderStatus.CANCELLED
-                order.rejection_reason = "Cancelled due to session pause"
-                order.save(update_fields=['status', 'rejection_reason', 'updated_at'])
-        
         session.status = "PAUSED"
-        session.save(update_fields=["status", "updated_at"])
+        session.error_message = ""
+        session.save(update_fields=["status", "error_message", "updated_at"])
         
         NotificationService.notify(
             user=session.user,
             title="Paper Strategy Paused",
-            message=f"Paper session for '{session.strategy.name}' has been paused. Pending entry orders cancelled.",
+            message=f"Paper session for '{session.strategy.name}' has been paused.",
             notification_type=NotificationType.SYSTEM_ALERT,
             severity=Severity.WARNING,
             strategy=session.strategy,
@@ -416,24 +399,7 @@ class PaperExecutionService:
         return session
 
     @staticmethod
-    def stop_session(session, close_positions=True):
-        from paper_trading.models import PaperOrder, PaperPosition
-        from common.enums import OrderStatus
-        from django.utils import timezone
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        # Cancel ALL pending orders
-        pending_orders = PaperOrder.objects.filter(
-            account=session.account,
-            strategy=session.strategy,
-            status__in=PaperExecutionService.STRATEGY_ORDER_STATUSES
-        )
-        for order in pending_orders:
-            order.status = OrderStatus.CANCELLED
-            order.rejection_reason = "Cancelled due to session stop"
-            order.save(update_fields=['status', 'rejection_reason', 'updated_at'])
-            
+    def stop_session(session, close_positions=True):            
         if close_positions:
             open_positions = PaperPosition.objects.filter(
                 account=session.account,
@@ -442,7 +408,7 @@ class PaperExecutionService:
             )
             for pos in open_positions:
                 try:
-                    PaperExecutionService._force_close_position(session.strategy, session.account, pos)
+                    PaperExecutionService._close_position(session.strategy, session.account, pos)
                 except Exception as e:
                     logger.error(f"Failed to close paper position {pos.id}: {e}")
                     try:
@@ -464,7 +430,7 @@ class PaperExecutionService:
         
         NotificationService.notify(
             user=session.user,
-            title="Paper Strategy Stopped",
+            title="Paper Session Stopped",
             message=f"Paper session for '{session.strategy.name}' has been stopped.",
             notification_type=NotificationType.SYSTEM_ALERT,
             severity=Severity.CRITICAL,
@@ -497,13 +463,10 @@ class PaperExecutionService:
         return session
 
     @staticmethod
-    def _force_close_position(strategy, account, position):
-        from marketdata.l1_cache import tick_cache
+    def _close_position(strategy, account, position):
         from common.enums import Side
         from decimal import Decimal
         
-        tick = tick_cache.get(position.instrument.sym_ticker)
-        last_price = tick.get("last_price") if tick else float(position.current_price)
         
         close_side = Side.SELL if position.side == Side.BUY else Side.BUY
         
@@ -513,8 +476,7 @@ class PaperExecutionService:
             instrument=position.instrument,
             side=close_side,
             quantity=position.quantity,
-            fallback_price=Decimal(str(last_price)),
-            exit_reason="SESSION_HALT",
+            exit_reason="SESSION_STOP",
         )
 
 
@@ -525,6 +487,8 @@ class PaperExecutionService:
 
         stats = RiskCache.get_or_rebuild("PAPER", account.user_id, session.id)
         match = AutoDisableGate.evaluate(session, stats, account.initial_balance)
+        if match:
+            PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
         if match and raise_on_trigger:
             raise ValueError(f"Strategy auto-disable triggered: {match.get('message', 'Strategy auto-disable triggered')}")
         return bool(match)
@@ -567,15 +531,6 @@ class PaperExecutionService:
         price=None,
         order_tag="strategy_execution",
     ):
-        if not strategy or account.user_id != strategy.user_id:
-            raise ValueError("Strategy and account must belong to the same user")
-        if session.account_id != account.id or session.strategy_id != strategy.id:
-            raise ValueError("Session does not match the strategy and account")
-        if session.status != "RUNNING":
-            raise ValueError("Paper trading session is not running")
-        allocation = session.allocation
-        if not allocation:
-            raise ValueError("Session has no allocation")
 
         PaperExecutionService._validate_auto_disable(
             session=session,
@@ -634,12 +589,10 @@ class PaperExecutionService:
         raw_price = PaperExecutionService.resolve_market_price(instrument, fallback_price=fallback_price)
 
         strategy_config = None
-        if strategy:
-            allocation = getattr(account, "allocation", None)
-            if allocation and allocation.deployed_version_id:
-                strategy_config = allocation.deployed_version.config_snapshot
-            else:
-                strategy_config = strategy.to_execution_dict()
+        if allocation and allocation.deployed_version_id:
+            strategy_config = allocation.deployed_version.config_snapshot
+        elif strategy:
+            strategy_config = strategy.to_execution_dict()
 
         from common.costs import TradingCostCalculator
         price = TradingCostCalculator.apply_slippage(raw_price, side, 0)
@@ -744,7 +697,7 @@ class PaperExecutionService:
                         side=opposite_position.side,
                         quantity=opposite_position.quantity,
                         avg_price=opposite_position.avg_price,
-                        config=strategy_config or opposite_position.strategy.to_execution_dict(),
+                        config=strategy_config,
                         opened_at=opposite_position.opened_at,
                         execution_instrument_id=opposite_position.instrument_id,
                     )
@@ -775,69 +728,44 @@ class PaperExecutionService:
             if position:
                 total_quantity = position.quantity + remaining
                 total_cost = (Decimal(str(position.avg_price)) * position.quantity) + (price * remaining)
-                
                 position.quantity = total_quantity
                 position.avg_price = total_cost / total_quantity if total_quantity else price
                 position.current_price = price
                 position.margin_blocked = Decimal(str(position.margin_blocked)) + (price * remaining)
                 position.save(update_fields=["strategy", "quantity", "avg_price", "current_price", "margin_blocked", "last_updated", "updated_at"])
-                trade_state = {}
-                trade_strategy_id = strategy.id if strategy else position.strategy_id
-                if trade_strategy_id:
-                    base_inst = PaperExecutionService._get_base_instrument(strategy or position.strategy, position.instrument)
-                    trade_state = StrategyRuntimeState.mark_open(
-                        "paper",
-                        session.id,
-                        base_inst.id,
-                        side=position.side,
-                        quantity=position.quantity,
-                        avg_price=position.avg_price,
-                        config=strategy_config or {},
-                        opened_at=position.opened_at,
-                        execution_instrument_id=position.instrument_id,
-                    )
-                StrategyRuntimeState.update_position_state(
-                    "paper-position",
-                    position.id,
-                    {
-                        "phase": trade_state.get("phase") if trade_state else StrategyRuntimeState.OPEN,
-                        "entry_time": trade_state.get("entry_time") or position.opened_at.isoformat() if position.opened_at else executed_at.isoformat(),
-                        "peak_price": float(position.current_price or position.avg_price or price),
-                        "protected_stop_price": trade_state.get("protected_stop_price"),
-                        "protected_target_price": trade_state.get("protected_target_price"),
-                    },
-                )
+                
             else:
                 position = PaperPosition.objects.create(
                     account=account, strategy=strategy, instrument=instrument, side=side,
                     quantity=remaining, avg_price=price, current_price=price, margin_blocked=price * remaining,
                 )
-                trade_state = {}
-                trade_strategy_id = strategy.id if strategy else position.strategy_id
-                if trade_strategy_id:
-                    base_inst = PaperExecutionService._get_base_instrument(strategy or position.strategy, position.instrument)
-                    trade_state = StrategyRuntimeState.mark_open(
-                        "paper",
-                        session.id,
-                        base_inst.id,
-                        side=position.side,
-                        quantity=position.quantity,
-                        avg_price=position.avg_price,
-                        config=strategy_config or {},
-                        opened_at=position.opened_at,
-                        execution_instrument_id=position.instrument_id,
-                    )
-                StrategyRuntimeState.update_position_state(
-                    "paper-position",
-                    position.id,
-                    {
-                        "phase": trade_state.get("phase") if trade_state else StrategyRuntimeState.OPEN,
-                        "entry_time": trade_state.get("entry_time") or position.opened_at.isoformat() if position.opened_at else executed_at.isoformat(),
-                        "peak_price": float(price),
-                        "protected_stop_price": trade_state.get("protected_stop_price"),
-                        "protected_target_price": trade_state.get("protected_target_price"),
-                    },
+            
+            trade_state = {}
+            trade_strategy_id = strategy.id if strategy else position.strategy_id
+            if trade_strategy_id:
+                base_inst = PaperExecutionService._get_base_instrument(strategy or position.strategy, position.instrument)
+                trade_state = StrategyRuntimeState.mark_open(
+                    "paper",
+                    session.id,
+                    base_inst.id,
+                    side=position.side,
+                    quantity=position.quantity,
+                    avg_price=position.avg_price,
+                    config=strategy_config or {},
+                    opened_at=position.opened_at,
+                    execution_instrument_id=position.instrument_id,
                 )
+            StrategyRuntimeState.update_position_state(
+                "paper-position",
+                position.id,
+                {
+                    "phase": trade_state.get("phase") if trade_state else StrategyRuntimeState.OPEN,
+                    "entry_time": trade_state.get("entry_time") or position.opened_at.isoformat() if position.opened_at else executed_at.isoformat(),
+                    "peak_price": float(price),
+                    "protected_stop_price": trade_state.get("protected_stop_price"),
+                    "protected_target_price": trade_state.get("protected_target_price"),
+                },
+            )
 
         account.save(update_fields=["current_balance", "updated_at"])
         

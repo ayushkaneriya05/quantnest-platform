@@ -74,12 +74,12 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
       setBusy(true);
       const payload = {
         credential_id: credentialId,
-        default_slippage_pct: settings.default_slippage_pct,
+        // default_slippage_pct: settings.default_slippage_pct,
         order_timeout_seconds: Number(settings.order_timeout_seconds || 0),
-        max_retries: Number(settings.max_retries || 0),
-        retry_delay_ms: Number(settings.retry_delay_ms || 0),
-        partial_fill_action: settings.partial_fill_action,
-        use_amo_orders: Boolean(settings.use_amo_orders),
+        // max_retries: Number(settings.max_retries || 0),
+        // retry_delay_ms: Number(settings.retry_delay_ms || 0),
+        // partial_fill_action: settings.partial_fill_action,
+        // use_amo_orders: Boolean(settings.use_amo_orders),
       };
       
       const response = await brokersApi.updateSettings(settings.id || 0, payload);
@@ -121,7 +121,7 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
           <div className="px-6 py-4 space-y-5 relative z-10 overflow-y-auto max-h-[70vh] scrollbar-theme">
             
             {/* Section 1: Network & Reliability */}
-            <div className="space-y-3">
+            {/* <div className="space-y-3">
               <h3 className="text-sm font-medium text-indigo-400 flex items-center gap-2 uppercase tracking-wider">
                 <Wifi className="h-4 w-4" /> Network Resiliency
               </h3>
@@ -153,14 +153,14 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
                   </p>
                 </div>
               </div>
-            </div>
+            </div> */}
 
             {/* Section 2: Execution Limits */}
             <div className="space-y-3">
               <h3 className="text-sm font-medium text-emerald-400 flex items-center gap-2 uppercase tracking-wider">
                 <Activity className="h-4 w-4" /> Execution Limits
               </h3>
-              <div className="grid grid-cols-2 gap-3">
+              {/* <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 p-3 rounded-xl border border-slate-800/60 bg-slate-900/50 hover:bg-slate-800/40 transition-colors">
                   <Label className="text-slate-300 text-xs">Default Slippage (%)</Label>
                   <Input
@@ -174,7 +174,7 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
                   <p className="text-[11px] text-slate-500 mt-1 leading-tight">
                     Auto-adjusts Limit prices to guarantee fills.
                   </p>
-                </div>
+                </div> */}
                 <div className="space-y-1.5 p-3 rounded-xl border border-slate-800/60 bg-slate-900/50 hover:bg-slate-800/40 transition-colors">
                   <Label className="text-slate-300 text-xs">Order Timeout (sec)</Label>
                   <Input
@@ -188,7 +188,7 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
                     Seconds before unacknowledged orders drop.
                   </p>
                 </div>
-                <div className="space-y-1.5 p-3 rounded-xl border border-slate-800/60 bg-slate-900/50 hover:bg-slate-800/40 transition-colors col-span-2">
+                {/* <div className="space-y-1.5 p-3 rounded-xl border border-slate-800/60 bg-slate-900/50 hover:bg-slate-800/40 transition-colors col-span-2">
                   <Label className="text-slate-300 text-xs">Partial Fill Action</Label>
                   <Select
                     value={settings.partial_fill_action}
@@ -206,12 +206,12 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
                   <p className="text-[11px] text-slate-500 mt-1 leading-tight">
                     How the engine handles illiquid assets that only partially fill.
                   </p>
-                </div>
-              </div>
+                </div> 
+              </div>*/}
             </div>
 
             {/* Section 3: Off-Market */}
-            <div className="space-y-3">
+            {/* <div className="space-y-3">
               <h3 className="text-sm font-medium text-amber-400 flex items-center gap-2 uppercase tracking-wider">
                 <Clock className="h-4 w-4" /> Off-Market Engine
               </h3>
@@ -228,7 +228,7 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
                   className="data-[state=checked]:bg-amber-500 scale-90"
                 />
               </div>
-            </div>
+            </div> */}
 
           </div>
         )}

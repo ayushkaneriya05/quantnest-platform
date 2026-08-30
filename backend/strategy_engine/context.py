@@ -1,3 +1,4 @@
+from decimal import Decimal
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
@@ -103,16 +104,13 @@ class LiveSessionContext(SessionContext):
             allocation = tick_cache.get_live_allocation(self.session_id)
             if not allocation:
                 return 0.0
-            funds_state = LiveBrokerStateCache.get_funds_state(
-                allocation.user_id,
-                allocation.broker_credential_id,
-            )
+            funds_state = LiveBrokerStateCache.get_funds_state(allocation.user_id, allocation.broker_credential_id)
             funds_payload = (funds_state or {}).get("payload") or {}
-            broker_margin = LiveExecutionService._to_decimal(
+            broker_margin = Decimal(
                 funds_payload.get("available_margin") or funds_payload.get("cash_balance")
             )
             broker_margin = float(broker_margin) if broker_margin is not None else float("inf")
-            alloc_available = float(allocation.available_capital or allocation.allocated_capital or 0.0)
+            alloc_available = float(allocation.available_capital or 0.0)
             return min(alloc_available, broker_margin)
         except Exception as e:
             logger.error(f"Error fetching live capital: {e}")

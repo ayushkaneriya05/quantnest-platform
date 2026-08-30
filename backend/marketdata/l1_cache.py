@@ -142,7 +142,6 @@ class TickCache:
         ).select_related("strategy", "broker_credential", "allocation__deployed_version", "allocation__broker_credential")
         
         new_allocations = {}
-        today = timezone.localdate()
 
         from live_trading.services import LiveExecutionService
         for session in sessions:

@@ -64,9 +64,6 @@ def handle_live_order_notifications(sender, instance, created, **kwargs):
             notif_type = NotificationType.SL_HIT
             severity = Severity.WARNING
             title = "Live Stop Loss Hit"
-        elif instance.reduce_only:
-            title = "Live Position Exit Executed"
-
         NotificationService.notify(
             user=instance.user,
             title=title,

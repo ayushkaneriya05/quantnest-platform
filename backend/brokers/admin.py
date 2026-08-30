@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderReconciliation, OrderSettings
+from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderSettings
 
 
 @admin.register(BrokerCredential)
@@ -18,13 +18,7 @@ class BrokerSessionAdmin(admin.ModelAdmin):
 
 @admin.register(OrderSettings)
 class OrderSettingsAdmin(admin.ModelAdmin):
-    list_display = ["id", "broker_credential", "default_slippage_pct", "max_retries"]
-
-
-@admin.register(OrderReconciliation)
-class OrderReconciliationAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "broker_order_id", "internal_order_id", "broker_status", "internal_status", "resolved"]
-    list_filter = ["resolved", "broker_status", "internal_status"]
+    list_display = ["id", "broker_credential", "order_timeout_seconds"]
 
 
 @admin.register(BrokerAPILog)

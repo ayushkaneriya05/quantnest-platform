@@ -79,8 +79,6 @@ def fetch_live_candles_from_broker():
             )
             if fetched:
                 from types import SimpleNamespace
-                # The latest fetched candle is the most recently closed (or still forming) candle
-                # Publish it to frontend as candle.closed to overwrite any tick-built inaccuracies
                 latest_candle = fetched[-1]
                 candle_obj = SimpleNamespace(**latest_candle)
                 MarketDataStreamer.publish_candle_update(symbol, candle_obj, event_type="candle.closed")

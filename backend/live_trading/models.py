@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.db import models
-
+from decimal import Decimal
 from common.enums import CapitalAllocationType
 from common.enums import OrderStatus, OrderType, ProductType, Side
 from common.models import BaseTimestampModel
@@ -11,6 +11,7 @@ class TradingSession(BaseTimestampModel):
         ("RUNNING", "Running"),
         ("PAUSED", "Paused"),
         ("STOPPED", "Stopped"),
+        ("STOPPING", "Stopping"),
         ("ERROR", "Error"),
     ]
 
@@ -27,8 +28,6 @@ class TradingSession(BaseTimestampModel):
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=SESSION_STATUSES, default="PAUSED")
-    trades_count = models.PositiveIntegerField(default=0)
-    pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     error_message = models.TextField(blank=True)
 
     class Meta:
@@ -38,55 +37,13 @@ class TradingSession(BaseTimestampModel):
     def __str__(self):
         return f"{self.strategy.name} [{self.status}]"
 
-
-class LivePortfolio(BaseTimestampModel):
-    """
-    User's live trading portfolio tracking real equity and drawdowns.
-    """
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='live_portfolio'
-    )
-    
-    name = models.CharField(max_length=100, default='Live Portfolio')
-    
-    # Capital
-    initial_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    current_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    invested_value = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
-    # Performance
-    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
-    # High watermark for drawdown
-    peak_value = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    peak_date = models.DateField(null=True, blank=True)
-    
-    # Daily tracking
-    today_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    today_trades = models.PositiveIntegerField(default=0)
-    
-    is_active = models.BooleanField(default=True)
-    
-    class Meta:
-        db_table = 'live_portfolio'
-        verbose_name = 'Live Portfolio'
-        verbose_name_plural = 'Live Portfolios'
-
-    def __str__(self):
-        return f"{self.name} - {self.user.username}"
+    @property
+    def trades_count(self):
+        return self.allocation.trades.count() if self.allocation else 0
 
     @property
-    def total_value(self):
-        return self.current_capital + self.unrealized_pnl
-
-    @property
-    def current_drawdown(self):
-        if self.peak_value <= 0:
-            return 0
-        return ((self.peak_value - self.total_value) / self.peak_value) * 100
+    def pnl(self):
+        return self.allocation.total_pnl if self.allocation else Decimal("0")
 
 
 class LiveStrategyAllocation(BaseTimestampModel):
@@ -100,21 +57,13 @@ class LiveStrategyAllocation(BaseTimestampModel):
         related_name='live_allocations',
         help_text='Pinned strategy version for this live allocation'
     )
-    portfolio = models.ForeignKey(LivePortfolio, on_delete=models.CASCADE, related_name="live_allocations")
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.CASCADE, related_name="strategy_allocations")
     allocation_type = models.CharField(max_length=20, choices=CapitalAllocationType.choices, default=CapitalAllocationType.FIXED)
     allocated_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     allocated_percentage = models.DecimalField(max_digits=6, decimal_places=2, default=0)
-    used_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    reserved_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    available_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     broker_equity_reference = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     is_over_allocated = models.BooleanField(default=False)
     breach_reason = models.TextField(blank=True)
-    last_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "live_strategy_allocation"
@@ -124,40 +73,80 @@ class LiveStrategyAllocation(BaseTimestampModel):
     def __str__(self):
         return f"{self.strategy.name} allocation on {self.broker_credential}"
 
+    @property
+    def invested_value(self):
+        """Total capital invested in open positions."""
+        from django.db.models import Sum
+        result = self.positions.filter(quantity__gt=0).aggregate(
+            total=Sum(models.F('quantity') * models.F('avg_price'))
+        )['total']
+        return result or Decimal("0")
+
+    @property
+    def unrealized_pnl(self):
+        """Total unrealized P&L from open positions."""
+        from django.db.models import Sum
+        result = self.positions.filter(quantity__gt=0).aggregate(
+            total=Sum('unrealized_pnl')
+        )['total']
+        return result or Decimal("0")
+
+    @property
+    def realized_pnl(self):
+        """Total realized P&L from closed trades."""
+        from django.db.models import Sum
+        result = self.trades.aggregate(
+            total=Sum('realized_pnl')
+        )['total']
+        return result or Decimal("0")
+
+    @property
+    def reserved_capital(self):
+        """Capital reserved for pending orders."""
+        from django.db.models import Sum
+        result = LiveOrder.objects.filter(
+            allocation=self,
+            status__in=[OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL]
+        ).aggregate(
+            total=Sum(models.F('pending_quantity') * models.F('price'))
+        )['total']
+        return result or Decimal("0")
+
+    @property
+    def available_capital(self):
+        """Available capital for new orders."""
+        return max(
+            Decimal("0"),
+            self.allocated_capital - self.invested_value - self.reserved_capital
+        )
+
+    @property
+    def total_pnl(self):
+        """Total P&L (realized + unrealized)."""
+        return self.realized_pnl + self.unrealized_pnl
+
 
 class LiveOrder(BaseTimestampModel):
-    VALIDITIES = [("DAY", "Day"), ("IOC", "Immediate or Cancel"), ("GTC", "Good Till Cancelled")]
-    SOURCE_TYPES = [
-        ("STRATEGY", "Strategy"),
-        ("EXTERNAL", "External / Manual"),
-        ("RECOVERED", "Recovered"),
-    ]
+    STATUS_CHOICES = list(OrderStatus.choices) + [("UNKNOWN", "Unknown")]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_orders")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_orders")
     session = models.ForeignKey(TradingSession, on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
     allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
-    portfolio = models.ForeignKey(LivePortfolio, on_delete=models.SET_NULL, null=True, blank=True, related_name="live_orders")
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_orders")
     broker_order_id = models.CharField(max_length=128, blank=True)
     exchange_order_id = models.CharField(max_length=128, blank=True)
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE, related_name="live_orders")
-    source_type = models.CharField(max_length=20, choices=SOURCE_TYPES, default="STRATEGY")
-    reduce_only = models.BooleanField(default=False)
-    requested_value = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     order_type = models.CharField(max_length=20, choices=OrderType.choices, default=OrderType.MARKET)
     product_type = models.CharField(max_length=20, choices=ProductType.choices, default=ProductType.INTRADAY)
     side = models.CharField(max_length=10, choices=Side.choices)
     price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    trigger_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     quantity = models.PositiveIntegerField()
     filled_quantity = models.PositiveIntegerField(default=0)
     pending_quantity = models.PositiveIntegerField(default=0)
     avg_fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    status = models.CharField(max_length=20, choices=OrderStatus.choices, default=OrderStatus.PENDING)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=OrderStatus.PENDING)
     rejection_reason = models.TextField(blank=True)
-    rejection_code = models.CharField(max_length=32, blank=True)
-    validity = models.CharField(max_length=10, choices=VALIDITIES, default="DAY")
     placed_at = models.DateTimeField(auto_now_add=True)
     executed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
@@ -168,26 +157,17 @@ class LiveOrder(BaseTimestampModel):
 
 
 class LivePosition(BaseTimestampModel):
-    SOURCE_TYPES = [
-        ("STRATEGY", "Strategy"),
-        ("EXTERNAL", "External / Manual"),
-        ("RECOVERED", "Recovered"),
-    ]
-
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_positions")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_positions")
     allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="positions")
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.CASCADE, related_name="live_positions", null=True, blank=True)
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE, related_name="live_positions")
-    source_type = models.CharField(max_length=20, choices=SOURCE_TYPES, default="STRATEGY")
     product_type = models.CharField(max_length=20, choices=ProductType.choices, default=ProductType.INTRADAY)
     side = models.CharField(max_length=10, choices=Side.choices)
     quantity = models.PositiveIntegerField()
     avg_price = models.DecimalField(max_digits=12, decimal_places=4)
     current_price = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    realized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    day_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     last_broker_sync = models.DateTimeField(null=True, blank=True)
     opened_at = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)
@@ -206,29 +186,47 @@ class LiveTrade(BaseTimestampModel):
     exit_order = models.ForeignKey(LiveOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name="closed_trades")
     side = models.CharField(max_length=10, choices=Side.choices)
     quantity = models.PositiveIntegerField()
+    
+    # Entry
     entry_price = models.DecimalField(max_digits=12, decimal_places=4)
     entry_time = models.DateTimeField()
+    
+    # Exit
     exit_price = models.DecimalField(max_digits=12, decimal_places=4)
     exit_time = models.DateTimeField()
-    realized_pnl = models.DecimalField(max_digits=12, decimal_places=2)
+  
+    exit_reason = models.CharField(max_length=50, blank=True)
+    
+    # P&L (broker handles costs, but we track for analytics)
+    gross_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    realized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    
+    # Duration
+    holding_duration_seconds = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "live_trade"
         ordering = ["-exit_time"]
 
+    def __str__(self):
+        result = 'WIN' if self.realized_pnl > 0 else 'LOSS'
+        return f"{self.side} {self.instrument.symbol} - {result}"
+
+    @property
+    def is_winner(self):
+        return self.realized_pnl > 0
+
 
 class ExecutionLog(BaseTimestampModel):
+    """Simplified execution log for broker order lifecycle tracking."""
     EVENT_TYPES = [
+        ("CREATED", "Created"),
         ("PLACED", "Placed"),
-        ("ACKNOWLEDGED", "Acknowledged"),
         ("PARTIAL_FILL", "Partial Fill"),
         ("FILLED", "Filled"),
         ("REJECTED", "Rejected"),
         ("CANCELLED", "Cancelled"),
-        ("MODIFIED", "Modified"),
-        ("EXPIRED", "Expired"),
-        ("PAUSED", "Paused"),
-        ("STOPPED", "Stopped"),
+        ("UNKNOWN", "Unknown"),
     ]
 
     order = models.ForeignKey(LiveOrder, on_delete=models.CASCADE, related_name="execution_logs")
@@ -244,6 +242,7 @@ class ExecutionLog(BaseTimestampModel):
 
 
 class SlippageRecord(BaseTimestampModel):
+    """Track slippage for analytics - broker handles execution, we track for analysis."""
     order = models.OneToOneField(LiveOrder, on_delete=models.CASCADE, related_name="slippage_record")
     expected_price = models.DecimalField(max_digits=12, decimal_places=4)
     actual_price = models.DecimalField(max_digits=12, decimal_places=4)

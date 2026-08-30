@@ -44,7 +44,7 @@ class AIEngineService:
     @staticmethod
     def _latest_live_day_pnl(strategy):
         live_positions = strategy.live_positions.all()
-        return sum((Decimal(str(position.day_pnl or 0)) for position in live_positions), Decimal("0"))
+        return sum((Decimal(str(position.unrealized_pnl or 0)) for position in live_positions), Decimal("0"))
 
     @staticmethod
     def _parameter_complexity(strategy):

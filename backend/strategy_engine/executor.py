@@ -7,8 +7,6 @@ from rules_engine.evaluator import RuleEvaluator
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 class StrategyExecutor:
     """
     Orchestrates the evaluation of a strategy against market data.
@@ -385,15 +383,7 @@ class StrategyExecutor:
 
     def resolve_entry_order(self, price):
         """
-        Calculates price and order type based on EntryOrderConfig (OrderType).
+        Build the entry order intent. Strategy execution currently supports
+        market orders only; the price is an expected/reference price.
         """
-        order_type_str = self.entry_config.get("order_type", OrderType.MARKET)
-
-        close = float(price)
-        target_price = close
-
-        if order_type_str == OrderType.MARKET:
-            target_price = close
-            otype = OrderType.MARKET
-
-        return otype, target_price
+        return OrderType.MARKET, float(price)

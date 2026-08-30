@@ -17,7 +17,7 @@ from .serializers import (
 from .services import LiveExecutionService
 
 
-class TradingSessionViewSet(viewsets.ModelViewSet):
+class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TradingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -25,24 +25,6 @@ class TradingSessionViewSet(viewsets.ModelViewSet):
         return TradingSession.objects.filter(user=self.request.user).select_related(
             "strategy", "broker_credential", "allocation__deployed_version"
         )
-
-    @action(detail=False, methods=["post"])
-    def deploy(self, request):
-        strategy = Strategy.objects.get(id=request.data.get("strategy"), user=request.user)
-        credential = None
-        if request.data.get("broker_credential"):
-            credential = BrokerCredential.objects.get(id=request.data["broker_credential"], user=request.user)
-        try:
-            session = LiveExecutionService.deploy_strategy(
-                request.user,
-                strategy,
-                credential,
-                allocation_amount=request.data.get("allocation_amount"),
-                allocation_percentage=request.data.get("allocation_percentage"),
-            )
-        except ValueError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(self.get_serializer(session).data)
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
@@ -69,21 +51,11 @@ class TradingSessionViewSet(viewsets.ModelViewSet):
         )
         return Response(self.get_serializer(sessions, many=True).data)
 
-    @action(detail=True, methods=["post"], url_path="update-allocation")
-    def update_allocation(self, request, pk=None):
-        session = self.get_object()
-        allocation = LiveExecutionService.update_allocation(
-            session=session,
-            allocation_amount=request.data.get("allocation_amount"),
-            allocation_percentage=request.data.get("allocation_percentage"),
-        )
-        return Response(LiveStrategyAllocationSerializer(allocation).data)
 
     @action(detail=True, methods=["post"])
     def sync(self, request, pk=None):
         session = self.get_object()
-        result = LiveExecutionService.sync_account_state(request.user, credential=session.broker_credential, force=True)
-        orders = LiveExecutionService.sync_open_orders(session, symbol=request.data.get("symbol"), force=True)
+        result = LiveExecutionService.sync_account_state(request.user, credential=session.broker_credential)
         return Response({"synced_orders": len(orders), "account_state": result})
 
 
@@ -92,7 +64,7 @@ class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return LiveOrder.objects.filter(user=self.request.user).select_related("strategy", "session", "portfolio", "broker_credential", "instrument")
+        return LiveOrder.objects.filter(user=self.request.user).select_related("strategy", "session", "broker_credential", "instrument")
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -129,7 +101,7 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        queryset = LiveStrategyAllocation.objects.filter(user=self.request.user).select_related("strategy", "broker_credential", "portfolio")
+        queryset = LiveStrategyAllocation.objects.filter(user=self.request.user).select_related("strategy", "broker_credential")
         broker_id = self.request.query_params.get("broker_credential")
         if broker_id:
             queryset = queryset.filter(broker_credential_id=broker_id)
@@ -137,6 +109,16 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
         if strategy_id:
             queryset = queryset.filter(strategy_id=strategy_id)
         return queryset
+
+    @action(detail=True, methods=["post"], url_path="update-allocation")
+    def update_allocation(self, request, pk=None):
+        allocation = self.get_object()
+        allocation = LiveExecutionService.update_allocation(
+            allocation=allocation,
+            allocation_amount=request.data.get("allocation_amount"),
+            allocation_percentage=request.data.get("allocation_percentage"),
+        )
+        return Response(LiveStrategyAllocationSerializer(allocation).data)
 
     @action(detail=True, methods=['post'], url_path='deploy-version')
     def deploy_version(self, request, pk=None):

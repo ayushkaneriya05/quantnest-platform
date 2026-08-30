@@ -99,6 +99,200 @@ class BaseBrokerAdapter:
             return [BaseBrokerAdapter._json_safe(item) for item in value]
         return str(value)
 
+    def _validate_market_order(self, payload):
+        order_type = str((payload or {}).get("order_type") or "MARKET").upper()
+        if order_type != "MARKET":
+            raise ValueError("Only MARKET orders are supported for live execution")
+        quantity = int((payload or {}).get("quantity") or 0)
+        if quantity <= 0:
+            raise ValueError("Broker order quantity must be greater than zero")
+        return payload
+
+    def normalize_position_payload(self, payload):
+        """Normalize broker position payload to standard format. Override in adapter for broker-specific logic."""
+        from common.enums import Side
+        rows = payload.get("netPositions") or payload.get("data") or payload.get("positions") or []
+        rows = rows if isinstance(rows, list) else []
+        normalized = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = row.get("symbol") or row.get("tradingsymbol") or row.get("ticker")
+            quantity = int(row.get("netqty") or row.get("netQty") or row.get("quantity") or row.get("qty") or 0)
+            if not symbol or quantity == 0:
+                continue
+            avg_price = BrokerService.to_decimal(row.get("avgPrice") or row.get("averageprice") or row.get("avg_price"))
+            ltp = BrokerService.to_decimal(row.get("ltp") or row.get("current_price") or row.get("last_price") or avg_price)
+            side = Side.BUY if quantity > 0 else Side.SELL
+            abs_qty = abs(quantity)
+            normalized.append({
+                "symbol": symbol,
+                "side": side,
+                "quantity": abs_qty,
+                "avg_price": avg_price,
+                "current_price": ltp,
+                "unrealized_pnl": BrokerService.to_decimal(row.get("pl") or row.get("unrealized_pnl")),
+                "realized_pnl": BrokerService.to_decimal(row.get("realized_pnl") or row.get("realized")),
+                "raw": row,
+            })
+        return normalized
+
+    def normalize_order_payload(self, payload):
+        """Normalize broker order payload to standard format. Override in adapter for broker-specific logic."""
+        from common.enums import Side, OrderStatus
+        rows = self._extract_orderbook_rows(payload)
+        normalized = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = row.get("symbol") or row.get("tradingsymbol") or row.get("ticker")
+            qty = int(row.get("qty") or row.get("quantity") or row.get("orderQty") or 0)
+            filled = int(row.get("filledQty") or row.get("filled_quantity") or row.get("tradedQty") or 0)
+            pending = row.get("remainingQuantity") or row.get("pending_quantity")
+            pending = int(pending) if pending is not None else max(qty - filled, 0)
+            normalized.append({
+                "broker_order_id": str(row.get("id") or row.get("orderid") or row.get("broker_order_id") or row.get("orderNumStatus") or ""),
+                "exchange_order_id": str(row.get("exchOrdId") or row.get("exchange_order_id") or ""),
+                "symbol": symbol,
+                "side": self._normalize_side(row.get("side") or row.get("transactiontype")),
+                "quantity": qty,
+                "filled_quantity": filled,
+                "pending_quantity": max(pending, 0),
+                "price": BrokerService.to_decimal(row.get("limitPrice") or row.get("price") or row.get("avgPrice") or 0),
+                "status": self._normalize_order_status(row.get("status") or row.get("orderStatus") or row.get("orderNumStatus")),
+                "raw": row,
+            })
+        return normalized
+
+    def _extract_orderbook_rows(self, payload):
+        """Extract orderbook rows from broker payload. Override in adapter for broker-specific logic."""
+        if not isinstance(payload, dict):
+            return []
+        for key in ("orderBook", "orderbook", "book", "data"):
+            rows = payload.get(key)
+            if isinstance(rows, list):
+                return rows
+            if isinstance(rows, dict):
+                for nested_key in ("orderBook", "orderbook", "rows"):
+                    nested_rows = rows.get(nested_key)
+                    if isinstance(nested_rows, list):
+                        return nested_rows
+        return []
+
+    def _normalize_side(self, value):
+        """Normalize broker side to Side enum. Override in adapter for broker-specific logic."""
+        from common.enums import Side
+        if value == 1 or str(value).strip() == "1":
+            return Side.BUY
+        if value == -1 or str(value).strip() == "-1":
+            return Side.SELL
+        side_text = str(value or "").upper()
+        if side_text in {"BUY", "B"}:
+            return Side.BUY
+        if side_text in {"SELL", "S"}:
+            return Side.SELL
+        return side_text
+
+    def _normalize_order_status(self, value):
+        """Normalize broker status to OrderStatus enum. Override in adapter for broker-specific logic."""
+        from common.enums import OrderStatus
+        if value in OrderStatus.values:
+            return value
+        if value is None:
+            return OrderStatus.PENDING
+        status_text = str(value).upper()
+        if status_text in {"6", "PENDING", "TRANSIT", "OPEN"}:
+            return OrderStatus.PENDING
+        if status_text in {"4", "PLACED", "TRIGGER PENDING", "ACKNOWLEDGED"}:
+            return OrderStatus.PLACED
+        if status_text in {"2", "FILLED", "TRADED", "EXECUTED", "COMPLETE"}:
+            return OrderStatus.FILLED
+        if status_text in {"1", "CANCELLED", "CANCELED"}:
+            return OrderStatus.CANCELLED
+        if status_text in {"5", "REJECTED"}:
+            return OrderStatus.REJECTED
+        if status_text in {"PARTIAL", "PARTIAL_FILL", "PARTIALLY FILLED"}:
+            return OrderStatus.PARTIAL_FILL
+        if status_text in {"EXPIRED"}:
+            return OrderStatus.EXPIRED
+        return OrderStatus.PENDING
+
+    def normalize_funds_payload(self, payload):
+        """Normalize broker funds payload to standard format. Override in adapter for broker-specific logic."""
+        payload = payload or {}
+        rows = payload.get("fund_limit") or payload.get("data") or payload.get("funds") or []
+        if isinstance(rows, dict):
+            rows = rows.get("fund_limit") or rows.get("summary") or list(rows.values())
+        rows = rows if isinstance(rows, list) else []
+
+        summary = {
+            "cash_balance": Decimal("0"),
+            "available_margin": Decimal("0"),
+            "used_margin": Decimal("0"),
+            "collateral": Decimal("0"),
+            "withdrawable_balance": Decimal("0"),
+            "net_equity": Decimal("0"),
+            "realized_pnl": Decimal("0"),
+            "unrealized_pnl": Decimal("0"),
+        }
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            title = str(row.get("title") or row.get("id") or row.get("label") or row.get("name") or "").lower()
+            amount = BrokerService.to_decimal(
+                row.get("equityAmount")
+                or row.get("amount")
+                or row.get("net")
+                or row.get("value")
+                or row.get("availablecash")
+                or row.get("available_cash")
+                or row.get("available")
+                or row.get("cash")
+            )
+            if "available" in title and "margin" in title:
+                summary["available_margin"] = max(summary["available_margin"], amount)
+            elif "available" in title and ("cash" in title or "balance" in title):
+                summary["cash_balance"] = max(summary["cash_balance"], amount)
+                summary["available_margin"] = max(summary["available_margin"], amount)
+            elif "utilised" in title or "utilized" in title or "used margin" in title:
+                summary["used_margin"] = max(summary["used_margin"], amount)
+            elif "collateral" in title:
+                summary["collateral"] = max(summary["collateral"], amount)
+            elif "withdraw" in title:
+                summary["withdrawable_balance"] = max(summary["withdrawable_balance"], amount)
+
+        if payload.get("overall") and isinstance(payload["overall"], dict):
+            overall = payload["overall"]
+            summary["cash_balance"] = BrokerService.to_decimal(overall.get("cash") or overall.get("available_balance"), summary["cash_balance"])
+            summary["available_margin"] = BrokerService.to_decimal(overall.get("available_margin") or overall.get("available_cash"), summary["available_margin"])
+            summary["used_margin"] = BrokerService.to_decimal(overall.get("used_margin"), summary["used_margin"])
+            summary["collateral"] = BrokerService.to_decimal(overall.get("collateral"), summary["collateral"])
+            summary["withdrawable_balance"] = BrokerService.to_decimal(overall.get("withdrawable_balance"), summary["withdrawable_balance"])
+            summary["net_equity"] = BrokerService.to_decimal(overall.get("net_equity") or overall.get("equity"), summary["net_equity"])
+
+        if payload.get("data") and isinstance(payload["data"], dict):
+            data = payload["data"]
+            available = data.get("availablecash") or data.get("availableCash") or data.get("available_margin")
+            utilized = data.get("utiliseddebits") or data.get("used_margin") or data.get("utilized")
+            collateral = data.get("collateral")
+            summary["cash_balance"] = BrokerService.to_decimal(available, summary["cash_balance"])
+            summary["available_margin"] = BrokerService.to_decimal(available, summary["available_margin"])
+            summary["used_margin"] = BrokerService.to_decimal(utilized, summary["used_margin"])
+            summary["collateral"] = BrokerService.to_decimal(collateral, summary["collateral"])
+            summary["withdrawable_balance"] = BrokerService.to_decimal(data.get("net") or available, summary["withdrawable_balance"])
+            summary["net_equity"] = BrokerService.to_decimal(data.get("net") or data.get("equity"), summary["net_equity"])
+
+        if summary["net_equity"] <= 0:
+            summary["net_equity"] = summary["cash_balance"] + summary["collateral"] + summary["used_margin"]
+        if summary["withdrawable_balance"] <= 0:
+            summary["withdrawable_balance"] = summary["cash_balance"]
+        if summary["available_margin"] <= 0:
+            summary["available_margin"] = summary["cash_balance"]
+
+        return summary
+
+
     def _log(self, endpoint, request_data=None, response_data=None, status_code=200, error_message="", started_at=None):
         latency_ms = 0
         if started_at is not None:
@@ -112,6 +306,17 @@ class BaseBrokerAdapter:
             latency_ms=latency_ms,
             error_message=error_message,
         )
+
+    def _get_valid_session(self):
+        session = self.credential.sessions.filter(is_valid=True, token_expiry__gt=timezone.now()).order_by("-created_at").first()
+        if session:
+            session.last_used_at = timezone.now()
+            session.save(update_fields=["last_used_at", "updated_at"])
+            return session
+        if self.credential.sessions.filter(token_expiry__lte=timezone.now()).exists():
+            self.credential.sessions.filter(token_expiry__lte=timezone.now()).update(is_valid=False)
+            notify_broker_session_expired(self.credential)
+        raise ValueError("No valid broker session available. Authenticate the broker account first.")
 
     def verify(self):
         started_at = time.perf_counter()
@@ -156,6 +361,7 @@ class BaseBrokerAdapter:
         return {"s": "ok", "netPositions": []}
 
     def place_order(self, payload):
+        """Simplified MARKET order placement - no fallback needed."""
         started_at = time.perf_counter()
         broker_order_id = f"{self.broker_name[:3]}-{uuid.uuid4().hex[:14].upper()}"
         response = {
@@ -163,7 +369,7 @@ class BaseBrokerAdapter:
             "exchange_order_id": f"EX-{uuid.uuid4().hex[:12].upper()}",
             "status": OrderStatus.FILLED,
             "filled_quantity": int(payload.get("quantity") or 0),
-            "avg_fill_price": str(payload.get("price") or payload.get("fallback_price") or 0),
+            "avg_fill_price": str(payload.get("price") or 0),
         }
         self._log("place_order", payload, response, started_at=started_at)
         return response
@@ -178,15 +384,17 @@ class BaseBrokerAdapter:
 class ZerodhaAdapter(BaseBrokerAdapter):
     broker_name = BrokerName.ZERODHA
 
+class AngelAdapter(BaseBrokerAdapter):
+    broker_name = BrokerName.ANGEL
 
 class FyersAdapter(BaseBrokerAdapter):
     broker_name = BrokerName.FYERS
 
     def _client_id(self):
-        return getattr(settings, "BROKER_FYERS_CLIENT_ID", "") or getattr(settings, "FYERS_CLIENT_ID", "")
+        return getattr(settings, "BROKER_FYERS_CLIENT_ID", "")
 
     def _secret_key(self):
-        return getattr(settings, "BROKER_FYERS_SECRET", "") or getattr(settings, "FYERS_SECRET", "")
+        return getattr(settings, "BROKER_FYERS_SECRET", "")
 
     def _redirect_uri(self):
         return (
@@ -226,6 +434,37 @@ class FyersAdapter(BaseBrokerAdapter):
             is_async=False,
             log_path=str(settings.BASE_DIR / "logs"),
         )
+
+    def _build_market_order_payload(self, payload):
+        """Simplified MARKET order payload for Fyers."""
+        self._validate_market_order(payload)
+        side_val = str((payload or {}).get("side") or "BUY").upper()
+
+        return {
+            "symbol": payload.get("instrument"),
+            "qty": int(payload.get("quantity") or 0),
+            "type": int(FyersOrderType.MARKET),
+            "side": int(FyersOrderSide.BUY if side_val == "BUY" else FyersOrderSide.SELL),
+            "productType": payload.get("product_type") or "INTRADAY",
+            "limitPrice": 0,
+            "stopPrice": 0,
+            "validity": "DAY",
+            "disclosedQty": 0,
+            "offlineOrder": False,
+            "orderTag": payload.get("order_tag") or "QuantNestV1",
+        }
+
+    def _normalize_place_order_response(self, response, payload):
+        """Simplified response normalization for MARKET orders."""
+        ok = response.get("s") == "ok" or response.get("code") == 1101
+        return {
+            "broker_order_id": response.get("id") or response.get("broker_order_id") or "",
+            "exchange_order_id": response.get("exchOrdId") or response.get("exchange_order_id") or "",
+            "status": OrderStatus.PLACED if ok else OrderStatus.REJECTED,
+            "filled_quantity": 0,
+            "avg_fill_price": str(payload.get("price") or 0),
+            "raw_response": response,
+        }
 
     def generate_auth_url(self):
         started_at = time.perf_counter()
@@ -361,43 +600,10 @@ class FyersAdapter(BaseBrokerAdapter):
 
     def place_order(self, payload):
         started_at = time.perf_counter()
-        settings_obj = OrderSettings.objects.filter(user=self.credential.user).first()
-        order_type_map = {
-            "LIMIT": FyersOrderType.LIMIT,
-            "MARKET": FyersOrderType.MARKET,
-            "STOP_MARKET": FyersOrderType.STOP_MARKET,
-            "STOP_LIMIT": FyersOrderType.STOP_LIMIT,
-        }
-        # Normalize Side and Type
-        side_val = str(payload.get("side", "BUY")).upper()
-        type_val = str(payload.get("order_type", "MARKET")).upper()
-        limit_price = 0 if type_val in {"MARKET", "STOP_MARKET"} else float(payload.get("price") or 0)
-        stop_price = float(payload.get("trigger_price") or 0) if type_val in {"STOP_MARKET", "STOP_LIMIT"} else 0
-        
-        fyers_payload = {
-            "symbol": payload.get("instrument"),
-            "qty": int(payload.get("quantity") or 0),
-            "type": int(order_type_map.get(type_val, FyersOrderType.MARKET)),
-            "side": int(FyersOrderSide.BUY if side_val == "BUY" else FyersOrderSide.SELL),
-            "productType": payload.get("product_type") or "INTRADAY",
-            "limitPrice": limit_price,
-            "stopPrice": stop_price,
-            "validity": payload.get("validity") or "DAY",
-            "disclosedQty": int(payload.get("disclosed_qty") or 0),
-            "offlineOrder": bool(getattr(settings_obj, "use_amo_orders", False)),
-            "orderTag": payload.get("order_tag") or payload.get("tag") or "QuantNest",
-        }
+        fyers_payload = self._build_market_order_payload(payload)
         response = self._sdk_client().place_order(fyers_payload)
-        ok = response.get("s") == "ok" or response.get("code") == 1101
-        mapped = {
-            "broker_order_id": response.get("id") or response.get("broker_order_id") or "",
-            "exchange_order_id": response.get("exchOrdId") or response.get("exchange_order_id") or "",
-            "status": OrderStatus.PLACED if ok else OrderStatus.REJECTED,
-            "filled_quantity": 0 if ok else 0,
-            "avg_fill_price": str(payload.get("price") or payload.get("fallback_price") or 0),
-            "raw_response": response,
-        }
-        self._log("fyers.place_order", fyers_payload, mapped, 200 if ok else 400, response.get("message", ""), started_at)
+        mapped = self._normalize_place_order_response(response, payload)
+        self._log("fyers.place_order", fyers_payload, mapped, 200 if mapped["status"] != OrderStatus.REJECTED else 400, response.get("message", ""), started_at)
         return mapped
 
     def cancel_order(self, broker_order_id):
@@ -416,12 +622,14 @@ class FyersAdapter(BaseBrokerAdapter):
 BROKER_ADAPTERS = {
     BrokerName.ZERODHA: ZerodhaAdapter,
     BrokerName.FYERS: FyersAdapter,
+    BrokerName.ANGEL: AngelAdapter,
 }
 
 
 class BrokerService:
+
     @staticmethod
-    def _to_decimal(value, default=Decimal("0")):
+    def to_decimal(value, default=Decimal("0")):
         try:
             if value in (None, "", "null"):
                 return Decimal(str(default))
@@ -430,83 +638,37 @@ class BrokerService:
             return Decimal(str(default))
 
     @staticmethod
-    def normalize_funds_payload(payload):
-        payload = payload or {}
-        rows = payload.get("fund_limit") or payload.get("data") or payload.get("funds") or []
-        if isinstance(rows, dict):
-            rows = rows.get("fund_limit") or rows.get("summary") or list(rows.values())
-        rows = rows if isinstance(rows, list) else []
+    def get_profile(credential):
+        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_profile())
 
-        summary = {
-            "cash_balance": Decimal("0"),
-            "available_margin": Decimal("0"),
-            "used_margin": Decimal("0"),
-            "collateral": Decimal("0"),
-            "withdrawable_balance": Decimal("0"),
-            "net_equity": Decimal("0"),
-            "realized_pnl": Decimal("0"),
-            "unrealized_pnl": Decimal("0"),
-        }
+    @staticmethod
+    def get_funds(credential):
+        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_funds())
 
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            title = str(row.get("title") or row.get("id") or row.get("label") or row.get("name") or "").lower()
-            amount = BrokerService._to_decimal(
-                row.get("equityAmount")
-                or row.get("amount")
-                or row.get("net")
-                or row.get("value")
-                or row.get("availablecash")
-                or row.get("available_cash")
-                or row.get("available")
-                or row.get("cash")
-            )
-            if "available" in title and "margin" in title:
-                summary["available_margin"] = max(summary["available_margin"], amount)
-            elif "available" in title and ("cash" in title or "balance" in title):
-                summary["cash_balance"] = max(summary["cash_balance"], amount)
-                summary["available_margin"] = max(summary["available_margin"], amount)
-            elif "utilised" in title or "utilized" in title or "used margin" in title:
-                summary["used_margin"] = max(summary["used_margin"], amount)
-            elif "collateral" in title:
-                summary["collateral"] = max(summary["collateral"], amount)
-            elif "withdraw" in title:
-                summary["withdrawable_balance"] = max(summary["withdrawable_balance"], amount)
+    @staticmethod
+    def get_orderbook(credential):
+        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_orderbook())
 
-        if payload.get("overall") and isinstance(payload["overall"], dict):
-            overall = payload["overall"]
-            summary["cash_balance"] = BrokerService._to_decimal(overall.get("cash") or overall.get("available_balance"), summary["cash_balance"])
-            summary["available_margin"] = BrokerService._to_decimal(overall.get("available_margin") or overall.get("available_cash"), summary["available_margin"])
-            summary["used_margin"] = BrokerService._to_decimal(overall.get("used_margin"), summary["used_margin"])
-            summary["collateral"] = BrokerService._to_decimal(overall.get("collateral"), summary["collateral"])
-            summary["withdrawable_balance"] = BrokerService._to_decimal(overall.get("withdrawable_balance"), summary["withdrawable_balance"])
-            summary["net_equity"] = BrokerService._to_decimal(overall.get("net_equity") or overall.get("equity"), summary["net_equity"])
+    @staticmethod
+    def place_order(credential, payload):
+        BrokerService.ensure_session(credential)
+        adapter = BrokerService.get_adapter(credential)
+        return adapter.place_order(payload)
 
-        if payload.get("data") and isinstance(payload["data"], dict):
-            data = payload["data"]
-            available = data.get("availablecash") or data.get("availableCash") or data.get("available_margin")
-            utilized = data.get("utiliseddebits") or data.get("used_margin") or data.get("utilized")
-            collateral = data.get("collateral")
-            summary["cash_balance"] = BrokerService._to_decimal(available, summary["cash_balance"])
-            summary["available_margin"] = BrokerService._to_decimal(available, summary["available_margin"])
-            summary["used_margin"] = BrokerService._to_decimal(utilized, summary["used_margin"])
-            summary["collateral"] = BrokerService._to_decimal(collateral, summary["collateral"])
-            summary["withdrawable_balance"] = BrokerService._to_decimal(data.get("net") or available, summary["withdrawable_balance"])
-            summary["net_equity"] = BrokerService._to_decimal(data.get("net") or data.get("equity"), summary["net_equity"])
+    @staticmethod
+    def get_positions(credential):
+        BrokerService.ensure_session(credential)
+        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_positions())
 
-        if summary["net_equity"] <= 0:
-            summary["net_equity"] = summary["cash_balance"] + summary["collateral"] + summary["used_margin"]
-        if summary["withdrawable_balance"] <= 0:
-            summary["withdrawable_balance"] = summary["cash_balance"]
-        if summary["available_margin"] <= 0:
-            summary["available_margin"] = summary["cash_balance"]
+    @staticmethod
+    def cancel_order(credential, broker_order_id):
+        BrokerService.ensure_session(credential)
+        return BrokerService.get_adapter(credential).cancel_order(broker_order_id)
 
-        return summary
 
     @staticmethod
     def record_funds_snapshot(credential, payload):
-        normalized = BrokerService.normalize_funds_payload(payload)
+        normalized = BrokerService.get_adapter(credential).normalize_funds_payload(payload)
         snapshot = BrokerFundsSnapshot.objects.create(
             credential=credential,
             cash_balance=normalized["cash_balance"],
@@ -525,6 +687,21 @@ class BrokerService:
     @staticmethod
     def as_json_safe(value):
         return BaseBrokerAdapter._json_safe(value)
+
+    @staticmethod
+    def normalize_position_payload(credential, payload):
+        """Delegate to adapter for broker-specific normalization."""
+        return BrokerService.get_adapter(credential).normalize_position_payload(payload)
+
+    @staticmethod
+    def normalize_order_payload(credential, payload):
+        """Delegate to adapter for broker-specific normalization."""
+        return BrokerService.get_adapter(credential).normalize_order_payload(payload)
+
+    @staticmethod
+    def _normalize_order_status(credential, value):
+        """Delegate to adapter for broker-specific order status normalization."""
+        return BrokerService.get_adapter(credential)._normalize_order_status(value)
 
     @staticmethod
     def get_broker_catalog(user):
@@ -746,6 +923,18 @@ class BrokerService:
         return BrokerService.get_adapter(credential).create_session()
 
     @staticmethod
+    def normalize_position_payload(credential, payload):
+        """Delegate to adapter for broker-specific normalization."""
+        adapter = BrokerService.get_adapter(credential)
+        return adapter.normalize_position_payload(payload)
+
+    @staticmethod
+    def normalize_order_payload(credential, payload):
+        """Delegate to adapter for broker-specific normalization."""
+        adapter = BrokerService.get_adapter(credential)
+        return adapter.normalize_order_payload(payload)
+
+    @staticmethod
     def generate_auth_url(credential):
         return BrokerService.get_adapter(credential).generate_auth_url()
 
@@ -771,29 +960,3 @@ class BrokerService:
         credential.save(update_fields=["is_active", "updated_at"])
         return session
 
-    @staticmethod
-    def get_profile(credential):
-        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_profile())
-
-    @staticmethod
-    def get_funds(credential):
-        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_funds())
-
-    @staticmethod
-    def get_orderbook(credential):
-        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_orderbook())
-
-    @staticmethod
-    def place_order(credential, payload):
-        BrokerService.ensure_session(credential)
-        return BrokerService.get_adapter(credential).place_order(payload)
-
-    @staticmethod
-    def get_positions(credential):
-        BrokerService.ensure_session(credential)
-        return BrokerService.as_json_safe(BrokerService.get_adapter(credential).get_positions())
-
-    @staticmethod
-    def cancel_order(credential, broker_order_id):
-        BrokerService.ensure_session(credential)
-        return BrokerService.get_adapter(credential).cancel_order(broker_order_id)

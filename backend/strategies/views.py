@@ -161,29 +161,37 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='deploy-paper')
     def deploy_paper(self, request, pk=None):
         strategy = self.get_object()
+        allocation_id = request.data.get('allocation_id')
+        allocation_amount = request.data.get('allocation_amount')
+        version_id = request.data.get('version_id')
         try:
             errors = StrategyDeploymentService.validate_for_deployment(strategy, mode='paper')
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
             StrategyDeploymentService.activate_for_deployment(strategy)
+
             if not strategy.paper_trading_enabled:
                 strategy.paper_trading_enabled = True
                 strategy.save(update_fields=['paper_trading_enabled', 'updated_at'])
 
             portfolio = PortfolioService.get_or_create_portfolio(request.user)
-            
-            allocation_id = request.data.get('allocation_id')
-            allocation_amount = request.data.get('allocation_amount')
-            
+            deployed_version_id = None
+            if version_id:
+                deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
+                deployed_version_id = deployed_version.id
+
             if allocation_id:
                 from paper_trading.models import CapitalAllocation
                 try:
                     allocation = CapitalAllocation.objects.get(id=allocation_id, portfolio__user=request.user)
+                    if deployed_version and allocation.deployed_version != deployed_version:
+                        allocation.deployed_version = deployed_version
+                        allocation.save(update_fields=['deployed_version', 'updated_at'])
                 except CapitalAllocation.DoesNotExist:
                     return Response({'error': 'Allocation not found'}, status=status.HTTP_404_NOT_FOUND)
             elif allocation_amount:
                 try:
-                    allocation = PortfolioService.allocate_to_strategy(portfolio, strategy, allocation_amount, 'FIXED')
+                    allocation = PortfolioService.allocate_to_strategy(portfolio, strategy, allocation_amount, 'FIXED',deployed_version_id=deployed_version_id)
                 except ValueError as e:
                     return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
             else:
@@ -193,21 +201,12 @@ class StrategyViewSet(viewsets.ModelViewSet):
             
             from paper_trading.services import PaperExecutionService
             from strategies.models import StrategyVersion
-            
-            version_id = request.data.get('version_id')
-            deployed_version = None
-            if version_id:
-                try:
-                    deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
-                except StrategyVersion.DoesNotExist:
-                    pass
                     
             session = PaperExecutionService.deploy_session(
                 user=request.user,
                 strategy=strategy,
-                allocation=account.allocation,
+                allocation=allocation,
                 account=account,
-                deployed_version=deployed_version
             )
             
             from paper_trading.serializers import PaperAccountSerializer
@@ -226,25 +225,55 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='deploy-live')
     def deploy_live(self, request, pk=None):
         strategy = self.get_object()
-        broker_credential = None
         broker_credential_id = request.data.get('broker_credential')
+        version_id = request.data.get('version_id')
+        allocation_amount = request.data.get('allocation_amount')
+        allocation_percentage = request.data.get('allocation_percentage')
         try:
             errors = StrategyDeploymentService.validate_for_deployment(strategy, mode='live')
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
             StrategyDeploymentService.activate_for_deployment(strategy)
+
+            if not strategy.live_trading_enabled:
+                strategy.live_trading_enabled = True
+                strategy.save(update_fields=["live_trading_enabled", "updated_at"])
+
             if broker_credential_id:
                 broker_credential = BrokerCredential.objects.get(
                     id=broker_credential_id,
                     user=request.user,
                     is_verified=True,
                 )
-            session = LiveExecutionService.deploy_strategy(
-                request.user,
-                strategy,
-                broker_credential,
-                allocation_amount=request.data.get('allocation_amount'),
-                allocation_percentage=request.data.get('allocation_percentage'),
+
+            from brokers.services import BrokerService
+            BrokerService.ensure_session(broker_credential)
+
+            # Sync account state before allocation creation
+            from live_trading.services import LiveExecutionService
+            LiveExecutionService.sync_account_state(request.user, credential=broker_credential)
+
+            deployed_version = None
+            if version_id:
+                from strategies.models import StrategyVersion
+                deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
+
+            # Create allocation
+            allocation = LiveExecutionService.create_allocation(
+                user=request.user,
+                strategy=strategy,
+                credential=broker_credential,
+                allocation_amount=allocation_amount,
+                allocation_percentage=allocation_percentage,
+                deployed_version=deployed_version,
+            )
+
+            session = LiveExecutionService.deploy_session(
+                user=request.user,
+                strategy=strategy,
+                allocation=allocation,
+                broker_credential=broker_credential,
             )
             return Response(
                 {

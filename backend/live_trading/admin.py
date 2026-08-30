@@ -5,25 +5,25 @@ from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocatio
 
 @admin.register(TradingSession)
 class TradingSessionAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "strategy", "status", "trades_count", "pnl", "updated_at"]
+    list_display = ["id", "user", "strategy", "status", "updated_at"]
     list_filter = ["status"]
 
 
 @admin.register(LiveOrder)
 class LiveOrderAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "strategy", "instrument", "side", "quantity", "status", "source_type", "broker_order_id"]
-    list_filter = ["status", "order_type", "product_type", "side", "source_type"]
+    list_display = ["id", "user", "strategy", "instrument", "side", "quantity", "status", "broker_order_id"]
+    list_filter = ["status", "order_type", "product_type", "side"]
 
 
 @admin.register(LivePosition)
 class LivePositionAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "strategy", "instrument", "side", "quantity", "avg_price", "unrealized_pnl", "source_type"]
-    list_filter = ["side", "product_type", "source_type"]
+    list_display = ["id", "user", "strategy", "instrument", "side", "quantity", "avg_price", "unrealized_pnl"]
+    list_filter = ["side", "product_type"]
 
 
 @admin.register(LiveStrategyAllocation)
 class LiveStrategyAllocationAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "strategy", "broker_credential", "allocated_capital", "used_capital", "available_capital", "is_over_allocated"]
+    list_display = ["id", "user", "strategy", "broker_credential", "allocated_capital", "is_over_allocated"]
     list_filter = ["broker_credential__broker_name", "is_over_allocated"]
 
 

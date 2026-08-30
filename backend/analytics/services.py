@@ -4,7 +4,7 @@ from django.db.models import Avg, Sum
 from django.utils import timezone
 
 from backtesting.models import BacktestMetrics
-from live_trading.models import LiveOrder, LivePosition
+from live_trading.models import LiveOrder, LivePosition, LiveTrade
 from notifications.services import NotificationService
 from paper_trading.models import PaperTrade
 from strategies.models import Strategy
@@ -39,11 +39,15 @@ class AnalyticsService:
         wins = trades.filter(net_pnl__gt=0).count()
         live_trade_count = live_orders.count()
         daily_pnl = (trades.aggregate(v=Sum("net_pnl"))["v"] or Decimal("0")) + sum(
-            (Decimal(str(position.day_pnl or 0)) for position in live_positions),
+            (Decimal(str(position.unrealized_pnl or 0)) for position in live_positions),
             Decimal("0"),
         )
         cumulative_pnl = (all_trades.aggregate(v=Sum("net_pnl"))["v"] or Decimal("0")) + sum(
-            (Decimal(str(order.session.pnl or 0)) for order in live_orders if order.session_id),
+            (Decimal(str(value or 0)) for value in LiveTrade.objects.filter(
+                user=user,
+                strategy=strategy,
+                exit_time__date=target_date,
+            ).values_list("realized_pnl", flat=True)),
             Decimal("0"),
         )
         avg_trade_pnl = trades.aggregate(v=Avg("net_pnl"))["v"] or Decimal("0")
@@ -72,7 +76,7 @@ class AnalyticsService:
             AnalyticsService.refresh_strategy_snapshot(user, strategy, target_date)
 
         snapshots = PerformanceSnapshot.objects.filter(user=user, date=target_date).select_related("strategy")
-        live_day_pnl = sum((Decimal(str(pos.day_pnl or 0)) for pos in LivePosition.objects.filter(user=user)), Decimal("0"))
+        live_day_pnl = sum((Decimal(str(pos.unrealized_pnl or 0)) for pos in LivePosition.objects.filter(user=user)), Decimal("0"))
         paper_trades = PaperTrade.objects.filter(account__user=user, exit_time__date=target_date).select_related("strategy", "instrument")
         best_trade = paper_trades.order_by("-net_pnl").first()
         worst_trade = paper_trades.order_by("net_pnl").first()

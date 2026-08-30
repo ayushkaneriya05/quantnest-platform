@@ -648,7 +648,6 @@ def _graceful_shutdown_user(user):
     from paper_trading.models import PaperOrder, PaperAccount
     from brokers.models import BrokerCredential
     from backtesting.models import BacktestRun
-    from live_trading.models import LivePortfolio, LiveStrategyAllocation
     from live_trading.services import LiveExecutionService
     from strategy_engine.runtime import StrategyRuntimeState
     
@@ -673,9 +672,6 @@ def _graceful_shutdown_user(user):
         user=user, status__in=['PENDING', 'RUNNING']
     ).update(status='CANCELLED')
     
-    # 7. Deactivate live portfolio & strategy allocations
-    LivePortfolio.objects.filter(user=user, is_active=True).update(is_active=False)
-    LiveStrategyAllocation.objects.filter(user=user, is_active=True).update(is_active=False)
     
     # 8. Clean up Redis runtime state
     StrategyRuntimeState.clear_all_for_user(user.id)

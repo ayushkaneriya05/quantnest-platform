@@ -25,7 +25,7 @@ class InstrumentResolver:
                             instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
                             underlying_symbol=underlying,
                             is_active=True,
-                            is_tradable=True,
+                            is_tradeable=True,
                         ).values_list("id", flat=True)
                     )
         return sorted(instrument_ids)

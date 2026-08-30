@@ -12,6 +12,8 @@ class TradingSessionSerializer(serializers.ModelSerializer):
     active_orders = serializers.SerializerMethodField()
     broker_session_valid = serializers.SerializerMethodField()
     allocation = serializers.SerializerMethodField()
+    trades_count = serializers.ReadOnlyField()
+    pnl = serializers.ReadOnlyField()
 
     class Meta:
         model = TradingSession
@@ -61,7 +63,7 @@ class TradingSessionSerializer(serializers.ModelSerializer):
             "allocation_type": allocation.allocation_type,
             "allocated_capital": str(allocation.allocated_capital),
             "allocated_percentage": str(allocation.allocated_percentage),
-            "used_capital": str(allocation.used_capital),
+            "used_capital": str(allocation.invested_value),
             "reserved_capital": str(allocation.reserved_capital),
             "available_capital": str(allocation.available_capital),
             "realized_pnl": str(allocation.realized_pnl),
@@ -88,7 +90,6 @@ class LiveOrderSerializer(serializers.ModelSerializer):
             "strategy",
             "strategy_name",
             "session",
-            "portfolio",
             "broker_credential",
             "broker_name",
             "allocation_id",
@@ -96,23 +97,17 @@ class LiveOrderSerializer(serializers.ModelSerializer):
             "exchange_order_id",
             "instrument",
             "instrument_symbol",
-            "source_type",
-            "reduce_only",
-            "requested_value",
             "order_type",
             "product_type",
             "side",
             "price",
-            "trigger_price",
             "quantity",
             "filled_quantity",
             "pending_quantity",
             "avg_fill_price",
             "status",
             "rejection_reason",
-            "rejection_code",
             "can_cancel",
-            "validity",
             "placed_at",
             "executed_at",
             "cancelled_at",
@@ -142,15 +137,12 @@ class LivePositionSerializer(serializers.ModelSerializer):
             "allocation_id",
             "instrument",
             "instrument_symbol",
-            "source_type",
             "product_type",
             "side",
             "quantity",
             "avg_price",
             "current_price",
             "unrealized_pnl",
-            "realized_pnl",
-            "day_pnl",
             "last_broker_sync",
             "opened_at",
             "last_updated",
@@ -169,6 +161,12 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
         help_text='Pinned strategy version ID'
     )
     deployed_version_detail = serializers.SerializerMethodField()
+    used_capital = serializers.ReadOnlyField(source="invested_value")
+    reserved_capital = serializers.ReadOnlyField()
+    available_capital = serializers.ReadOnlyField()
+    realized_pnl = serializers.ReadOnlyField()
+    unrealized_pnl = serializers.ReadOnlyField()
+    total_pnl = serializers.ReadOnlyField()
 
     class Meta:
         model = LiveStrategyAllocation
@@ -176,7 +174,6 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
             "id",
             "strategy",
             "strategy_name",
-            "portfolio",
             "broker_credential",
             "broker_name",
             "broker_label",
@@ -192,7 +189,6 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
             "broker_equity_reference",
             "is_over_allocated",
             "breach_reason",
-            "last_synced_at",
             "created_at",
             "updated_at",
             "deployed_version",
@@ -208,7 +204,6 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
             "broker_equity_reference",
             "is_over_allocated",
             "breach_reason",
-            "last_synced_at",
             "created_at",
             "updated_at",
         ]
