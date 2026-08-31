@@ -135,23 +135,23 @@ class LiveMarketDataRegistry:
             for watch in strategy.watchlist_instruments.all():
                 if watch.instrument and watch.instrument.sym_ticker:
                     tracked.add(watch.instrument.sym_ticker)
-                for route in watch.execution_routes.all():
-                    if route.target_instrument and route.target_instrument.sym_ticker:
-                        tracked.add(route.target_instrument.sym_ticker)
-                    if route.target_underlying_instrument:
-                        tracked.add(route.target_underlying_instrument.sym_ticker)
-                    if route.route_type in {"FUTURES", "OPTIONS"}:
-                        candidates = Instrument.objects.filter(
-                            instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
-                            underlying_symbol=(
-                                route.target_underlying_instrument.symbol
-                                if route.target_underlying_instrument_id
-                                else watch.instrument.symbol
-                            ),
-                            is_active=True,
-                            is_tradeable=True,
-                        ).values_list("sym_ticker", flat=True)
-                        tracked.update(symbol for symbol in candidates if symbol)
+                # for route in watch.execution_routes.all():
+                #     if route.target_instrument and route.target_instrument.sym_ticker:
+                #         tracked.add(route.target_instrument.sym_ticker)
+                #     if route.target_underlying_instrument:
+                #         tracked.add(route.target_underlying_instrument.sym_ticker)
+                #     if route.route_type in {"FUTURES", "OPTIONS"}:
+                #         candidates = Instrument.objects.filter(
+                #             instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
+                #             underlying_symbol=(
+                #                 route.target_underlying_instrument.symbol
+                #                 if route.target_underlying_instrument_id
+                #                 else watch.instrument.symbol
+                #             ),
+                #             is_active=True,
+                #             is_tradeable=True,
+                #         ).values_list("sym_ticker", flat=True)
+                #         tracked.update(symbol for symbol in candidates if symbol)
 
         live_position_symbols = LivePosition.objects.filter(
             user__isnull=False,
@@ -181,23 +181,23 @@ class LiveMarketDataRegistry:
             for watch in session.strategy.watchlist_instruments.all():
                 if watch.instrument and watch.instrument.sym_ticker:
                     tracked.add(watch.instrument.sym_ticker)
-                for route in watch.execution_routes.all():
-                    if route.target_instrument and route.target_instrument.sym_ticker:
-                        tracked.add(route.target_instrument.sym_ticker)
-                    if route.target_underlying_instrument:
-                        tracked.add(route.target_underlying_instrument.sym_ticker)
-                    if route.route_type in {"FUTURES", "OPTIONS"}:
-                        candidates = Instrument.objects.filter(
-                            instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
-                            underlying_symbol=(
-                                route.target_underlying_instrument.symbol
-                                if route.target_underlying_instrument_id
-                                else watch.instrument.symbol
-                            ),
-                            is_active=True,
-                            is_tradeable=True,
-                        ).values_list("sym_ticker", flat=True)
-                        tracked.update(symbol for symbol in candidates if symbol)
+                # for route in watch.execution_routes.all():
+                #     if route.target_instrument and route.target_instrument.sym_ticker:
+                #         tracked.add(route.target_instrument.sym_ticker)
+                #     if route.target_underlying_instrument:
+                #         tracked.add(route.target_underlying_instrument.sym_ticker)
+                #     if route.route_type in {"FUTURES", "OPTIONS"}:
+                #         candidates = Instrument.objects.filter(
+                #             instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
+                #             underlying_symbol=(
+                #                 route.target_underlying_instrument.symbol
+                #                 if route.target_underlying_instrument_id
+                #                 else watch.instrument.symbol
+                #             ),
+                #             is_active=True,
+                #             is_tradeable=True,
+                #         ).values_list("sym_ticker", flat=True)
+                #         tracked.update(symbol for symbol in candidates if symbol)
 
         if not tracked:
             return cls.set_symbols([])
@@ -243,9 +243,6 @@ class FyersLiveFeedClient:
         )
         self.socket.connect()
         
-        # Start L1 Cache background sync when socket connects
-        from marketdata.l1_cache import tick_cache
-        tick_cache.start_background_sync(interval_seconds=3)
         
         return self.socket
 
@@ -335,8 +332,6 @@ class FyersLiveFeedClient:
 
     def _on_close(cls, ws=None, code=None, reason=None):
         logger.info(f"Fyers WebSocket connection closed. Code: {code}, Reason: {reason}")
-        from marketdata.l1_cache import tick_cache
-        tick_cache.stop_background_sync()
         if cls.socket and getattr(cls.socket, "reconnect", False):
             pass
         # Notify users with active live sessions about feed disconnection
@@ -440,20 +435,14 @@ class FyersLiveFeedClient:
 
             def _dispatch_terminal():
                 try:
-                    from trading.services import TradingOrderService
-                    from marketdata.l1_cache import tick_cache
-                    open_orders = tick_cache.get_terminal_orders(symbol)
+                    from trading.services import TradingOrderService, TerminalOrderCache
+                    open_orders = TerminalOrderCache.get_terminal_orders(symbol)
                     if open_orders:
                         TradingOrderService.process_matching_engine(symbol, quote, open_orders=open_orders)
                 except Exception as exc:
                     logger.exception("Terminal matching error for %s: %s", symbol, exc)
 
             try:
-                from marketdata.l1_cache import tick_cache
-                # Ensure TickCache is synced
-                if tick_cache.last_sync is None:
-                    tick_cache.force_sync()
-                    
                 # Broadcast to frontend websockets via Django Channels
                 MarketDataStreamer.publish_tick(symbol, quote)
                 
