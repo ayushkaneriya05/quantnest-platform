@@ -34,6 +34,13 @@ class RuleEvaluator:
         self.mtf_data = mtf_data or {} # Dict of {timeframe: df}
         self.indicator_engine = indicator_engine if indicator_engine is not None else IndicatorEngine(self.df)
         self.mtf_indicator_engines = mtf_indicator_engines if mtf_indicator_engines is not None else {}
+        
+        # Initialize evaluation statistics
+        self.evaluation_stats = {
+            'total_evaluations': 0,
+            'failed_evaluations': 0,
+            'success_rate': 0.0
+        }
 
     def evaluate_group(self, group, state=None):
         """
@@ -73,12 +80,16 @@ class RuleEvaluator:
         Evaluates a single rule (Unified Architecture) against the cached dataframe.
         Returns a boolean Series.
         """
+        self.evaluation_stats['total_evaluations'] += 1
         try:
             op_a_type = get_any_field(rule, "operand_a_type")
             op_a_params = get_any_field(rule, "operand_a_params", {}) or {}
             
             if not op_a_type:
                 return self._false_series()
+            
+            # Validate indicator parameters
+            self._validate_indicator_params(op_a_type, op_a_params)
                 
             op_a_timeframe = get_any_field(rule, "operand_a_timeframe")
             val_a = self._resolve_operand(op_a_type, op_a_params, state, timeframe=op_a_timeframe)
@@ -86,18 +97,77 @@ class RuleEvaluator:
             op_b_type = get_any_field(rule, "operand_b_type")
             op_b_params = get_any_field(rule, "operand_b_params", {}) or {}
             op_b_timeframe = get_any_field(rule, "operand_b_timeframe")
+            
+            # Validate indicator parameters for operand B
+            if op_b_type:
+                self._validate_indicator_params(op_b_type, op_b_params)
+            
             val_b = self._resolve_operand(op_b_type, op_b_params, state, timeframe=op_b_timeframe)
             
             comparison = get_any_field(rule, "comparison", ComparisonOperator.EQUAL)
+            
+            # Validate comparison operator
+            self._validate_comparison(val_a, comparison, val_b)
             
             if isinstance(val_a, pd.Series) and val_a.dtype == bool:
                 if not op_b_type:
                     return val_a
                     
             return self._compare(val_a, comparison, val_b)
+        except (ValueError, TypeError) as e:
+            # Parameter or validation errors - critical
+            self.evaluation_stats['failed_evaluations'] += 1
+            self._update_success_rate()
+            logger.error("Validation error evaluating rule %s: %s", getattr(rule, "id", "Unknown"), str(e))
+            return self._false_series()
         except Exception as e:
+            # Other errors - log but continue
+            self.evaluation_stats['failed_evaluations'] += 1
+            self._update_success_rate()
             logger.error("Error evaluating rule %s: %s", getattr(rule, "id", "Unknown"), str(e))
             return self._false_series()
+    
+    def _validate_indicator_params(self, indicator_type, params):
+        """Validate indicator parameters."""
+        if not params:
+            return
+            
+        from common.enums import OperandType
+        
+        if indicator_type in [OperandType.SMA, OperandType.EMA, OperandType.RSI]:
+            if params.get("period", 0) <= 0:
+                raise ValueError(f"{indicator_type} requires positive period")
+        elif indicator_type == OperandType.MACD:
+            if params.get("fast_period", 0) <= 0 or params.get("slow_period", 0) <= 0:
+                raise ValueError("MACD requires positive fast and slow periods")
+            if params.get("fast_period", 0) >= params.get("slow_period", 0):
+                raise ValueError("MACD fast_period must be less than slow_period")
+        elif indicator_type == OperandType.BOLLINGER_BANDS:
+            if params.get("period", 0) <= 0:
+                raise ValueError("Bollinger Bands requires positive period")
+            if params.get("std_dev", 0) <= 0:
+                raise ValueError("Bollinger Bands requires positive std_dev")
+        elif indicator_type == OperandType.ATR:
+            if params.get("period", 0) <= 0:
+                raise ValueError("ATR requires positive period")
+    
+    def _validate_comparison(self, val_a, operator, val_b):
+        """Validate comparison operator is appropriate for operand types."""
+        from common.enums import ComparisonOperator
+        
+        if operator in [ComparisonOperator.CROSSES_ABOVE, ComparisonOperator.CROSSES_BELOW]:
+            if not isinstance(val_a, pd.Series):
+                raise ValueError("Crosses operators require series operands")
+            if not isinstance(val_b, (pd.Series, (int, float))):
+                raise ValueError("Crosses operators require series or scalar comparison")
+    
+    def _update_success_rate(self):
+        """Update evaluation success rate."""
+        total = self.evaluation_stats['total_evaluations']
+        if total > 0:
+            self.evaluation_stats['success_rate'] = (
+                (total - self.evaluation_stats['failed_evaluations']) / total
+            )
 
 
     def _resolve_operand(self, op_type, params, state=None, timeframe=None):
@@ -118,7 +188,7 @@ class RuleEvaluator:
             return to_float(params.get("value"), 0.0)
             
         if op_type == OperandType.MATH_EXPRESSION:
-            return self._evaluate_custom_expression(params, state)
+            return self._evaluate_custom_expression(params, state, target_df=target_df)
             
         if state is not None:
             # State-based properties
@@ -198,6 +268,25 @@ class RuleEvaluator:
         """
         Perform comparison between two series or a series and a scalar.
         """
+        # Align indices if both are Series with different indices
+        if isinstance(value_1, pd.Series) and isinstance(value_2, pd.Series):
+            if not value_1.index.equals(value_2.index):
+                # Align value_2 to value_1's index using forward-fill
+                if value_2.dtype == bool:
+                    aligned_vals = fast_ffill_align_bool(
+                        value_2.index.values.astype(np.int64), 
+                        value_2.values, 
+                        value_1.index.values.astype(np.int64)
+                    )
+                    value_2 = pd.Series(aligned_vals, index=value_1.index)
+                else:
+                    aligned_vals = fast_ffill_align_float(
+                        value_2.index.values.astype(np.int64), 
+                        value_2.values, 
+                        value_1.index.values.astype(np.int64)
+                    )
+                    value_2 = pd.Series(aligned_vals, index=value_1.index)
+        
         if operator == ComparisonOperator.GREATER:
             result = value_1 > value_2
         elif operator == ComparisonOperator.LESS:
@@ -229,19 +318,24 @@ class RuleEvaluator:
         return self._normalize_boolean_series(result)
 
 
-    def _evaluate_custom_expression(self, params, state=None):
-        expression = str(params.get("expression") or "").strip()
+    def _evaluate_custom_expression(self, params, state=None, target_df=None):
+        expression_config = params.get("expression") if isinstance(params, dict) else None
+        if isinstance(expression_config, dict):
+            expression = str(expression_config.get("expression") or "").strip()
+            variables = expression_config.get("variables") or {}
+        else:
+            expression = str(expression_config or "").strip()
+            variables = params.get("variables") or {}
+
         if not expression:
             logger.warning("Custom rule missing expression")
             return self._false_series()
 
-        variables = params.get("variables") or {}
         if not self._is_safe_custom_expression(expression, variables=variables):
             logger.warning("Rejected unsafe custom rule expression: %s", expression)
             return self._false_series()
 
-        variables = params.get("variables") or {}
-        eval_df = self.df.copy()
+        eval_df = (target_df if target_df is not None else self.df).copy()
         
         # Calculate and inject dynamic variables into the dataframe
         try:
@@ -276,7 +370,9 @@ class RuleEvaluator:
                 logger.warning("Custom rule expression failed '%s': %s", expression, exc)
                 return self._false_series()
 
-        return self._normalize_boolean_series(result)
+        if isinstance(result, pd.Series):
+            return result.reindex(eval_df.index)
+        return pd.Series(result, index=eval_df.index)
 
 
     @staticmethod

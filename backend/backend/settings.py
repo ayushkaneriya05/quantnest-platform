@@ -169,8 +169,6 @@ REST_FRAMEWORK = {
 REST_AUTH = {
     "SESSION_LOGIN": False,
     "USE_JWT": True,
-    # Store JWT in HttpOnly cookie so JavaScript cannot access it.
-    # This eliminates XSS-based token theft for authenticated trading sessions.
     "JWT_AUTH_HTTPONLY": True,
     "JWT_AUTH_COOKIE": "quantnest-auth",
     "JWT_AUTH_REFRESH_COOKIE": "quantnest-refresh",
@@ -221,8 +219,6 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "AUTH_HEADER_TYPES": ("Bearer",),
-    # Rotate refresh tokens on every use and blacklist the old one so stolen
-    # refresh tokens can only be used once before they are invalidated.
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": False,
     "TOKEN_OBTAIN_SERIALIZER": "users.serializers.CustomTokenObtainPairSerializer",
@@ -276,7 +272,6 @@ CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25
 CELERY_TASK_TIME_LIMIT = 60 * 30
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_TASK_ROUTES = {
-
     "backtesting.*": {"queue": "backtesting"},
     "paper_trading.*": {"queue": "paper"},
     "marketdata.*": {"queue": "marketdata"},

@@ -1,38 +1,30 @@
 """
-Strategy Runtime State — Redis-backed ephemeral state for live/paper execution.
+Strategy Runtime State — In-memory ephemeral state for live/paper execution.
 
 Key design decisions:
-- All read-modify-write operations use Redis atomic operations to prevent
-  lost updates under concurrent Celery workers.
-- Position state is stored with a 48-hour TTL (down from 7 days) to prevent
-  stale state accumulation for closed positions.
-- State updates use short-lived Redis locks for concurrent workers.
-- The circuit breaker state is NOT stored here — see circuit_breaker.py.
+- Uses QuantNestUnifiedCache for O(1) in-memory access (microsecond latency)
+- No distributed locking needed (single worker per session)
+- State is ephemeral — rebuilt from database on restart
+- Only intra-session mutable fields (trailing stop, peak price, phase) stored here
+- Avoids hot DB writes during tick evaluation
 """
 import logging
-import uuid
-import time
 
-from django.core.cache import cache
-from common.cache_keys import CacheKeys
 from common.enums import TradePhase
 from rules_engine.utils import compute_sl_distance_from_config, derive_protection_levels
+from core.cache_api import cache_api
 
 logger = logging.getLogger(__name__)
 
 
 class StrategyRuntimeState:
     """
-    Redis-backed runtime state for strategy execution.
+    In-memory runtime state for strategy execution using unified cache.
 
     All state is ephemeral — it is rebuilt from the database on restart.
     Only intra-session mutable fields (trailing stop, peak price, phase)
     that are updated on every tick are stored here to avoid hot DB writes.
     """
-
-    # Reduce from 7 days → 48 hours.  Closed positions' state expires
-    # naturally, preventing unbounded Redis memory growth.
-    TTL_SECONDS = 60 * 60 * 48
 
     # Phase constants
     ENTRY_PENDING = TradePhase.ENTRY_PENDING
@@ -42,75 +34,19 @@ class StrategyRuntimeState:
     CLOSED = TradePhase.CLOSED
 
     # ------------------------------------------------------------------
-    # State accessors
+    # Trade-scoped state (for session-instrument pairs)
     # ------------------------------------------------------------------
 
     @classmethod
-    def update_position_state(cls, scope, identifier, updates):
-        """
-        Atomic read-modify-write using a short-lived lock to prevent
-        lost updates when two coroutines update the same position state.
-        """
-        lock_key = CacheKeys.POS_LOCK.format(scope=scope, identifier=identifier)
-        lock_token = str(uuid.uuid4())
-
-        # Best-effort atomic update with a 5s lock
-        for attempt in range(5):  # up to 5 retries
-            acquired = cache.add(lock_key, lock_token, timeout=5)
-            if acquired:
-                break
-            logger.warning("Failed to acquire position state lock for %s:%s (attempt %d/5)", scope, identifier, attempt + 1)
-            time.sleep(0.05)
-
-        if not acquired:
-            logger.warning("Failed to acquire position state lock for %s:%s, proceeding with best-effort write", scope, identifier)
-
-        try:
-            state = cache.get(cls._key(scope, identifier)) or {}
-            state.update(updates or {})
-            cache.set(cls._key(scope, identifier), state, timeout=cls.TTL_SECONDS)
-            return state
-        finally:
-            current = cache.get(lock_key)
-            if current == lock_token:
-                cache.delete(lock_key)
-
-    @classmethod
-    def clear_position_state(cls, scope, identifier):
-        cache.delete(cls._key(scope, identifier))
-
-    @classmethod
     def trade_state(cls, scope, session_id, instrument_id):
-        return cache.get(cls._trade_key(scope, session_id, instrument_id)) or {}
+        """Get trade state for a session-instrument pair."""
+        from core.cache_view import cache_view
+        return cache_view.get_runtime_state(scope, session_id, instrument_id)
 
     @classmethod
     def update_trade_state(cls, scope, session_id, instrument_id, updates):
-        """
-        Atomic read-modify-write for trade state.
-        Uses the same lock pattern as update_position_state.
-        """
-        lock_key = CacheKeys.TRADE_LOCK.format(scope=scope, session_id=session_id, instrument_id=instrument_id)
-        lock_token = str(uuid.uuid4())
-
-        for attempt in range(5):
-            acquired = cache.add(lock_key, lock_token, timeout=5)
-            if acquired:
-                break
-            logger.warning("Failed to acquire trade state lock for %s:%s:%s (attempt %d/5)", scope, session_id, instrument_id, attempt + 1)
-            time.sleep(0.05)
-
-        if not acquired:
-            logger.warning("Failed to acquire trade state lock for %s:%s:%s, proceeding with best-effort write", scope, session_id, instrument_id)
-
-        try:
-            state = cache.get(cls._trade_key(scope, session_id, instrument_id)) or {}
-            state.update(updates or {})
-            cache.set(cls._trade_key(scope, session_id, instrument_id), state, timeout=cls.TTL_SECONDS)
-            return state
-        finally:
-            current = cache.get(lock_key)
-            if current == lock_token:
-                cache.delete(lock_key)
+        """Update trade state for a session-instrument pair."""
+        cache_api.update_runtime_state(scope, session_id, instrument_id, updates)
 
     # ------------------------------------------------------------------
     # Convenience state transition helpers
@@ -201,8 +137,11 @@ class StrategyRuntimeState:
         current_price=None,
         opened_at=None,
     ):
-        # All critical fields are resolved from runtime_state first (Redis),
-        # falling back to the DB position object only if provided.
+        """
+        Build enriched position state from runtime state and config.
+        Resolves all critical fields from runtime_state first (unified cache),
+        falling back to DB position object only if provided.
+        """
         _side = side or runtime_state.get("side")
         _avg_price = float(avg_price or runtime_state.get("avg_price", 0))
         _current_price = float(
@@ -246,53 +185,96 @@ class StrategyRuntimeState:
         return state
 
     # ------------------------------------------------------------------
-    # Key helpers
+    # Runtime state initialization and recovery
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def rebuild_runtime_state_from_db(cls, scope, session_id):
+        """
+        Rebuild runtime state from database positions for session recovery.
+        
+        Args:
+            scope: Either "live" or "paper"
+            session_id: Session identifier
+            
+        Returns:
+            Number of positions recovered
+        """
+        try:
+            if scope == "live":
+                from live_trading.models import LivePosition, TradingSession
+                session = TradingSession.objects.get(id=session_id)
+                positions = LivePosition.objects.filter(
+                    allocation=session.allocation,
+                    quantity__gt=0
+                ).select_related('instrument', 'allocation__deployed_version')
+            else:
+                from paper_trading.models import PaperPosition, PaperTradingSession
+                session = PaperTradingSession.objects.get(id=session_id)
+                positions = PaperPosition.objects.filter(
+                    account=session.account,
+                    strategy=session.strategy,
+                    quantity__gt=0
+                ).select_related('instrument', 'account__allocation__deployed_version')
+            
+            recovered_count = 0
+            for position in positions:
+                try:
+                    # Get strategy config for protection levels
+                    config = None
+                    if scope == "live":
+                        if position.allocation and position.allocation.deployed_version:
+                            config = position.allocation.deployed_version.config_snapshot
+                    else:
+                        if position.account and position.account.allocation and position.account.allocation.deployed_version:
+                            config = position.account.allocation.deployed_version.config_snapshot
+                    
+                    # Mark as open with current position state
+                    cls.mark_open(
+                        scope=scope,
+                        session_id=str(session_id),
+                        instrument_id=position.instrument.id,
+                        side=position.side,
+                        quantity=position.quantity,
+                        avg_price=position.avg_price,
+                        config=config,
+                        opened_at=position.opened_at,
+                        execution_instrument_id=position.instrument.id
+                    )
+                    recovered_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Failed to rebuild runtime state for position {position.id}: {e}")
+            
+            logger.info(f"Rebuilt runtime state for {recovered_count} positions in {scope} session {session_id}")
+            return recovered_count
+            
+        except Exception as e:
+            logger.error(f"Failed to rebuild runtime state for {scope} session {session_id}: {e}")
+            return 0
+
+    # ------------------------------------------------------------------
+    # User cleanup
     # ------------------------------------------------------------------
 
     @classmethod
     def clear_all_for_user(cls, user_id):
         """
-        Remove all runtime state keys for a user's sessions.
+        Remove all runtime state for a user's sessions.
         Used during account deactivation/deletion.
         """
         from live_trading.models import TradingSession
         from paper_trading.models import PaperTradingSession
-        
+
         live_sessions = list(TradingSession.objects.filter(user_id=user_id).values_list('id', flat=True))
         paper_sessions = list(PaperTradingSession.objects.filter(user_id=user_id).values_list('id', flat=True))
         session_ids = [str(sid) for sid in live_sessions + paper_sessions]
-        
+
         if not session_ids:
             return
 
-        try:
-            # For django-redis backend
-            if hasattr(cache, 'delete_pattern'):
-                for sid in session_ids:
-                    cache.delete_pattern(f"*strategy-runtime:*:trade:{sid}:*")
-                    cache.delete_pattern(f"*trade_lock:*:{sid}:*")
-                # Also clean position-scoped keys
-                cache.delete_pattern(f"*strategy-runtime:live-position:*")
-                cache.delete_pattern(f"*strategy-runtime:paper-position:*")
-            else:
-                # Try getting the raw redis client
-                client = cache.client.get_client()
-                for sid in session_ids:
-                    for key in client.scan_iter(f"*strategy-runtime:*:trade:{sid}:*"):
-                        client.delete(key)
-                    for key in client.scan_iter(f"*trade_lock:*:{sid}:*"):
-                        client.delete(key)
-                for key in client.scan_iter(f"*strategy-runtime:live-position:*"):
-                    client.delete(key)
-                for key in client.scan_iter(f"*strategy-runtime:paper-position:*"):
-                    client.delete(key)
-        except Exception as exc:
-            logger.warning("Failed to clear Redis runtime state for user %s: %s", user_id, exc)
-
-    @staticmethod
-    def _key(scope, identifier):
-        return CacheKeys.POSITION_STATE.format(scope=scope, identifier=identifier)
-
-    @staticmethod
-    def _trade_key(scope, session_id, instrument_id):
-        return CacheKeys.TRADE_STATE.format(scope=scope, session_id=session_id, instrument_id=instrument_id)
+        # Clear all session data from unified cache
+        for session_id in live_sessions:
+            cache_api.clear_session("live", str(session_id))
+        for session_id in paper_sessions:
+            cache_api.clear_session("paper", str(session_id))

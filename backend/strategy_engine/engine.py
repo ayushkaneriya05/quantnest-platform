@@ -64,16 +64,14 @@ class StrategyExecutionEngine:
             except Exception as e:
                 logger.error(f"Failed to attach to SHM for {symbol}: {e}")
                 
-        from strategies.models import Strategy
-        strategy = Strategy.objects.prefetch_related(
-            'rule_groups__rules', 
-            'watchlist_instruments__instrument', 
-            'watchlist_instruments__execution_routes__target_underlying_instrument'
-        ).get(id=self.strategy_id)
-        
-        watch_map = {w.instrument.id: w for w in strategy.watchlist_instruments.all() if w.instrument}
-        
         config = context.get_strategy_config()
+        
+        # Build watch_map from config_snapshot (no DB query)
+        watch_map = {}
+        for wi_data in config.get('watchlist_instruments', []):
+            inst_id = wi_data.get('instrument_id')
+            if inst_id:
+                watch_map[inst_id] = wi_data  # Include routes data from config
                 
         executor = StrategyExecutor(config)
 
@@ -124,22 +122,27 @@ class StrategyExecutionEngine:
                                     inst_id,
                                     shm,
                                     watch_map,
-                                    strategy.user_id,
+                                    config.get('user_id'),  # Use config instead of strategy.user_id
                                     shm_managers,
                                 )
                                 fut.add_done_callback(lambda f, i=inst_id: _on_slow_task_done(f, i))
                                 
                             last_ticks[inst_id] = current_tick
-                        except Exception as e:
-                            logger.exception(f"Error evaluating tick for {shm.symbol}: {e}")
+                        except (ValueError, TypeError, IndexError) as e:
+                            # Data corruption or type errors - critical
+                            logger.error(f"Data corruption error evaluating tick for {shm.symbol}: {e}")
                             from notifications.services import NotificationService
                             from common.enums import NotificationType
                             NotificationService.notify(
-                                user_id=strategy.user_id,
+                                user_id=config.get('user_id'),
                                 notification_type=NotificationType.STRATEGY_ERROR,
-                                message=f"Strategy execution error on {shm.symbol}: {str(e)}",
+                                message=f"Data corruption detected on {shm.symbol}: {str(e)}",
                                 metadata={"strategy_id": self.strategy_id, "session_id": self.session_id}
                             )
+                        except Exception as e:
+                            # Transient errors - log but continue
+                            logger.warning(f"Transient error evaluating tick for {shm.symbol}: {e}")
+                            # Don't send notification for transient errors
                         
                 # Yield CPU slightly to avoid 100% core lockup
                 time.sleep(0.001) 
@@ -157,52 +160,61 @@ class StrategyExecutionEngine:
         """
         Microsecond-level check for stop-losses and trailing peaks.
         """
-        position = context.get_position(instrument_id)
-        if not position:
-            return
-        # Skip if an order is already in-flight
-        if position.get("phase") in (TradePhase.EXIT_PENDING, TradePhase.PARTIAL_EXIT_PENDING):
-            return
-            
-        last_price = shm.get_latest_price()
-        if last_price is None:
-            return
+        try:
+            position = context.get_position(instrument_id)
+            if not position:
+                return
+            # Skip if an order is already in-flight
+            if position.get("phase") in (TradePhase.EXIT_PENDING, TradePhase.PARTIAL_EXIT_PENDING):
+                return
+                
+            last_price = shm.get_latest_price()
+            if last_price is None:
+                return
 
-        updates = {"current_price": last_price}
-        
-        # 1. Update Trailing Peak
-        peak_price = position.get("peak_price", last_price)
-        side = position.get("side")
-        if side == Side.BUY and last_price > peak_price:
-            updates["peak_price"] = last_price
-        elif side == Side.SELL and last_price < peak_price:
-            updates["peak_price"] = last_price
-        context.update_runtime_state(instrument_id, updates)
+            updates = {"current_price": last_price}
             
-        # 2. Check Static Stop Loss / Target
-        stop_price = position.get("protected_stop_price")
-        target_price = position.get("protected_target_price")
-        
-        hit = False
-        reason = None
-        if stop_price is not None:
-            if side == Side.BUY and last_price <= stop_price:
-                hit, reason = True, "Stop Loss Hit"
-            elif side == Side.SELL and last_price >= stop_price:
-                hit, reason = True, "Stop Loss Hit"
+            # 1. Update Trailing Peak
+            peak_price = position.get("peak_price", last_price)
+            side = position.get("side")
+            if side == Side.BUY and last_price > peak_price:
+                updates["peak_price"] = last_price
+            elif side == Side.SELL and last_price < peak_price:
+                updates["peak_price"] = last_price
+            context.update_runtime_state(instrument_id, updates)
                 
-        if target_price is not None:
-            if side == Side.BUY and last_price >= target_price:
-                hit, reason = True, "Target Hit"
-            elif side == Side.SELL and last_price <= target_price:
-                hit, reason = True, "Target Hit"
-                
-        if hit:
-            logger.info(f"Fast-path exit triggered: {reason} at {last_price}")
-            OrderDispatcher.dispatch_exit(
-                context, self.session_id, self.strategy_id, self.scope.upper(),
-                instrument_id, position, 'EXIT_ALL', {}, reason
-            )
+            # 2. Check Static Stop Loss / Target
+            stop_price = position.get("protected_stop_price")
+            target_price = position.get("protected_target_price")
+            
+            hit = False
+            reason = None
+            if stop_price is not None:
+                if side == Side.BUY and last_price <= stop_price:
+                    hit, reason = True, "Stop Loss Hit"
+                elif side == Side.SELL and last_price >= stop_price:
+                    hit, reason = True, "Stop Loss Hit"
+                    
+            if target_price is not None:
+                if side == Side.BUY and last_price >= target_price:
+                    hit, reason = True, "Target Hit"
+                elif side == Side.SELL and last_price <= target_price:
+                    hit, reason = True, "Target Hit"
+                    
+            if hit:
+                logger.info(f"Fast-path exit triggered: {reason} at {last_price}")
+                OrderDispatcher.dispatch_exit(
+                    context, self.session_id, self.strategy_id, self.scope.upper(),
+                    instrument_id, position, 'EXIT_ALL', {}, reason
+                )
+        except (ValueError, TypeError, KeyError) as e:
+            # Data corruption or type errors - critical
+            logger.error(f"Data corruption in fast path for instrument {instrument_id}: {e}")
+            raise
+        except Exception as e:
+            # Transient errors - log but continue
+            logger.warning(f"Transient error in fast path for instrument {instrument_id}: {e}")
+            # Don't raise for transient errors
 
             
     def _process_exits(self, context, executor, instrument_id, base_df):

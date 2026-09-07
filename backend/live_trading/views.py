@@ -54,9 +54,30 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["post"])
     def sync(self, request, pk=None):
+        """
+        Manual sync endpoint. Updated to use new BrokerReconciliationService.
+        """
         session = self.get_object()
-        result = LiveExecutionService.sync_account_state(request.user, credential=session.broker_credential)
-        return Response({"synced_orders": len(orders), "account_state": result})
+        from live_trading.reconciliation_service import BrokerReconciliationService
+        
+        try:
+            reconciliation_service = BrokerReconciliationService(session.broker_credential)
+            orders_result = reconciliation_service.reconcile_orders()
+            positions_result = reconciliation_service.reconcile_positions()
+            
+            return Response({
+                "synced_orders": orders_result.get("matched", 0) + orders_result.get("created", 0),
+                "synced_positions": positions_result.get("updated", 0) + positions_result.get("created", 0),
+                "account_state": {
+                    "orders": orders_result,
+                    "positions": positions_result
+                }
+            })
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):

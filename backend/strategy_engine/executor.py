@@ -16,6 +16,9 @@ class StrategyExecutor:
         """
         Initializes the executor with a strategy configuration.
         """
+        # Validate config snapshot completeness
+        self._validate_config_snapshot(config_snapshot)
+        
         self.config = config_snapshot
         self.mtf_data = mtf_data or {}
         self.indicator_engine = indicator_engine
@@ -27,6 +30,17 @@ class StrategyExecutor:
 
         self.time_rule = self.config.get("time_rule", {})
         self.special_event_filter = self.config.get("special_event_filter", {})
+    
+    def _validate_config_snapshot(self, config):
+        """Validate config snapshot has required fields."""
+        required_fields = [
+            'name', 'strategy_type', 'market_type', 'exchange', 'instrument_type',
+            'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments'
+        ]
+        missing = [field for field in required_fields if field not in config]
+        if missing:
+            raise ValueError(f"Config snapshot missing required fields: {missing}")
+        return True
 
 
     def completed_signal_frame(self, bars_df):
@@ -312,14 +326,14 @@ class StrategyExecutor:
             # Market Session Check
             from common.trading_utils import matches_market_session
             session = time_rule.get("market_session", "ALL")
-            if not matches_market_session(timestamp.time(), session):
-                return True
-
             # Time Range Check
             current_time = timestamp.time()
             from common.trading_utils import parse_time
             start = parse_time(time_rule.get("start_time"))
             end = parse_time(time_rule.get("end_time"))
+
+            if start is None and end is None and not matches_market_session(current_time, session):
+                return True
             if start and current_time < start: return True
             if end and current_time > end: return True
 

@@ -9,35 +9,38 @@ export default function MathExpressionBuilder({ value, onChange }) {
   // Parse initial value into tokens
   const initialTokens = useMemo(() => {
     if (!value || !value.expression) return [];
-    const parts = value.expression.split(' ').filter(Boolean);
+    const parts = value.expression.split(" ").filter(Boolean);
     return parts.map((t, idx) => {
       const id = Date.now() + idx;
-      if (['+', '-', '*', '/', '(', ')'].includes(t)) return { id, type: 'op', value: t };
-      if (['close', 'open', 'high', 'low', 'volume'].includes(t)) return { id, type: 'price', value: t };
-      if (value.variables?.[t]) return { id, type: 'var', name: t, config: value.variables[t] };
-      if (!isNaN(parseFloat(t))) return { id, type: 'number', value: t };
-      return { id, type: 'unknown', value: t };
+      if (["+", "-", "*", "/", "(", ")"].includes(t))
+        return { id, type: "op", value: t };
+      if (value.variables?.[t])
+        return { id, type: "var", name: t, config: value.variables[t] };
+      if (!isNaN(parseFloat(t))) return { id, type: "number", value: t };
+      return { id, type: "unknown", value: t };
     });
   }, [value]);
 
   const [tokens, setTokens] = useState(initialTokens);
-  
+
   // Modal state for variable editor
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingToken, setEditingToken] = useState(null); // The token being edited/created
-  
+
   // Internal state for the editor
-  const [editType, setEditType] = useState('');
+  const [editType, setEditType] = useState("");
   const [editParams, setEditParams] = useState({});
   const [editTimeframe, setEditTimeframe] = useState(null);
 
   // Sync back to parent when tokens change
   const updateParent = (newTokens) => {
     setTokens(newTokens);
-    const expression = newTokens.map(t => t.type === 'var' ? t.name : t.value).join(' ');
+    const expression = newTokens
+      .map((t) => (t.type === "var" ? t.name : t.value))
+      .join(" ");
     const variables = {};
-    newTokens.forEach(t => {
-      if (t.type === 'var') {
+    newTokens.forEach((t) => {
+      if (t.type === "var") {
         variables[t.name] = t.config;
       }
     });
@@ -65,7 +68,7 @@ export default function MathExpressionBuilder({ value, onChange }) {
       setEditTimeframe(tokenToEdit.config.timeframe || null);
     } else {
       setEditingToken(null);
-      setEditType('');
+      setEditType("");
       setEditParams({});
       setEditTimeframe(null);
     }
@@ -74,40 +77,49 @@ export default function MathExpressionBuilder({ value, onChange }) {
 
   const handleSaveVariable = () => {
     if (!editType) return;
-    
-    const varConfig = { type: editType, params: editParams, timeframe: editTimeframe };
-    
+
+    const varConfig = {
+      type: editType,
+      params: editParams,
+      timeframe: editTimeframe,
+    };
+
     if (editingToken) {
       // Update existing
-      const newTokens = tokens.map(t => t.id === editingToken.id ? { ...t, config: varConfig } : t);
+      const newTokens = tokens.map((t) =>
+        t.id === editingToken.id ? { ...t, config: varConfig } : t,
+      );
       updateParent(newTokens);
     } else {
       // Create new: generate next VAR_ name
-      const existingVars = tokens.filter(t => t.type === 'var').map(t => parseInt(t.name.replace('VAR_', '')) || 0);
-      const nextNum = existingVars.length > 0 ? Math.max(...existingVars) + 1 : 1;
+      const existingVars = tokens
+        .filter((t) => t.type === "var")
+        .map((t) => parseInt(t.name.replace("VAR_", "")) || 0);
+      const nextNum =
+        existingVars.length > 0 ? Math.max(...existingVars) + 1 : 1;
       const varName = `VAR_${nextNum}`;
-      addToken({ type: 'var', name: varName, config: varConfig });
+      addToken({ type: "var", name: varName, config: varConfig });
     }
     setEditorOpen(false);
   };
 
   // Keyboard support for numbers and basic operators
-  const [numBuffer, setNumBuffer] = useState('');
+  const [numBuffer, setNumBuffer] = useState("");
   const handleAddNumBuffer = () => {
     if (numBuffer) {
-      addToken({ type: 'number', value: numBuffer });
-      setNumBuffer('');
+      addToken({ type: "number", value: numBuffer });
+      setNumBuffer("");
     }
   };
 
   const renderPill = (token) => {
     switch (token.type) {
-      case 'var':
+      case "var":
         return (
           <TooltipProvider key={token.id}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div 
+                <div
                   onClick={() => handleOpenVarEditor(token)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 cursor-pointer hover:bg-indigo-500/30 transition-colors shadow-sm font-semibold tracking-wide text-xs"
                 >
@@ -122,43 +134,48 @@ export default function MathExpressionBuilder({ value, onChange }) {
             </Tooltip>
           </TooltipProvider>
         );
-      case 'price':
+      case "op":
         return (
-          <div key={token.id} className="px-3 py-1.5 rounded-full bg-gray-800/80 text-gray-200 border border-gray-700 font-semibold text-xs tracking-wider uppercase shadow-sm">
+          <div
+            key={token.id}
+            className="px-2 py-1.5 font-bold text-amber-400 text-sm"
+          >
             {token.value}
           </div>
         );
-      case 'op':
+      case "number":
         return (
-          <div key={token.id} className="px-2 py-1.5 font-bold text-amber-400 text-sm">
-            {token.value}
-          </div>
-        );
-      case 'number':
-        return (
-          <div key={token.id} className="px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-bold text-xs shadow-sm">
+          <div
+            key={token.id}
+            className="px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-bold text-xs shadow-sm"
+          >
             {token.value}
           </div>
         );
       default:
-        return <span key={token.id} className="text-red-400">{token.value}</span>;
+        return (
+          <span key={token.id} className="text-red-400">
+            {token.value}
+          </span>
+        );
     }
   };
 
   const formatVarConfig = (config) => {
-    if (!config) return '';
-    if (config.type === 'price') return `Price Data (${config.value?.toUpperCase()})`;
+    if (!config) return "";
     const params = config.params || {};
-    const pVals = Object.values(params).filter(v => v !== null && v !== undefined).join(', ');
-    const tf = config.timeframe ? ` | ${config.timeframe}` : '';
-    return `${config.type} ${pVals ? `(${pVals})` : ''}${tf}`;
+    const pVals = Object.values(params)
+      .filter((v) => v !== null && v !== undefined)
+      .join(", ");
+    const tf = config.timeframe ? ` | ${config.timeframe}` : "";
+    return `${config.type} ${pVals ? `(${pVals})` : ""}${tf}`;
   };
 
   const uniqueVars = useMemo(() => {
     const vars = [];
     const seen = new Set();
-    tokens.forEach(t => {
-      if (t.type === 'var' && !seen.has(t.name)) {
+    tokens.forEach((t) => {
+      if (t.type === "var" && !seen.has(t.name)) {
         seen.add(t.name);
         vars.push(t);
       }
@@ -183,7 +200,7 @@ export default function MathExpressionBuilder({ value, onChange }) {
           <span className="text-gray-600 text-sm italic select-none">Build expression using buttons below...</span>
         )}
         {tokens.map(renderPill)}
-        
+
         {/* Live typing buffer for numbers */}
         {numBuffer && (
           <div className="px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-bold text-xs animate-pulse">
@@ -196,36 +213,49 @@ export default function MathExpressionBuilder({ value, onChange }) {
       <div className="grid grid-cols-12 gap-4">
         {/* Left Side: Variables Ledger */}
         <div className="col-span-7 flex flex-col h-[310px] bg-gray-900/30 p-2.5 rounded-lg border border-gray-800/50">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="sm"
-            onClick={() => { handleAddNumBuffer(); handleOpenVarEditor(); }}
+            onClick={() => {
+              handleAddNumBuffer();
+              handleOpenVarEditor();
+            }}
             className="w-full bg-indigo-500/10 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-200 h-9 shrink-0 shadow-sm"
           >
             <Activity className="w-4 h-4 mr-2" />
-            <span className="text-xs font-semibold tracking-wide">+ Add Indicator / Price</span>
+            <span className="text-xs font-semibold tracking-wide">
+              + Add Indicator
+            </span>
           </Button>
 
           <div className="flex-1 overflow-y-auto min-h-0 mt-3 pr-1 space-y-2 scrollbar-theme">
             {uniqueVars.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center px-4 py-6">
-                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1">Variable Ledger</span>
+                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1">
+                  Variable Ledger
+                </span>
                 <p className="text-[10px] text-gray-600 leading-relaxed">
-                  Variables added to your expression will appear here for quick reference.
+                  Variables added to your expression will appear here for quick
+                  reference.
                 </p>
               </div>
             ) : (
-              uniqueVars.map(v => (
-                <div 
-                  key={v.name} 
+              uniqueVars.map((v) => (
+                <div
+                  key={v.name}
                   onClick={() => handleOpenVarEditor(v)}
                   className="group flex flex-col gap-1 p-2 rounded-md bg-black/40 border border-gray-800 hover:border-indigo-500/30 hover:bg-indigo-500/5 cursor-pointer transition-colors shrink-0"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider">{v.name}</span>
+                    <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                      {v.name}
+                    </span>
                     <Edit2 className="w-3 h-3 text-gray-600 group-hover:text-indigo-400 transition-colors" />
                   </div>
-                  <span className="text-[10px] text-gray-400 font-mono truncate" title={formatVarConfig(v.config)}>
+                  <span
+                    className="text-[10px] text-gray-400 font-mono truncate"
+                    title={formatVarConfig(v.config)}
+                  >
                     {formatVarConfig(v.config)}
                   </span>
                 </div>
@@ -237,9 +267,9 @@ export default function MathExpressionBuilder({ value, onChange }) {
         {/* Right Side: Numpad & Operators */}
         <div className="col-span-5 flex flex-col h-[310px] bg-gray-900/50 p-2 rounded-lg border border-gray-800/80">
           <div className="grid grid-cols-4 gap-1.5 flex-1">
-            {calcButtons.map(btn => {
-              const isOp = ['/', '*', '-', '+'].includes(btn);
-              const isParen = ['(', ')'].includes(btn);
+            {calcButtons.map((btn) => {
+              const isOp = ["/", "*", "-", "+"].includes(btn);
+              const isParen = ["(", ")"].includes(btn);
               return (
                 <Button
                   key={btn}
@@ -248,22 +278,24 @@ export default function MathExpressionBuilder({ value, onChange }) {
                   onClick={() => {
                     if (isOp || isParen) {
                       handleAddNumBuffer();
-                      addToken({ type: 'op', value: btn });
+                      addToken({ type: "op", value: btn });
                     } else {
-                      setNumBuffer(prev => prev + btn);
+                      setNumBuffer((prev) => prev + btn);
                     }
                   }}
                   className={`h-9 font-mono font-bold text-sm ${
-                    isOp ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20' : 
-                    isParen ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 hover:bg-purple-500/20' :
-                    'bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700'
-                  } ${btn === '0' ? 'col-span-4' : ''}`}
+                    isOp
+                      ? "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
+                      : isParen
+                        ? "bg-purple-500/10 border-purple-500/30 text-purple-400 hover:bg-purple-500/20"
+                        : "bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700"
+                  } ${btn === "0" ? "col-span-4" : ""}`}
                 >
                   {btn}
                 </Button>
               );
             })}
-            
+
             {/* Enter buffer button */}
             <Button
               variant="outline"
@@ -272,9 +304,10 @@ export default function MathExpressionBuilder({ value, onChange }) {
               disabled={!numBuffer}
               className="col-span-4 h-9 bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 flex items-center justify-center gap-1"
             >
-              <Check className="w-4 h-4" /> <span className="text-xs">Enter Number</span>
+              <Check className="w-4 h-4" />{" "}
+              <span className="text-xs">Enter Number</span>
             </Button>
-            
+
             {/* Backspace & Clear */}
             <Button
               variant="outline"
@@ -290,7 +323,10 @@ export default function MathExpressionBuilder({ value, onChange }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { setNumBuffer(''); clearAll(); }}
+              onClick={() => {
+                setNumBuffer("");
+                clearAll();
+              }}
               className="col-span-2 bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white h-8 text-[10px]"
             >
               Clear All
@@ -305,14 +341,18 @@ export default function MathExpressionBuilder({ value, onChange }) {
           <DialogHeader>
             <DialogTitle className="text-indigo-300 flex items-center gap-2">
               <Calculator className="w-5 h-5" />
-              {editingToken ? `Edit ${editingToken.name}` : 'Configure New Indicator'}
+              {editingToken
+                ? `Edit ${editingToken.name}`
+                : "Configure New Indicator"}
             </DialogTitle>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div className="bg-black/30 p-4 rounded-lg border border-gray-800">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">Select Indicator Type</label>
-              <OperandSelector 
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">
+                Select Indicator Type
+              </label>
+              <OperandSelector
                 value={editType}
                 params={editParams}
                 timeframe={editTimeframe}
@@ -320,7 +360,9 @@ export default function MathExpressionBuilder({ value, onChange }) {
                   setEditType(v);
                   // Reset params to defaults when type changes
                   const defaults = {};
-                  (PARAM_CONFIG[v] || []).forEach(p => defaults[p.key] = p.default);
+                  (PARAM_CONFIG[v] || []).forEach(
+                    (p) => (defaults[p.key] = p.default),
+                  );
                   setEditParams(defaults);
                   setEditTimeframe(null);
                 }}
@@ -332,10 +374,18 @@ export default function MathExpressionBuilder({ value, onChange }) {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditorOpen(false)} className="border-gray-700 text-gray-300 hover:bg-gray-800">
+            <Button
+              variant="outline"
+              onClick={() => setEditorOpen(false)}
+              className="border-gray-700 text-gray-300 hover:bg-gray-800"
+            >
               Cancel
             </Button>
-            <Button onClick={handleSaveVariable} disabled={!editType} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+            <Button
+              onClick={handleSaveVariable}
+              disabled={!editType}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
               Save Indicator
             </Button>
           </DialogFooter>

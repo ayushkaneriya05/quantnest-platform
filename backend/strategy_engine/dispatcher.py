@@ -59,7 +59,9 @@ class OrderDispatcher:
             logger.error(f"WatchlistInstrument not found for base instrument {instrument_id}")
             return
 
-        resolutions = InstrumentResolver.resolve(watch, side, spot_price=spot_price)
+        # Pass routes_data from config to avoid DB query in hot path
+        routes_data = watch.get('execution_routes', []) if isinstance(watch, dict) else []
+        resolutions = InstrumentResolver.resolve(watch, side, spot_price=spot_price, routes_data=routes_data)
 
         router = StrategyOrderRouter()
         from strategy_engine.sizing import compute_position_size
@@ -68,15 +70,21 @@ class OrderDispatcher:
         strategy_config = getattr(executor, 'config', {})
 
         for exec_inst, exec_side, sizing in resolutions:
-            exec_price = execution_price_reader(exec_inst.id)
+            # Handle both instrument objects and instrument IDs
+            if isinstance(exec_inst, int):
+                exec_inst_id = exec_inst
+                lot_size = 1  # Default lot size for ID-based resolution
+            else:
+                exec_inst_id = exec_inst.id
+                lot_size = getattr(exec_inst, 'lot_size', 1) or 1
+            
+            exec_price = execution_price_reader(exec_inst_id)
             if exec_price is None:
                 logger.error(
                     "No shared-memory price available for execution instrument %s; skipping order",
-                    exec_inst.id,
+                    exec_inst_id,
                 )
                 continue
-            
-            lot_size = getattr(exec_inst, 'lot_size', 1) or 1
             try:
                 qty = compute_position_size(
                     risk_evaluator=risk_evaluator,
@@ -87,10 +95,12 @@ class OrderDispatcher:
                     strategy_config=strategy_config
                 )
             except Exception as e:
-                logger.error(f"Sizing error for {exec_inst.id}: {e}")
+                logger.error(f"Sizing error for {exec_inst_id}: {e}")
                 qty = 0
-                
+            
+            # Validate order quantity
             if qty <= 0:
+                logger.warning(f"Invalid quantity {qty} for instrument {exec_inst_id}, skipping order")
                 continue
 
             otype, target = executor.resolve_entry_order(exec_price)
@@ -98,7 +108,7 @@ class OrderDispatcher:
             req = OrderRequest(
                 session_id=session_id,
                 strategy_id=strategy_id,
-                instrument_id=exec_inst.id,
+                instrument_id=exec_inst_id,
                 side=exec_side,
                 qty=qty,
                 order_type=str(otype),

@@ -99,7 +99,6 @@ export default function BacktestSetup() {
     end_date: new Date().toISOString().split("T")[0],
     initial_capital: 100000,
     slippage_pct: 0.05,
-    fill_model: "NEXT_OPEN",
     charge_profile: "",
     include_charges: true,
   });
@@ -116,11 +115,17 @@ export default function BacktestSetup() {
       const res = await brokersApi.getChargeProfiles();
       const profiles = res.data || [];
       setChargeProfiles(profiles);
-      const defaultProfile = profiles.find(p => p.is_default);
+      const defaultProfile = profiles.find((p) => p.is_default);
       if (defaultProfile) {
-        setFormData(prev => ({...prev, charge_profile: defaultProfile.id.toString()}));
+        setFormData((prev) => ({
+          ...prev,
+          charge_profile: defaultProfile.id.toString(),
+        }));
       } else if (profiles.length > 0) {
-        setFormData(prev => ({...prev, charge_profile: profiles[0].id.toString()}));
+        setFormData((prev) => ({
+          ...prev,
+          charge_profile: profiles[0].id.toString(),
+        }));
       }
     } catch {
       //
@@ -130,7 +135,7 @@ export default function BacktestSetup() {
   useEffect(() => {
     if (preSelectedStrategy && strategies.length > 0) {
       const strategy = strategies.find(
-        (item) => item.id.toString() === preSelectedStrategy
+        (item) => item.id.toString() === preSelectedStrategy,
       );
       if (strategy) {
         setFormData((current) => ({
@@ -169,7 +174,10 @@ export default function BacktestSetup() {
       setLoading(true);
       const payload = {
         ...formData,
-        charge_profile: formData.include_charges && formData.charge_profile ? formData.charge_profile : null,
+        charge_profile:
+          formData.include_charges && formData.charge_profile
+            ? formData.charge_profile
+            : null,
       };
       const response = await backtestApi.createRun(payload);
       notify.success("Backtest created! Initializing simulation…");
@@ -189,7 +197,7 @@ export default function BacktestSetup() {
   /* Selected strategy info */
   const selectedStrategy = useMemo(
     () => strategies.find((s) => s.id.toString() === formData.strategy),
-    [formData.strategy, strategies]
+    [formData.strategy, strategies],
   );
 
   const duration = dateDuration(formData.start_date, formData.end_date);
@@ -203,7 +211,7 @@ export default function BacktestSetup() {
     >
       <ChevronLeft className="h-4 w-4 mr-2" />
       Back to List
-    </Button>
+    </Button>,
   );
 
   return (
@@ -254,7 +262,8 @@ export default function BacktestSetup() {
                 </Select>
                 {strategies.length === 0 && (
                   <p className="text-xs text-amber-300">
-                    No strategies found. You need to create a strategy before you can run a backtest.
+                    No strategies found. You need to create a strategy before
+                    you can run a backtest.
                   </p>
                 )}
               </div>
@@ -324,9 +333,16 @@ export default function BacktestSetup() {
                     Start Date *
                   </Label>
                   <DatePicker
-                    date={formData.start_date ? new Date(formData.start_date + "T00:00:00") : null}
+                    date={
+                      formData.start_date
+                        ? new Date(formData.start_date + "T00:00:00")
+                        : null
+                    }
                     setDate={(date) =>
-                      handleChange("start_date", date ? format(date, "yyyy-MM-dd") : "")
+                      handleChange(
+                        "start_date",
+                        date ? format(date, "yyyy-MM-dd") : "",
+                      )
                     }
                   />
                 </div>
@@ -335,9 +351,16 @@ export default function BacktestSetup() {
                     End Date *
                   </Label>
                   <DatePicker
-                    date={formData.end_date ? new Date(formData.end_date + "T00:00:00") : null}
+                    date={
+                      formData.end_date
+                        ? new Date(formData.end_date + "T00:00:00")
+                        : null
+                    }
                     setDate={(date) =>
-                      handleChange("end_date", date ? format(date, "yyyy-MM-dd") : "")
+                      handleChange(
+                        "end_date",
+                        date ? format(date, "yyyy-MM-dd") : "",
+                      )
                     }
                   />
                 </div>
@@ -369,7 +392,7 @@ export default function BacktestSetup() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid md:grid-cols-4 gap-4">
+            <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
                   Initial Capital (₹)
@@ -399,29 +422,13 @@ export default function BacktestSetup() {
               </div>
               <div className="space-y-2">
                 <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
-                  Fill Model
-                </Label>
-                <Select
-                  value={formData.fill_model}
-                  onValueChange={(value) => handleChange("fill_model", value)}
-                >
-                  <SelectTrigger className="bg-gray-800/80 border-gray-700 h-11">
-                    <SelectValue placeholder="Select fill model" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-gray-800 border-gray-700 text-white">
-                    <SelectItem value="SIGNAL_CLOSE">Signal Close (T)</SelectItem>
-                    <SelectItem value="NEXT_OPEN">Next Open (T+1)</SelectItem>
-                    <SelectItem value="VWAP">VWAP (Intraday)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
                   Charge Profile
                 </Label>
                 <Select
                   value={formData.charge_profile}
-                  onValueChange={(value) => handleChange("charge_profile", value)}
+                  onValueChange={(value) =>
+                    handleChange("charge_profile", value)
+                  }
                   disabled={!formData.include_charges}
                 >
                   <SelectTrigger className="bg-gray-800/80 border-gray-700 h-11">
@@ -438,12 +445,18 @@ export default function BacktestSetup() {
               </div>
               <div className="space-y-2 flex items-center justify-between col-span-full mt-2 pt-4 border-t border-gray-800">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-semibold text-white">Include Charges</Label>
-                  <p className="text-xs text-gray-500">Apply simulated transaction costs to PnL</p>
+                  <Label className="text-sm font-semibold text-white">
+                    Include Charges
+                  </Label>
+                  <p className="text-xs text-gray-500">
+                    Apply simulated transaction costs to PnL
+                  </p>
                 </div>
                 <Switch
                   checked={formData.include_charges}
-                  onCheckedChange={(checked) => handleChange("include_charges", checked)}
+                  onCheckedChange={(checked) =>
+                    handleChange("include_charges", checked)
+                  }
                 />
               </div>
             </div>

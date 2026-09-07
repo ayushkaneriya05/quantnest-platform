@@ -18,6 +18,7 @@ from common.enums import (
 from marketdata.quote_store import QuoteStore
 from strategy_engine.runtime import StrategyRuntimeState
 from notifications.services import NotificationService
+from core.cache_api import cache_api
 
 from .models import (
     PaperOrder, PaperPosition, PaperTrade, PaperAccount,
@@ -234,6 +235,16 @@ class PortfolioService:
                 paper_account.current_balance = new_amount
                 paper_account.save(update_fields=["current_balance", "updated_at"])
 
+                # Update unified cache for account funds
+                funds_data = {
+                    'net_equity': str(paper_account.current_balance),
+                    'cash_balance': str(paper_account.current_balance),
+                    'available_margin': str(paper_account.current_balance),
+                    'used_margin': '0',
+                    'account_id': str(paper_account.id),
+                }
+                cache_api.update_account_funds(paper_account.id, funds_data)
+
         return allocations.count()
 
     @staticmethod
@@ -248,6 +259,16 @@ class PortfolioService:
                 "current_balance": target_amount,
             },
         )
+
+        # Update unified cache for account funds
+        funds_data = {
+            'net_equity': str(paper_account.current_balance),
+            'cash_balance': str(paper_account.current_balance),
+            'available_margin': str(paper_account.current_balance),
+            'used_margin': '0',
+            'account_id': str(paper_account.id),
+        }
+        cache_api.update_account_funds(paper_account.id, funds_data)
 
         if not created:
             if paper_account.current_balance > target_amount:
@@ -363,9 +384,37 @@ class PaperExecutionService:
             }
         )
 
-        from risk_management.cache import RiskCache
-        RiskCache.sync_from_db("PAPER", session.id)
-        
+        # Initialize risk metrics for paper session
+        from core.cache_api import cache_api
+        cache_api.update_risk_metrics("paper", str(session.id), {
+            "daily_trades": 0,
+            "daily_pnl": 0.0,
+            "weekly_pnl": 0.0,
+            "monthly_pnl": 0.0,
+            "total_closed_trades": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "win_rate": 0.0,
+            "consecutive_wins": 0,
+            "consecutive_losses": 0,
+            "net_equity": str(account.current_balance),
+            "cash_balance": str(account.current_balance),
+            "available_margin": str(account.current_balance),
+        })
+
+        # Initialize account funds in unified cache
+        funds_data = {
+            'net_equity': str(account.current_balance),
+            'cash_balance': str(account.current_balance),
+            'available_margin': str(account.current_balance),
+            'used_margin': '0',
+            'account_id': str(account.id),
+        }
+        cache_api.update_account_funds(account.id, funds_data)
+
+        # Rebuild runtime state from database for session recovery
+        PaperExecutionService.rebuild_runtime_state_from_db(str(session.id))
+
         if initial_status == "RUNNING":
             PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
         
@@ -483,9 +532,9 @@ class PaperExecutionService:
     @staticmethod
     def _validate_auto_disable(session, account, raise_on_trigger=True):
         from risk_management.auto_disable import AutoDisableGate
-        from risk_management.cache import RiskCache
+        from core.cache_view import cache_view
 
-        stats = RiskCache.get_or_rebuild("PAPER", account.user_id, session.id)
+        stats = cache_view.get_risk_metrics("paper", session.id)
         match = AutoDisableGate.evaluate(session, stats, account.initial_balance)
         if match:
             PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
@@ -544,6 +593,27 @@ class PaperExecutionService:
             quantity=quantity, order_tag=order_tag,
             fallback_price=price,
         ).id
+    
+    @staticmethod
+    def start_websocket_processor(account):
+        """
+        Start WebSocket simulator for paper trading account.
+        This enables paper trading to use the same unified architecture as live trading.
+        
+        Args:
+            account: PaperAccount instance
+        """
+        from brokers.websocket import PaperWebSocketSimulator
+        
+        try:
+            websocket_simulator = PaperWebSocketSimulator(account)
+            websocket_simulator.connect()
+            websocket_simulator.subscribe(['orders', 'trades', 'positions'])
+            logger.info(f"Started WebSocket simulator for paper account {account.id}")
+            return websocket_simulator
+        except Exception as e:
+            logger.exception(f"Failed to start WebSocket simulator for paper account {account.id}: {e}")
+            return None
 
 
     @staticmethod
@@ -589,10 +659,11 @@ class PaperExecutionService:
         raw_price = PaperExecutionService.resolve_market_price(instrument, fallback_price=fallback_price)
 
         strategy_config = None
-        if allocation and allocation.deployed_version_id:
+        if allocation and allocation.deployed_version:
             strategy_config = allocation.deployed_version.config_snapshot
-        elif strategy:
-            strategy_config = strategy.to_execution_dict()
+        else:
+            logger.error("No deployed version found for allocation")
+            raise ValueError("Strategy must have a deployed version for execution")
 
         from common.costs import TradingCostCalculator
         price = TradingCostCalculator.apply_slippage(raw_price, side, 0)
@@ -662,7 +733,7 @@ class PaperExecutionService:
                 profile=profile,
             )
 
-            PaperTrade.objects.create(
+            trade = PaperTrade.objects.create(
                 account=account, strategy=strategy or opposite_position.strategy, instrument=instrument,
                 side=opposite_position.side, quantity=closing_qty, entry_price=opposite_position.avg_price,
                 entry_time=opposite_position.opened_at, exit_price=price, exit_time=executed_at,
@@ -675,9 +746,32 @@ class PaperExecutionService:
                 holding_duration_seconds=max(int((executed_at - opposite_position.opened_at).total_seconds()), 0),
             )
 
-           
-            from risk_management.cache import RiskCache
-            RiskCache.record_trade_result("PAPER", account.user_id, session.id, float(net_pnl))
+            # Update unified cache risk metrics with trade result
+            from core.cache_view import cache_view
+            from core.cache_api import cache_api
+            current = cache_view.get_risk_metrics("paper", session.id)
+            pnl = float(net_pnl)
+            current["daily_trades"] = int(current.get("daily_trades", 0) or 0) + 1
+            current["daily_pnl"] = float(current.get("daily_pnl", 0.0) or 0.0) + pnl
+            current["weekly_pnl"] = float(current.get("weekly_pnl", 0.0) or 0.0) + pnl
+            current["monthly_pnl"] = float(current.get("monthly_pnl", 0.0) or 0.0) + pnl
+            current["total_closed_trades"] = int(current.get("total_closed_trades", 0) or 0) + 1
+            current["closed_trades"] = current["total_closed_trades"]
+            
+            if pnl < 0:
+                current["consecutive_losses"] = current.get("consecutive_losses", 0) + 1
+                current["consecutive_wins"] = 0
+                current["losing_trades"] = int(current.get("losing_trades", 0) or 0) + 1
+            elif pnl > 0:
+                current["consecutive_wins"] = current.get("consecutive_wins", 0) + 1
+                current["consecutive_losses"] = 0
+                current["winning_trades"] = int(current.get("winning_trades", 0) or 0) + 1
+            
+            total_closed = int(current.get("total_closed_trades", 0) or 0)
+            wins = int(current.get("winning_trades", 0) or 0)
+            current["win_rate"] = (wins / total_closed) * 100 if total_closed else 0.0
+
+            cache_api.update_risk_metrics("paper", session.id, current)
 
             margin_released = (
                 Decimal(str(opposite_position.margin_blocked or 0))
@@ -690,7 +784,7 @@ class PaperExecutionService:
                 opposite_position.save(update_fields=["quantity", "margin_blocked", "updated_at"])
                 if opposite_position.strategy_id:
                     base_inst = PaperExecutionService._get_base_instrument(opposite_position.strategy, opposite_position.instrument)
-                    trade_state = StrategyRuntimeState.mark_open(
+                    StrategyRuntimeState.mark_open(
                         "paper",
                         session.id,
                         base_inst.id,
@@ -701,16 +795,32 @@ class PaperExecutionService:
                         opened_at=opposite_position.opened_at,
                         execution_instrument_id=opposite_position.instrument_id,
                     )
-                    StrategyRuntimeState.update_position_state(
-                        "paper-position",
-                        opposite_position.id,
-                        {
-                            "phase": trade_state.get("phase"),
-                            "entry_time": trade_state.get("entry_time"),
-                            "protected_stop_price": trade_state.get("protected_stop_price"),
-                            "protected_target_price": trade_state.get("protected_target_price"),
-                        },
-                    )
+
+                    # Update unified cache for paper trading on partial close
+                    cache_api.update_order("paper", str(session.id), {
+                        'id': str(order.id),
+                        'instrument_id': order.instrument_id,
+                        'symbol': order.instrument.sym_ticker if order.instrument else '',
+                        'side': side,
+                        'quantity': closing_qty,
+                        'filled_quantity': closing_qty,
+                        'status': 'FILLED',
+                        'avg_fill_price': str(price),
+                        'session_id': str(session.id),
+                    })
+                    # Update only the affected position in cache (no DB reload)
+                    if opposite_position.quantity > 0:
+                        cache_api.update_position("paper", str(session.id), {
+                            'id': str(opposite_position.id),
+                            'instrument_id': opposite_position.instrument_id,
+                            'symbol': opposite_position.instrument.sym_ticker if opposite_position.instrument else '',
+                            'side': opposite_position.side,
+                            'quantity': opposite_position.quantity,
+                            'avg_price': str(opposite_position.avg_price),
+                            'current_price': str(opposite_position.current_price),
+                            'unrealized_pnl': str(opposite_position.unrealized_pnl),
+                            'session_id': str(session.id),
+                        })
             else:
                 if opposite_position.strategy_id:
                     base_inst = PaperExecutionService._get_base_instrument(opposite_position.strategy, opposite_position.instrument)
@@ -719,8 +829,10 @@ class PaperExecutionService:
                         session.id,
                         base_inst.id,
                     )
-                StrategyRuntimeState.clear_position_state("paper-position", opposite_position.id)
                 opposite_position.delete()
+                
+                # Update unified cache for paper trading on position close
+                cache_api.remove_position("paper", str(session.id), str(opposite_position.id))
             remaining -= closing_qty
 
         if remaining > 0:
@@ -744,7 +856,7 @@ class PaperExecutionService:
             trade_strategy_id = strategy.id if strategy else position.strategy_id
             if trade_strategy_id:
                 base_inst = PaperExecutionService._get_base_instrument(strategy or position.strategy, position.instrument)
-                trade_state = StrategyRuntimeState.mark_open(
+                StrategyRuntimeState.mark_open(
                     "paper",
                     session.id,
                     base_inst.id,
@@ -755,23 +867,46 @@ class PaperExecutionService:
                     opened_at=position.opened_at,
                     execution_instrument_id=position.instrument_id,
                 )
-            StrategyRuntimeState.update_position_state(
-                "paper-position",
-                position.id,
-                {
-                    "phase": trade_state.get("phase") if trade_state else StrategyRuntimeState.OPEN,
-                    "entry_time": trade_state.get("entry_time") or position.opened_at.isoformat() if position.opened_at else executed_at.isoformat(),
-                    "peak_price": float(price),
-                    "protected_stop_price": trade_state.get("protected_stop_price"),
-                    "protected_target_price": trade_state.get("protected_target_price"),
-                },
-            )
+            
+            # Update unified cache for paper trading
+            cache_api.update_order("paper", str(session.id), {
+                'id': str(order.id),
+                'instrument_id': order.instrument_id,
+                'symbol': order.instrument.sym_ticker if order.instrument else '',
+                'side': side,
+                'quantity': remaining,
+                'filled_quantity': remaining,
+                'status': 'FILLED',
+                'avg_fill_price': str(price),
+                'session_id': str(session.id),
+            })
+            # Update only the affected position in cache (no DB reload)
+            if position.quantity > 0:
+                cache_api.update_position("paper", str(session.id), {
+                    'id': str(position.id),
+                    'instrument_id': position.instrument_id,
+                    'symbol': position.instrument.sym_ticker if position.instrument else '',
+                    'side': position.side,
+                    'quantity': position.quantity,
+                    'avg_price': str(position.avg_price),
+                    'current_price': str(position.current_price),
+                    'unrealized_pnl': str(position.unrealized_pnl),
+                    'session_id': str(session.id),
+                })
 
         account.save(update_fields=["current_balance", "updated_at"])
+
+        # Update unified cache for account funds
+        funds_data = {
+            'net_equity': str(account.current_balance),
+            'cash_balance': str(account.current_balance),
+            'available_margin': str(account.current_balance),
+            'used_margin': '0',
+            'account_id': str(account.id),
+        }
+        cache_api.update_account_funds(account.id, funds_data)
         
         if session:
-            from risk_management.cache import RiskCache
-            RiskCache.sync_on_fill("PAPER", session.id)
             PaperExecutionService._validate_auto_disable(
                 session=session,
                 account=account,
@@ -781,40 +916,10 @@ class PaperExecutionService:
 
 
     @staticmethod
-    def rebuild_runtime_state_from_db():
-        """Initialize and recover Redis runtime state from open paper positions."""
-        active_positions = PaperPosition.objects.filter(quantity__gt=0).select_related(
-            "strategy", "instrument", "account", "account__allocation", "account__allocation__deployed_version"
-        )
-        recovered = 0
-        for position in active_positions:
-            if not position.strategy_id:
-                continue
-            
-            sid = PaperExecutionService._get_session_id(position.account, position.strategy_id)
-            base_inst = PaperExecutionService._get_base_instrument(position.strategy, position.instrument)
-            state = StrategyRuntimeState.trade_state("paper", sid, base_inst.id)
-            if state.get("phase") != StrategyRuntimeState.OPEN:
-                allocation = getattr(position.account, "allocation", None)
-                if allocation and allocation.deployed_version_id:
-                    config = allocation.deployed_version.config_snapshot
-                else:
-                    config = position.strategy.to_execution_dict()
-                StrategyRuntimeState.mark_open(
-                    "paper",
-                    sid,
-                    base_inst.id,
-                    side=position.side,
-                    quantity=position.quantity,
-                    avg_price=position.avg_price,
-                    config=config,
-                    opened_at=position.opened_at,
-                    execution_instrument_id=position.instrument_id,
-                )
-                recovered += 1
-        if recovered:
-            logger.info("Recovered %s missing runtime states from paper DB positions.", recovered)
-        return recovered
+    def rebuild_runtime_state_from_db(session_id):
+        """Initialize and recover runtime state from open paper positions using centralized method."""
+        from strategy_engine.runtime import StrategyRuntimeState
+        return StrategyRuntimeState.rebuild_runtime_state_from_db("paper", session_id)
 
     @classmethod
     def run_zmq_subscriber(cls):

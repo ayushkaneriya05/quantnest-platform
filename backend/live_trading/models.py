@@ -150,6 +150,16 @@ class LiveOrder(BaseTimestampModel):
     placed_at = models.DateTimeField(auto_now_add=True)
     executed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    
+    # New fields for broker reconciliation
+    reconciliation_status = models.CharField(
+        max_length=20,
+        choices=[('MATCHED', 'Matched'), ('PENDING', 'Pending'), ('MISMATCH', 'Mismatch')],
+        default='PENDING',
+        help_text="Reconciliation status with broker WebSocket"
+    )
+    reconciliation_attempts = models.PositiveIntegerField(default=0, help_text="Number of reconciliation attempts")
+    last_reconciliation = models.DateTimeField(null=True, blank=True, help_text="Last reconciliation timestamp")
 
     class Meta:
         db_table = "live_order"
@@ -171,6 +181,17 @@ class LivePosition(BaseTimestampModel):
     last_broker_sync = models.DateTimeField(null=True, blank=True)
     opened_at = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)
+    
+    # New fields for better broker sync tracking
+    broker_position_id = models.CharField(max_length=128, blank=True, help_text="Broker's position identifier")
+    sync_status = models.CharField(
+        max_length=20,
+        choices=[('SYNCED', 'Synced'), ('PENDING', 'Pending'), ('CONFLICT', 'Conflict')],
+        default='PENDING',
+        help_text="Current sync status with broker"
+    )
+    sync_error = models.TextField(blank=True, help_text="Error message if sync failed")
+    last_sync_attempt = models.DateTimeField(null=True, blank=True, help_text="Last time sync was attempted")
 
     class Meta:
         db_table = "live_position"

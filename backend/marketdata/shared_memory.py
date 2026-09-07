@@ -44,8 +44,15 @@ class SharedMemoryManager:
                 self.data_shm = shared_memory.SharedMemory(name=self.data_name)
                 self.meta_shm = shared_memory.SharedMemory(name=self.meta_name)
         else:
-            self.data_shm = shared_memory.SharedMemory(name=self.data_name)
-            self.meta_shm = shared_memory.SharedMemory(name=self.meta_name)
+            try:
+                self.data_shm = shared_memory.SharedMemory(name=self.data_name)
+                self.meta_shm = shared_memory.SharedMemory(name=self.meta_name)
+            except FileNotFoundError:
+                logger.error(f"Shared memory blocks not found for {self.symbol} {self.timeframe}")
+                raise
+            except Exception as e:
+                logger.error(f"Failed to attach to shared memory for {self.symbol} {self.timeframe}: {e}")
+                raise
 
         # The creator may use a session-specific capacity. Derive it from the
         # attached block so workers use the same circular buffer.
@@ -134,7 +141,34 @@ class SharedMemoryManager:
         latest = self.array[self.current_index]
         if latest[0] == 0.0:
             return None
+        # Basic data validation
+        if not self._validate_price_data(latest):
+            logger.warning(f"Invalid price data detected for {self.symbol}, returning None")
+            return None
         return float(latest[3])
+    
+    def _validate_price_data(self, data_row):
+        """Validate price data for integrity."""
+        try:
+            open_price = float(data_row[0])
+            high_price = float(data_row[1])
+            low_price = float(data_row[2])
+            close_price = float(data_row[3])
+            volume = float(data_row[4])
+            
+            # Basic validation
+            if open_price <= 0 or high_price <= 0 or low_price <= 0 or close_price <= 0:
+                return False
+            if high_price < low_price:
+                return False
+            if close_price > high_price or close_price < low_price:
+                return False
+            if volume < 0:
+                return False
+            
+            return True
+        except (ValueError, TypeError, IndexError):
+            return False
 
     def close(self):
         """
@@ -163,18 +197,55 @@ class SharedMemoryManager:
                 
     def preload_historical_data(self, max_lookback: int):
         """
-        Preloads historical data from the database into the shared memory buffer.
+        Preloads historical data with Fyers fallback to ensure fresh data.
+        Always fetches from Fyers if database is stale, ensuring SHM has latest data.
         """
         from marketdata.services import MarketDataService
+        from django.utils import timezone
+        from datetime import timedelta
         
         try:
+            # Check if latest candle is fresh enough (max 5 minutes old)
+            latest_candle = MarketDataService.latest_candle(self.symbol, self.timeframe)
+            needs_fyers_fetch = False
+            
+            if latest_candle:
+                age_minutes = (timezone.now() - latest_candle.time).total_seconds() / 60
+                if age_minutes > 5:  # More than 5 minutes old
+                    needs_fyers_fetch = True
+                    logger.info(f"Database data for {self.symbol} is {age_minutes:.1f} min old, fetching from Fyers")
+            else:
+                needs_fyers_fetch = True
+                logger.info(f"No database data for {self.symbol}, fetching from Fyers")
+            
+            # Fetch from Fyers if data is stale or missing
+            if needs_fyers_fetch:
+                end_dt = timezone.now()
+                start_dt = end_dt - timedelta(days=7)  # Last 7 days
+                
+                fyers_candles = MarketDataService.backfill_candles_from_broker(
+                    symbol=self.symbol,
+                    date_from=start_dt.isoformat(),
+                    date_to=end_dt.isoformat(),
+                    timeframe=self.timeframe
+                )
+                
+                if fyers_candles:
+                    logger.info(f"Fetched {len(fyers_candles)} candles from Fyers for {self.symbol}")
+            
+            # Load from database (now has latest data after Fyers fetch)
             candles = MarketDataService.list_candles(
                 symbol=self.symbol,
                 timeframe=self.timeframe,
                 limit=max_lookback
             )
+            
             if not candles:
-                logger.info(f"No historical candles found for {self.symbol} {self.timeframe} to preload.")
+                logger.warning(f"No historical candles found for {self.symbol} {self.timeframe} to preload.")
+                # Initialize empty SHM
+                self.array.fill(0.0)
+                self.meta_array[0] = 0
+                self.meta_array[1] = 0
                 return
                 
             logger.info(f"Preloading {len(candles)} historical candles for {self.symbol} {self.timeframe} into SHM.")

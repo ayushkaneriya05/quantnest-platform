@@ -26,13 +26,23 @@ class DataPreprocessor:
         if len(df) == 0:
             return None, None
             
-        timestamp = datetime.now(timezone.utc)
         known_epochs = df["epoch"].where(df["epoch"] > 0)
-        fallback_end = timestamp.replace(second=0, microsecond=0)
         reconstructed = pd.to_datetime(known_epochs, unit="s", utc=True, errors="coerce")
-        if reconstructed.notna().all():
+        if reconstructed.notna().any():
+            last_timestamp = reconstructed.dropna().iloc[-1]
+            timestamp = last_timestamp.to_pydatetime()
+            if reconstructed.isna().any():
+                fallback_end = last_timestamp.floor("min")
+                reconstructed = reconstructed.fillna(
+                    pd.Series(
+                        pd.date_range(end=fallback_end, periods=len(df), freq="1min"),
+                        index=df.index,
+                    )
+                )
             df.index = reconstructed
         else:
+            timestamp = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+            fallback_end = timestamp
             df.index = pd.date_range(end=fallback_end, periods=len(df), freq="1min")
         df = df.drop(columns=["epoch"])
         

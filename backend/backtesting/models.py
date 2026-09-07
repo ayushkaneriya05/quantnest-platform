@@ -44,16 +44,6 @@ class BacktestRun(BaseTimestampModel):
     slippage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.01)
     brokerage_per_trade = models.DecimalField(max_digits=8, decimal_places=2, default=20)
     brokerage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.0003)
-    fill_model = models.CharField(
-        max_length=20,
-        choices=[
-            ('SIGNAL_CLOSE', 'Signal Close'),
-            ('NEXT_OPEN', 'Next Open'),
-            ('VWAP', 'VWAP'),
-        ],
-        default='NEXT_OPEN',
-        help_text='Fill price model: SIGNAL_CLOSE (optimistic), NEXT_OPEN (realistic), VWAP (conservative)'
-    )
     charge_profile = models.ForeignKey(
         'brokers.BrokerChargeProfile',
         on_delete=models.SET_NULL,

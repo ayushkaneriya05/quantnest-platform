@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 MARKET_OPEN_TIME = time(9, 15)
 MARKET_CLOSE_TIME = time(15, 30)
 PRE_MARKET_END = time(9, 15)
-MARKET_OPEN_WINDOW_END = time(10, 30)
-MARKET_CLOSE_WINDOW_START = time(14, 30)
+MARKET_OPEN_WINDOW_END = time(15, 30)
+MARKET_CLOSE_WINDOW_START = time(15, 30)
 EOD_TIME = time(15, 30)
 
 DEFAULT_SL_FALLBACK_PCT = 0.01  # 1% of entry price

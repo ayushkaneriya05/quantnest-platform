@@ -28,7 +28,7 @@ class BacktestRunSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'strategy', 'strategy_name', 'strategy_version', 'start_date', 'end_date',
             'initial_capital', 'slippage_pct', 'brokerage_per_trade', 'brokerage_pct',
-            'fill_model', 'charge_profile', 'charge_profile_detail', 'include_charges',
+            'charge_profile', 'charge_profile_detail', 'include_charges',
             'parameters', 'config_snapshot', 'risk_profile_snapshot',
             'status', 'progress_pct', 'error_message', 'started_at', 'completed_at', 'created_at'
         ]
@@ -144,7 +144,7 @@ class BacktestRunDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'strategy', 'strategy_name', 'start_date', 'end_date',
             'initial_capital', 'slippage_pct', 'brokerage_per_trade', 'brokerage_pct',
-            'fill_model', 'charge_profile', 'charge_profile_detail', 'include_charges',
+            'charge_profile', 'charge_profile_detail', 'include_charges',
             'config_snapshot', 'status', 'progress_pct',
             'error_message', 'started_at', 'completed_at', 'created_at',
             'metrics', 'trades_count'

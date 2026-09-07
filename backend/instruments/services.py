@@ -5,6 +5,18 @@ class InstrumentResolver:
     """Resolves the actual execution instrument from a signal instrument + route config."""
 
     @staticmethod
+    def validate_strategy_for_first_release(strategy):
+        """Validate strategy doesn't use dynamic routing for first release."""
+        for watch in strategy.watchlist_instruments.all():
+            for route in watch.execution_routes.all():
+                if route.route_type in ['FUTURES', 'OPTIONS']:
+                    raise ValueError(
+                        f"Dynamic {route.route_type} routing is disabled for first release. "
+                        f"Use DIRECT or MANUAL routing with specific instruments instead."
+                    )
+        return True
+
+    @staticmethod
     def execution_instrument_ids(strategy):
         """Return watchlist and routed execution instrument IDs for a strategy."""
         instrument_ids = set()
@@ -31,45 +43,91 @@ class InstrumentResolver:
         return sorted(instrument_ids)
     
     @staticmethod
-    def resolve(watchlist_instrument, signal_side, spot_price=None):
+    def resolve(watchlist_instrument, signal_side, spot_price=None, routes_data=None):
         """
         Returns a list of (execution_instrument, execution_side, route_sizing_dict).
         If no routes → returns the original instrument and side unchanged.
+        
+        Args:
+            watchlist_instrument: WatchlistInstrument object or dict
+            signal_side: Trading side (BUY/SELL)
+            spot_price: Current spot price for options resolution
+            routes_data: Pre-loaded execution routes (to avoid DB query)
         """
-        routes = watchlist_instrument.execution_routes.all()
-        if not routes.exists():
-            return [(watchlist_instrument.instrument, signal_side, None)]
+        # Use routes_data if provided, otherwise query DB
+        if routes_data is not None:
+            routes = routes_data  # Use pre-loaded data
+        else:
+            # Fallback to DB query (backward compatibility)
+            if hasattr(watchlist_instrument, 'execution_routes'):
+                routes = watchlist_instrument.execution_routes.all()
+            else:
+                routes = []
+        
+        if not routes or (hasattr(routes, 'exists') and not routes.exists()):
+            # DIRECT route - return base instrument
+            if isinstance(watchlist_instrument, dict):
+                # Handle dict format from config
+                inst_id = watchlist_instrument.get('instrument_id')
+                # Return instrument ID for deferred resolution
+                return [(inst_id, signal_side, None)]
+            else:
+                return [(watchlist_instrument.instrument, signal_side, None)]
             
         results = []
         for route in routes:
-            sizing = route.get_sizing_dict()
+            # Handle both model objects and dict format
+            if isinstance(route, dict):
+                route_type = route.get('route_type')
+                sizing = route
+                target_instrument_id = route.get('target_instrument_id')
+            else:
+                route_type = route.route_type
+                sizing = route.get_sizing_dict()
+                target_instrument_id = route.target_instrument_id
             
             def _enforce(sz, inst):
                 if sz and sz.get("sizing_method") == "FIXED" and sz.get("fixed_quantity"):
-                    lot = inst.lot_size or 1
+                    lot = getattr(inst, 'lot_size', 1) or 1
                     sz["fixed_quantity"] = max(lot, round(sz["fixed_quantity"] / lot) * lot)
                 return sz
 
-            if route.route_type == 'DIRECT':
-                results.append((watchlist_instrument.instrument, signal_side, _enforce(sizing, watchlist_instrument.instrument)))
+            if route_type == 'DIRECT':
+                if isinstance(watchlist_instrument, dict):
+                    inst_id = watchlist_instrument.get('instrument_id')
+                    results.append((inst_id, signal_side, _enforce(sizing, watchlist_instrument)))
+                else:
+                    results.append((watchlist_instrument.instrument, signal_side, _enforce(sizing, watchlist_instrument.instrument)))
                 continue
                 
-            if route.route_type == 'MANUAL':
-                results.append((route.target_instrument, signal_side, _enforce(sizing, route.target_instrument)))
+            if route_type == 'MANUAL':
+                if isinstance(watchlist_instrument, dict):
+                    # Return target instrument ID for deferred resolution
+                    results.append((target_instrument_id, signal_side, _enforce(sizing, watchlist_instrument)))
+                else:
+                    results.append((route.target_instrument, signal_side, _enforce(sizing, route.target_instrument)))
                 continue
                 
-            if route.route_type == 'FUTURES':
-                resolved = InstrumentResolver._resolve_futures(route, watchlist_instrument)
-                target = resolved or watchlist_instrument.instrument
-                results.append((target, signal_side, _enforce(sizing, target)))
+            if route_type == 'FUTURES':
+                # Dynamic resolution not supported in first release
+                if isinstance(watchlist_instrument, dict):
+                    raise ValueError("Dynamic FUTURES routing is disabled for first release. Use DIRECT or MANUAL routing.")
+                else:
+                    resolved = InstrumentResolver._resolve_futures(route, watchlist_instrument)
+                    target = resolved or watchlist_instrument.instrument
+                    results.append((target, signal_side, _enforce(sizing, target)))
                 continue
                 
-            if route.route_type == 'OPTIONS':
-                instrument, side = InstrumentResolver._resolve_options(
-                    route, watchlist_instrument, signal_side, spot_price
-                )
-                target = instrument or watchlist_instrument.instrument
-                results.append((target, side, _enforce(sizing, target)))
+            if route_type == 'OPTIONS':
+                # Dynamic resolution not supported in first release
+                if isinstance(watchlist_instrument, dict):
+                    raise ValueError("Dynamic OPTIONS routing is disabled for first release. Use DIRECT or MANUAL routing.")
+                else:
+                    instrument, side = InstrumentResolver._resolve_options(
+                        route, watchlist_instrument, signal_side, spot_price
+                    )
+                    target = instrument or watchlist_instrument.instrument
+                    results.append((target, side, _enforce(sizing, target)))
                 continue
                 
         return results

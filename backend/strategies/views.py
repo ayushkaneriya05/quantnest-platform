@@ -250,9 +250,11 @@ class StrategyViewSet(viewsets.ModelViewSet):
             from brokers.services import BrokerService
             BrokerService.ensure_session(broker_credential)
 
-            # Sync account state before allocation creation
-            from live_trading.services import LiveExecutionService
-            LiveExecutionService.sync_account_state(request.user, credential=broker_credential)
+            # Sync account state before allocation creation - use new BrokerReconciliationService
+            from live_trading.reconciliation_service import BrokerReconciliationService
+            reconciliation_service = BrokerReconciliationService(broker_credential)
+            reconciliation_service.reconcile_orders()
+            reconciliation_service.reconcile_positions()
 
             deployed_version = None
             if version_id:

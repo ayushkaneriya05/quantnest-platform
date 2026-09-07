@@ -572,10 +572,6 @@ export default function BacktestResults() {
                     <span className="font-bold text-white">{formatPercent(run?.slippage_pct)}</span>
                   </div>
                   <div className="flex justify-between items-center p-4">
-                    <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Fill Model</span>
-                    <span className="font-bold text-white">{run?.fill_model || "NEXT_OPEN"}</span>
-                  </div>
-                  <div className="flex justify-between items-center p-4">
                     <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">Charge Profile</span>
                     <span className="font-bold text-white">{run?.charge_profile_detail?.name || "No Charges"}</span>
                   </div>

@@ -15,6 +15,18 @@ class StrategySnapshotService:
     """
 
     @staticmethod
+    def validate_config_snapshot(snapshot):
+        """Validate that config snapshot has all required fields."""
+        required_fields = [
+            'name', 'strategy_type', 'market_type', 'exchange', 'instrument_type',
+            'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments'
+        ]
+        missing = [field for field in required_fields if field not in snapshot]
+        if missing:
+            raise ValueError(f"Config snapshot missing required fields: {missing}")
+        return True
+
+    @staticmethod
     def create_snapshot(strategy, user=None, change_notes=None):
         """
         Creates a new version snapshot of the strategy.
@@ -24,11 +36,14 @@ class StrategySnapshotService:
             # We use specific serializers or manual dict construction to ensure deep nesting is captured
             snapshot = StrategySnapshotService._serialize_strategy(strategy)
             
-            # 2. Determine version number
+            # 2. Validate snapshot completeness
+            StrategySnapshotService.validate_config_snapshot(snapshot)
+            
+            # 3. Determine version number
             last_version = strategy.versions.order_by('-version_number').first()
             next_version = (last_version.version_number + 1) if last_version else 1
             
-            # 3. Save Version
+            # 4. Save Version
             version = StrategyVersion.objects.create(
                 strategy=strategy,
                 version_number=next_version,
@@ -163,12 +178,21 @@ class StrategySnapshotService:
       
         # Let's build a custom robust dict
         data = {
+            'id': strategy.id,
+            'user_id': strategy.user_id,
             'name': strategy.name,
             'description': strategy.description,
             'strategy_type': strategy.strategy_type,
             'market_type': strategy.market_type,
             'exchange': strategy.exchange,
             'instrument_type': strategy.instrument_type,
+            'status': strategy.status,
+            'visibility': strategy.visibility,
+            'auto_version_enabled': strategy.auto_version_enabled,
+            'paper_trading_enabled': strategy.paper_trading_enabled,
+            'live_trading_enabled': strategy.live_trading_enabled,
+            'allow_clone': strategy.allow_clone,
+            'allow_backtest': strategy.allow_backtest,
         }
 
         # 1:1 Relations — use try/except to handle RelatedObjectDoesNotExist
@@ -355,11 +379,11 @@ class StrategyLifecycleService:
             )
             
             for _ in range(5):
-                LiveExecutionService.sync_orders_from_broker(
-                    user,
-                    credential=session.broker_credential,
-                    force=True,
-                )
+                # Use new BrokerReconciliationService instead of old sync method
+                from live_trading.reconciliation_service import BrokerReconciliationService
+                reconciliation_service = BrokerReconciliationService(session.broker_credential)
+                reconciliation_service.reconcile_orders()
+                
                 order.refresh_from_db()
                 if order.status == 'FILLED':
                     break
@@ -436,6 +460,10 @@ class StrategyDeploymentService:
 
     @staticmethod
     def activate_for_deployment(strategy):
+        # Validate no dynamic routing for first release
+        from instruments.services import InstrumentResolver
+        InstrumentResolver.validate_strategy_for_first_release(strategy)
+        
         if strategy.status != 'ACTIVE':
             strategy.status = 'ACTIVE'
             strategy.save(update_fields=['status', 'updated_at'])

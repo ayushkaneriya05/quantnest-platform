@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
 from strategy_engine.runtime import StrategyRuntimeState
+from core.cache_view import cache_view
 
 logger = logging.getLogger(__name__)
 
@@ -97,18 +98,24 @@ class LiveSessionContext(SessionContext):
         return session.user_id if session else None
 
     def get_available_capital(self) -> float:
-        from marketdata.l1_cache import tick_cache
-        from live_trading.cache import LiveBrokerStateCache
-        from live_trading.services import LiveExecutionService
+        from core.cache_view import cache_view
         try:
-            allocation = tick_cache.get_live_allocation(self.session_id)
-            if not allocation:
+            # Get allocation directly from database (TickCache removed)
+            from live_trading.models import TradingSession
+            session = TradingSession.objects.filter(id=self.session_id).select_related('allocation').first()
+            if not session or not session.allocation:
                 return 0.0
-            funds_state = LiveBrokerStateCache.get_funds_state(allocation.user_id, allocation.broker_credential_id)
-            funds_payload = (funds_state or {}).get("payload") or {}
-            broker_margin = Decimal(
-                funds_payload.get("available_margin") or funds_payload.get("cash_balance")
-            )
+            
+            allocation = session.allocation
+            # Use unified cache interface for funds
+            funds_data = cache_view.get_funds(allocation.broker_credential_id)
+            if funds_data:
+                broker_margin = float(funds_data.get("available_margin") or funds_data.get("cash_balance") or 0)
+            else:
+                # Fallback to direct broker API if cache miss
+                from brokers.services import BrokerService
+                funds_data_api = BrokerService.get_funds(allocation.broker_credential)
+                broker_margin = float(funds_data_api.get("available_margin") or funds_data_api.get("cash_balance") or 0)
             broker_margin = float(broker_margin) if broker_margin is not None else float("inf")
             alloc_available = float(allocation.available_capital or 0.0)
             return min(alloc_available, broker_margin)
@@ -117,8 +124,8 @@ class LiveSessionContext(SessionContext):
             return 0.0
 
     def get_risk_stats(self) -> Dict[str, Any]:
-        from risk_management.cache import RiskCache
-        return RiskCache.get_stats("LIVE", self.user_id, self.session_id)
+        from core.cache_view import cache_view
+        return cache_view.get_risk_metrics("live", self.session_id)
 
 
 class PaperSessionContext(SessionContext):
@@ -139,16 +146,25 @@ class PaperSessionContext(SessionContext):
         return session.account.user_id if session and session.account else None
 
     def get_available_capital(self) -> float:
-        from marketdata.l1_cache import tick_cache
+        from core.cache_view import cache_view
         try:
-            account = tick_cache.get_paper_account(self.session_id)
-            if account:
-                return float(account.current_balance or 0.0)
+            # Use unified cache for risk metrics which now includes capital info
+            risk_metrics = cache_view.get_risk_metrics("paper", self.session_id)
+            if risk_metrics:
+                # Get available margin from risk metrics (now includes paper capital)
+                capital = float(risk_metrics.get("available_margin") or risk_metrics.get("cash_balance") or risk_metrics.get("net_equity") or 0)
+                return capital
+
+            # Fallback to database if cache miss (should be rare)
+            from paper_trading.models import PaperTradingSession
+            session = PaperTradingSession.objects.filter(id=self.session_id).select_related('account').first()
+            if session and session.account:
+                return float(session.account.current_balance or 0.0)
             return 0.0
         except Exception as e:
             logger.error(f"Error fetching paper capital: {e}")
             return 0.0
 
     def get_risk_stats(self) -> Dict[str, Any]:
-        from risk_management.cache import RiskCache
-        return RiskCache.get_stats("PAPER", self.user_id, self.session_id)
+        from core.cache_view import cache_view
+        return cache_view.get_risk_metrics("paper", self.session_id)

@@ -203,6 +203,8 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
             slippage_pct=run.slippage_pct,
             brokerage_per_trade=run.brokerage_per_trade,
             brokerage_pct=run.brokerage_pct,
+            charge_profile=run.charge_profile,
+            include_charges=run.include_charges,
             parameters=run.parameters,
             config_snapshot=run.config_snapshot,
             risk_profile_snapshot=run.risk_profile_snapshot,
