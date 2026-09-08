@@ -34,13 +34,6 @@ class RuleEvaluator:
         self.mtf_data = mtf_data or {} # Dict of {timeframe: df}
         self.indicator_engine = indicator_engine if indicator_engine is not None else IndicatorEngine(self.df)
         self.mtf_indicator_engines = mtf_indicator_engines if mtf_indicator_engines is not None else {}
-        
-        # Initialize evaluation statistics
-        self.evaluation_stats = {
-            'total_evaluations': 0,
-            'failed_evaluations': 0,
-            'success_rate': 0.0
-        }
 
     def evaluate_group(self, group, state=None):
         """
@@ -80,50 +73,45 @@ class RuleEvaluator:
         Evaluates a single rule (Unified Architecture) against the cached dataframe.
         Returns a boolean Series.
         """
-        self.evaluation_stats['total_evaluations'] += 1
         try:
             op_a_type = get_any_field(rule, "operand_a_type")
             op_a_params = get_any_field(rule, "operand_a_params", {}) or {}
-            
+
             if not op_a_type:
                 return self._false_series()
-            
+
             # Validate indicator parameters
             self._validate_indicator_params(op_a_type, op_a_params)
-                
+
             op_a_timeframe = get_any_field(rule, "operand_a_timeframe")
             val_a = self._resolve_operand(op_a_type, op_a_params, state, timeframe=op_a_timeframe)
-            
+
             op_b_type = get_any_field(rule, "operand_b_type")
             op_b_params = get_any_field(rule, "operand_b_params", {}) or {}
             op_b_timeframe = get_any_field(rule, "operand_b_timeframe")
-            
+
             # Validate indicator parameters for operand B
             if op_b_type:
                 self._validate_indicator_params(op_b_type, op_b_params)
-            
+
             val_b = self._resolve_operand(op_b_type, op_b_params, state, timeframe=op_b_timeframe)
-            
+
             comparison = get_any_field(rule, "comparison", ComparisonOperator.EQUAL)
-            
+
             # Validate comparison operator
             self._validate_comparison(val_a, comparison, val_b)
-            
+
             if isinstance(val_a, pd.Series) and val_a.dtype == bool:
                 if not op_b_type:
                     return val_a
-                    
+
             return self._compare(val_a, comparison, val_b)
         except (ValueError, TypeError) as e:
             # Parameter or validation errors - critical
-            self.evaluation_stats['failed_evaluations'] += 1
-            self._update_success_rate()
             logger.error("Validation error evaluating rule %s: %s", getattr(rule, "id", "Unknown"), str(e))
             return self._false_series()
         except Exception as e:
             # Other errors - log but continue
-            self.evaluation_stats['failed_evaluations'] += 1
-            self._update_success_rate()
             logger.error("Error evaluating rule %s: %s", getattr(rule, "id", "Unknown"), str(e))
             return self._false_series()
     
@@ -131,9 +119,9 @@ class RuleEvaluator:
         """Validate indicator parameters."""
         if not params:
             return
-            
+
         from common.enums import OperandType
-        
+
         if indicator_type in [OperandType.SMA, OperandType.EMA, OperandType.RSI]:
             if params.get("period", 0) <= 0:
                 raise ValueError(f"{indicator_type} requires positive period")
@@ -161,14 +149,7 @@ class RuleEvaluator:
             if not isinstance(val_b, (pd.Series, (int, float))):
                 raise ValueError("Crosses operators require series or scalar comparison")
     
-    def _update_success_rate(self):
-        """Update evaluation success rate."""
-        total = self.evaluation_stats['total_evaluations']
-        if total > 0:
-            self.evaluation_stats['success_rate'] = (
-                (total - self.evaluation_stats['failed_evaluations']) / total
-            )
-
+    
 
     def _resolve_operand(self, op_type, params, state=None, timeframe=None):
         if not op_type:
@@ -335,9 +316,12 @@ class RuleEvaluator:
             logger.warning("Rejected unsafe custom rule expression: %s", expression)
             return self._false_series()
 
-        eval_df = (target_df if target_df is not None else self.df).copy()
-        
+        # Use the target dataframe or self.df, make a copy only if we need to modify it
+        eval_df = target_df if target_df is not None else self.df
+
         # Calculate and inject dynamic variables into the dataframe
+        # We need to work on a copy to avoid modifying the original data
+        variables_added = False
         try:
             for var_name, var_config in variables.items():
                 if not isinstance(var_config, dict):
@@ -345,17 +329,22 @@ class RuleEvaluator:
                 var_type = var_config.get("type")
                 var_params = var_config.get("params", {})
                 var_timeframe = var_config.get("timeframe")
-                
+
                 # We can pass state and timeframe to _resolve_operand.
                 series = self._resolve_operand(var_type, var_params, state=state, timeframe=var_timeframe)
-                
+
                 if isinstance(series, pd.Series) and len(series) != len(eval_df):
                     if series.dtype == bool:
                         aligned = fast_ffill_align_bool(series.index.values.astype(np.int64), series.values, eval_df.index.values.astype(np.int64))
                     else:
                         aligned = fast_ffill_align_float(series.index.values.astype(np.int64), series.values, eval_df.index.values.astype(np.int64))
                     series = pd.Series(aligned, index=eval_df.index)
-                    
+
+                # If we haven't made a copy yet and we need to add a column, make a copy now
+                if not variables_added:
+                    eval_df = eval_df.copy()
+                    variables_added = True
+
                 eval_df[var_name] = series
         except Exception as e:
             logger.warning("Failed to evaluate nested variables for math expression: %s", e)
@@ -391,10 +380,13 @@ class RuleEvaluator:
     def _get_group_rules(self, group):
         rules = get_any_field(group, "rules", [])
 
+        # Handle both QuerySet and list consistently
         if hasattr(rules, "filter"):
+            # It's a QuerySet
             rules = rules.filter(is_active=True)
         else:
-            rules = [rule for rule in list(rules or []) if get_any_field(rule, "is_active", True)]
+            # It's a list or other iterable
+            rules = [rule for rule in rules if get_any_field(rule, "is_active", True)]
 
         return list(rules)
 
