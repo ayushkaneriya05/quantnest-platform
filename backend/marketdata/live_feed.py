@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from django.conf import settings
 from django.core.cache import cache
 from instruments.models import Instrument
-from common.enums import InstrumentType
 from .streaming import MarketDataStreamer
 from .utils import get_active_fyers_access_token
 
@@ -379,15 +378,15 @@ class FyersLiveFeedClient:
     def _on_message(self, message):
         # Fyers V3 can send a single dict or a list of dicts
         ticks = message if isinstance(message, list) else [message]
-        
+
         for tick in ticks:
             if not isinstance(tick, dict):
                 continue
-                
+
             symbol = tick.get("symbol")
             if not symbol or isinstance(symbol, list):
                 continue
-                
+
             ltp = tick.get("ltp")
             if ltp in (None, "", 0, "0"):
                 continue
@@ -399,35 +398,44 @@ class FyersLiveFeedClient:
                 else datetime.now(timezone.utc)
             )
 
+            # vol_traded_today is CUMULATIVE daily volume.
+            # The delta computation lives in SharedMemoryManager.update_current_candle
+            # (stored as meta[_META_PREV_CUMVOL]) — no per-symbol dict needed here.
+            cumvol = float(tick.get("vol_traded_today") or 0.0)
+
             quote = {
                 "price": ltp,
-                
-                # Backward compatibility for existing backend engines and frontend components
+
+                # Backward compatibility for existing backend engines and frontend
                 "open": tick.get("open_price"),
                 "high": tick.get("high_price"),
                 "low": tick.get("low_price"),
                 "close": tick.get("prev_close_price"),
-                
-                # New, accurate Fyers Daily keys
+
+                # Accurate Fyers daily OHLC keys
                 "day_open": tick.get("open_price"),
                 "day_high": tick.get("high_price"),
                 "day_low": tick.get("low_price"),
                 "prev_close": tick.get("prev_close_price"),
                 "change": tick.get("ch"),
                 "change_percent": tick.get("chp"),
-                "volume": tick.get("vol_traded_today"),
+
+                # Cumulative daily volume (informational — for display/quote only)
+                "volume": cumvol,
+
                 "last_traded_qty": tick.get("last_traded_qty"),
                 "avg_trade_price": tick.get("avg_trade_price"),
                 "timestamp": traded_at_dt.isoformat(),
             }
 
-
-            # Write to ultra-fast POSIX shared memory for Execution V2
+            # Write to POSIX shared memory for the Execution V2 engine.
+            # update_current_candle receives cumulative volume and converts to
+            # delta internally using the prev_cumvol stored in the meta block.
             if symbol in self.shm_managers:
                 try:
                     self.shm_managers[symbol].update_current_candle(
-                        price=float(quote["price"]),
-                        volume=float(quote["volume"] or 0),
+                        price=float(ltp),
+                        cumulative_volume=cumvol,
                         timestamp=traded_at_dt.timestamp(),
                     )
                 except Exception as exc:
@@ -445,10 +453,10 @@ class FyersLiveFeedClient:
             try:
                 # Broadcast to frontend websockets via Django Channels
                 MarketDataStreamer.publish_tick(symbol, quote)
-                
+
                 # Terminal manual trading matching engine
                 self.thread_pool.submit(_dispatch_terminal)
-                
+
                 # The Execution V2 engine (multiprocessing Actor loop) reads directly from Shared Memory.
             except Exception as exc:
                 logger.exception("Failed executing threadpool dispatch for %s: %s", symbol, exc)
