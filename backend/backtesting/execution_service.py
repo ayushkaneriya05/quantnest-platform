@@ -53,7 +53,7 @@ class BacktestExecutionService:
         # 1. Check for opposite position (close existing)
         opposite_side = Side.SELL if side == Side.BUY else Side.BUY
         opposite_position = context.get_position(instrument.id)
-
+        
         if opposite_position and opposite_position['side'] == opposite_side:
             # Close existing position
             closing_qty = min(opposite_position['quantity'], quantity)
@@ -270,14 +270,11 @@ class BacktestExecutionService:
                     break
 
             if execution_candle is None:
-                # Missing execution data - skip this order
                 logger.warning(f"Missing execution candle for instrument {instrument.id} at {timestamp}, skipping order")
                 continue
 
             # Execute at OPEN price
             execution_price = float(execution_candle["open"])
-
-            # Execute immediately (slippage already handled in _open_position/_apply_fill_to_position)
             BacktestExecutionService.execute_market_order(
                 context,
                 instrument,
@@ -291,5 +288,4 @@ class BacktestExecutionService:
                 execute_immediately=True,
             )
 
-        # Clear pending orders after execution
         context.clear_pending_orders()

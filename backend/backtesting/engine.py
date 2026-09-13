@@ -623,14 +623,13 @@ class BacktestEngine:
 
     def _calculate_total_unrealized_pnl(self):
         total = 0.0
-        for execution_instrument_id, position in self.context.positions.items():
+        for instrument_id, position in self.context.positions.items():
             if position is None:
                 continue
-            signal_instrument_id = position.get("signal_instrument_id", execution_instrument_id)
-            candle = self.instrument_states.get(signal_instrument_id, {}).get("last_candle")
+            candle = self.instrument_states.get(instrument_id, {}).get("last_candle")
             if candle is None:
                 continue
-            total += self._calculate_unrealized_pnl(candle, signal_instrument_id)
+            total += self._calculate_unrealized_pnl(candle, instrument_id)
         return total
 
     def _force_close_open_positions(self, timestamp):
@@ -904,16 +903,9 @@ class BacktestEngine:
         entry_price = position.get("entry_price") or position["avg_price"]
         return (price - entry_price) * position["quantity"] if position["side"] == Side.BUY else (entry_price - price) * position["quantity"]
 
-
-    def _get_position_for_signal(self, signal_instrument_id):
-        """Find a routed execution position belonging to a signal instrument."""
-        position = self.context.get_position(signal_instrument_id)
-        if position is not None:
-            return position
-        for candidate in self.context.positions.values():
-            if candidate and candidate.get("signal_instrument_id") == signal_instrument_id:
-                return candidate
-        return None
+    def _get_position_for_signal(self, instrument_id):
+        """V1 DIRECT ONLY: Direct position lookup."""
+        return self.context.get_position(instrument_id)
 
     def _calculate_monthly_returns(self):
         if not self.equity_curve:
@@ -1058,9 +1050,6 @@ class BacktestEngine:
                 slippage_pct=self.run.slippage_pct,
                 execute_immediately=not queue_for_next_candle,
             )
-            position = context.get_position(exec_instrument.id)
-            if position is not None:
-                position["signal_instrument_id"] = instrument.id
 
     def _get_candle_for_instrument(self, instrument_id, timestamp):
         for payload in getattr(self, "datasets", {}).values():
