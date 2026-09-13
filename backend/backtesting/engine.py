@@ -153,9 +153,9 @@ class BacktestEngine:
 
         for watch in instruments_list:
             instruments_to_fetch.add(watch.instrument)
-            for route in watch.execution_routes.all():
-                if route.route_type in ['FUTURES', 'OPTIONS'] and route.target_underlying_instrument:
-                    instruments_to_fetch.add(route.target_underlying_instrument)
+            # for route in watch.execution_routes.all():
+            #     if route.route_type in ['FUTURES', 'OPTIONS'] and route.target_underlying_instrument:
+            #         instruments_to_fetch.add(route.target_underlying_instrument)
 
         total_instruments = len(instruments_to_fetch)
 

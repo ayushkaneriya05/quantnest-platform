@@ -80,9 +80,9 @@ class StrategyExecutor:
         import pandas as pd
         from rules_engine.evaluator import RuleEvaluator
 
-        completed_df = self.completed_signal_frame(bars_df)
+        completed_df = bars_df
         completed_mtf_data = {
-            tf: self.completed_signal_frame(df) for tf, df in self.mtf_data.items()
+            tf: df for tf, df in self.mtf_data.items()
         } if self.mtf_data else {}
 
         evaluator = RuleEvaluator(
