@@ -25,14 +25,31 @@ class BacktestExecutionService:
         strategy_config,
         exit_reason="strategy_entry",
         slippage_pct=0.0,
+        execute_immediately=False,
     ):
         """
         Execute market order in backtest context.
+        If execute_immediately=False, queues order for next candle open.
         Mirrors PaperExecutionService._execute_market_order()
         """
         from common.costs import TradingCostCalculator
         from common.enums import Side, OrderType
 
+        if not execute_immediately:
+            # Queue order for next candle open
+            context.add_pending_order({
+                'instrument': instrument,
+                'side': side,
+                'quantity': quantity,
+                'price': price,
+                'timestamp': timestamp,
+                'strategy_config': strategy_config,
+                'exit_reason': exit_reason,
+                'slippage_pct': slippage_pct,
+            })
+            return
+
+        # Immediate execution (for SL/Target or end of backtest)
         # 1. Check for opposite position (close existing)
         opposite_side = Side.SELL if side == Side.BUY else Side.BUY
         opposite_position = context.get_position(instrument.id)
@@ -89,10 +106,14 @@ class BacktestExecutionService:
         entry_price = position['avg_price']
         side = position['side']
 
-        # Apply slippage
+        # Apply slippage and track actual slippage amount
+        original_fill_price = fill_price
         if slippage_pct > 0:
             exit_side = Side.SELL if side == Side.BUY else Side.BUY
             fill_price = float(TradingCostCalculator.apply_slippage(fill_price, exit_side, slippage_pct))
+
+        # Calculate actual slippage amount
+        slippage_amount = abs(fill_price - original_fill_price) * fill_quantity
 
         # Calculate PnL
         if side == Side.BUY:
@@ -144,6 +165,10 @@ class BacktestExecutionService:
         context.update_risk_metrics(risk_metrics)
 
         # Create trade record (saved to DB after backtest)
+        # Total slippage = entry slippage + exit slippage
+        entry_slippage = position.get('entry_slippage', 0)
+        total_slippage = entry_slippage + slippage_amount
+
         trade_data = {
             'instrument': position.get('instrument'),
             'side': side,
@@ -158,6 +183,7 @@ class BacktestExecutionService:
             'exit_reason': exit_reason,
             'mae': position.get('max_loss', 0),
             'mfe': position.get('max_profit', 0),
+            'slippage': total_slippage,  # Track total slippage (entry + exit)
         }
         context.closed_trades.append(trade_data)
 
@@ -187,9 +213,13 @@ class BacktestExecutionService:
         from rules_engine.utils import derive_protection_levels
         from common.costs import TradingCostCalculator
 
-        # Apply slippage
+        # Apply slippage and track entry slippage
+        original_price = price
         if slippage_pct > 0:
             price = float(TradingCostCalculator.apply_slippage(price, side, slippage_pct))
+
+        # Calculate entry slippage amount
+        entry_slippage = abs(price - original_price) * quantity
 
         protection = derive_protection_levels(strategy_config, side, price)
 
@@ -209,6 +239,57 @@ class BacktestExecutionService:
             'trailing_target': None,
             'max_profit': 0.0,
             'max_loss': 0.0,
+            'entry_slippage': entry_slippage,  # Track entry slippage
         }
 
         context.update_position(instrument.id, position)
+    
+    @staticmethod
+    def execute_pending_orders(context, datasets, timestamp):
+        """
+        Execute all pending orders at the current candle open.
+        Orders are executed at the OPEN price of the current candle.
+        """
+        pending_orders = context.get_pending_orders()
+        if not pending_orders:
+            return
+
+        for order in pending_orders:
+            instrument = order['instrument']
+            side = order['side']
+            quantity = order['quantity']
+            slippage_pct = order['slippage_pct']
+            strategy_config = order['strategy_config']
+            exit_reason = order['exit_reason']
+
+            # Get execution candle for this instrument
+            execution_candle = None
+            for payload in datasets.values():
+                if payload['instrument'].id == instrument.id:
+                    execution_candle = payload['df_dict'].get(timestamp)
+                    break
+
+            if execution_candle is None:
+                # Missing execution data - skip this order
+                logger.warning(f"Missing execution candle for instrument {instrument.id} at {timestamp}, skipping order")
+                continue
+
+            # Execute at OPEN price
+            execution_price = float(execution_candle["open"])
+
+            # Execute immediately (slippage already handled in _open_position/_apply_fill_to_position)
+            BacktestExecutionService.execute_market_order(
+                context,
+                instrument,
+                side,
+                quantity,
+                execution_price,
+                timestamp,
+                strategy_config,
+                exit_reason=exit_reason,
+                slippage_pct=slippage_pct,
+                execute_immediately=True,
+            )
+
+        # Clear pending orders after execution
+        context.clear_pending_orders()

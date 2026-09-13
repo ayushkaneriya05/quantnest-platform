@@ -25,6 +25,7 @@ class BacktestContext:
         # State storage (in-memory, no DB)
         self.positions = {}  # instrument_id -> position dict
         self.orders = []     # list of order dicts
+        self.pending_orders = []  # Pending orders for next candle execution
         self.closed_trades = []  # completed fill records, retained after positions are removed
         self.runtime_state = {}  # instrument_id -> state dict
         self.risk_metrics = {
@@ -68,3 +69,16 @@ class BacktestContext:
     
     def should_include_charges(self):
         return self.include_charges
+    
+    # Pending order management for next candle execution
+    def add_pending_order(self, order):
+        """Add a pending order to be executed at next candle open."""
+        self.pending_orders.append(order)
+    
+    def get_pending_orders(self):
+        """Get all pending orders."""
+        return self.pending_orders
+    
+    def clear_pending_orders(self):
+        """Clear all pending orders after execution."""
+        self.pending_orders = []

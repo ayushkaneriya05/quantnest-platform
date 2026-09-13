@@ -172,7 +172,7 @@ class RuleEvaluator:
             return self._evaluate_custom_expression(params, state, target_df=target_df)
             
         if state is not None:
-            # State-based properties
+            # State-based properties (only available in exit rules)
             if op_type == OperandType.POSITION_PNL_PERCENTAGE:
                 return self._state_pnl_percentage(state)
             if op_type == OperandType.POSITION_PNL_POINTS:
@@ -189,6 +189,12 @@ class RuleEvaluator:
                 if sl_dist > 0:
                     return self._state_pnl_points(state) / sl_dist
                 return 0.0
+        
+        # State-based operands require state (exit rules only)
+        if op_type in [OperandType.POSITION_PNL_PERCENTAGE, OperandType.POSITION_PNL_POINTS, 
+                      OperandType.ENTRY_PRICE, OperandType.TRAILING_PEAK_OFFSET, OperandType.POSITION_RR_RATIO]:
+            logger.warning("State operand %s used without state context, returning NaN", op_type)
+            return self._nan_series()
 
             
         shift_val = int(params.get("shift", 0)) if params else 0
@@ -204,6 +210,12 @@ class RuleEvaluator:
             price_series = target_df["low"]
         elif op_type == OperandType.VOLUME:
             price_series = target_df["volume"]
+        elif op_type == OperandType.VWAP:
+            # VWAP is an indicator, not a simple price series
+            series = target_engine.get_series(OperandType.VWAP, params or {})
+            if series is not None and shift_val > 0:
+                series = series.shift(shift_val)
+            return series
         elif op_type == OperandType.HL2:
             price_series = (target_df["high"] + target_df["low"]) / 2
         elif op_type == OperandType.HLC3:
@@ -229,6 +241,12 @@ class RuleEvaluator:
                 price_series = (body_size / target_df["open"]) * 100
             else:
                 price_series = body_size
+        elif op_type == OperandType.CANDLE_PATTERN:
+            # CANDLE_PATTERN is an indicator, handled by IndicatorEngine
+            series = target_engine.get_series(OperandType.CANDLE_PATTERN, params or {})
+            if series is not None and shift_val > 0:
+                series = series.shift(shift_val)
+            return series
 
         if price_series is not None:
             if shift_val > 0:

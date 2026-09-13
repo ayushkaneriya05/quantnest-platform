@@ -304,28 +304,107 @@ class BacktestEngine:
 
                     self._populate_active_events(current_day)
 
+                # STEP 1: NEW CANDLE OPEN - Retrieve execution instrument candles
+                instrument_candles = {}
                 for instrument_id, context in contexts.items():
-                    df = context["df"]
                     df_dict = context["df_dict"]
-
                     candle = df_dict.get(timestamp)
                     if candle is None:
                         continue
+                    instrument_candles[instrument_id] = candle
                     state = self.instrument_states[instrument_id]
                     state["last_candle"] = candle
 
+                if not instrument_candles:
+                    continue
+
+                # STEP 2: EXECUTE PENDING MARKET ORDERS at current candle OPEN
+                from .execution_service import BacktestExecutionService
+                BacktestExecutionService.execute_pending_orders(self.context, datasets, timestamp)
+
+                # STEP 3: POSITION INTRABAR CHECKS (SL/Target)
+                # STEP 4: UPDATE POSITION STATE
+                for instrument_id, candle in instrument_candles.items():
+                    open_pos = self._get_position_for_signal(instrument_id)
+                    if open_pos:
+                        # Update MAE/MFE
+                        self._update_mae_mfe(
+                            open_pos,
+                            self._get_execution_candle(open_pos, timestamp) or candle,
+                        )
+                        # Check SL/Target (intrabar)
+                        pos_state = {
+                            "avg_price": open_pos['avg_price'],
+                            "side": open_pos['side'],
+                            "current_price": float(candle["close"]),
+                            "peak_price": open_pos['peak_price'],
+                            "protected_stop_price": open_pos['protected_stop_price'],
+                            "protected_target_price": open_pos['protected_target_price'],
+                        }
+
+                        # Update peak price
+                        from common.enums import Side
+                        if open_pos['side'] == Side.BUY:
+                            pos_state["peak_price"] = max(pos_state["peak_price"], float(candle["high"]))
+                        else:
+                            pos_state["peak_price"] = min(pos_state["peak_price"], float(candle["low"]))
+
+                        # Check SL/Target with SAME CANDLE POLICY: STOP LOSS FIRST
+                        execution_candle = self._get_execution_candle(open_pos, timestamp) or candle
+                        stop_price = open_pos.get('protected_stop_price')
+                        target_price = open_pos.get('protected_target_price')
+                        fast_hit = False
+                        exit_price = float(execution_candle["close"])
+                        reason = None
+
+                        # Check Stop Loss FIRST
+                        if stop_price is not None:
+                            if open_pos['side'] == Side.BUY and float(execution_candle["low"]) <= stop_price:
+                                fast_hit, reason, exit_price = True, "Stop Loss Hit", stop_price
+                            elif open_pos['side'] == Side.SELL and float(execution_candle["high"]) >= stop_price:
+                                fast_hit, reason, exit_price = True, "Stop Loss Hit", stop_price
+
+                        # Check Target only if Stop Loss not hit
+                        if not fast_hit and target_price is not None:
+                            if open_pos['side'] == Side.BUY and float(execution_candle["high"]) >= target_price:
+                                fast_hit, reason, exit_price = True, "Target Hit", target_price
+                            elif open_pos['side'] == Side.SELL and float(execution_candle["low"]) <= target_price:
+                                fast_hit, reason, exit_price = True, "Target Hit", target_price
+
+                        if fast_hit:
+                            BacktestExecutionService.execute_market_order(
+                                self.context,
+                                open_pos['instrument'],
+                                Side.SELL if open_pos['side'] == Side.BUY else Side.BUY,
+                                open_pos['quantity'],
+                                exit_price,
+                                timestamp,
+                                self.config,
+                                exit_reason=reason,
+                                slippage_pct=self.run.slippage_pct,
+                                execute_immediately=True,  # SL/Target execute immediately
+                            )
+
+                # STEP 5: CANDLE CLOSE - Now candle data is considered completed
+                # STEP 6: EVALUATE EXIT RULES
+                for instrument_id, context in contexts.items():
+                    candle = instrument_candles.get(instrument_id)
+                    if candle is None:
+                        continue
+
+                    state = self.instrument_states[instrument_id]
                     is_in_no_trade_zone = context["executor"].is_in_no_trade_zone(timestamp)
 
                     open_pos = self._get_position_for_signal(instrument_id)
                     stats = self._build_runtime_stats(candle, daily_stats, context["instrument"], timestamp)
 
+                    # Auto-disable check
                     auto_disable_eval = self.risk_evaluator.evaluate_auto_disable_rules(
                         self.config.get("auto_disable_rules", []),
                         stats,
                     )
                     if auto_disable_eval.get("should_disable"):
                         if open_pos:
-                            from .execution_service import BacktestExecutionService
                             BacktestExecutionService.execute_market_order(
                                 self.context,
                                 open_pos['instrument'],
@@ -335,6 +414,7 @@ class BacktestEngine:
                                 timestamp,
                                 self.config,
                                 exit_reason="Auto-Disable Triggered",
+                                execute_immediately=True,  # Auto-disable executes immediately
                             )
                             state["last_exit_time"] = timestamp
                             state["instrument_daily_trades"] += 1
@@ -346,22 +426,77 @@ class BacktestEngine:
                             "reason": auto_disable_eval.get("matches", [{}])[0].get("message", "Auto-disable triggered"),
                         }
 
+                    # Evaluate exit rules (normal exits)
                     if open_pos:
-                        self._update_mae_mfe(
-                            open_pos,
-                            self._get_execution_candle(open_pos, timestamp) or candle,
-                        )
-                        had_position = True
-                        self._process_exit(
-                            self.context,
-                            open_pos,
-                            candle,
-                            timestamp,
-                            context["executor"],
-                            stats,
-                        )
-                        if had_position and self._get_position_for_signal(instrument_id) is None:
-                            state["last_exit_time"] = timestamp
+                        executor = context["executor"]
+                        execution_candle = self._get_execution_candle(open_pos, timestamp) or candle
+
+                        pos_state = {
+                            "avg_price": open_pos['avg_price'],
+                            "side": open_pos['side'],
+                            "current_price": float(execution_candle["close"]),
+                            "peak_price": open_pos['peak_price'],
+                            "protected_stop_price": open_pos['protected_stop_price'],
+                            "protected_target_price": open_pos['protected_target_price'],
+                        }
+
+                        # Build df slice for exit rule evaluation
+                        instrument_id_for_df = open_pos['instrument_id']
+                        df_dict = None
+                        for payload in self.datasets.values():
+                            if payload['instrument'].id == instrument_id_for_df:
+                                df_dict = payload['df_dict']
+                                break
+
+                        if df_dict:
+                            df_list = []
+                            for ts in sorted(df_dict.keys()):
+                                if ts <= timestamp:
+                                    df_list.append(df_dict[ts])
+
+                            if df_list:
+                                df = pd.DataFrame(df_list)
+                                df.index = pd.to_datetime([ts for ts in sorted(df_dict.keys()) if ts <= timestamp])
+
+                                should_exit, reason, action, action_params = executor.evaluate_exit_logic(
+                                    pos_state, df
+                                )
+
+                                if should_exit:
+                                    from strategy_engine.exit_actions import process_exit_action
+                                    decision = process_exit_action(
+                                        action=action,
+                                        params=action_params,
+                                        position=open_pos,
+                                        reason=reason,
+                                    )
+
+                                    if decision.should_send_order:
+                                        # Queue exit for NEXT candle open
+                                        BacktestExecutionService.execute_market_order(
+                                            self.context,
+                                            open_pos['instrument'],
+                                            Side.SELL if open_pos['side'] == Side.BUY else Side.BUY,
+                                            decision.quantity,
+                                            float(candle["close"]),  # Will be replaced with next candle open
+                                            timestamp,
+                                            self.config,
+                                            exit_reason=decision.reason,
+                                            slippage_pct=self.run.slippage_pct,
+                                            execute_immediately=False,  # Queue for next candle
+                                        )
+
+                # STEP 7: EVALUATE ENTRY RULES
+                for instrument_id, context in contexts.items():
+                    candle = instrument_candles.get(instrument_id)
+                    if candle is None:
+                        continue
+
+                    state = self.instrument_states[instrument_id]
+                    is_in_no_trade_zone = context["executor"].is_in_no_trade_zone(timestamp)
+
+                    open_pos = self._get_position_for_signal(instrument_id)
+                    stats = self._build_runtime_stats(candle, daily_stats, context["instrument"], timestamp)
 
                     if not open_pos:
                         executor = context["executor"]
@@ -372,6 +507,7 @@ class BacktestEngine:
                         # Check for New Entries via StrategyExecutor
                         can_enter, reason = executor.can_enter(stats, timestamp)
                         if can_enter and bool(context["entry_signals"].get(timestamp, False)):
+                            # Queue entry for NEXT candle open
                             self._process_entry(
                                 self.context,
                                 context["instrument"],
@@ -379,6 +515,7 @@ class BacktestEngine:
                                 timestamp,
                                 executor,
                                 stats,
+                                queue_for_next_candle=True,
                             )
 
                     daily_stats["trades"] = self.context.get_risk_metrics().get("daily_trades", 0)
@@ -447,9 +584,13 @@ class BacktestEngine:
 
 
     def _update_mae_mfe(self, position, candle):
+        """
+        Update MAE/MFE using execution instrument candle only.
+        For MANUAL routing, this uses the execution instrument data.
+        """
         high = float(candle["high"])
         low = float(candle["low"])
-        entry = position.get("entry_price") or position["avg_price"]
+        entry = position.get("avg_price")  # Use canonical avg_price field
 
         if position["side"] == Side.BUY:
             # MFE is highest point reached - entry
@@ -500,20 +641,26 @@ class BacktestEngine:
         for instrument_id, position in list(self.context.positions.items()):
             if position is None:
                 continue
-            signal_instrument_id = position.get("signal_instrument_id", instrument_id)
-            state = self.instrument_states.get(signal_instrument_id, {})
-            candle = state.get("last_candle")
-            if candle is not None:
+
+            # CRITICAL: Use execution instrument candle, not signal instrument candle
+            # For MANUAL routing, signal and execution instruments are different
+            execution_candle = self._get_execution_candle(position, timestamp)
+
+            if execution_candle is not None:
                 BacktestExecutionService.execute_market_order(
                     self.context,
                     position['instrument'],
                     Side.SELL if position['side'] == Side.BUY else Side.BUY,
                     position['quantity'],
-                    float(candle["close"]),
+                    float(execution_candle["close"]),
                     timestamp,
                     self.config,
                     exit_reason="End of Backtest Square-off",
+                    execute_immediately=True,  # Force close executes immediately
                 )
+            else:
+                # Missing execution instrument data - log and skip
+                logger.warning(f"Missing execution candle for force close: instrument {instrument_id} at {timestamp}")
 
     def _finalize_run(self):
         self._save_trades_from_context()
@@ -618,14 +765,35 @@ class BacktestEngine:
         metrics.max_drawdown_amount = (float(metrics.max_drawdown_pct) / 100) * self.max_equity if self.max_equity else 0
         metrics.recovery_factor = (float(metrics.total_return_pct) / float(metrics.max_drawdown_pct)) if metrics.max_drawdown_pct else 0
 
-        if len(pnl_series) > 1:
-            std = np.std(pnl_series)
-            downside = np.std([min(p, 0) for p in pnl_series])
-            if std > 0:
-                metrics.sharpe_ratio = (np.mean(pnl_series) / std) * np.sqrt(252)
-                metrics.volatility_pct = (std / self.initial_capital) * 100 if self.initial_capital else 0
-            if downside > 0:
-                metrics.sortino_ratio = (np.mean(pnl_series) / downside) * np.sqrt(252)
+        # Calculate Sharpe, Sortino, and Volatility from periodic equity returns (not trade PnL)
+        if len(self.equity_curve) > 1:
+            # Build equity DataFrame
+            equity_df = pd.DataFrame(
+                [{"timestamp": point.timestamp, "equity": float(point.equity_value)} for point in self.equity_curve]
+            )
+            equity_df["timestamp"] = pd.to_datetime(equity_df["timestamp"])
+            equity_df = equity_df.set_index("timestamp").sort_index()
+
+            # Calculate daily returns
+            daily_equity = equity_df["equity"].resample("D").last().dropna()
+            daily_returns = daily_equity.pct_change().dropna()
+
+            if len(daily_returns) > 1:
+                # Sharpe Ratio using daily returns
+                mean_return = np.mean(daily_returns)
+                std_return = np.std(daily_returns)
+                if std_return > 0:
+                    # Annualize: multiply by sqrt(252) for daily returns
+                    metrics.sharpe_ratio = (mean_return / std_return) * np.sqrt(252)
+                    metrics.volatility_pct = (std_return * np.sqrt(252)) * 100
+
+                # Sortino Ratio using downside deviation
+                downside_returns = daily_returns[daily_returns < 0]
+                if len(downside_returns) > 0:
+                    downside_deviation = np.std(downside_returns)
+                    if downside_deviation > 0:
+                        metrics.sortino_ratio = (mean_return / downside_deviation) * np.sqrt(252)
+
             if metrics.max_drawdown_pct:
                 metrics.calmar_ratio = float(metrics.total_return_pct) / float(metrics.max_drawdown_pct)
 
@@ -787,15 +955,43 @@ class BacktestEngine:
         return ((self.context.current_capital / self.initial_capital) ** (1 / years) - 1) * 100
 
     def _calculate_drawdown_duration_days(self):
-        longest = 0
-        current = 0
+        """
+        Calculate maximum drawdown duration in days using timestamps.
+        Duration is measured from peak timestamp to recovery timestamp.
+        """
+        if not self.equity_curve:
+            return 0
+
+        longest_duration_days = 0
+        peak_timestamp = None
+        peak_equity = 0
+
         for point in self.equity_curve:
-            if float(point.drawdown_pct) > 0:
-                current += 1
-                longest = max(longest, current)
-            else:
-                current = 0
-        return longest
+            current_equity = float(point.equity_value)
+            current_drawdown = float(point.drawdown_pct)
+
+            # New peak detected
+            if current_equity > peak_equity:
+                # If we were in drawdown, calculate duration
+                if peak_timestamp is not None and current_drawdown == 0:
+                    duration_days = (point.timestamp - peak_timestamp).days
+                    longest_duration_days = max(longest_duration_days, duration_days)
+
+                peak_equity = current_equity
+                peak_timestamp = point.timestamp
+
+            # Currently in drawdown
+            elif current_drawdown > 0 and peak_timestamp is not None:
+                # Calculate ongoing duration (not yet recovered)
+                duration_days = (point.timestamp - peak_timestamp).days
+                longest_duration_days = max(longest_duration_days, duration_days)
+
+        # If still in drawdown at end, count to final point
+        if peak_timestamp is not None and float(self.equity_curve[-1].drawdown_pct) > 0:
+            duration_days = (self.equity_curve[-1].timestamp - peak_timestamp).days
+            longest_duration_days = max(longest_duration_days, duration_days)
+
+        return longest_duration_days
 
 
     def _deep_merge(self, base, updates):
@@ -805,113 +1001,11 @@ class BacktestEngine:
             else:
                 base[key] = value
 
-    def _process_exit(self, context, position, candle, timestamp, executor, stats):
-        """
-        Process exit logic using BacktestExecutionService.
-        """
-        from .execution_service import BacktestExecutionService
-        from common.enums import Side
-        from strategy_engine.exit_actions import process_exit_action
 
-        price_candle = self._get_execution_candle(position, timestamp) or candle
-
-        # Fast path: Stop loss / target
-        pos_state = {
-            "avg_price": position['avg_price'],
-            "side": position['side'],
-            "current_price": float(price_candle["close"]),
-            "peak_price": position['peak_price'],
-            "protected_stop_price": position['protected_stop_price'],
-            "protected_target_price": position['protected_target_price'],
-        }
-
-        # Update peak price
-        if position['side'] == Side.BUY:
-            pos_state["peak_price"] = max(pos_state["peak_price"], float(price_candle["high"]))
-        else:
-            pos_state["peak_price"] = min(pos_state["peak_price"], float(price_candle["low"]))
-
-        # Check fast path
-        stop_price = position.get('protected_stop_price')
-        target_price = position.get('protected_target_price')
-        fast_hit = False
-        exit_price = float(price_candle["close"])
-        reason = None
-
-        if stop_price is not None:
-            if position['side'] == Side.BUY and float(price_candle["low"]) <= stop_price:
-                fast_hit, reason, exit_price = True, "Stop Loss Hit", stop_price
-            elif position['side'] == Side.SELL and float(price_candle["high"]) >= stop_price:
-                fast_hit, reason, exit_price = True, "Stop Loss Hit", stop_price
-
-        if not fast_hit and target_price is not None:
-            if position['side'] == Side.BUY and float(price_candle["high"]) >= target_price:
-                fast_hit, reason, exit_price = True, "Target Hit", target_price
-            elif position['side'] == Side.SELL and float(price_candle["low"]) <= target_price:
-                fast_hit, reason, exit_price = True, "Target Hit", target_price
-
-        if fast_hit:
-            BacktestExecutionService.execute_market_order(
-                context,
-                position['instrument'],
-                Side.SELL if position['side'] == Side.BUY else Side.BUY,
-                position['quantity'],
-                exit_price,
-                timestamp,
-                self.config,
-                exit_reason=reason,
-                slippage_pct=self.run.slippage_pct,
-            )
-            return
-
-        # Slow path: Indicator-based exit
-        # Get df slice up to current timestamp
-        instrument_id = position['instrument_id']
-        df_dict = None
-        for payload in self.datasets.values():
-            if payload['instrument'].id == instrument_id:
-                df_dict = payload['df_dict']
-                break
-
-        if df_dict:
-            # Build df slice
-            df_list = []
-            for ts in sorted(df_dict.keys()):
-                if ts <= timestamp:
-                    df_list.append(df_dict[ts])
-
-            if df_list:
-                df = pd.DataFrame(df_list)
-                df.index = pd.to_datetime([ts for ts in sorted(df_dict.keys()) if ts <= timestamp])
-
-                should_exit, reason, action, action_params = executor.evaluate_exit_logic(
-                    pos_state, df
-                )
-
-                if should_exit:
-                    decision = process_exit_action(
-                        action=action,
-                        params=action_params,
-                        position=position,
-                        reason=reason,
-                    )
-
-                    if decision.should_send_order:
-                        BacktestExecutionService.execute_market_order(
-                            context,
-                            position['instrument'],
-                            Side.SELL if position['side'] == Side.BUY else Side.BUY,
-                            decision.quantity,
-                            float(candle["close"]),
-                            timestamp,
-                            self.config,
-                            exit_reason=decision.reason,
-                            slippage_pct=self.run.slippage_pct,
-                        )
-
-    def _process_entry(self, context, instrument, candle, timestamp, executor, stats):
+    def _process_entry(self, context, instrument, candle, timestamp, executor, stats, queue_for_next_candle=False):
         """
         Process entry logic using BacktestExecutionService.
+        If queue_for_next_candle=True, queues order for next candle open.
         """
         from .execution_service import BacktestExecutionService
         from common.enums import Side
@@ -951,7 +1045,7 @@ class BacktestEngine:
             if quantity <= 0:
                 continue
 
-            # Execute order
+            # Execute order (queue or immediate)
             BacktestExecutionService.execute_market_order(
                 context,
                 exec_instrument,
@@ -962,6 +1056,7 @@ class BacktestEngine:
                 self.config,
                 exit_reason="strategy_entry",
                 slippage_pct=self.run.slippage_pct,
+                execute_immediately=not queue_for_next_candle,
             )
             position = context.get_position(exec_instrument.id)
             if position is not None:
@@ -1000,7 +1095,7 @@ class BacktestEngine:
                 charges_json=charges_json,
                 exit_reason=trade_data['exit_reason'],
                 brokerage=float(entry_charges.get('brokerage', 0) or 0) + float(exit_charges.get('brokerage', 0) or 0),
-                slippage=0,
+                slippage=float(trade_data.get('slippage', 0)),  # Use actual slippage from trade data
                 pnl_pct=(float(trade_data['net_pnl']) / (entry_price * quantity)) * 100 if entry_price > 0 and quantity > 0 else 0,
                 mae=trade_data.get('mae', 0),
                 mfe=trade_data.get('mfe', 0),
