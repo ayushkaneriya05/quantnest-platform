@@ -24,10 +24,12 @@ import logging
 import time as _time
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
+from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 from instruments.models import Instrument
@@ -53,6 +55,12 @@ _PANDAS_FREQ: Dict[str, str] = {
     "1H": "1h",
     "4H": "4h",
     "1W": "1W",
+}
+
+# FYERS resolution strings for canonical timeframes.
+_FYERS_RESOLUTION: Dict[str, str] = {
+    "1m": "1",
+    "1D": "D",
 }
 
 
@@ -151,7 +159,123 @@ def _db_actual_timestamps(
     return result
 
 
+def _upsert_candles_bulk(
+    symbol: str,
+    canonical_tf: str,
+    candles: List[dict],
+    instrument: Optional[Instrument],
+) -> int:
+    """
+    Bulk-upsert candle dicts (keys: time, open, high, low, close, volume).
+    Returns the number of rows written.
+    """
+    if not candles:
+        return 0
 
+    unique_rows: dict = {}
+    for c in candles:
+        candle_time = c["time"]
+        if isinstance(candle_time, (int, float)):
+            candle_time = datetime.fromtimestamp(int(candle_time), tz=dt_timezone.utc)
+        elif timezone.is_naive(candle_time):
+            candle_time = candle_time.replace(tzinfo=dt_timezone.utc)
+        else:
+            candle_time = candle_time.astimezone(dt_timezone.utc)
+
+        unique_rows[(symbol, canonical_tf, candle_time)] = Candle(
+            instrument=instrument,
+            symbol=symbol,
+            timeframe=canonical_tf,
+            time=candle_time,
+            open=Decimal(str(c["open"])),
+            high=Decimal(str(c["high"])),
+            low=Decimal(str(c["low"])),
+            close=Decimal(str(c["close"])),
+            volume=int(c.get("volume", 0) or 0),
+        )
+
+    rows = list(unique_rows.values())
+    with transaction.atomic():
+        Candle.objects.bulk_create(
+            rows,
+            update_conflicts=True,
+            unique_fields=["symbol", "timeframe", "time"],
+            update_fields=["open", "high", "low", "close", "volume", "instrument", "updated_at"],
+        )
+    return len(rows)
+
+
+def _fetch_from_fyers(
+    symbol: str,
+    canonical_tf: str,
+    date_from: date,
+    date_to: date,
+) -> Optional[List[dict]]:
+    """
+    Fetch candles from FYERS for a canonical timeframe (1m or 1D).
+
+    Returns:
+      list of dicts  — candles returned (may be empty on non-trading days)
+      []             — FYERS confirmed no_data (valid empty — holiday/weekend)
+      None           — FYERS API error (auth/network failure)
+    """
+    from django.conf import settings
+    from .utils import get_active_fyers_access_token
+
+    if canonical_tf not in CANONICAL_TIMEFRAMES:
+        raise ValueError(
+            f"Broker fetch only supports canonical timeframes; got {canonical_tf!r}"
+        )
+
+    access_token = get_active_fyers_access_token()
+    if not access_token:
+        logger.error("No active Fyers access token")
+        return None
+
+    # Explicit UTC epoch — never rely on server local timezone.
+    range_from = int(datetime.combine(date_from, time.min, tzinfo=dt_timezone.utc).timestamp())
+    range_to = int(datetime.combine(date_to, time.max, tzinfo=dt_timezone.utc).timestamp())
+
+    params = {
+        "symbol": symbol,
+        "resolution": _FYERS_RESOLUTION[canonical_tf],
+        "date_format": "0",
+        "range_from": str(range_from),
+        "range_to": str(range_to),
+        "cont_flag": "0",
+    }
+
+    try:
+        from fyers_apiv3 import fyersModel
+        fyers = fyersModel.FyersModel(
+            client_id=settings.FYERS_CLIENT_ID, is_async=False, token=access_token
+        )
+        data = fyers.history(data=params)
+    except Exception as exc:
+        logger.exception("FYERS fetch error for %s %s: %s", symbol, canonical_tf, exc)
+        return None
+
+    status = data.get("s")
+    if status == "no_data":
+        return []
+    if status != "ok":
+        logger.error(
+            "FYERS API error for %s %s (code=%s): %s",
+            symbol, canonical_tf, data.get("code"), data.get("message", data),
+        )
+        return None
+
+    return [
+        {
+            "time": datetime.fromtimestamp(int(item[0]), tz=dt_timezone.utc),
+            "open": float(item[1]),
+            "high": float(item[2]),
+            "low": float(item[3]),
+            "close": float(item[4]),
+            "volume": int(item[5]),
+        }
+        for item in data.get("candles", [])
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -294,15 +418,14 @@ class MarketDataRepository:
                 instrument = None
 
         if ensure_complete:
-            self._ensure_complete(sym, canonical_tf, start_dt, end_dt, allow_partial)
+            self._ensure_complete(sym, canonical_tf, start_dt, end_dt, instrument, allow_partial)
 
         raw_candles = self._load_from_db(sym, canonical_tf, start_dt, end_dt)
 
         if tf != canonical_tf:
             return self._aggregate(raw_candles, tf)
 
-        from .services import MarketDataService
-        return [MarketDataService.serialize_candle(c) for c in raw_candles]
+        return [self._serialize(c) for c in raw_candles]
 
     def _ensure_complete(
         self,
@@ -310,14 +433,13 @@ class MarketDataRepository:
         canonical_tf: str,
         start_dt: datetime,
         end_dt: datetime,
+        instrument: Optional[Instrument],
         allow_partial: bool,
     ) -> None:
         """
         Verify exact coverage and fetch missing ranges from FYERS.
         Re-verifies after upsert.  Raises if gaps remain (unless allow_partial).
         """
-        from .services import MarketDataService
-
         days_requested = max(1, (end_dt.date() - start_dt.date()).days + 1)
         if days_requested > MAX_SYNC_DAYS:
             raise DataIncompleteError(
@@ -348,11 +470,7 @@ class MarketDataRepository:
         try:
             any_broker_error = False
             for range_start, range_end in coverage.fetch_ranges:
-                result = MarketDataService.fetch_candles_from_broker(
-                    sym, canonical_tf,
-                    range_start.date().isoformat(),
-                    range_end.date().isoformat(),
-                )
+                result = _fetch_from_fyers(sym, canonical_tf, range_start.date(), range_end.date())
                 if result is None:
                     any_broker_error = True
                     logger.error(
@@ -360,7 +478,7 @@ class MarketDataRepository:
                         range_start.date(), range_end.date(), sym, canonical_tf,
                     )
                 elif result:
-                    MarketDataService.upsert_candles(sym, canonical_tf, result)
+                    _upsert_candles_bulk(sym, canonical_tf, result, instrument)
                 # result == [] means valid no_data (holiday/weekend) — not an error
         finally:
             cache.delete(lock_key)
@@ -395,6 +513,20 @@ class MarketDataRepository:
                 time__lte=end_dt,
             ).order_by("time")
         )
+
+    @staticmethod
+    def _serialize(candle: Candle) -> dict:
+        ts = candle.time
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=dt_timezone.utc)
+        return {
+            "time": int(ts.timestamp()),
+            "open": float(candle.open),
+            "high": float(candle.high),
+            "low": float(candle.low),
+            "close": float(candle.close),
+            "volume": int(candle.volume or 0),
+        }
 
     def _aggregate(self, raw_candles: List[Candle], target_tf: str) -> List[dict]:
         """Aggregate canonical candles to a derived timeframe using pandas resample."""
@@ -475,7 +607,7 @@ class MarketDataRepository:
         start_dt = _coerce_utc(start, start_of_day=True)
         end_dt = min(_coerce_utc(end, start_of_day=False), timezone.now())
 
-        self._ensure_complete(sym, canonical_timeframe, start_dt, end_dt, allow_partial=False)
+        self._ensure_complete(sym, canonical_timeframe, start_dt, end_dt, instrument, allow_partial=False)
 
 # ---------------------------------------------------------------------------
 # Module-level singleton

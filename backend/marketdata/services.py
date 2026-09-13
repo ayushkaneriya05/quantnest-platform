@@ -195,11 +195,8 @@ class MarketDataService:
 
     @classmethod
     def serialize_candle(cls, candle) -> dict:
-        ts = candle.time
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=py_timezone.utc)
         return {
-            "time": int(ts.timestamp()),
+            "time": int(candle.time.timestamp()),
             "open": float(candle.open),
             "high": float(candle.high),
             "low": float(candle.low),
