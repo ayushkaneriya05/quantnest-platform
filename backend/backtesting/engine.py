@@ -422,7 +422,7 @@ class BacktestEngine:
                             daily_stats["pnl"] = self.context.get_risk_metrics().get("daily_pnl", 0.0)
                             open_pos = None
                         self.halt_state = {
-                            "active_until": datetime.combine(timestamp.date(), time(23, 59, 59)),
+                            "active_until": datetime.combine(timestamp.date(), time(auto_disable_eval.get("max_cooldown_hours", 24), 00, 00)),
                             "reason": auto_disable_eval.get("matches", [{}])[0].get("message", "Auto-disable triggered"),
                         }
 
