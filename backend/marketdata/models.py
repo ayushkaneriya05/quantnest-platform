@@ -1,3 +1,4 @@
+# backend/marketdata/models.py
 from django.db import models
 from django.utils import timezone
 
@@ -5,23 +6,19 @@ from common.enums import Severity
 from common.models import BaseTimestampModel
 from instruments.models import Instrument
 
-# Canonical timeframes physically stored in the DB.
-CANONICAL_TIMEFRAMES = frozenset({"1m", "1D"})
-
-
 class MarketDataToken(models.Model):
     """
-    Singleton row (pk=1) for the Fyers market-data access token.
-    Use get_or_create(pk=1) to read/write.
+    Singleton-like model to store the Fyers market-data access token and refresh token.
+    You can keep one row per token (we will use get_or_create(pk=1) in views).
     """
     id = models.PositiveSmallIntegerField(primary_key=True, default=1)
     access_token = models.TextField(null=True, blank=True)
     refresh_token = models.TextField(null=True, blank=True)
     token_type = models.CharField(max_length=32, default="Bearer", blank=True)
-    expires_at = models.DateTimeField(null=True, blank=True)  # UTC
+    expires_at = models.DateTimeField(null=True, blank=True,)  # UTC
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True) # Added active field
 
     class Meta:
         verbose_name = "Market Data Token"
@@ -48,8 +45,6 @@ class MarketEvent(BaseTimestampModel):
         ("FED_DECISION", "Fed Decision"),
         ("NEWS", "News Event"),
         ("CUSTOM", "Custom Event"),
-        # Exchange non-trading days used by TradingCalendar for gap detection
-        ("NSE_HOLIDAY", "NSE Holiday"),
     ]
 
     instrument = models.ForeignKey(
@@ -83,15 +78,10 @@ class Candle(BaseTimestampModel):
     """
     TimescaleDB-backed historical candle store.
 
-    Only CANONICAL timeframes (1m, 1D) are stored here.
-    All higher timeframes (3m, 5m, 15m, 30m, 1H, 4H, 1W) are derived on demand.
-
-    Identity: (symbol, timeframe, time) for fast symbol-string queries.
-    The instrument FK is preserved for analytics/backtest joins.
-
-    In production this table should be a Timescale hypertable with
-    compression and chunk indexes applied at the database layer.
+    In production this model should map to a Timescale hypertable with
+    compression and indexes applied at the database layer.
     """
+
     instrument = models.ForeignKey(
         Instrument,
         on_delete=models.SET_NULL,
@@ -118,10 +108,6 @@ class Candle(BaseTimestampModel):
         indexes = [
             models.Index(fields=["symbol", "timeframe", "-time"]),
             models.Index(fields=["timeframe", "-time"]),
-            models.Index(
-                fields=["instrument", "timeframe", "-time"],
-                name="candle_instrument_tf_time_idx",
-            ),
         ]
         ordering = ["time"]
 

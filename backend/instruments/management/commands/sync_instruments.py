@@ -8,7 +8,7 @@ Usage:
 """
 import logging
 import time
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 import requests
@@ -111,18 +111,12 @@ def _safe_int(value, default=None):
 
 
 def _parse_expiry(expiry_str):
-    """
-    Parse a Fyers expiry value to a date.
-
-    Uses explicit UTC conversion for Unix timestamps — never relies on server
-    local timezone which may differ from the expected IST/UTC of the broker.
-    """
     if not expiry_str:
         return None
     try:
         timestamp = int(expiry_str)
         if timestamp > 0:
-            return datetime.fromtimestamp(timestamp, tz=dt_timezone.utc).date()
+            return datetime.fromtimestamp(timestamp).date()
     except (ValueError, TypeError, OSError):
         pass
     try:
@@ -255,27 +249,6 @@ class Command(BaseCommand):
 
             self.stdout.write(f"  Downloaded {len(data)} entries")
 
-            # ----------------------------------------------------------------
-            # STAGED VALIDATION — validate the entire dataset BEFORE any
-            # production state is modified.  If validation fails, skip this
-            # source entirely.  This prevents partial imports from leaving the
-            # production master in an inconsistent state.
-            # ----------------------------------------------------------------
-            validation_errors = self._validate_source_data(source_key, data)
-            if validation_errors:
-                for err in validation_errors[:5]:
-                    self.stderr.write(self.style.ERROR(f"  VALIDATION: {err}"))
-                if len(validation_errors) > 5:
-                    self.stderr.write(
-                        self.style.ERROR(f"  ... and {len(validation_errors) - 5} more validation errors")
-                    )
-                self.stderr.write(self.style.ERROR(
-                    f"  {source_key} SKIPPED: {len(validation_errors)} validation error(s). "
-                    f"Production master has NOT been modified."
-                ))
-                total_errors += len(validation_errors)
-                continue
-
             t1 = time.monotonic()
             created, updated, errors, synced_tokens = self._sync_source(
                 data, dry_run, existing_by_ticker, existing_by_token,
@@ -307,94 +280,6 @@ class Command(BaseCommand):
             f"\nSync complete: {total_created} created, {total_updated} updated, "
             f"{total_deleted} deleted, {total_deactivated} deactivated, {total_errors} errors"
         ))
-
-    def _validate_source_data(self, source_key, data):
-        """
-        Validate a downloaded source dataset BEFORE activating it.
-
-        Checks:
-          1. File availability — data must be non-empty.
-          2. Minimum record count — < 100 entries for a major source is suspicious.
-          3. Required fields present for each entry.
-          4. Duplicate fy_token values within the download.
-          5. Duplicate sym_ticker values within the download.
-          6. Exchange/segment consistency with SOURCE_FILTERS.
-          7. Malformed expiry values that parse to obviously wrong dates.
-
-        Returns a list of error strings.  An empty list means validation passed.
-        """
-        errors = []
-
-        if not data:
-            errors.append(f"{source_key}: Downloaded dataset is empty")
-            return errors  # Fatal — nothing more to check
-
-        # Minimum count guard (major sources have thousands of entries)
-        MIN_COUNT = 100
-        if len(data) < MIN_COUNT:
-            errors.append(
-                f"{source_key}: Only {len(data)} entries downloaded (expected >= {MIN_COUNT}). "
-                f"This may indicate a partial or corrupt download."
-            )
-
-        seen_fy_tokens = {}
-        seen_sym_tickers = {}
-        source_filter = SOURCE_FILTERS.get(source_key, {})
-        expected_exchange = source_filter.get("exchange")
-        expected_segment = source_filter.get("segment")
-
-        malformed_expiry_count = 0
-
-        for sym_ticker, entry in data.items():
-            fy_token = entry.get("fyToken", "")
-            if not fy_token:
-                errors.append(f"Entry {sym_ticker!r}: missing fyToken")
-                continue
-
-            # Duplicate fy_token
-            if fy_token in seen_fy_tokens:
-                errors.append(
-                    f"Duplicate fyToken {fy_token!r} for {sym_ticker!r} "
-                    f"(previously seen for {seen_fy_tokens[fy_token]!r})"
-                )
-            else:
-                seen_fy_tokens[fy_token] = sym_ticker
-
-            # Duplicate sym_ticker
-            if sym_ticker in seen_sym_tickers:
-                errors.append(f"Duplicate sym_ticker {sym_ticker!r}")
-            else:
-                seen_sym_tickers[sym_ticker] = True
-
-            # Exchange consistency (best-effort — Fyers JSON uses codes, not strings)
-            # Only check segment when it's directly available as a number
-            seg_raw = entry.get("segment")
-            if expected_segment is not None and seg_raw is not None:
-                try:
-                    if int(seg_raw) != expected_segment:
-                        errors.append(
-                            f"{sym_ticker!r}: segment {seg_raw} != expected {expected_segment}"
-                        )
-                except (ValueError, TypeError):
-                    pass
-
-            # Malformed expiry (only for derivative sources)
-            expiry_raw = entry.get("expiryDate")
-            if expiry_raw:
-                parsed = _parse_expiry(expiry_raw)
-                if parsed is not None:
-                    # Sanity: expiry should be between 2000 and 2050
-                    if not (date(2000, 1, 1) <= parsed <= date(2050, 12, 31)):
-                        malformed_expiry_count += 1
-
-        if malformed_expiry_count > 10:
-            errors.append(
-                f"{source_key}: {malformed_expiry_count} entries have out-of-range expiry dates. "
-                f"Possible UTC conversion issue or corrupt data."
-            )
-
-        # Cap error list to avoid flooding output
-        return errors[:50]
 
     def _sync_source(self, data, dry_run, existing_by_ticker, existing_by_token):
         created = 0
