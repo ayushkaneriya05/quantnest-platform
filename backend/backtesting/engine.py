@@ -398,33 +398,6 @@ class BacktestEngine:
                     open_pos = self._get_position_for_signal(instrument_id)
                     stats = self._build_runtime_stats(candle, daily_stats, context["instrument"], timestamp)
 
-                    # Auto-disable check
-                    auto_disable_eval = self.risk_evaluator.evaluate_auto_disable_rules(
-                        self.config.get("auto_disable_rules", []),
-                        stats,
-                    )
-                    if auto_disable_eval.get("should_disable"):
-                        if open_pos:
-                            BacktestExecutionService.execute_market_order(
-                                self.context,
-                                open_pos['instrument'],
-                                Side.SELL if open_pos['side'] == Side.BUY else Side.BUY,
-                                open_pos['quantity'],
-                                float(candle["close"]),
-                                timestamp,
-                                self.config,
-                                exit_reason="Auto-Disable Triggered",
-                                execute_immediately=True,  # Auto-disable executes immediately
-                            )
-                            state["last_exit_time"] = timestamp
-                            state["instrument_daily_trades"] += 1
-                            daily_stats["trades"] = self.context.get_risk_metrics().get("daily_trades", 0)
-                            daily_stats["pnl"] = self.context.get_risk_metrics().get("daily_pnl", 0.0)
-                            open_pos = None
-                        self.halt_state = {
-                            "active_until": datetime.combine(timestamp.date(), time(auto_disable_eval.get("max_cooldown_hours", 24), 00, 00)),
-                            "reason": auto_disable_eval.get("matches", [{}])[0].get("message", "Auto-disable triggered"),
-                        }
 
                     # Evaluate exit rules (normal exits)
                     if open_pos:
