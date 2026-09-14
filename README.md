@@ -53,8 +53,8 @@ Backtesting runs historical OHLC data through the same strategy executor used by
 The backtest engine supports:
 
 - Historical candle loading with warmup periods.
-- Multi-timeframe market data.
-- Indicator/rule evaluation.
+- Multi-timeframe market data with proper alignment (no look-ahead bias).
+- Indicator/rule evaluation on completed candles only.
 - Entry, stop-loss, target, trailing, EOD, expiry, and time-based exits.
 - Position sizing and portfolio risk checks.
 - Simulated market, limit, stop-market, and stop-limit entries.
@@ -65,8 +65,10 @@ The backtest engine supports:
 
 Primary code:
 
-- `backend/backtesting/engine.py`
-- `backend/backtesting/views.py`
+- `backend/backtesting/engine.py` - Core backtest engine
+- `backend/backtesting/context.py` - In-memory state management
+- `backend/backtesting/execution_service.py` - Execution service
+- `backend/backtesting/views.py` - Backtest API endpoints
 - `frontend/src/features/dashboard/pages/backtest/`
 
 ### 3. Allocate Capital
@@ -227,8 +229,10 @@ QuantNest also includes modules for:
 - Python, Django, Django REST Framework.
 - SimpleJWT, dj-rest-auth, allauth, django-otp.
 - Channels and Redis for WebSocket-ready workflows.
-- Celery for background jobs.
-- PostgreSQL recommended for production.
+- Celery for background jobs and scheduled tasks.
+- ZeroMQ for order routing from strategy workers to execution services.
+- Redis Pub/Sub for session execution manager orchestration.
+- PostgreSQL recommended for production (TimescaleDB for candle data).
 - Fyers and SmartAPI related broker packages.
 - Pandas/pandas-ta for market data and indicators.
 
@@ -597,49 +601,137 @@ GET  /api/v1/live/slippage/
 
 ## Background Jobs and Commands
 
-Useful commands and workers depend on the module being exercised.
+### Required Continuous Processes
 
-Common commands:
+**For Basic Development (3 processes):**
 
 ```bash
+# Terminal 1: Redis
+redis-server
+
+# Terminal 2: Django ASGI
+cd backend
+python manage.py runserver
+
+# Terminal 3: Frontend
+cd frontend
+npm run dev
+```
+
+**For Production (5 processes):**
+
+```bash
+# Terminal 1: Redis
+redis-server
+
+# Terminal 2: Celery Worker
+cd backend
+celery -A backend worker -l info
+
+# Terminal 3: Celery Beat
+cd backend
+celery -A backend beat -l info
+
+# Terminal 4: Django ASGI
+cd backend
+python manage.py runserver
+
+# Terminal 5: Frontend
+cd frontend
+npm run dev
+```
+
+**For Full Live Trading (9 processes):**
+
+```bash
+# Terminal 1: Redis
+redis-server
+
+# Terminal 2: Celery Worker
+cd backend
+celery -A backend worker -l info
+
+# Terminal 3: Celery Beat
+cd backend
+celery -A backend beat -l info
+
+# Terminal 4: Django ASGI
+cd backend
+uvicorn backend.asgi:application
+
+# Terminal 5: Frontend
+cd frontend
+npm run dev
+
+# Terminal 6: Fyers Live Data Ingestion (Continuous)
+cd backend
+python manage.py fyers_ingest
+
+# Terminal 7: WebSocket for Live Trading (Continuous)
+cd backend
+python manage.py start_websocket
+
+# Terminal 8: Session Execution Manager (Continuous)
+cd backend
+python manage.py run_execution_manager
+
+# Terminal 9: Order Subscribers (Continuous)
+cd backend
+python manage.py run_order_subscribers
+```
+
+### One-Time Setup Commands
+
+```bash
+cd backend
+
+# Database setup
 python manage.py migrate
 python manage.py createsuperuser
-python manage.py sync_instruments
-python manage.py backfill_history
-python manage.py ingest_historical
-python manage.py fyers_ingest
-python manage.py seed_rbi_dates
+
+# Optional: TimescaleDB setup (if using PostgreSQL + TimescaleDB)
 python manage.py setup_timescale
 ```
 
-Celery worker:
+### Data Management Commands
 
 ```bash
-celery -A backend worker -l info
+cd backend
+
+# Sync instrument master data from Fyers (Run periodically)
+python manage.py sync_instruments
+# Or specific source:
+python manage.py sync_instruments --source NSE_CM
+
+# Ingest historical data with flexible options (Uses 90-day chunks per broker limit)
+python manage.py ingest_historical --days 30 --timeframe 1m
+python manage.py ingest_historical --start 2024-01-01 --end 2024-12-31 --timeframe 1D
+python manage.py ingest_historical --days 365 --timeframe 1m
 ```
 
-Celery beat:
+### Command Summary
 
-```bash
-celery -A backend beat -l info
-```
+| Command             | Purpose                                | Type       | Use Case                      |
+| ------------------- | -------------------------------------- | ---------- | ----------------------------- |
+| `sync_instruments`  | Sync instrument master from Fyers      | Periodic   | Nightly data sync             |
+| `ingest_historical` | Ingest historical data (90-day chunks) | Periodic   | All historical data ingestion |
+| `fyers_ingest`      | Live WebSocket market data streaming   | Continuous | Real-time live market data    |
+| `setup_timescale`   | Enable TimescaleDB for candle table    | One-time   | Database optimization         |
 
-ASGI server option:
+### Scheduled Tasks (Celery Beat)
 
-```bash
-daphne backend.asgi:application
-```
+The following tasks are **automatically scheduled** by Celery Beat (no manual command needed):
 
-Scheduled/background areas include:
-
-- Historical data ingestion.
-- Live tick ingestion.
-- Paper portfolio daily snapshots.
-- Exposure snapshots.
-- Percentage allocation rebalancing.
-- Backtest execution.
-- Live account/order/position sync.
-- Notifications and analytics tasks.
+- **Every 30s:** Refresh live market subscriptions
+- **Every 1min:** Fetch live candles from broker
+- **Every 1min:** Live trading reconcile OMS
+- **Every 5min:** Risk check re-enable strategies
+- **Every 15min:** Analytics refresh daily reports
+- **Every 1hr:** Notifications dispatch daily summaries
+- **Daily 00:05:** Portfolio daily performance snapshot
+- **Daily 00:15:** Portfolio rebalance allocations
+- **Daily 06:00:** Instruments sync Fyers master
+- **Daily 23:55:** Reconcile daily market data
 
 ---
 
@@ -686,13 +778,42 @@ npm run lint
 
 ## Operational Notes
 
-- Keep Redis running for runtime locks, risk cache, Channels, and Celery-backed workflows.
-- Use PostgreSQL for production-like testing.
+### Process Requirements
+
+**Minimum for Development:**
+
+- Redis server
+- Django ASGI server (runserver)
+- Frontend dev server
+
+**Minimum for Production:**
+
+- Redis server
+- Django ASGI server (daphne/runserver)
+- Celery worker
+- Celery beat
+- Frontend dev server
+
+**Full Live Trading:**
+
+- All production processes plus:
+- Fyers live data ingestion (continuous)
+- WebSocket for live trading (continuous)
+- Session execution manager (continuous)
+- Order subscribers (continuous)
+
+### Key Notes
+
+- Keep Redis running for runtime locks, risk cache, Django Channels, and Celery broker/result backend.
+- Use PostgreSQL for production-like testing (TimescaleDB recommended for candle data).
 - Live trading requires valid broker credentials and an active broker session.
-- Backtest, paper, and live share signal/exit logic, but fills and accounting differ by environment.
+- Backtest, paper, and live share signal/exit logic via the unified executor, but fills and accounting differ by environment.
 - For deterministic parity testing, compare backtest and paper using the same candles, fill model, fees, slippage, and timestamps.
 - For live trading, compare expected strategy decisions to actual broker fills through execution logs, slippage records, and reconciliation records.
 - Never run live execution with real capital until paper trading, risk limits, broker settings, and emergency controls are verified.
+- The system uses ZeroMQ for order routing from strategy workers to execution services.
+- Session execution manager uses Redis Pub/Sub for strategy worker orchestration.
+- Fyers WebSocket ingestion provides real-time market data for paper/live trading.
 
 ---
 
@@ -700,6 +821,9 @@ npm run lint
 
 - Add a canonical execution ledger shared by backtest and paper simulation.
 - Add formal parity tests for backtest vs paper on identical candle streams.
+- Expand to futures and options backtesting with proper routing support.
+- Add limit order simulation in backtest engine.
+- Add partial fill simulation in backtest engine.
 - Add expected-vs-actual live execution reporting for broker fills.
 - Expand broker adapters beyond current integrations.
 - Harden production deployment docs for ASGI, Redis, Celery, PostgreSQL, and HTTPS.
