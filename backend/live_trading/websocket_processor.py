@@ -6,9 +6,8 @@ Replaces DB polling for live trading with real-time WebSocket updates.
 
 import logging
 import threading
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from django.utils import timezone
-from django.db import transaction
 
 from brokers.websocket.factory import BrokerWebSocketFactory
 from core.unified_state_manager import UnifiedStateManager

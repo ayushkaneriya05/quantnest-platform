@@ -8,7 +8,7 @@ from brokers.models import BrokerCredential
 from live_trading.services import LiveExecutionService
 from paper_trading.services import PortfolioService
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
-from .models import Strategy, StrategyTag, EntryOrderConfig, ExitOrderConfig
+from .models import Strategy, StrategyTag, EntryOrderConfig, ExitOrderConfig, StrategyVersion
 from .serializers import (
     StrategyListSerializer, StrategyDetailSerializer, StrategyCreateSerializer,
     StrategyVersionSerializer, StrategyTagSerializer,
@@ -200,7 +200,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
             account = PortfolioService.ensure_paper_account_for_allocation(allocation)
             
             from paper_trading.services import PaperExecutionService
-            from strategies.models import StrategyVersion
                     
             session = PaperExecutionService.deploy_session(
                 user=request.user,

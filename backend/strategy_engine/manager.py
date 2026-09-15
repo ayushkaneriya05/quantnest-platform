@@ -4,6 +4,19 @@ from typing import Dict
 
 logger = logging.getLogger(__name__)
 
+
+def _run_worker(session_id, strategy_id, scope, instrument_ids, paused):
+    """Initialize Django before importing the model-dependent worker module."""
+    import django
+
+    django.setup()
+
+    from strategy_engine.engine import StrategyExecutionEngine
+
+    engine = StrategyExecutionEngine(session_id, strategy_id, scope, instrument_ids, paused=paused)
+    engine.run()
+
+
 class SessionExecutionManager:
     """
     Manages the lifecycle of Multiprocessing actor workers for strategies.
@@ -35,13 +48,9 @@ class SessionExecutionManager:
 
     def _spawn_worker(self, session_id, strategy_id, scope, instrument_ids, paused):
         logger.info(f"Starting execution worker for {scope} session {session_id}")
-            
-        # Lazy import to avoid circular dependencies
-        from strategy_engine.engine import StrategyExecutionEngine
-        
-        engine = StrategyExecutionEngine(session_id, strategy_id, scope, instrument_ids, paused=paused)
         p = multiprocessing.Process(
-            target=engine.run, 
+            target=_run_worker,
+            args=(session_id, strategy_id, scope, instrument_ids, paused),
             name=f"Worker-{scope}-{session_id}"
         )
         p.start()

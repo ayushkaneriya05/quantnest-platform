@@ -6,7 +6,6 @@ Provides a unified interface to instantiate broker-specific WebSocket implementa
 import logging
 from common.enums import BrokerName
 
-from .base_websocket import BaseBrokerWebSocket
 from .fyers_websocket import FyersOrderWebSocket
 from .paper_simulation import PaperWebSocketSimulator
 

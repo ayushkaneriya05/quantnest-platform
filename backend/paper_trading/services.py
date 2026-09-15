@@ -648,11 +648,14 @@ class PaperExecutionService:
             raise ValueError("Order quantity must be greater than zero")
         order_type = OrderType.MARKET
         
-        # Re-fetch account and allocation with select_for_update to ensure atomic balance updates
-        account = PaperAccount.objects.select_for_update().select_related(
-            "allocation__deployed_version"
-        ).get(id=account.id)
-        allocation = account.allocation
+        # Lock rows separately because both relations are nullable and PostgreSQL
+        # rejects FOR UPDATE on the nullable side of an outer join.
+        account = PaperAccount.objects.select_for_update().get(id=account.id)
+        allocation = None
+        if account.allocation_id:
+            allocation = CapitalAllocation.objects.select_for_update().get(
+                id=account.allocation_id
+            )
         
         product_type = PaperExecutionService._resolve_product_type(instrument)
                 
@@ -748,7 +751,6 @@ class PaperExecutionService:
 
             # Update unified cache risk metrics with trade result
             from core.cache_view import cache_view
-            from core.cache_api import cache_api
             current = cache_view.get_risk_metrics("paper", session.id)
             pnl = float(net_pnl)
             current["daily_trades"] = int(current.get("daily_trades", 0) or 0) + 1

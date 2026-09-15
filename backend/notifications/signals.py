@@ -120,6 +120,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
     cache_key = CacheKeys.NOTIF_PAPER_ORDER.format(order_id=instance.id, status=instance.status)
     if cache.get(cache_key):
         return
+    user = instance.account.user
 
     if instance.status == OrderStatus.FILLED:
         tag = instance.order_tag.upper() if instance.order_tag else ""
@@ -136,7 +137,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
             title = "Paper Target Hit"
 
         NotificationService.notify(
-            user=instance.user,
+            user=user,
             title=title,
             message=f"Simulated order for {instance.instrument.symbol} was filled.",
             notification_type=notif_type,
@@ -146,7 +147,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
         cache.set(cache_key, True, 86400)
     elif instance.status == OrderStatus.REJECTED:
         NotificationService.notify(
-            user=instance.user,
+            user=user,
             title="Paper Order Rejected",
             message=f"Simulated order for {instance.instrument.symbol} was rejected.",
             notification_type=NotificationType.STRATEGY_ERROR,
@@ -156,7 +157,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
         cache.set(cache_key, True, 86400)
     elif instance.status == OrderStatus.CANCELLED:
         NotificationService.notify(
-            user=instance.user,
+            user=user,
             title="Paper Order Cancelled",
             message=f"Simulated order for {instance.instrument.symbol} was cancelled.",
             notification_type=NotificationType.SYSTEM_ALERT,
@@ -166,7 +167,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
         cache.set(cache_key, True, 86400)
     elif instance.status == OrderStatus.EXPIRED:
         NotificationService.notify(
-            user=instance.user,
+            user=user,
             title="Paper Order Expired",
             message=f"Simulated order for {instance.instrument.symbol} expired before execution.",
             notification_type=NotificationType.STRATEGY_ERROR,
@@ -176,7 +177,7 @@ def handle_paper_order_notifications(sender, instance, created, **kwargs):
         cache.set(cache_key, True, 86400)
     elif instance.status == OrderStatus.PARTIAL_FILL:
         NotificationService.notify(
-            user=instance.user,
+            user=user,
             title="Paper Order Partially Filled",
             message=f"Simulated order for {instance.instrument.symbol} was partially filled.",
             notification_type=NotificationType.TRADE_EXECUTED,

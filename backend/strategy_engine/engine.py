@@ -25,11 +25,7 @@ class StrategyExecutionEngine:
         self.instrument_ids = instrument_ids
         self.paused = paused
         self.is_running = False
-        
-        from concurrent.futures import ThreadPoolExecutor
-        # Scale thread pool dynamically based on instrument count (cap at 32 to avoid GIL thrashing)
-        pool_size = max(5, min(32, len(instrument_ids)))
-        self.slow_path_executor = ThreadPoolExecutor(max_workers=pool_size)
+        self.slow_path_executor = None
 
       
     def _init_context(self):
@@ -45,6 +41,10 @@ class StrategyExecutionEngine:
         """
         self.is_running = True
         django.setup() # Ensure Django ORM is available in the new process
+        
+        from concurrent.futures import ThreadPoolExecutor
+        pool_size = max(5, min(32, len(self.instrument_ids)))
+        self.slow_path_executor = ThreadPoolExecutor(max_workers=pool_size)
         
         context = self._init_context()
         

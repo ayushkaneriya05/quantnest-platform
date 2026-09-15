@@ -53,7 +53,6 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
         Raises:
             ValueError: If no valid session exists
         """
-        from brokers.models import BrokerSession
         
         session = self.credential.sessions.filter(
             is_valid=True,

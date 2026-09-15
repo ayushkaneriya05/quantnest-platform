@@ -6,7 +6,7 @@ Simulates WebSocket behavior for paper trading using Django signals.
 import logging
 from typing import Dict, Any
 from django.utils import timezone
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save
 
 from .base_websocket import BaseBrokerWebSocket
 
@@ -64,9 +64,7 @@ class PaperWebSocketSimulator(BaseBrokerWebSocket):
     
     def disconnect(self) -> None:
         """Disconnect from paper WebSocket simulator."""
-        try:
-            from paper_trading.models import PaperOrder, PaperPosition, PaperTrade
-            
+        try:            
             # Disconnect signal handlers
             for handler in self.signal_handlers:
                 post_save.disconnect(handler)

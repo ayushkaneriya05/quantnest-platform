@@ -6,10 +6,8 @@ Manages WebSocket connections for live trading with health monitoring and auto-r
 import logging
 import threading
 import time
-from typing import Dict, Optional
+from typing import Dict, Any
 from django.utils import timezone
-
-from brokers.websocket.factory import BrokerWebSocketFactory
 from live_trading.websocket_processor import LiveWebSocketProcessor
 from live_trading.reconciliation_service import BrokerReconciliationService
 

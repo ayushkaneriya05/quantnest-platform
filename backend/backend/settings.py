@@ -1,5 +1,8 @@
 from datetime import timedelta
+import os
 from pathlib import Path
+import re
+import sys
 
 from celery.schedules import crontab
 from decouple import Csv, config
@@ -64,6 +67,7 @@ INSTALLED_APPS = [
     "gamification",
     "learning",
     "reputation",
+    "strategy_engine"
 ]
 
 MIDDLEWARE = [
@@ -389,6 +393,29 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # --- Logging ---
+def _log_process_name():
+    configured_name = os.environ.get("QUANTNEST_PROCESS_NAME")
+    if configured_name:
+        return configured_name
+
+    arguments = [Path(argument).stem for argument in sys.argv]
+    if "manage" in arguments:
+        command_index = arguments.index("manage") + 1
+        if command_index < len(arguments):
+            return arguments[command_index]
+    if "worker" in arguments:
+        return "celery-worker"
+    if "beat" in arguments:
+        return "celery-beat"
+    if "uvicorn" in arguments:
+        return "uvicorn"
+
+    return "django"
+
+
+LOG_PROCESS_NAME = re.sub(r"[^A-Za-z0-9_.-]+", "_", _log_process_name())
+PROCESS_LOG_FILE = BASE_DIR / "logs" / f"{LOG_PROCESS_NAME}-{os.getpid()}.log"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -403,25 +430,25 @@ LOGGING = {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
         },
-        "file": {
-            "level": "WARNING",
+        "process_file": {
+            "level": "INFO",
             "class": "logging.FileHandler",
-            "filename": BASE_DIR / "logs/django_warnings.log",
+            "filename": PROCESS_LOG_FILE,
             "formatter": "verbose",
         },
     },
     "root": {
-        "handlers": ["console"],
+        "handlers": ["console", "process_file"],
         "level": "INFO",
     },
     "loggers": {
         "django": {
-            "handlers": ["console", "file"],
+            "handlers": ["console", "process_file"],
             "level": "WARNING",
             "propagate": False,
         },
         "trading.management.commands": {
-            "handlers": ["console", "file"],
+            "handlers": ["console", "process_file"],
             "level": "INFO",
             "propagate": False,
         },
