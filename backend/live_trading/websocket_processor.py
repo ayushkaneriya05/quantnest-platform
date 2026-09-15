@@ -10,7 +10,6 @@ from typing import Dict, Any
 from django.utils import timezone
 
 from brokers.websocket.factory import BrokerWebSocketFactory
-from core.unified_state_manager import UnifiedStateManager
 from core.cache_api import cache_api
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,6 @@ class LiveWebSocketProcessor:
         """
         self.credential = credential
         self.websocket = None
-        self.state_manager = UnifiedStateManager("live")
         self.sync_lock = threading.Lock()
         self.is_running = False
         self.reconnect_attempts = 0
