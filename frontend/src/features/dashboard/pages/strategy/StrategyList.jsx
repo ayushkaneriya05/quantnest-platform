@@ -218,7 +218,7 @@ export default function StrategyList() {
           brokerCredential: selectedBroker ? Number(selectedBroker) : null,
           allocationAmount: allocationMode === "FIXED" && allocationAmount ? Number(allocationAmount) : null,
           allocationPercentage: allocationMode === "PERCENTAGE" && allocationPercentage ? Number(allocationPercentage) : null,
-          version_id: selectedVersion || undefined,
+          versionId: selectedVersion || undefined,
         },
       );
       notify.success(result.message || 'Strategy deployed to live trading');

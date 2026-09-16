@@ -71,7 +71,7 @@ function normalizeProfile(payload) {
 
 function normalizeFunds(payload) {
   const rows = payload?.fund_limit || payload?.data?.fund_limit || [];
-  return Array.isArray(rows) ? rows.slice(0, 6) : [];
+  return Array.isArray(rows) ? rows.slice(0, 10) : [];
 }
 
 function formatDateTime(value) {

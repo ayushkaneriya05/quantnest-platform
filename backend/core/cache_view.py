@@ -1,5 +1,5 @@
 """
-CacheView - Read-only interface for QuantNest Unified Cache
+CacheView - Read-only interface for shared execution state.
 Prevents accidental mutation by strategy code.
 Thread-safe reads with session-level locking.
 """
@@ -7,21 +7,21 @@ Thread-safe reads with session-level locking.
 import logging
 from typing import Dict, List, Any, Optional
 
-from .unified_cache import unified_cache
+from .shared_state_store import shared_state_store
 
 logger = logging.getLogger(__name__)
 
 
 class CacheView:
     """
-    Read-only facade over QuantNestUnifiedCache.
+    Read-only facade over the shared Redis-backed state store.
     Prevents accidental mutation by strategy code.
     Thread-safe reads with session-level locking.
     """
     
     def __init__(self):
-        """Initialize CacheView with reference to unified cache."""
-        self._cache = unified_cache
+        """Initialize CacheView with the shared state store."""
+        self._cache = shared_state_store
     
     def get_orders(self, scope: str, session_id: str) -> List[Dict[str, Any]]:
         """
@@ -61,17 +61,8 @@ class CacheView:
         """
         return self._cache.get_funds(credential_id)
 
-    def get_account_funds(self, account_id: int) -> Optional[Dict[str, Any]]:
-        """
-        Get funds for a paper account (O(1) lookup).
-
-        Args:
-            account_id: Paper account ID
-
-        Returns:
-            Funds dictionary or None
-        """
-        return self._cache.get_account_funds(account_id)
+    def get_session_funds(self, scope: str, session_id: str) -> Optional[Dict[str, Any]]:
+        return self._cache.get_session_funds(scope, str(session_id))
 
     def get_runtime_state(self, scope: str, session_id: str, instrument_id: int) -> Dict[str, Any]:
         """

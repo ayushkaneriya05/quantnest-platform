@@ -223,7 +223,7 @@ class StrategyExecutor:
             
             if matched:
                 reason_str = f"{rule_type} group '{get_any_field(group, 'name', 'unnamed')}' met"
-                action_str = get_any_field(group, 'action', 'EXIT_ALL')
+                action_str = get_any_field(group, 'action', 'EXIT_ALL') or 'EXIT_ALL'
                 
                 # Prevent already executed partial exits and breakevens from blocking other rules
                 if action_str == 'MOVE_TO_BREAKEVEN' and state.get(f'breakeven_{reason_str}'):

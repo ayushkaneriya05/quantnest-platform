@@ -1,27 +1,24 @@
-"""
-CacheApi - Write interface for QuantNest Unified Cache
-Session-based updates with version control.
-Async persistence to Redis for non-blocking writes.
-"""
+"""Write interface for shared execution state."""
 
 import logging
-from typing import Dict, Any, Optional
+import json
+from typing import Dict, Any
 
-from .unified_cache import unified_cache
+from django.core.cache import cache
+from .shared_state_store import shared_state_store
 
 logger = logging.getLogger(__name__)
 
 
 class CacheApi:
     """
-    Write interface for system engines.
-    Session-based updates with version control.
-    Async persistence to Redis for non-blocking writes.
+    Write interface for system engines backed by shared Redis state.
+    Session-based updates use centralized versions and distributed locks.
     """
     
     def __init__(self):
-        """Initialize CacheApi with reference to unified cache."""
-        self._cache = unified_cache
+        """Initialize CacheApi with the shared state store."""
+        self._cache = shared_state_store
     
     def update_order(self, scope: str, session_id: str, order: Dict[str, Any]) -> bool:
         """
@@ -36,17 +33,7 @@ class CacheApi:
             True if successful
         """
         try:
-            # Check if order exists
-            order_id = order.get('id') or order.get('broker_order_id')
-            if order_id:
-                existing = self._cache.get_orders(scope, session_id)
-                for existing_order in existing:
-                    if existing_order.get('id') == order_id or existing_order.get('broker_order_id') == order_id:
-                        # Update existing
-                        return self._cache.update_order(scope, session_id, order_id, order)
-
-            # Add new order
-            self._cache.add_order(scope, session_id, order)
+            self._cache.upsert_order(scope, session_id, order)
             return True
 
         except Exception as e:
@@ -66,17 +53,7 @@ class CacheApi:
             True if successful
         """
         try:
-            # Check if position exists
-            position_id = position.get('id')
-            if position_id:
-                existing = self._cache.get_positions(scope, session_id)
-                for existing_position in existing:
-                    if existing_position.get('id') == position_id:
-                        # Update existing
-                        return self._cache.update_position(scope, session_id, position_id, position)
-
-            # Add new position
-            self._cache.add_position(scope, session_id, position)
+            self._cache.upsert_position(scope, session_id, position)
             return True
 
         except Exception as e:
@@ -116,11 +93,36 @@ class CacheApi:
         """
         try:
             self._cache.update_runtime_state(scope, session_id, instrument_id, state)
+            if "phase" in state:
+                self._publish_runtime_lifecycle(scope, session_id, instrument_id, state)
             return True
         except Exception as e:
             logger.exception(f"Error updating runtime state for {scope}:{session_id}:{instrument_id}: {e}")
             return False
-    
+
+    @staticmethod
+    def _publish_runtime_lifecycle(scope, session_id, instrument_id, updates):
+        try:
+            if hasattr(cache, "client"):
+                redis_client = cache.client.get_client()
+            else:
+                import redis
+                from django.conf import settings
+                redis_client = redis.from_url(settings.REDIS_URL)
+            redis_client.xadd(
+                "runtime_state_lifecycle",
+                {"payload": json.dumps({
+                    "scope": scope,
+                    "session_id": str(session_id),
+                    "instrument_id": instrument_id,
+                    "updates": updates,
+                })},
+                maxlen=10000,
+                approximate=True,
+            )
+        except Exception:
+            logger.warning("Runtime lifecycle stream append failed", exc_info=True)
+
     def update_risk_metrics(self, scope: str, session_id: str, metrics: Dict[str, Any]) -> bool:
         """
         Update risk metrics for a session.
@@ -233,24 +235,12 @@ class CacheApi:
             logger.exception(f"Error clearing session {scope}:{session_id}: {e}")
             return False
 
-    # ==================== Account Funds (Paper Trading) ====================
-
-    def update_account_funds(self, account_id: int, funds: Dict[str, Any]) -> bool:
-        """
-        Update funds for a paper account.
-
-        Args:
-            account_id: Paper account ID
-            funds: Funds dictionary
-
-        Returns:
-            True if successful
-        """
+    def update_session_funds(self, scope: str, session_id: str, funds: Dict[str, Any]) -> bool:
         try:
-            self._cache.set_account_funds(account_id, funds)
+            self._cache.set_session_funds(scope, str(session_id), funds)
             return True
         except Exception as e:
-            logger.exception(f"Error updating account funds for account {account_id}: {e}")
+            logger.exception("Error updating funds for %s session %s: %s", scope, session_id, e)
             return False
 
     # ==================== Instrument Cache ====================

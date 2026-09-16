@@ -1,5 +1,6 @@
 import multiprocessing
 import logging
+import time
 from typing import Dict
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,13 @@ class SessionExecutionManager:
         self.workers: Dict[tuple, multiprocessing.Process] = {}
         self.worker_specs = {}
         self.paused_sessions = set()
+        self.restart_after = {}
 
     @staticmethod
     def _worker_key(session_id: str, scope: str):
         return scope, str(session_id)
 
-    def start_worker(self, session_id: str, strategy_id: str, scope: str, instrument_ids: list):
+    def start_worker(self, session_id: str, strategy_id: str, scope: str, instrument_ids: list, paused=False):
         """
         Spawns a new multiprocessing.Process for the StrategyExecutionEngine.
         """
@@ -42,9 +44,12 @@ class SessionExecutionManager:
                 return
             self.stop_worker(session_id, scope)
 
-        self.paused_sessions.discard(worker_key)
+        if paused:
+            self.paused_sessions.add(worker_key)
+        else:
+            self.paused_sessions.discard(worker_key)
         self.worker_specs[worker_key] = (strategy_id, scope, instrument_ids)
-        self._spawn_worker(session_id, strategy_id, scope, instrument_ids, paused=False)
+        self._spawn_worker(session_id, strategy_id, scope, instrument_ids, paused=paused)
 
     def _spawn_worker(self, session_id, strategy_id, scope, instrument_ids, paused):
         logger.info(f"Starting execution worker for {scope} session {session_id}")
@@ -72,6 +77,7 @@ class SessionExecutionManager:
             del self.workers[worker_key]
         self.worker_specs.pop(worker_key, None)
         self.paused_sessions.discard(worker_key)
+        self.restart_after.pop(worker_key, None)
 
     def pause_worker(self, session_id: str, scope: str):
         """Keep the worker alive for exits while disabling new entries."""
@@ -92,6 +98,7 @@ class SessionExecutionManager:
         Cleans up dead workers from the tracking dict.
         """
         dead_workers = []
+        now = time.monotonic()
         for worker_key, p in self.workers.items():
             if not p.is_alive():
                 scope, session_id = worker_key
@@ -99,9 +106,36 @@ class SessionExecutionManager:
                 dead_workers.append(worker_key)
                 
         for worker_key in dead_workers:
-            del self.workers[worker_key]
-            self.worker_specs.pop(worker_key, None)
-            self.paused_sessions.discard(worker_key)
+            spec = self.worker_specs.get(worker_key)
+            if not spec:
+                self.workers.pop(worker_key, None)
+                continue
+            scope, session_id = worker_key
+
+            if scope == "live":
+                from live_trading.models import TradingSession
+                allowed_statuses = {"RUNNING", "PAUSED", "STOPPING"}
+                status = TradingSession.objects.filter(id=session_id).values_list("status", flat=True).first()
+            else:
+                from paper_trading.models import PaperTradingSession
+                allowed_statuses = {"RUNNING", "PAUSED"}
+                status = PaperTradingSession.objects.filter(id=session_id).values_list("status", flat=True).first()
+
+            if status not in allowed_statuses:
+                self.workers.pop(worker_key, None)
+                self.worker_specs.pop(worker_key, None)
+                self.paused_sessions.discard(worker_key)
+                continue
+
+            if now < self.restart_after.get(worker_key, 0):
+                continue
+
+            self.workers.pop(worker_key, None)
+
+            strategy_id, _, instrument_ids = spec
+            paused = worker_key in self.paused_sessions
+            self.restart_after[worker_key] = now + 5
+            self._spawn_worker(session_id, strategy_id, scope, instrument_ids, paused=paused)
             
     def cleanup(self):
         """

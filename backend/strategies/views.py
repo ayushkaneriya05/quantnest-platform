@@ -259,7 +259,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
             if version_id:
                 from strategies.models import StrategyVersion
                 deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
-
+            else:
+                return Response({'error': 'No deployed version found for this strategy'}, status=status.HTTP_400_BAD_REQUEST)
             # Create allocation
             allocation = LiveExecutionService.create_allocation(
                 user=request.user,

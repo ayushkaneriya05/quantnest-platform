@@ -1,14 +1,16 @@
 """
-Strategy Runtime State — In-memory ephemeral state for live/paper execution.
+Strategy Runtime State — shared low-latency state for live/paper execution.
 
 Key design decisions:
-- Uses QuantNestUnifiedCache for O(1) in-memory access (microsecond latency)
-- No distributed locking needed (single worker per session)
-- State is ephemeral — rebuilt from database on restart
+- Uses the Redis-backed unified state store for process-independent access
+- Updates are protected by shared-state locks
+- State is rebuilt from the database only when the shared projection is missing
 - Only intra-session mutable fields (trailing stop, peak price, phase) stored here
 - Avoids hot DB writes during tick evaluation
 """
 import logging
+from datetime import timedelta
+from django.utils import timezone
 
 from common.enums import TradePhase
 from rules_engine.utils import compute_sl_distance_from_config, derive_protection_levels
@@ -21,7 +23,8 @@ class StrategyRuntimeState:
     """
     In-memory runtime state for strategy execution using unified cache.
 
-    All state is ephemeral — it is rebuilt from the database on restart.
+    Redis is the shared execution projection; the database remains the durable
+    source of truth and startup recovery source.
     Only intra-session mutable fields (trailing stop, peak price, phase)
     that are updated on every tick are stored here to avoid hot DB writes.
     """
@@ -139,7 +142,7 @@ class StrategyRuntimeState:
     ):
         """
         Build enriched position state from runtime state and config.
-        Resolves all critical fields from runtime_state first (unified cache),
+        Resolves all critical fields from runtime_state first (shared state),
         falling back to DB position object only if provided.
         """
         _side = side or runtime_state.get("side")
@@ -239,7 +242,7 @@ class StrategyRuntimeState:
                         avg_price=position.avg_price,
                         config=config,
                         opened_at=position.opened_at,
-                        execution_instrument_id=position.instrument.id
+                        execution_instrument_id=position.instrument.id,
                     )
                     recovered_count += 1
                     
@@ -252,6 +255,114 @@ class StrategyRuntimeState:
         except Exception as e:
             logger.error(f"Failed to rebuild runtime state for {scope} session {session_id}: {e}")
             return 0
+
+    @classmethod
+    def rebuild_pending_order_state(cls, scope, session_id):
+        """Recreate pending entry/exit phases after a worker restart."""
+        from common.enums import OrderStatus, Side
+
+        active_statuses = [OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL]
+        if scope == "live":
+            from live_trading.models import LiveOrder, LivePosition, TradingSession
+
+            session = TradingSession.objects.get(id=session_id)
+            orders = LiveOrder.objects.filter(session=session, status__in=active_statuses)
+            position_query = LivePosition.objects.filter(allocation=session.allocation, quantity__gt=0)
+        else:
+            from paper_trading.models import PaperOrder, PaperPosition, PaperTradingSession
+
+            session = PaperTradingSession.objects.get(id=session_id)
+            orders = PaperOrder.objects.filter(account=session.account, strategy=session.strategy, status__in=active_statuses)
+            position_query = PaperPosition.objects.filter(account=session.account, strategy=session.strategy, quantity__gt=0)
+
+        positions = {(position.instrument_id, position.side): position for position in position_query}
+
+        recovered = 0
+        for order in orders.select_related("instrument"):
+            matching_position = positions.get((order.instrument_id, order.side))
+            opposite_side = Side.SELL if order.side == Side.BUY else Side.BUY
+            opposite_position = positions.get((order.instrument_id, opposite_side))
+            if opposite_position:
+                phase = cls.PARTIAL_EXIT_PENDING if order.filled_quantity else cls.EXIT_PENDING
+            elif matching_position:
+                phase = cls.ENTRY_PENDING
+            else:
+                phase = cls.ENTRY_PENDING
+            cls.update_trade_state(scope, str(session_id), order.instrument_id, {"phase": phase, "side": order.side})
+            recovered += 1
+        return recovered
+
+    @classmethod
+    def ensure_risk_metrics(cls, scope, session_id):
+        """Restore risk metrics from durable completed trades when Redis is empty."""
+        from core.cache_view import cache_view
+
+        session_id = str(session_id)
+        existing_metrics = cache_view.get_risk_metrics(scope, session_id)
+        if existing_metrics and "total_closed_trades" in existing_metrics:
+            return False
+
+        now = timezone.now()
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = day_start - timedelta(days=day_start.weekday())
+        month_start = day_start.replace(day=1)
+        if scope == "live":
+            from live_trading.models import LiveTrade, TradingSession
+
+            session = TradingSession.objects.get(id=session_id)
+            trades = LiveTrade.objects.filter(allocation=session.allocation)
+            pnl_field = "realized_pnl"
+        else:
+            from paper_trading.models import PaperTrade, PaperTradingSession
+
+            session = PaperTradingSession.objects.get(id=session_id)
+            trades = PaperTrade.objects.filter(account=session.account, strategy=session.strategy)
+            pnl_field = "net_pnl"
+
+        trade_rows = list(trades.values("%s" % pnl_field, "entry_time", "exit_time"))
+        daily_rows = [row for row in trade_rows if row["exit_time"] and row["exit_time"] >= day_start]
+        daily_pnl = sum(float(row[pnl_field] or 0) for row in daily_rows)
+        weekly_pnl = sum(
+            float(row[pnl_field] or 0)
+            for row in trade_rows
+            if row["exit_time"] and row["exit_time"] >= week_start
+        )
+        monthly_pnl = sum(
+            float(row[pnl_field] or 0)
+            for row in trade_rows
+            if row["exit_time"] and row["exit_time"] >= month_start
+        )
+        wins = sum(1 for row in trade_rows if float(row[pnl_field] or 0) > 0)
+        losses = sum(1 for row in trade_rows if float(row[pnl_field] or 0) < 0)
+        ordered = sorted((row for row in trade_rows if row["exit_time"]), key=lambda row: row["exit_time"])
+        consecutive_wins = 0
+        consecutive_losses = 0
+        for row in reversed(ordered):
+            pnl = float(row[pnl_field] or 0)
+            if pnl > 0 and consecutive_losses == 0:
+                consecutive_wins += 1
+            elif pnl < 0 and consecutive_wins == 0:
+                consecutive_losses += 1
+            else:
+                break
+
+        metrics = {
+            "daily_trades": len(daily_rows),
+            "daily_pnl": daily_pnl,
+            "weekly_pnl": weekly_pnl,
+            "monthly_pnl": monthly_pnl,
+            "total_closed_trades": len(trade_rows),
+            "closed_trades": len(trade_rows),
+            "winning_trades": wins,
+            "losing_trades": losses,
+            "win_rate": (wins / len(trade_rows)) * 100 if trade_rows else 0.0,
+            "consecutive_wins": consecutive_wins,
+            "consecutive_losses": consecutive_losses,
+            "last_entry_time": max((row["entry_time"] for row in trade_rows if row["entry_time"]), default=None),
+            "last_exit_time": max((row["exit_time"] for row in trade_rows if row["exit_time"]), default=None),
+        }
+        cache_api.update_risk_metrics(scope, session_id, metrics)
+        return True
 
     # ------------------------------------------------------------------
     # User cleanup

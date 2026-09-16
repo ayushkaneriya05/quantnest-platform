@@ -235,15 +235,6 @@ class PortfolioService:
                 paper_account.current_balance = new_amount
                 paper_account.save(update_fields=["current_balance", "updated_at"])
 
-                # Update unified cache for account funds
-                funds_data = {
-                    'net_equity': str(paper_account.current_balance),
-                    'cash_balance': str(paper_account.current_balance),
-                    'available_margin': str(paper_account.current_balance),
-                    'used_margin': '0',
-                    'account_id': str(paper_account.id),
-                }
-                cache_api.update_account_funds(paper_account.id, funds_data)
 
         return allocations.count()
 
@@ -259,16 +250,6 @@ class PortfolioService:
                 "current_balance": target_amount,
             },
         )
-
-        # Update unified cache for account funds
-        funds_data = {
-            'net_equity': str(paper_account.current_balance),
-            'cash_balance': str(paper_account.current_balance),
-            'available_margin': str(paper_account.current_balance),
-            'used_margin': '0',
-            'account_id': str(paper_account.id),
-        }
-        cache_api.update_account_funds(paper_account.id, funds_data)
 
         if not created:
             if paper_account.current_balance > target_amount:
@@ -354,7 +335,7 @@ class PaperExecutionService:
                 "strategy_id": str(session.strategy_id),
                 "instrument_ids": inst_ids
             }
-            redis_client.publish("execution_control", json.dumps(payload))
+            redis_client.xadd("execution_control", {"payload": json.dumps(payload)}, maxlen=10000, approximate=True)
         except Exception as e:
             logger.error(f"Failed to publish execution event {action} for {session.id}: {e}")
 
@@ -384,25 +365,8 @@ class PaperExecutionService:
             }
         )
 
-        # Initialize risk metrics for paper session
+        # Initialize the separate account-funds cache used for capital sizing.
         from core.cache_api import cache_api
-        cache_api.update_risk_metrics("paper", str(session.id), {
-            "daily_trades": 0,
-            "daily_pnl": 0.0,
-            "weekly_pnl": 0.0,
-            "monthly_pnl": 0.0,
-            "total_closed_trades": 0,
-            "winning_trades": 0,
-            "losing_trades": 0,
-            "win_rate": 0.0,
-            "consecutive_wins": 0,
-            "consecutive_losses": 0,
-            "net_equity": str(account.current_balance),
-            "cash_balance": str(account.current_balance),
-            "available_margin": str(account.current_balance),
-        })
-
-        # Initialize account funds in unified cache
         funds_data = {
             'net_equity': str(account.current_balance),
             'cash_balance': str(account.current_balance),
@@ -410,10 +374,7 @@ class PaperExecutionService:
             'used_margin': '0',
             'account_id': str(account.id),
         }
-        cache_api.update_account_funds(account.id, funds_data)
-
-        # Rebuild runtime state from database for session recovery
-        PaperExecutionService.rebuild_runtime_state_from_db(str(session.id))
+        cache_api.update_session_funds("paper", str(session.id), funds_data)
 
         if initial_status == "RUNNING":
             PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
@@ -492,6 +453,14 @@ class PaperExecutionService:
     @staticmethod
     def resume_session(session):
         from django.utils import timezone
+
+        cache_api.update_session_funds("paper", str(session.id), {
+            'net_equity': str(session.account.current_balance),
+            'cash_balance': str(session.account.current_balance),
+            'available_margin': str(session.account.current_balance),
+            'used_margin': '0',
+            'account_id': str(session.account.id),
+        })
         session.status = "RUNNING"
         session.error_message = ""
         if not session.started_at:
@@ -548,26 +517,6 @@ class PaperExecutionService:
             return ProductType.CNC
         return ProductType.MARGIN
 
-    @staticmethod
-    def _get_base_instrument(strategy, execution_instrument):
-        if not strategy:
-            return execution_instrument
-        watches = strategy.watchlist_instruments.all()
-        for w in watches:
-            if w.instrument_id == execution_instrument.id:
-                return w.instrument
-        for w in watches:
-            routes = w.execution_routes.all()
-            for r in routes:
-                if r.target_instrument_id == execution_instrument.id:
-                    return w.instrument
-            if execution_instrument.instrument_type in ['OPTION', 'FUTURE']:
-                if execution_instrument.underlying_symbol == w.instrument.symbol:
-                    return w.instrument
-                for r in routes:
-                    if r.target_underlying_instrument and execution_instrument.underlying_symbol == r.target_underlying_instrument.symbol:
-                        return w.instrument
-        return execution_instrument
 
     @staticmethod
     def place_order(
@@ -759,6 +708,7 @@ class PaperExecutionService:
             current["monthly_pnl"] = float(current.get("monthly_pnl", 0.0) or 0.0) + pnl
             current["total_closed_trades"] = int(current.get("total_closed_trades", 0) or 0) + 1
             current["closed_trades"] = current["total_closed_trades"]
+            current["last_exit_time"] = executed_at
             
             if pnl < 0:
                 current["consecutive_losses"] = current.get("consecutive_losses", 0) + 1
@@ -785,11 +735,10 @@ class PaperExecutionService:
             if opposite_position.quantity > 0:
                 opposite_position.save(update_fields=["quantity", "margin_blocked", "updated_at"])
                 if opposite_position.strategy_id:
-                    base_inst = PaperExecutionService._get_base_instrument(opposite_position.strategy, opposite_position.instrument)
                     StrategyRuntimeState.mark_open(
                         "paper",
                         session.id,
-                        base_inst.id,
+                        opposite_position.instrument_id,
                         side=opposite_position.side,
                         quantity=opposite_position.quantity,
                         avg_price=opposite_position.avg_price,
@@ -825,11 +774,10 @@ class PaperExecutionService:
                         })
             else:
                 if opposite_position.strategy_id:
-                    base_inst = PaperExecutionService._get_base_instrument(opposite_position.strategy, opposite_position.instrument)
                     StrategyRuntimeState.mark_closed(
                         "paper",
                         session.id,
-                        base_inst.id,
+                        opposite_position.instrument_id,
                     )
                 opposite_position.delete()
                 
@@ -854,14 +802,12 @@ class PaperExecutionService:
                     quantity=remaining, avg_price=price, current_price=price, margin_blocked=price * remaining,
                 )
             
-            trade_state = {}
             trade_strategy_id = strategy.id if strategy else position.strategy_id
             if trade_strategy_id:
-                base_inst = PaperExecutionService._get_base_instrument(strategy or position.strategy, position.instrument)
                 StrategyRuntimeState.mark_open(
                     "paper",
                     session.id,
-                    base_inst.id,
+                    position.instrument_id,
                     side=position.side,
                     quantity=position.quantity,
                     avg_price=position.avg_price,
@@ -895,6 +841,7 @@ class PaperExecutionService:
                     'unrealized_pnl': str(position.unrealized_pnl),
                     'session_id': str(session.id),
                 })
+            cache_api.update_risk_metrics("paper", session.id, {"last_entry_time": executed_at})
 
         account.save(update_fields=["current_balance", "updated_at"])
 
@@ -906,7 +853,8 @@ class PaperExecutionService:
             'used_margin': '0',
             'account_id': str(account.id),
         }
-        cache_api.update_account_funds(account.id, funds_data)
+        if session:
+            cache_api.update_session_funds("paper", str(session.id), funds_data)
         
         if session:
             PaperExecutionService._validate_auto_disable(

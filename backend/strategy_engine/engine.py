@@ -1,5 +1,7 @@
 import time
 import logging
+import json
+import threading
 import django
 from typing import List, Dict
 
@@ -12,6 +14,46 @@ from strategy_engine.dispatcher import OrderDispatcher
 from common.enums import Side, TradePhase
 
 logger = logging.getLogger(__name__)
+
+
+def _start_runtime_lifecycle_listener(context, scope, session_id):
+    from django.core.cache import cache
+    from django.conf import settings
+
+    stop_event = threading.Event()
+
+    def listen():
+        # Redis state is authoritative after recovery; only consume lifecycle events published after this worker starts.
+        stream_id = "$"
+        while not stop_event.is_set():
+            try:
+                if hasattr(cache, "client"):
+                    redis_client = cache.client.get_client()
+                else:
+                    import redis
+                    redis_client = redis.from_url(settings.REDIS_URL)
+                entries = redis_client.xread({"runtime_state_lifecycle": stream_id}, count=100, block=1000)
+
+                if not entries:
+                    continue
+                for _, messages in entries:
+                    for message_id, fields in messages:
+                        stream_id = message_id
+                        raw_payload = fields.get(b"payload", fields.get("payload"))
+                        payload = json.loads(raw_payload)
+                        if payload.get("scope") != scope or str(payload.get("session_id")) != str(session_id):
+                            continue
+                        context.apply_external_runtime_state(payload["instrument_id"], payload["updates"])
+            except Exception:
+                if stop_event.is_set():
+                    break
+                logger.exception("Runtime lifecycle stream read failed; retrying")
+                stop_event.wait(1.0)
+
+    thread = threading.Thread(target=listen, name="runtime-lifecycle-sync", daemon=True)
+    thread.start()
+    return stop_event
+
 
 class StrategyExecutionEngine:
     """
@@ -34,6 +76,72 @@ class StrategyExecutionEngine:
         else:
             return PaperSessionContext(self.session_id, self.strategy_id)
 
+    @staticmethod
+    def _required_1m_candles(config):
+        from marketdata.access import StrategyMarketDataService
+        from rules_engine.metadata import IndicatorRequirementAnalyzer
+
+        _, required_timeframes = StrategyMarketDataService.required_timeframes(config)
+        requirements = IndicatorRequirementAnalyzer.get_warmup_requirements(config)
+        timeframe_minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1H": 60, "4H": 240, "1D": 375, "1W": 1875}
+
+        return max(2, max(requirements.get(timeframe, 0) * timeframe_minutes.get(timeframe, 1) for timeframe in required_timeframes ))
+
+    @staticmethod
+    def _valid_candle_count(shm):
+        data = shm.get_latest_data()
+        return int(((data[:, 0] > 0) & (data[:, 1] > 0) & (data[:, 2] > 0) & (data[:, 3] > 0)).sum())
+
+    def _mark_startup_error(self, message):
+        try:
+            if self.scope == "live":
+                from live_trading.models import TradingSession
+                TradingSession.objects.filter(id=self.session_id).update(status="ERROR", error_message=message)
+            else:
+                from paper_trading.models import PaperTradingSession
+                PaperTradingSession.objects.filter(id=self.session_id).update(status="ERROR", error_message=message)
+        except Exception:
+            logger.exception("Failed to mark %s session %s as ERROR", self.scope, self.session_id)
+
+    def _validate_worker_readiness(self, config, instruments, shm_managers):
+        if len(shm_managers) != len(self.instrument_ids):
+            missing_symbols = sorted(
+                set(instruments.values()) - {shm.symbol for shm in shm_managers.values()}
+            )
+            for shm in shm_managers.values():
+                shm.close()
+            message = f"Required shared memory is unavailable: {missing_symbols}"
+            self._mark_startup_error(message)
+            raise RuntimeError(message)
+
+        expected_ids = {
+            int(item.get("instrument_id"))
+            for item in config.get("watchlist_instruments", [])
+            if item.get("instrument_id") is not None
+        }
+        supplied_ids = set(self.instrument_ids)
+        if expected_ids != supplied_ids:
+            message = f"Direct-routing instrument mismatch: expected={sorted(expected_ids)}, supplied={sorted(supplied_ids)}"
+            self._mark_startup_error(message)
+            raise RuntimeError(message)
+
+        missing_ids = sorted(expected_ids - set(instruments))
+        if missing_ids:
+            message = f"Required instruments are missing or inactive: {missing_ids}"
+            self._mark_startup_error(message)
+            raise RuntimeError(message)
+
+        required_candles = self._required_1m_candles(config)
+        not_ready = []
+        for instrument_id, shm in shm_managers.items():
+            candle_count = self._valid_candle_count(shm)
+            if candle_count < required_candles or shm.get_latest_price() is None:
+                not_ready.append((instrument_id, candle_count, required_candles))
+        if not_ready:
+            message = f"Shared memory warmup is incomplete: {not_ready}"
+            self._mark_startup_error(message)
+            raise RuntimeError(message)
+
           
     def run(self):
         """
@@ -41,19 +149,25 @@ class StrategyExecutionEngine:
         """
         self.is_running = True
         django.setup() # Ensure Django ORM is available in the new process
-        
+
+        from strategy_engine.runtime import StrategyRuntimeState
         from concurrent.futures import ThreadPoolExecutor
-        pool_size = max(5, min(32, len(self.instrument_ids)))
-        self.slow_path_executor = ThreadPoolExecutor(max_workers=pool_size)
-        
-        context = self._init_context()
+
+        try:
+            context = self._init_context()
+            config = context.get_strategy_config()
+            executor = StrategyExecutor(config)
+        except Exception as exc:
+            message = f"Worker configuration is not ready: {exc}"
+            self._mark_startup_error(message)
+            raise RuntimeError(message) from exc
         
         shm_managers: Dict[int, SharedMemoryManager] = {}
         last_ticks: Dict[int, int] = {}
         last_indices: Dict[int, int] = {}
         
         from instruments.models import Instrument
-        instruments = {inst.id: inst.sym_ticker for inst in Instrument.objects.filter(id__in=self.instrument_ids)}
+        instruments = {inst.id: inst.sym_ticker for inst in Instrument.objects.filter(id__in=self.instrument_ids, is_active=True).values_list("id", "sym_ticker")}
         
         for inst_id, symbol in instruments.items():
             try:
@@ -63,18 +177,27 @@ class StrategyExecutionEngine:
                 last_indices[inst_id] = shm.current_index
             except Exception as e:
                 logger.error(f"Failed to attach to SHM for {symbol}: {e}")
-                
-        config = context.get_strategy_config()
+
+        self._validate_worker_readiness(config, instruments, shm_managers)
+
+        recovered_positions = StrategyRuntimeState.rebuild_runtime_state_from_db(self.scope, str(self.session_id))
+        recovered_orders = StrategyRuntimeState.rebuild_pending_order_state(self.scope, str(self.session_id))
+        risk_rebuilt = StrategyRuntimeState.ensure_risk_metrics(self.scope, str(self.session_id))
+
+        logger.info("Worker %s-%s recovered %s positions and %s pending orders; risk_rebuilt=%s.", self.scope, self.session_id, recovered_positions, recovered_orders, risk_rebuilt)
+
+        pool_size = max(5, min(32, len(self.instrument_ids)))
+        self.slow_path_executor = ThreadPoolExecutor(max_workers=pool_size)
         
-        # Build watch_map from config_snapshot (no DB query)
+        runtime_listener_stop = _start_runtime_lifecycle_listener(context, self.scope, str(self.session_id))
+
+        # Build watch_map from config_snapshot
         watch_map = {}
         for wi_data in config.get('watchlist_instruments', []):
             inst_id = wi_data.get('instrument_id')
             if inst_id:
-                watch_map[inst_id] = wi_data  # Include routes data from config
+                watch_map[int(inst_id)] = wi_data  # Include routes data from config
                 
-        executor = StrategyExecutor(config)
-
         pending_slow_tasks = {inst_id: False for inst_id in instruments.keys()}
         pending_slow_task_times = {inst_id: 0.0 for inst_id in instruments.keys()}
         SLOW_TASK_TIMEOUT = 30.0  # Auto-reset stuck tasks after 30 seconds
@@ -86,7 +209,7 @@ class StrategyExecutionEngine:
             if exc:
                 logger.error(f"Slow path task for instrument {i_id} failed: {exc}")
 
-        logger.info(f"Worker {self.scope}-{self.session_id} entering close-only execution loop.")
+        logger.info(f"Worker {self.scope}-{self.session_id} initialized.")
         
         try:
             while self.is_running:
@@ -140,9 +263,7 @@ class StrategyExecutionEngine:
                                 metadata={"strategy_id": self.strategy_id, "session_id": self.session_id}
                             )
                         except Exception as e:
-                            # Transient errors - log but continue
                             logger.warning(f"Transient error evaluating tick for {shm.symbol}: {e}")
-                            # Don't send notification for transient errors
                         
                 # Yield CPU slightly to avoid 100% core lockup
                 time.sleep(0.001) 
@@ -151,6 +272,7 @@ class StrategyExecutionEngine:
         except Exception as e:
             logger.exception(f"Fatal error in worker {self.session_id}: {e}")
         finally:
+            runtime_listener_stop.set()
             self.slow_path_executor.shutdown(wait=False)
             for shm in shm_managers.values():
                 shm.close()

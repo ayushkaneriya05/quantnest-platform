@@ -116,6 +116,6 @@ class OrderDispatcher:
                 target_price=target,
                 reason=reason
             )
+            # Set the phase immediately before publishing
+            context.update_runtime_state(instrument_id, {"phase": TradePhase.ENTRY_PENDING, "side": side})
             router.publish_order(req)
-        
-        context.update_runtime_state(instrument_id, {"phase": TradePhase.ENTRY_PENDING, "side": side})

@@ -1,5 +1,6 @@
-from decimal import Decimal
 import logging
+import threading
+from copy import deepcopy
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
@@ -16,13 +17,29 @@ class SessionContext(ABC):
 
     CRITICAL: All methods called during tick evaluation (get_position,
     get_risk_stats, get_runtime_state, update_runtime_state) MUST be
-    DB-free.  They read/write exclusively from Redis.
+    DB-free. Runtime state uses a worker-local L1 cache for hot reads and
+    Redis for lifecycle synchronization.
     """
+    _HOT_FIELDS = {
+        "current_price",
+        "peak_price",
+        "trailing_stop",
+        "pnl_points",
+        "pnl_percentage",
+    }
+    _PENDING_PHASES = {
+        StrategyRuntimeState.ENTRY_PENDING,
+        StrategyRuntimeState.EXIT_PENDING,
+        StrategyRuntimeState.PARTIAL_EXIT_PENDING,
+    }
+
     def __init__(self, session_id: str, strategy_id: str, scope: str):
         self.session_id = session_id
         self.strategy_id = strategy_id
         self.scope = scope
         self.user_id = self._fetch_user_id()
+        self._runtime_l1: Dict[int, Dict[str, Any]] = {}
+        self._runtime_l1_lock = threading.RLock()
 
     @abstractmethod
     def _fetch_user_id(self) -> str:
@@ -50,19 +67,46 @@ class SessionContext(ABC):
         return RiskEvaluator(self.get_available_capital())
         
     def get_runtime_state(self, instrument_id: int) -> Dict[str, Any]:
-        """Gets the ephemeral runtime state (peak price, trailing stop)."""
-        return StrategyRuntimeState.trade_state(self.scope, self.session_id, instrument_id)
+        """Get runtime state, refreshing Redis only for missing/pending state."""
+        with self._runtime_l1_lock:
+            local_state = self._runtime_l1.get(instrument_id)
+            if local_state is None or local_state.get("phase") in self._PENDING_PHASES:
+                shared_state = StrategyRuntimeState.trade_state(self.scope, self.session_id, instrument_id)
+                if shared_state:
+                    if local_state:
+                        local_state.update(shared_state)
+                    else:
+                        local_state = shared_state
+                    self._runtime_l1[instrument_id] = local_state
+
+            return deepcopy(local_state or {})
         
     def update_runtime_state(self, instrument_id: int, updates: Dict[str, Any]):
-        """Updates the ephemeral runtime state."""
-        StrategyRuntimeState.update_trade_state(self.scope, self.session_id, instrument_id, updates)
+        """Update L1 state and persist only lifecycle/non-hot fields."""
+        with self._runtime_l1_lock:
+            state = self._runtime_l1.setdefault(instrument_id, {})
+            state.update(updates)
+
+            shared_updates = {
+                field: value
+                for field, value in updates.items()
+                if field not in self._HOT_FIELDS and not field.startswith("breakeven_") and not field.startswith("partial_exit_")
+            }
+        if shared_updates:
+            StrategyRuntimeState.update_trade_state(self.scope, self.session_id, instrument_id, shared_updates)
+
+    def apply_external_runtime_state(self, instrument_id: int, updates: Dict[str, Any]):
+        """Apply a lifecycle event to this worker's L1 state."""
+        with self._runtime_l1_lock:
+            state = self._runtime_l1.setdefault(instrument_id, {})
+            state.update(updates)
 
     def get_position(self, instrument_id: int, config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
         Returns the current open position state, or None if flat.
 
-        DB-free: Reads exclusively from the Redis runtime state written by
-        mark_open() during order fills.  When ``config`` is provided (slow
+        DB-free: Reads exclusively from the shared Redis runtime state written
+        by mark_open() during order fills.  When ``config`` is provided (slow
         path), build_position_state enriches the state with protection
         levels computed from the config.
         """
@@ -98,9 +142,16 @@ class LiveSessionContext(SessionContext):
         return session.user_id if session else None
 
     def get_available_capital(self) -> float:
-        from core.cache_view import cache_view
         try:
-            # Get allocation directly from database (TickCache removed)
+            session_funds = cache_view.get_session_funds("live", self.session_id)
+            if session_funds:
+                broker_margin = float(
+                    session_funds.get("available_margin") or session_funds.get("cash_balance") or session_funds.get("net_equity") or 0
+                )
+                allocation_capital = float(session_funds.get("allocation_available_capital") or 0)
+                return min(allocation_capital, broker_margin)
+
+            # Get allocation directly from database
             from live_trading.models import TradingSession
             session = TradingSession.objects.filter(id=self.session_id).select_related('allocation').first()
             if not session or not session.allocation:
@@ -124,7 +175,6 @@ class LiveSessionContext(SessionContext):
             return 0.0
 
     def get_risk_stats(self) -> Dict[str, Any]:
-        from core.cache_view import cache_view
         return cache_view.get_risk_metrics("live", self.session_id)
 
 
@@ -146,25 +196,24 @@ class PaperSessionContext(SessionContext):
         return session.account.user_id if session and session.account else None
 
     def get_available_capital(self) -> float:
-        from core.cache_view import cache_view
         try:
-            # Use unified cache for risk metrics which now includes capital info
-            risk_metrics = cache_view.get_risk_metrics("paper", self.session_id)
-            if risk_metrics:
-                # Get available margin from risk metrics (now includes paper capital)
-                capital = float(risk_metrics.get("available_margin") or risk_metrics.get("cash_balance") or risk_metrics.get("net_equity") or 0)
-                return capital
+            session_funds = cache_view.get_session_funds("paper", self.session_id)
+            if session_funds:
+                return float(
+                    session_funds.get("available_margin") or session_funds.get("cash_balance") or session_funds.get("net_equity") or 0
+                )
+
+            from paper_trading.models import PaperTradingSession
+
+            session = PaperTradingSession.objects.filter(id=self.session_id).select_related("account").first()
+            if not session or not session.account:
+                return 0.0
 
             # Fallback to database if cache miss (should be rare)
-            from paper_trading.models import PaperTradingSession
-            session = PaperTradingSession.objects.filter(id=self.session_id).select_related('account').first()
-            if session and session.account:
-                return float(session.account.current_balance or 0.0)
-            return 0.0
+            return float(session.account.current_balance or 0.0)
         except Exception as e:
             logger.error(f"Error fetching paper capital: {e}")
             return 0.0
 
     def get_risk_stats(self) -> Dict[str, Any]:
-        from core.cache_view import cache_view
         return cache_view.get_risk_metrics("paper", self.session_id)
