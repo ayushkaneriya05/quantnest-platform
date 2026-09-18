@@ -22,10 +22,7 @@ class ExchangeConfig(BaseTimestampModel):
     EXCHANGE_CHOICES = [
         ('NSE', 'National Stock Exchange'),
         ('BSE', 'Bombay Stock Exchange'),
-        ('NFO', 'NSE Futures & Options'),
-        ('MCX', 'Multi Commodity Exchange'),
-        ('CDS', 'Currency Derivatives'),
-        ('BFO', 'BSE Futures & Options'),
+        ('MCX', 'Multi Commodity Exchange')
     ]
 
     exchange = models.CharField(

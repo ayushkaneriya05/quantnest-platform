@@ -872,9 +872,9 @@ class PaperExecutionService:
         return StrategyRuntimeState.rebuild_runtime_state_from_db("paper", session_id)
 
     @classmethod
-    def run_zmq_subscriber(cls):
+    def run_zmq_subscriber(cls, stop_event=None):
         """
-        Runs continuously in a background process/thread, listening to the StrategyOrderRouter 
+        Runs continuously in a background process/thread, listening to the StrategyOrderRouter
         ZeroMQ publisher for any 'PAPER' scope OrderRequests.
         """
         import zmq
@@ -882,48 +882,55 @@ class PaperExecutionService:
         from strategy_engine.router import OrderRequest
         from paper_trading.models import PaperTradingSession
         from instruments.models import Instrument
-        
+
         context = zmq.Context.instance()
         socket = context.socket(zmq.SUB)
         socket.bind("tcp://127.0.0.1:5556")
+        socket.setsockopt(zmq.RCVTIMEO, 1000)
         socket.setsockopt_string(zmq.SUBSCRIBE, "PAPER")
-        
+
         logger.info("PaperExecutionService ZMQ Subscriber listening for PAPER orders...")
-        
-        while True:
-            req = None
-            try:
-                topic, message = socket.recv_multipart()
-                data = json.loads(message.decode('utf-8'))
-                req = OrderRequest(**data)
-                
-                # Rehydrate objects
-                session = PaperTradingSession.objects.select_related('account', 'strategy').get(id=req.session_id)
-                instrument = Instrument.objects.get(id=req.instrument_id)
-                
-                PaperExecutionService.place_order(
-                    session=session,
-                    strategy=session.strategy,
-                    account=session.account,
-                    instrument=instrument,
-                    side=req.side,
-                    quantity=req.qty,
-                    price=req.target_price,
-                )
-                logger.info(f"ZMQ paper order placed: {req.side} {req.qty} {instrument.sym_ticker} reason={getattr(req, 'reason', 'N/A')}")
-            except Exception as e:
-                session_id = getattr(req, "session_id", "unknown")
-                logger.error(f"ZMQ Paper Subscriber Error for session {session_id}: {e}", exc_info=True)
-                # Revert phase to prevent permanent state lock
+
+        try:
+            while not (stop_event and stop_event.is_set()):
+                req = None
                 try:
-                    if req is None:
-                        continue
-                    state = StrategyRuntimeState.trade_state("paper", req.session_id, req.instrument_id)
-                    if state.get("phase") in (StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING):
-                        revert_phase = StrategyRuntimeState.OPEN if state.get("quantity", 0) > 0 else StrategyRuntimeState.CLOSED
-                        StrategyRuntimeState.update_trade_state("paper", req.session_id, req.instrument_id, {"phase": revert_phase})
-                        logger.info(f"Reverted paper phase to {revert_phase} for session {req.session_id} instrument {req.instrument_id}")
-                except Exception:
-                    logger.exception("Failed to revert paper trade phase after ZMQ error")
+                    topic, message = socket.recv_multipart()
+                    data = json.loads(message.decode('utf-8'))
+                    req = OrderRequest(**data)
+
+                    session = PaperTradingSession.objects.select_related('account', 'strategy').get(id=req.session_id)
+                    instrument = Instrument.objects.get(id=req.instrument_id)
+
+                    PaperExecutionService.place_order(
+                        session=session,
+                        strategy=session.strategy,
+                        account=session.account,
+                        instrument=instrument,
+                        side=req.side,
+                        quantity=req.qty,
+                        price=req.target_price,
+                    )
+                    logger.info(f"ZMQ paper order placed: {req.side} {req.qty} {instrument.sym_ticker} reason={getattr(req, 'reason', 'N/A')}")
+                except zmq.Again:
+                    continue
+                except Exception as e:
+                    session_id = getattr(req, "session_id", "unknown")
+                    logger.error(f"ZMQ Paper Subscriber Error for session {session_id}: {e}", exc_info=True)
+                    try:
+                        if req is None:
+                            continue
+                        state = StrategyRuntimeState.trade_state("paper", req.session_id, req.instrument_id)
+                        if state.get("phase") in (StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING):
+                            revert_phase = StrategyRuntimeState.OPEN if state.get("quantity", 0) > 0 else StrategyRuntimeState.CLOSED
+                            StrategyRuntimeState.update_trade_state("paper", req.session_id, req.instrument_id, {"phase": revert_phase})
+                            logger.info(f"Reverted paper phase to {revert_phase} for session {req.session_id} instrument {req.instrument_id}")
+                    except Exception:
+                        logger.exception("Failed to revert paper trade phase after ZMQ error")
+        finally:
+            try:
+                socket.close()
+            except Exception:
+                pass
 
 

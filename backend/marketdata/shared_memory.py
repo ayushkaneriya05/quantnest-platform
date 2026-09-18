@@ -195,60 +195,33 @@ class SharedMemoryManager:
             except Exception:
                 pass
                 
-    def preload_historical_data(self, max_lookback: int):
+    def preload_historical_data(self, max_lookback: int, validate: bool = True):
         """
-        Preloads historical data with Fyers fallback to ensure fresh data.
-        Always fetches from Fyers if database is stale, ensuring SHM has latest data.
+        Preloads the exact historical depth required by execution.
         """
         from marketdata.services import MarketDataService
-        from django.utils import timezone
-        from datetime import timedelta
         
         try:
-            # Check if latest candle is fresh enough (max 5 minutes old)
-            latest_candle = MarketDataService.latest_candle(self.symbol, self.timeframe)
-            needs_fyers_fetch = False
-            
-            if latest_candle:
-                age_minutes = (timezone.now() - latest_candle.time).total_seconds() / 60
-                if age_minutes > 5:  # More than 5 minutes old
-                    needs_fyers_fetch = True
-                    logger.info(f"Database data for {self.symbol} is {age_minutes:.1f} min old, fetching from Fyers")
-            else:
-                needs_fyers_fetch = True
-                logger.info(f"No database data for {self.symbol}, fetching from Fyers")
-            
-            # Fetch from Fyers if data is stale or missing
-            if needs_fyers_fetch:
-                end_dt = timezone.now()
-                start_dt = end_dt - timedelta(days=7)  # Last 7 days
-                
-                fyers_candles = MarketDataService.backfill_candles_from_broker(
-                    symbol=self.symbol,
-                    date_from=start_dt.isoformat(),
-                    date_to=end_dt.isoformat(),
-                    timeframe=self.timeframe
-                )
-                
-                if fyers_candles:
-                    logger.info(f"Fetched {len(fyers_candles)} candles from Fyers for {self.symbol}")
-            
-            # Load from database (now has latest data after Fyers fetch)
-            candles = MarketDataService.list_candles(
-                symbol=self.symbol,
-                timeframe=self.timeframe,
-                limit=max_lookback
-            )
-            
-            if not candles:
-                logger.warning(f"No historical candles found for {self.symbol} {self.timeframe} to preload.")
-                # Initialize empty SHM
-                self.array.fill(0.0)
-                self.meta_array[0] = 0
-                self.meta_array[1] = 0
-                return
-                
-            logger.info(f"Preloading {len(candles)} historical candles for {self.symbol} {self.timeframe} into SHM.")
+            if max_lookback > self.max_size:
+                raise RuntimeError(f"SHM capacity {self.max_size} is below required depth {max_lookback}")
+
+            if validate:
+                readiness = MarketDataService.ensure_historical_candles(self.symbol, timeframe=self.timeframe, required_count=max_lookback)
+                if not readiness["ready"]:
+                    raise RuntimeError(
+                        f"Historical data is incomplete for {self.symbol} {self.timeframe}: "
+                        f"requested={readiness['requested']} available={readiness['available']} "
+                        f"missing={readiness.get('missing', 0)} "
+                        f"latest_expected={readiness.get('latest_expected')} "
+                        f"latest_available={readiness.get('latest_available')}"
+                    )
+
+            candles = MarketDataService.list_candles(symbol=self.symbol, timeframe=self.timeframe, limit=max_lookback)
+
+            if len(candles) < max_lookback:
+                raise RuntimeError(f"Historical query returned only {len(candles)} candles for {self.symbol} {self.timeframe}; requested {max_lookback}")
+
+            logger.info("Preloading %s historical candles for %s %s.", len(candles), self.symbol, self.timeframe)
             
             # Reset array before preloading
             self.array.fill(0.0)
@@ -283,3 +256,4 @@ class SharedMemoryManager:
             logger.info(f"Successfully preloaded {len(candles)} candles for {self.symbol} {self.timeframe}.")
         except Exception as e:
             logger.exception(f"Failed to preload historical data for {self.symbol}: {e}")
+            raise

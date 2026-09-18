@@ -1,17 +1,13 @@
 import copy
 import logging
-from datetime import datetime, time
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 from django.utils import timezone
 
-from common.enums import BacktestStatus, OrderType, Side
-from common.trading_utils import (
-    minutes_since_session_open,
-    get_exchange_times,
-)
-from rules_engine.utils import compute_sl_distance_from_config
+from common.enums import BacktestStatus, Side
+from common.trading_utils import minutes_since_session_open
 from marketdata.calendar_service import EventCalendarService
 from marketdata.access import StrategyMarketDataService
 from marketdata.services import MarketDataService
@@ -19,7 +15,6 @@ from risk_management.evaluator import RiskEvaluator
 from rules_engine.evaluator import RuleEvaluator
 from rules_engine.metadata import IndicatorRequirementAnalyzer
 from strategy_engine.executor import StrategyExecutor
-from common.costs import TradingCostCalculator
 from .models import BacktestMetrics, BacktestRun, BacktestTrade, EquityCurvePoint
 
 logger = logging.getLogger(__name__)

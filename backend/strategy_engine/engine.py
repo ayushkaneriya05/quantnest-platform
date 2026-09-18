@@ -78,14 +78,8 @@ class StrategyExecutionEngine:
 
     @staticmethod
     def _required_1m_candles(config):
-        from marketdata.access import StrategyMarketDataService
-        from rules_engine.metadata import IndicatorRequirementAnalyzer
-
-        _, required_timeframes = StrategyMarketDataService.required_timeframes(config)
-        requirements = IndicatorRequirementAnalyzer.get_warmup_requirements(config)
-        timeframe_minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1H": 60, "4H": 240, "1D": 375, "1W": 1875}
-
-        return max(2, max(requirements.get(timeframe, 0) * timeframe_minutes.get(timeframe, 1) for timeframe in required_timeframes ))
+        from marketdata.services import MarketDataService
+        return MarketDataService.required_1m_candles(config)
 
     @staticmethod
     def _valid_candle_count(shm):
@@ -125,12 +119,6 @@ class StrategyExecutionEngine:
             self._mark_startup_error(message)
             raise RuntimeError(message)
 
-        missing_ids = sorted(expected_ids - set(instruments))
-        if missing_ids:
-            message = f"Required instruments are missing or inactive: {missing_ids}"
-            self._mark_startup_error(message)
-            raise RuntimeError(message)
-
         required_candles = self._required_1m_candles(config)
         not_ready = []
         for instrument_id, shm in shm_managers.items():
@@ -141,6 +129,35 @@ class StrategyExecutionEngine:
             message = f"Shared memory warmup is incomplete: {not_ready}"
             self._mark_startup_error(message)
             raise RuntimeError(message)
+
+    def _wait_for_market_data_readiness(self, config, instruments, timeout=180):
+        """Wait for the market-data process to prepare every required symbol."""
+        from marketdata.live_feed import LiveMarketDataRegistry
+
+        required = self._required_1m_candles(config)
+        expected_ids = {
+            int(item.get("instrument_id"))
+            for item in config.get("watchlist_instruments", [])
+            if item.get("instrument_id") is not None
+        }
+        expected_symbols = {
+            instruments[instrument_id] for instrument_id in expected_ids if instrument_id in instruments
+        }
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if len(expected_symbols) == len(expected_ids) and all(
+                LiveMarketDataRegistry.is_ready(symbol, required) for symbol in expected_symbols
+            ):
+                return
+            time.sleep(1)
+
+        missing = [
+            instruments.get(instrument_id, str(instrument_id)) for instrument_id in expected_ids
+            if instrument_id not in instruments or not LiveMarketDataRegistry.is_ready(instruments[instrument_id], required)
+        ]
+        message = f"Market-data readiness timeout for symbols: {sorted(missing)}"
+        self._mark_startup_error(message)
+        raise RuntimeError(message)
 
           
     def run(self):
@@ -167,7 +184,9 @@ class StrategyExecutionEngine:
         last_indices: Dict[int, int] = {}
         
         from instruments.models import Instrument
-        instruments = {inst.id: inst.sym_ticker for inst in Instrument.objects.filter(id__in=self.instrument_ids, is_active=True).values_list("id", "sym_ticker")}
+        instruments = dict(Instrument.objects.filter(id__in=self.instrument_ids, is_active=True).values_list("id", "sym_ticker"))
+
+        self._wait_for_market_data_readiness(config, instruments)
         
         for inst_id, symbol in instruments.items():
             try:

@@ -87,6 +87,18 @@ class MarketDataService:
         "1D": "D",
         "1W": "W",
     }
+
+    @classmethod
+    def required_1m_candles(cls, config):
+        from rules_engine.metadata import IndicatorRequirementAnalyzer
+
+        requirements = IndicatorRequirementAnalyzer.get_warmup_requirements(config or {})
+        timeframe_minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1H": 60, "4H": 240, "1D": 375, "1W": 1875}
+        normalized_requirements = {
+            cls.normalize_timeframe(timeframe): count for timeframe, count in requirements.items()
+        }
+        return max(2, max(count * timeframe_minutes.get(timeframe, 1) for timeframe, count in normalized_requirements.items()))
+
     @classmethod
     def normalize_symbol(cls, symbol):
         if not symbol:
@@ -128,8 +140,10 @@ class MarketDataService:
             "240": "4H",
             "D": "1D",
             "1d": "1D",
+            "1D": "1D",
             "W": "1W",
             "1w": "1W",
+            "1W": "1W",
             "1h": "1H",
             "1H": "1H",
             "4h": "4H",
@@ -396,7 +410,6 @@ class MarketDataService:
             return None
 
         client_id = settings.FYERS_CLIENT_ID
-        auth_header = f"{client_id}:{access_token}"
         resolution = MarketDataService.normalize_timeframe(timeframe)
         api_resolution = MarketDataService.RESOLUTION_TO_FYERS.get(resolution, resolution)
 
@@ -458,6 +471,145 @@ class MarketDataService:
         if candles:
             cls.upsert_candles(symbol, timeframe, candles)
         return candles
+
+    @classmethod
+    def _expected_1m_timestamps(cls, required_count, exchange="NSE"):
+        """Return the most recent completed market-minute timestamps."""
+        from zoneinfo import ZoneInfo
+        from common.models import ExchangeConfig, MarketHoliday
+
+        local_zone = ZoneInfo("Asia/Kolkata")
+        config = ExchangeConfig.objects.filter(exchange=exchange, is_active=True).first()
+        market_open = config.market_open if config else time(9, 15)
+        market_close = config.market_close if config else time(15, 30)
+        holiday_rows = {
+            row["date"]: row for row in MarketHoliday.objects.filter(exchange__exchange=exchange).values("date", "is_partial", "partial_close")
+        }
+        now_local = datetime.now(local_zone).replace(second=0, microsecond=0)
+        latest_local = now_local - timedelta(minutes=1)
+        timestamps = []
+        cursor_date = latest_local.date()
+        while len(timestamps) < required_count:
+            holiday = holiday_rows.get(cursor_date)
+            if cursor_date.weekday() < 5 and (
+                not holiday or holiday.get("is_partial")
+            ):
+                day_open = datetime.combine(cursor_date, market_open, tzinfo=local_zone)
+                close_time = (
+                    holiday["partial_close"] if holiday and holiday.get("is_partial") and holiday.get("partial_close") else market_close
+                )
+                day_close = datetime.combine(cursor_date, close_time, tzinfo=local_zone)
+                end = min(day_close - timedelta(minutes=1), latest_local)
+                if end >= day_open:
+                    day_minutes = int((end - day_open).total_seconds() // 60) + 1
+                    for offset in range(day_minutes - 1, -1, -1):
+                        timestamps.append(day_open + timedelta(minutes=offset))
+                        if len(timestamps) >= required_count:
+                            break
+            cursor_date -= timedelta(days=1)
+        return list(reversed(timestamps))
+
+
+    @classmethod
+    def _validate_1m_window(cls, symbol, expected_timestamps):
+        if not expected_timestamps:
+            return {"missing": [], "available": 0, "latest": None}
+        start_dt = expected_timestamps[0].astimezone(py_timezone.utc)
+        end_dt = expected_timestamps[-1].astimezone(py_timezone.utc)
+        candles = cls.list_candles(
+            symbol,
+            timeframe="1m",
+            limit=None,
+            start_dt=start_dt,
+            end_dt=end_dt,
+        )
+        actual = set()
+        for row in candles:
+            open_price = float(row.get("open") or 0)
+            high_price = float(row.get("high") or 0)
+            low_price = float(row.get("low") or 0)
+            close_price = float(row.get("close") or 0)
+            if (
+                open_price <= 0
+                or high_price <= 0
+                or low_price <= 0
+                or close_price <= 0
+                or high_price < low_price
+                or close_price < low_price
+                or close_price > high_price
+            ):
+                continue
+            actual.add(
+                datetime.fromtimestamp(row["time"], tz=py_timezone.utc).replace(second=0, microsecond=0)
+            )
+        expected = {
+            timestamp.astimezone(py_timezone.utc).replace(second=0, microsecond=0) for timestamp in expected_timestamps
+        }
+        return {
+            "missing": sorted(expected - actual),
+            "available": len(actual & expected),
+            "latest": max(actual) if actual else None,
+        }
+
+    @classmethod
+    def ensure_historical_candles(cls, symbol, timeframe="1m", required_count=1):
+        """Ensure required history exists, is current, and has no market-minute gaps."""
+        timeframe = cls.normalize_timeframe(timeframe)
+        required_count = max(int(required_count or 0), 0)
+        normalized = cls.normalize_symbol(symbol)
+        expected = cls._expected_1m_timestamps(required_count) if timeframe == "1m" else []
+        validation = cls._validate_1m_window(normalized, expected) if expected else None
+        available = validation["available"] if validation else len(cls.list_candles(normalized, timeframe=timeframe, limit=None))
+        if available >= required_count and (not validation or not validation["missing"]):
+            return {
+                "symbol": normalized,
+                "timeframe": timeframe,
+                "requested": required_count,
+                "available": available,
+                "fetched": 0,
+                "missing": 0,
+                "latest_expected": expected[-1].astimezone(py_timezone.utc).isoformat() if expected else None,
+                "latest_available": validation["latest"].astimezone(py_timezone.utc).isoformat() if validation and validation["latest"] else None,
+                "ready": True,
+            }
+
+        candles_per_day = {"1m": 375, "3m": 125, "5m": 75, "15m": 25, "30m": 13, "1H": 7, "4H": 2, "1D": 1, "1W": 1 / 5}.get(timeframe, 1)
+
+        required_days = max(7, int(ceil(required_count / max(candles_per_day, 0.2)) * 2))
+        end_dt = timezone.now()
+        start_dt = end_dt - timedelta(days=required_days)
+        if expected:
+            start_dt = min(start_dt, expected[0].astimezone(py_timezone.utc))
+            end_dt = max(end_dt, expected[-1].astimezone(py_timezone.utc))
+        fetched = 0
+        chunk_start = start_dt.date()
+        end_date = end_dt.date()
+        while chunk_start <= end_date:
+            chunk_end = min(chunk_start + timedelta(days=90), end_date)
+            rows = cls.backfill_candles_from_broker(
+                normalized,
+                chunk_start.isoformat(),
+                chunk_end.isoformat(),
+                timeframe=timeframe,
+            )
+            fetched += len(rows or [])
+            chunk_start = chunk_end + timedelta(days=1)
+
+        expected = cls._expected_1m_timestamps(required_count) if timeframe == "1m" else expected
+        validation = cls._validate_1m_window(normalized, expected) if expected else None
+        available = validation["available"] if validation else len(cls.list_candles(normalized, timeframe=timeframe, limit=None))
+        missing = len(validation["missing"]) if validation else max(required_count - available, 0)
+        return {
+            "symbol": normalized,
+            "timeframe": timeframe,
+            "requested": required_count,
+            "available": available,
+            "fetched": fetched,
+            "missing": missing,
+            "latest_expected": expected[-1].astimezone(py_timezone.utc).isoformat() if expected else None,
+            "latest_available": validation["latest"].astimezone(py_timezone.utc).isoformat() if validation and validation["latest"] else None,
+            "ready": available >= required_count and missing == 0,
+        }
 
 
 class ChartDataService:
@@ -600,7 +752,7 @@ class ChartDataService:
         timeframe = MarketDataService.normalize_timeframe(timeframe)
         db_timeframe = "1D" if timeframe in {"1D", "1W"} else "1m"
         normalized = MarketDataService.normalize_symbol(symbol)
-        db_timeframe = MarketDataService.normalize_timeframe(timeframe)
+        db_timeframe = MarketDataService.normalize_timeframe(db_timeframe)
         lock_key = CacheKeys.CHART_FETCH_LOCK.format(
             symbol=normalized,
             timeframe=db_timeframe,

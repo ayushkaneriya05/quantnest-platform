@@ -1,12 +1,13 @@
 import logging
 import time
+import threading
 import concurrent.futures
 from datetime import datetime, timezone
 
 from django.conf import settings
 from django.core.cache import cache
 from instruments.models import Instrument
-from common.enums import InstrumentType
+from .services import MarketDataService
 from .streaming import MarketDataStreamer
 from .utils import get_active_fyers_access_token
 
@@ -21,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 class LiveMarketDataRegistry:
     cache_key = "marketdata:tracked_symbols"
+    execution_symbols_cache_key = "marketdata:execution_symbols"
+    requirements_cache_key = "marketdata:required_lookbacks"
+    readiness_cache_key = "marketdata:readiness"
+    heartbeat_cache_key = "marketdata:feed_heartbeat"
     client_cache_key = "marketdata:client_subscription_counts"
     cache_ttl = 60 * 60 * 6
 
@@ -31,10 +36,51 @@ class LiveMarketDataRegistry:
     @classmethod
     def set_symbols(cls, symbols):
         normalized = sorted({
-            MarketDataStreamer.normalize_symbol(symbol) for symbol in (symbols or []) if symbol
+            MarketDataService.normalize_symbol(symbol) for symbol in (symbols or []) if symbol
         })
         cache.set(cls.cache_key, normalized, timeout=cls.cache_ttl)
         return normalized
+
+    @classmethod
+    def get_required_lookbacks(cls):
+        return dict(cache.get(cls.requirements_cache_key, {}) or {})
+
+    @classmethod
+    def get_execution_symbols(cls):
+        return set(cache.get(cls.execution_symbols_cache_key, []) or [])
+
+    @classmethod
+    def set_readiness(cls, symbol, required, ready, details=None):
+        readiness = dict(cache.get(cls.readiness_cache_key, {}) or {})
+        readiness[f"{MarketDataService.normalize_symbol(symbol)}:{int(required)}"] = {
+            "ready": bool(ready),
+            "details": details or {},
+            "updated_at": time.time(),
+        }
+        cache.set(cls.readiness_cache_key, readiness, timeout=cls.cache_ttl)
+
+    @classmethod
+    def clear_readiness(cls, symbol):
+        normalized = MarketDataService.normalize_symbol(symbol)
+        readiness = dict(cache.get(cls.readiness_cache_key, {}) or {})
+        for key in list(readiness):
+            if key.rsplit(":", 1)[0] == normalized:
+                readiness.pop(key, None)
+        cache.set(cls.readiness_cache_key, readiness, timeout=cls.cache_ttl)
+
+    @classmethod
+    def is_ready(cls, symbol, required):
+        heartbeat = cache.get(cls.heartbeat_cache_key)
+        if heartbeat is None or time.time() - float(heartbeat) > 30:
+            return False
+        readiness = dict(cache.get(cls.readiness_cache_key, {}) or {})
+        normalized = MarketDataService.normalize_symbol(symbol)
+        for key, value in readiness.items():
+            key_symbol, _, key_depth = key.rpartition(":")
+            if key_symbol == normalized and int(key_depth or 0) >= int(required):
+                if value.get("ready"):
+                    return True
+        return False
 
 
     @classmethod
@@ -55,7 +101,7 @@ class LiveMarketDataRegistry:
 
     @classmethod
     def add_client_subscription(cls, symbol):
-        normalized = MarketDataStreamer.normalize_symbol(symbol)
+        normalized = MarketDataService.normalize_symbol(symbol)
         counts = cls.get_client_subscription_counts()
         counts[normalized] = int(counts.get(normalized, 0) or 0) + 1
         cache.set(cls.client_cache_key, counts, timeout=cls.cache_ttl)
@@ -63,7 +109,7 @@ class LiveMarketDataRegistry:
 
     @classmethod
     def remove_client_subscription(cls, symbol):
-        normalized = MarketDataStreamer.normalize_symbol(symbol)
+        normalized = MarketDataService.normalize_symbol(symbol)
         counts = cls.get_client_subscription_counts()
         next_count = int(counts.get(normalized, 0) or 0) - 1
         if next_count > 0:
@@ -76,140 +122,61 @@ class LiveMarketDataRegistry:
 
     @classmethod
     def refresh_from_active_accounts(cls):
-        from paper_trading.models import PaperAccount, PaperOrder, PaperPosition
-        from common.enums import StrategyStatus
-        from live_trading.models import LiveOrder, LivePosition, TradingSession
-        from strategies.models import Strategy
+        from paper_trading.models import PaperTradingSession
+        from live_trading.models import TradingSession
         from trading.models import Order, Position
+        from marketdata.services import MarketDataService
 
         tracked = set()
+        execution_symbols = set()
+        required_lookbacks = {}
         tracked.update(cls.get_client_symbols())
 
-        # Legacy/Strategy Paper Trading
-        open_position_symbols = PaperPosition.objects.filter(
-            account__sessions__status__in=["RUNNING", "PAUSED"],
-            account__user__isnull=False,
-        ).values_list("instrument__sym_ticker", flat=True)
-        tracked.update(symbol for symbol in open_position_symbols if symbol)
+        def add_session_requirements(sessions):
+            for session in sessions:
+                config = {}
+                if session.allocation and session.allocation.deployed_version:
+                    config = session.allocation.deployed_version.config_snapshot or {}
+                watchlist_ids = [
+                    item.get("instrument_id") for item in config.get("watchlist_instruments", []) if item.get("instrument_id") is not None
+                ]
 
-        pending_order_symbols = PaperOrder.objects.filter(
-            account__sessions__status__in=["RUNNING", "PAUSED"],
-            account__user__isnull=False,
-            status__in=["PENDING", "PLACED", "PARTIAL_FILL"],
-        ).values_list("instrument__sym_ticker", flat=True)
-        tracked.update(symbol for symbol in pending_order_symbols if symbol)
+                instruments = Instrument.objects.filter(id__in=watchlist_ids, is_active=True, is_tradeable=True).values_list("sym_ticker", flat=True)
 
-        # New Dashboard Trading Terminal
+                required = MarketDataService.required_1m_candles(config) if config else 200
+                for symbol in instruments:
+                    if symbol:
+                        tracked.add(symbol)
+                        execution_symbols.add(symbol)
+                        required_lookbacks[symbol] = max(required_lookbacks.get(symbol, 0), required)
+
+        # Trading Terminal
         dashboard_positions = Position.objects.values_list("instrument__sym_ticker", flat=True)
         tracked.update(symbol for symbol in dashboard_positions if symbol)
 
         dashboard_orders = Order.objects.filter(status="OPEN").values_list("instrument__sym_ticker", flat=True)
         tracked.update(symbol for symbol in dashboard_orders if symbol)
 
-        active_accounts = (
-            PaperAccount.objects.filter(sessions__status__in=["RUNNING", "PAUSED"], user__isnull=False)
-            .prefetch_related("orders__instrument", "positions__instrument")
-        )
-        for account in active_accounts:
-            for position in account.positions.all():
-                if position.instrument and position.instrument.sym_ticker:
-                    tracked.add(position.instrument.sym_ticker)
-            for order in account.orders.all():
-                if order.instrument and order.instrument.sym_ticker and order.status in {"PENDING", "PLACED", "PARTIAL_FILL"}:
-                    tracked.add(order.instrument.sym_ticker)
+        paper_sessions = PaperTradingSession.objects.filter(status__in=["RUNNING", "PAUSED", "ERROR"]).select_related("strategy", "allocation__deployed_version")
+        add_session_requirements(paper_sessions)
 
-        paper_strategies = (
-            Strategy.objects.filter(
-                paper_trading_enabled=True,
-                status=StrategyStatus.ACTIVE,
-                paper_sessions__status="RUNNING"
-            )
-            .prefetch_related(
-                "watchlist_instruments__instrument",
-                "watchlist_instruments__execution_routes__target_instrument",
-                "watchlist_instruments__execution_routes__target_underlying_instrument",
-            )
-            .distinct()
-        )
-        for strategy in paper_strategies:
-            for watch in strategy.watchlist_instruments.all():
-                if watch.instrument and watch.instrument.sym_ticker:
-                    tracked.add(watch.instrument.sym_ticker)
-                # for route in watch.execution_routes.all():
-                #     if route.target_instrument and route.target_instrument.sym_ticker:
-                #         tracked.add(route.target_instrument.sym_ticker)
-                #     if route.target_underlying_instrument:
-                #         tracked.add(route.target_underlying_instrument.sym_ticker)
-                #     if route.route_type in {"FUTURES", "OPTIONS"}:
-                #         candidates = Instrument.objects.filter(
-                #             instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
-                #             underlying_symbol=(
-                #                 route.target_underlying_instrument.symbol
-                #                 if route.target_underlying_instrument_id
-                #                 else watch.instrument.symbol
-                #             ),
-                #             is_active=True,
-                #             is_tradeable=True,
-                #         ).values_list("sym_ticker", flat=True)
-                #         tracked.update(symbol for symbol in candidates if symbol)
+        live_sessions = TradingSession.objects.filter(status__in=["RUNNING", "PAUSED", "ERROR"],).select_related("strategy", "allocation__deployed_version")
+        add_session_requirements(live_sessions)
 
-        live_position_symbols = LivePosition.objects.filter(
-            user__isnull=False,
-        ).values_list("instrument__sym_ticker", flat=True)
-        tracked.update(symbol for symbol in live_position_symbols if symbol)
+        cache.set(cls.execution_symbols_cache_key, sorted(MarketDataService.normalize_symbol(symbol) for symbol in execution_symbols), timeout=cls.cache_ttl)
 
-        live_pending_symbols = LiveOrder.objects.filter(
-            user__isnull=False,
-            status__in=["PENDING", "PLACED", "PARTIAL_FILL"],
-        ).values_list("instrument__sym_ticker", flat=True)
-        tracked.update(symbol for symbol in live_pending_symbols if symbol)
+        required_lookbacks = {
+            MarketDataService.normalize_symbol(symbol): depth for symbol, depth in required_lookbacks.items()
+        }
 
-        live_sessions = (
-            TradingSession.objects.filter(
-                status="RUNNING",
-                strategy__live_trading_enabled=True,
-                strategy__status=StrategyStatus.ACTIVE,
-            )
-            .prefetch_related(
-                "strategy__watchlist_instruments__instrument",
-                "strategy__watchlist_instruments__execution_routes__target_instrument",
-                "strategy__watchlist_instruments__execution_routes__target_underlying_instrument",
-            )
-            .distinct()
-        )
-        for session in live_sessions:
-            for watch in session.strategy.watchlist_instruments.all():
-                if watch.instrument and watch.instrument.sym_ticker:
-                    tracked.add(watch.instrument.sym_ticker)
-                # for route in watch.execution_routes.all():
-                #     if route.target_instrument and route.target_instrument.sym_ticker:
-                #         tracked.add(route.target_instrument.sym_ticker)
-                #     if route.target_underlying_instrument:
-                #         tracked.add(route.target_underlying_instrument.sym_ticker)
-                #     if route.route_type in {"FUTURES", "OPTIONS"}:
-                #         candidates = Instrument.objects.filter(
-                #             instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
-                #             underlying_symbol=(
-                #                 route.target_underlying_instrument.symbol
-                #                 if route.target_underlying_instrument_id
-                #                 else watch.instrument.symbol
-                #             ),
-                #             is_active=True,
-                #             is_tradeable=True,
-                #         ).values_list("sym_ticker", flat=True)
-                #         tracked.update(symbol for symbol in candidates if symbol)
+        cache.set(cls.requirements_cache_key, required_lookbacks, timeout=cls.cache_ttl)
 
         if not tracked:
             return cls.set_symbols([])
 
-        active_tracked = Instrument.objects.filter(
-            sym_ticker__in=tracked,
-            is_active=True,
-            is_tradeable=True
-        ).values_list('sym_ticker', flat=True)
+        active_tracked = Instrument.objects.filter(sym_ticker__in=tracked, is_active=True, is_tradeable=True).values_list('sym_ticker', flat=True)
 
         return cls.set_symbols(list(active_tracked))
-
 
 class FyersLiveFeedClient:
     def __init__(self):
@@ -219,6 +186,11 @@ class FyersLiveFeedClient:
         self.thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=50, thread_name_prefix="tick_worker")
         self.last_candle_updates = {}
         self.shm_managers = {}
+        self._shm_locks = {}
+        self._shm_registry_lock = threading.RLock()
+        self._sync_thread = None
+        self._sync_stop = threading.Event()
+        self._sync_wakeup = threading.Event()
 
 
     def connect(self):
@@ -242,73 +214,106 @@ class FyersLiveFeedClient:
             on_message=self._on_message,
         )
         self.socket.connect()
-        
-        
         return self.socket
+
+
+    def start_subscription_sync(self, interval=15):
+        """Run subscription/history reconciliation off the websocket callback thread."""
+        if self._sync_thread and self._sync_thread.is_alive():
+            return
+
+        def loop():
+            while not self._sync_stop.is_set():
+                try:
+                    self.sync_subscriptions()
+                except Exception:
+                    logger.exception("Subscription reconciliation failed")
+                self._sync_wakeup.wait(interval)
+                self._sync_wakeup.clear()
+
+        self._sync_thread = threading.Thread(
+            target=loop,
+            name="market-subscription-sync",
+            daemon=True,
+        )
+        self._sync_thread.start()
+
+
+    def _get_shm_entry(self, symbol):
+        with self._shm_registry_lock:
+            return self.shm_managers.get(symbol), self._shm_locks.setdefault(symbol, threading.RLock())
 
 
     def sync_subscriptions(self, force=False):
         if self.socket is None:
             return []
 
+        cache.set(LiveMarketDataRegistry.heartbeat_cache_key, time.time(), timeout=60)
         target_symbols = set(LiveMarketDataRegistry.refresh_from_active_accounts())
         target_symbols -= self._invalid_symbols
+        execution_symbols = LiveMarketDataRegistry.get_execution_symbols() - self._invalid_symbols
         additions = target_symbols if force else target_symbols - self._subscribed_symbols
         removals = set() if force else self._subscribed_symbols - target_symbols
 
+        for sym in sorted(additions):
+            self.socket.subscribe(symbols=[sym], data_type="SymbolUpdate")
+
+        required_lookbacks = LiveMarketDataRegistry.get_required_lookbacks()
+        from marketdata.shared_memory import SharedMemoryManager
+        for symbol in set(self.shm_managers) - execution_symbols:
+            shm, symbol_lock = self._get_shm_entry(symbol)
+            with symbol_lock:
+                if shm is not None:
+                    shm.close()
+                with self._shm_registry_lock:
+                    self.shm_managers.pop(symbol, None)
+                    self._shm_locks.pop(symbol, None)
+
+        for sym in sorted(execution_symbols):
+            required = int(required_lookbacks.get(sym, 200) or 200)
+            try:
+                LiveMarketDataRegistry.clear_readiness(sym)
+                historical = MarketDataService.ensure_historical_candles(sym, timeframe="1m", required_count=required)
+
+                if not historical["ready"]:
+                    LiveMarketDataRegistry.set_readiness(sym, required, False, historical)
+                    raise RuntimeError(f"Historical data is not ready for {sym}: {historical}")
+
+                shm, symbol_lock = self._get_shm_entry(sym)
+                with symbol_lock:
+                    shm = self.shm_managers.get(sym)
+                if shm is None:
+                    shm_size = max(10000, required + 500)
+                    shm = SharedMemoryManager(sym, "1m", max_size=shm_size, create=True)
+                  
+                    with self._shm_registry_lock:
+                        self.shm_managers[sym] = shm
+                    with symbol_lock:
+                        shm.preload_historical_data(required, False)
+                elif shm.max_size < required:
+                    raise RuntimeError(
+                        f"Existing SHM capacity {shm.max_size} is below required depth {required}; controlled worker/feed restart is required to resize it"
+                    )
+                else:
+                    with symbol_lock:
+                        data = shm.get_latest_data()
+                        valid_count = int(
+                            ((data[:, 0] > 0)
+                             & (data[:, 1] > 0)
+                             & (data[:, 2] > 0)
+                             & (data[:, 3] > 0)).sum()
+                        )
+                        if valid_count < required or historical.get("fetched", 0) > 0:
+                            shm.preload_historical_data(required, False)
+                LiveMarketDataRegistry.set_readiness(sym, required, True, historical)
+                cache.set(LiveMarketDataRegistry.heartbeat_cache_key, time.time(), timeout=60)
+                logger.info("SHM ready check for %s: required=%s capacity=%s", sym, required, shm.max_size)
+            except Exception as exc:
+                LiveMarketDataRegistry.set_readiness(sym, required, False, {"error": str(exc)})
+                cache.set(LiveMarketDataRegistry.heartbeat_cache_key, time.time(), timeout=60)
+                logger.error("Failed to prepare SHM for %s: %s", sym, exc)
+
         if additions:
-            for sym in sorted(additions):
-                self.socket.subscribe(symbols=[sym], data_type="SymbolUpdate")
-                if sym not in self.shm_managers:
-                    from marketdata.shared_memory import SharedMemoryManager
-                    try:
-                        # Fetch the max lookback dynamically from deployed configs
-                        max_lookback = 200 
-                        try:
-                            from live_trading.models import TradingSession
-                            from paper_trading.models import PaperTradingSession
-                            from rules_engine.metadata import IndicatorRequirementAnalyzer
-                            
-                            tf_max_lookbacks = {"1m": 200}
-
-                            def update_lookbacks(sessions):
-                                for session in sessions:
-                                    if session.allocation and session.allocation.deployed_version:
-                                        warmup = IndicatorRequirementAnalyzer.get_warmup_requirements(session.allocation.deployed_version.config_snapshot)
-                                        for tf, req_len in warmup.items():
-                                            if tf not in tf_max_lookbacks or req_len > tf_max_lookbacks[tf]:
-                                                tf_max_lookbacks[tf] = req_len
-
-                            active_live = TradingSession.objects.filter(
-                                status__in=["RUNNING", "PAUSED"], 
-                                allocation__strategy__watchlist_instruments__instrument__sym_ticker=sym
-                            ).select_related('allocation__deployed_version').distinct()
-                            
-                            update_lookbacks(active_live)
-                            
-                            active_paper = PaperTradingSession.objects.filter(
-                                status__in=["RUNNING", "PAUSED"], 
-                                allocation__strategy__watchlist_instruments__instrument__sym_ticker=sym
-                            ).select_related('allocation__deployed_version').distinct()
-                            
-                            update_lookbacks(active_paper)
-                                    
-                            # Determine total 1m candles needed to satisfy the max timeframe requirement
-                            tf_mins = {"1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1D": 375, "1W": 1875}
-                            total_1m_needed = [req_len * tf_mins.get(tf, 1) for tf, req_len in tf_max_lookbacks.items()]
-                            if total_1m_needed:
-                                max_lookback = max(total_1m_needed)
-                        except Exception as elookback:
-                            logger.error(f"Error calculating lookback for {sym}: {elookback}")
-                            max_lookback = 250
-                            
-                        # Ensure SHM size can accommodate the max_lookback + safety buffer
-                        shm_size = max(10000, max_lookback + 500)
-                        
-                        self.shm_managers[sym] = SharedMemoryManager(sym, "1m", max_size=shm_size, create=True)
-                        self.shm_managers[sym].preload_historical_data(max_lookback)
-                    except Exception as e:
-                        logger.error("Failed to init SHM for %s: %s", sym, e)
             logger.info("Subscribed live feed to %s symbol(s) individually", len(additions))
 
         if removals and hasattr(self.socket, "unsubscribe"):
@@ -321,13 +326,26 @@ class FyersLiveFeedClient:
 
 
     def shutdown(self):
+        self._sync_stop.set()
+        self._sync_wakeup.set()
+        if self._sync_thread and self._sync_thread.is_alive():
+            self._sync_thread.join(timeout=5)
         logger.info("Shutting down Fyers live feed threadpool...")
-        self.thread_pool.shutdown(wait=True)
+        try:
+            if self.socket is not None:
+                self.socket.close_connection()
+        except Exception:
+            logger.exception("Failed to close Fyers socket during shutdown")
+        try:
+            self.thread_pool.shutdown(wait=True, cancel_futures=True)
+        except Exception:
+            logger.exception("Failed to shut down feed thread pool")
 
 
     def _on_connect(self):
         logger.info("Connected to Fyers live market websocket")
-        self.sync_subscriptions(force=True)
+        self.start_subscription_sync()
+        self._sync_wakeup.set()
 
 
     def _on_close(cls, ws=None, code=None, reason=None):
@@ -394,9 +412,7 @@ class FyersLiveFeedClient:
 
             traded_at = tick.get("last_traded_time")
             traded_at_dt = (
-                datetime.fromtimestamp(traded_at, tz=timezone.utc)
-                if traded_at
-                else datetime.now(timezone.utc)
+                datetime.fromtimestamp(traded_at, tz=timezone.utc) if traded_at else datetime.now(timezone.utc)
             )
 
             quote = {
@@ -421,15 +437,17 @@ class FyersLiveFeedClient:
                 "timestamp": traded_at_dt.isoformat(),
             }
 
-
             # Write to ultra-fast POSIX shared memory for Execution V2
             if symbol in self.shm_managers:
                 try:
-                    self.shm_managers[symbol].update_current_candle(
-                        price=float(quote["price"]),
-                        volume=float(quote["volume"] or 0),
-                        timestamp=traded_at_dt.timestamp(),
-                    )
+                    shm, symbol_lock = self._get_shm_entry(symbol)
+                    if shm is not None:
+                        with symbol_lock:
+                            shm.update_current_candle(
+                                price=float(quote["price"]),
+                                volume=float(quote["volume"] or 0),
+                                timestamp=traded_at_dt.timestamp(),
+                            )
                 except Exception as exc:
                     logger.error("SHM write failed for %s: %s", symbol, exc)
 
@@ -449,6 +467,5 @@ class FyersLiveFeedClient:
                 # Terminal manual trading matching engine
                 self.thread_pool.submit(_dispatch_terminal)
                 
-                # The Execution V2 engine (multiprocessing Actor loop) reads directly from Shared Memory.
             except Exception as exc:
                 logger.exception("Failed executing threadpool dispatch for %s: %s", symbol, exc)

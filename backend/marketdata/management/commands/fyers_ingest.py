@@ -1,3 +1,4 @@
+import signal
 import time
 
 from django.core.management.base import BaseCommand
@@ -18,13 +19,23 @@ class Command(BaseCommand):
 
         client = FyersLiveFeedClient()
         client.connect()
+        client.start_subscription_sync()
         self.stdout.write(self.style.SUCCESS("Fyers websocket connected. Sync loop running."))
 
+        shutdown_requested = False
+
+        def _shutdown(signum, frame):
+            nonlocal shutdown_requested
+            shutdown_requested = True
+            self.stdout.write(self.style.WARNING(f"Shutdown signal {signum} received. Stopping..."))
+
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
+
         try:
-            while True:
-                client.sync_subscriptions()
-                time.sleep(15)
-        except KeyboardInterrupt:
-            self.stdout.write(self.style.WARNING("KeyboardInterrupt received. Shutting down..."))
+            while not shutdown_requested:
+                time.sleep(1)
+        finally:
+            self.stdout.write(self.style.WARNING("Shutting down Fyers ingestion worker..."))
             client.shutdown()
             self.stdout.write(self.style.SUCCESS("Shutdown complete."))

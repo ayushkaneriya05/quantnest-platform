@@ -32,7 +32,7 @@ class WebSocketConnectionManager:
         self.running = False
         self.health_check_interval = 30  # seconds
         self.health_check_thread = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         
     def start_processor(self, credential_id: int) -> bool:
         """
@@ -79,15 +79,18 @@ class WebSocketConnectionManager:
             credential_id: Broker credential ID
         """
         with self.lock:
-            if credential_id in self.active_processors:
-                try:
-                    processor = self.active_processors[credential_id]
-                    processor.stop()
-                    del self.active_processors[credential_id]
-                    del self.connection_health[credential_id]
-                    logger.info(f"Stopped WebSocket processor for credential {credential_id}")
-                except Exception as e:
-                    logger.exception(f"Error stopping WebSocket processor for credential {credential_id}: {e}")
+            if credential_id not in self.active_processors:
+                return
+
+            try:
+                processor = self.active_processors[credential_id]
+                processor.stop()
+            except Exception as e:
+                logger.exception(f"Error stopping WebSocket processor for credential {credential_id}: {e}")
+            finally:
+                self.active_processors.pop(credential_id, None)
+                self.connection_health.pop(credential_id, None)
+                logger.info(f"Stopped WebSocket processor for credential {credential_id}")
     
     def start_health_monitor(self) -> None:
         """Start health monitoring thread."""
@@ -110,6 +113,7 @@ class WebSocketConnectionManager:
         if self.health_check_thread:
             self.health_check_thread.join(timeout=5)
             logger.info("WebSocket health monitor stopped")
+        self.health_check_thread = None
     
     def _health_check_loop(self) -> None:
         """Health check loop running in background thread."""
@@ -211,11 +215,11 @@ class WebSocketConnectionManager:
     def stop_all(self) -> None:
         """Stop all WebSocket processors and health monitor."""
         logger.info("Stopping all WebSocket processors")
-        
-        with self.lock:
-            for credential_id in list(self.active_processors.keys()):
-                self.stop_processor(credential_id)
-        
+        self.running = False
+
+        for credential_id in list(self.active_processors.keys()):
+            self.stop_processor(credential_id)
+
         self.stop_health_monitor()
         logger.info("All WebSocket processors stopped")
     

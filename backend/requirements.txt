@@ -32,7 +32,6 @@ channels
 channels_redis
 celery
 
-pyarrow
 pandas
 redis
 fyers-apiv3
@@ -41,3 +40,5 @@ python-dateutil
 pandas-ta
 numba 
 pyzmq
+
+pandas_market_calendars

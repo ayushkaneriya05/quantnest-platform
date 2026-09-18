@@ -238,7 +238,9 @@ class RuleEvaluator:
             mode = params.get("mode", "POINTS")
             body_size = (target_df["close"] - target_df["open"]).abs()
             if mode == "PERCENTAGE":
-                price_series = (body_size / target_df["open"]) * 100
+                candle_range = target_df["high"] - target_df["low"]
+                price_series = (body_size / candle_range.replace(0, np.nan)) * 100
+                price_series = price_series.fillna(0)
             else:
                 price_series = body_size
         elif op_type == OperandType.CANDLE_PATTERN:

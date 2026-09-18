@@ -106,14 +106,20 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
     
     def disconnect(self) -> None:
         """Disconnect from Fyers order WebSocket."""
-        if self.socket:
-            try:
-                self.socket.close()
-                self.is_connected = False
-                self.is_subscribed = False
-                logger.info(f"Disconnected from Fyers order WebSocket for credential {self.credential.id}")
-            except Exception as e:
-                logger.exception(f"Error disconnecting from Fyers order WebSocket: {e}")
+        socket = self.socket
+        if socket is None:
+            return
+
+        try:
+            if hasattr(socket, "close_connection"):
+                socket.close_connection()
+        except AttributeError:
+            pass
+        finally:
+            self.socket = None
+            self.is_connected = False
+            self.is_subscribed = False
+            logger.info(f"Disconnected from Fyers order WebSocket for credential {self.credential.id}")
     
     def subscribe(self, data_types: list) -> None:
         """

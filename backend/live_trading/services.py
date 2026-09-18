@@ -635,9 +635,9 @@ class LiveExecutionService:
 
 
     @classmethod
-    def run_zmq_subscriber(cls):
+    def run_zmq_subscriber(cls, stop_event=None):
         """
-        Runs continuously in a background process/thread, listening to the StrategyOrderRouter 
+        Runs continuously in a background process/thread, listening to the StrategyOrderRouter
         ZeroMQ publisher for any 'LIVE' scope OrderRequests.
         """
         import zmq
@@ -645,48 +645,55 @@ class LiveExecutionService:
         from strategy_engine.router import OrderRequest
         from live_trading.models import TradingSession
         from instruments.models import Instrument
-        
+
         context = zmq.Context.instance()
         socket = context.socket(zmq.SUB)
         socket.bind("tcp://127.0.0.1:5555")
+        socket.setsockopt(zmq.RCVTIMEO, 1000)
         socket.setsockopt_string(zmq.SUBSCRIBE, "LIVE")
-        
+
         logger.info("LiveExecutionService ZMQ Subscriber listening for LIVE orders...")
-        
-        while True:
-            req = None
-            try:
-                topic, message = socket.recv_multipart()
-                data = json.loads(message.decode('utf-8'))
-                req = OrderRequest(**data)
-                
-                # Rehydrate objects
-                session = TradingSession.objects.select_related('broker_credential').get(id=req.session_id)
-                instrument = Instrument.objects.get(id=req.instrument_id)
-                
-                cls.place_order(
-                    session=session,
-                    instrument=instrument,
-                    side=req.side,
-                    quantity=req.qty,
-                    order_type=req.order_type,
-                    price=req.target_price,
-                )
-                logger.info(f"ZMQ order placed: {req.side} {req.qty} {instrument.sym_ticker} reason={getattr(req, 'reason', 'N/A')}")
-            except Exception as e:
-                session_id = getattr(req, "session_id", "unknown")
-                logger.error(f"ZMQ Subscriber Error for session {session_id}: {e}", exc_info=True)
-                # Revert phase to prevent permanent state lock
+
+        try:
+            while not (stop_event and stop_event.is_set()):
+                req = None
                 try:
-                    if req is None:
-                        continue
-                    state = StrategyRuntimeState.trade_state("live", req.session_id, req.instrument_id)
-                    if state.get("phase") in (StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING):
-                        revert_phase = StrategyRuntimeState.OPEN if state.get("quantity", 0) > 0 else StrategyRuntimeState.CLOSED
-                        StrategyRuntimeState.update_trade_state("live", req.session_id, req.instrument_id, {"phase": revert_phase})
-                        logger.info(f"Reverted phase to {revert_phase} for session {req.session_id} instrument {req.instrument_id}")
-                except Exception:
-                    logger.exception("Failed to revert trade phase after ZMQ error")
+                    topic, message = socket.recv_multipart()
+                    data = json.loads(message.decode('utf-8'))
+                    req = OrderRequest(**data)
+
+                    session = TradingSession.objects.select_related('broker_credential').get(id=req.session_id)
+                    instrument = Instrument.objects.get(id=req.instrument_id)
+
+                    cls.place_order(
+                        session=session,
+                        instrument=instrument,
+                        side=req.side,
+                        quantity=req.qty,
+                        order_type=req.order_type,
+                        price=req.target_price,
+                    )
+                    logger.info(f"ZMQ order placed: {req.side} {req.qty} {instrument.sym_ticker} reason={getattr(req, 'reason', 'N/A')}")
+                except zmq.Again:
+                    continue
+                except Exception as e:
+                    session_id = getattr(req, "session_id", "unknown")
+                    logger.error(f"ZMQ Subscriber Error for session {session_id}: {e}", exc_info=True)
+                    try:
+                        if req is None:
+                            continue
+                        state = StrategyRuntimeState.trade_state("live", req.session_id, req.instrument_id)
+                        if state.get("phase") in (StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING):
+                            revert_phase = StrategyRuntimeState.OPEN if state.get("quantity", 0) > 0 else StrategyRuntimeState.CLOSED
+                            StrategyRuntimeState.update_trade_state("live", req.session_id, req.instrument_id, {"phase": revert_phase})
+                            logger.info(f"Reverted phase to {revert_phase} for session {req.session_id} instrument {req.instrument_id}")
+                    except Exception:
+                        logger.exception("Failed to revert trade phase after ZMQ error")
+        finally:
+            try:
+                socket.close()
+            except Exception:
+                pass
 
     @staticmethod
     def rebuild_runtime_state_from_db(session_id):
@@ -816,7 +823,7 @@ class LiveExecutionService:
         for credential in active_credentials:
             # Fetch fresh funds from broker
             funds_data = BrokerService.get_funds(credential)
-            funds_payload = funds_data if isinstance(funds_data, dict) else {}
+            snapshot = BrokerService.record_funds_snapshot(credential, funds_data)
             
             allocation_rows = list(
                 LiveStrategyAllocation.objects.filter(user=user, broker_credential=credential)
@@ -833,10 +840,10 @@ class LiveExecutionService:
                     "broker_label": credential.label,
                     "is_healthy": account_healthy,
                     "broker_session_valid": session_valid,
-                    "available_margin": str(BrokerService.to_decimal(funds_payload.get("available_margin"))),
-                    "used_margin": str(BrokerService.to_decimal(funds_payload.get("used_margin"))),
-                    "net_equity": str(BrokerService.to_decimal(funds_payload.get("net_equity"))),
-                    "cash_balance": str(BrokerService.to_decimal(funds_payload.get("cash_balance"))),
+                    "available_margin": str(BrokerService.to_decimal(snapshot.available_margin)),
+                    "used_margin": str(BrokerService.to_decimal(snapshot.used_margin)),
+                    "net_equity": str(BrokerService.to_decimal(snapshot.net_equity)),
+                    "cash_balance": str(BrokerService.to_decimal(snapshot.cash_balance)),
                     "allocations": [
                         {
                             "id": row.id,

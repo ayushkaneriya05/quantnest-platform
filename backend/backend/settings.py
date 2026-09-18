@@ -289,6 +289,7 @@ CELERY_TASK_ROUTES = {
     "gamification.*": {"queue": "analytics"},
     "learning.*": {"queue": "analytics"},
     "reputation.*": {"queue": "analytics"},
+    "common.*": {"queue": "default"},
 }
 CELERY_BEAT_SCHEDULE = {
     "portfolio-daily-performance-nightly": {
@@ -330,6 +331,10 @@ CELERY_BEAT_SCHEDULE = {
     "marketdata-reconcile-daily-market-data": {
         "task": "marketdata.reconcile_daily_market_data",
         "schedule": crontab(hour=23, minute=55),
+    },
+    "common-sync-market-holidays-daily": {
+        "task": "common.sync_market_holidays",
+        "schedule": crontab(hour=0, minute=5),
     },
 }
 
