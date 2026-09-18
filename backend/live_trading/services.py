@@ -40,7 +40,7 @@ class LiveExecutionService:
                 redis_client = redis.from_url(redis_url)
                 
             from instruments.services import InstrumentResolver
-            inst_ids = InstrumentResolver.execution_instrument_ids(session.strategy)
+            inst_ids = InstrumentResolver.execution_instrument_ids(session)
             payload = {
                 "action": action,
                 "scope": scope,

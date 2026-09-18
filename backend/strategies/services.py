@@ -223,8 +223,6 @@ class StrategySnapshotService:
                 
             if routes_data:
                 wi_dict['execution_routes'] = routes_data
-                # Keep singular for older clients if needed
-                wi_dict['execution_route'] = routes_data[0]
                 
             watchlist_data.append(wi_dict)
             
@@ -320,8 +318,6 @@ class StrategySnapshotService:
                 )
                 # Restore multiple routes
                 routes_data = item.get('execution_routes', [])
-                if not routes_data and item.get('execution_route'):
-                    routes_data = [item.get('execution_route')]
                     
                 for route_data in routes_data:
                     ExecutionRoute.objects.create(

@@ -21,17 +21,13 @@ class Command(BaseCommand):
         self.stdout.write("Syncing active sessions on boot...")
         
         # Sync Live
-        for session in TradingSession.objects.filter(status__in=["RUNNING", "STOPPING"]).select_related("strategy").prefetch_related(
-            "strategy__watchlist_instruments__execution_routes__target_underlying_instrument",
-        ):
-            inst_ids = InstrumentResolver.execution_instrument_ids(session.strategy)
+        for session in TradingSession.objects.filter(status__in=["RUNNING", "STOPPING"]).select_related("allocation__deployed_version"):
+            inst_ids = InstrumentResolver.execution_instrument_ids(session)
             manager.start_worker(str(session.id), str(session.strategy_id), "live", inst_ids, paused=session.status != "RUNNING")
-            
+
         # Sync Paper
-        for session in PaperTradingSession.objects.filter(status="RUNNING").select_related("strategy").prefetch_related(
-            "strategy__watchlist_instruments__execution_routes",
-        ):
-            inst_ids = InstrumentResolver.execution_instrument_ids(session.strategy)
+        for session in PaperTradingSession.objects.filter(status="RUNNING").select_related("allocation__deployed_version"):
+            inst_ids = InstrumentResolver.execution_instrument_ids(session)
             manager.start_worker(str(session.id), str(session.strategy_id), "paper", inst_ids)
 
         self.stdout.write("Boot sync complete. Listening for execution events on Redis...")

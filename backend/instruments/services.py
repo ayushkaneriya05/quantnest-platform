@@ -15,33 +15,25 @@ class InstrumentResolver:
                     )
         return True
 
+
     @staticmethod
-    def execution_instrument_ids(strategy):
-        """Return direct watchlist instrument IDs for a strategy."""
-        instrument_ids = set()
-        for watch in strategy.watchlist_instruments.all():
-            if watch.instrument_id:
-                instrument_ids.add(watch.instrument_id)
-            # Non-direct route target and derivative discovery is disabled for
-            # the current release and intentionally retained below for later.
-            # for route in watch.execution_routes.all():
-            #     if route.target_instrument_id:
-            #         instrument_ids.add(route.target_instrument_id)
-            #     if route.route_type in {"FUTURES", "OPTIONS"}:
-            #         underlying = (
-            #             route.target_underlying_instrument.symbol
-            #             if route.target_underlying_instrument_id
-            #             else watch.instrument.symbol
-            #         )
-            #         instrument_ids.update(
-            #             Instrument.objects.filter(
-            #                 instrument_type=InstrumentType.FUTURE if route.route_type == "FUTURES" else InstrumentType.OPTION,
-            #                 underlying_symbol=underlying,
-            #                 is_active=True,
-            #                 is_tradeable=True,
-            #             ).values_list("id", flat=True)
-            #         )
-        return sorted(instrument_ids)
+    def execution_instrument_ids(session):
+        """Return the deployed watchlist instrument IDs for the active session.
+        Execution must always use the strategy version pinned to the active session.
+        The config snapshot already stores the direct IDs for quick access.
+        """
+        candidate = session
+        if hasattr(candidate, 'allocation') and candidate.allocation is not None:
+            candidate = candidate.allocation
+        if not hasattr(candidate, 'deployed_version') or candidate.deployed_version is None:
+            raise ValueError("Session has no deployed strategy version configured for execution.")
+
+        config = candidate.deployed_version.config_snapshot or {}
+        direct_ids = config.get('watchlist_instrument_ids') or []
+        if not direct_ids:
+            raise ValueError("Deployed strategy snapshot is missing watchlist_instrument_ids for execution.")
+        return sorted({int(item) for item in direct_ids if item is not None})
+
     
     @staticmethod
     def resolve(watchlist_instrument, signal_side, spot_price=None, routes_data=None):
