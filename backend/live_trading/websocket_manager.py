@@ -9,7 +9,6 @@ import time
 from typing import Dict, Any
 from django.utils import timezone
 from live_trading.websocket_processor import LiveWebSocketProcessor
-from live_trading.reconciliation_service import BrokerReconciliationService
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class WebSocketConnectionManager:
             True if started successfully, False otherwise
         """
         from brokers.models import BrokerCredential
-        
+
         with self.lock:
             if credential_id in self.active_processors:
                 logger.warning(f"WebSocket processor already running for credential {credential_id}")
@@ -53,6 +52,17 @@ class WebSocketConnectionManager:
             
             try:
                 credential = BrokerCredential.objects.get(id=credential_id)
+                broker_session_id = self._latest_valid_session_id(credential_id)
+                if broker_session_id is None:
+                    self.connection_health[credential_id] = {
+                        "status": "authentication_required",
+                        "broker_session_id": None,
+                        "reconnect_attempts": 0,
+                        "last_error": "No valid broker session",
+                    }
+                    logger.info("WebSocket for credential %s is waiting for broker authentication", credential_id)
+                    return False
+
                 processor = LiveWebSocketProcessor(credential)
                 processor.start()
                 
@@ -60,7 +70,9 @@ class WebSocketConnectionManager:
                 self.connection_health[credential_id] = {
                     "status": "connected",
                     "last_heartbeat": timezone.now(),
+                    "connected_since": time.time(),
                     "reconnect_attempts": 0,
+                    "broker_session_id": processor.auth_session_id or broker_session_id,
                     "last_error": None
                 }
                 
@@ -68,8 +80,22 @@ class WebSocketConnectionManager:
                 return True
                 
             except Exception as e:
+                previous = self.connection_health.get(credential_id, {})
+                self.connection_health[credential_id] = {
+                    **previous,
+                    "status": "disconnected",
+                    "reconnect_attempts": int(previous.get("reconnect_attempts", 0)) + 1,
+                    "last_reconnect_attempt": time.time(),
+                    "last_error": str(e),
+                }
                 logger.exception(f"Failed to start WebSocket processor for credential {credential_id}: {e}")
                 return False
+
+    @staticmethod
+    def _latest_valid_session_id(credential_id: int):
+        from brokers.models import BrokerSession
+
+        return BrokerSession.objects.filter(credential_id=credential_id, is_valid=True, token_expiry__gt=timezone.now()).order_by("-created_at").values_list("id", flat=True).first()
     
     def stop_processor(self, credential_id: int) -> None:
         """
@@ -117,6 +143,9 @@ class WebSocketConnectionManager:
     
     def _health_check_loop(self) -> None:
         """Health check loop running in background thread."""
+        # Let start_websocket perform its initial credential scan before the
+        # recovery scan attempts to start any missing authenticated processors.
+        time.sleep(self.health_check_interval)
         while self.running:
             try:
                 self._perform_health_checks()
@@ -130,16 +159,61 @@ class WebSocketConnectionManager:
         with self.lock:
             for credential_id, processor in list(self.active_processors.items()):
                 try:
-                    # Check if processor is still connected
-                    if not processor.is_running:
+                    health = self.connection_health.setdefault(credential_id, {})
+                    broker_session_id = self._latest_valid_session_id(credential_id)
+                    if broker_session_id is None:
+                        logger.info("Broker session expired for credential %s; stopping its WebSocket until re-authentication", credential_id)
+                        
+                        self.stop_processor(credential_id)
+                        self.connection_health[credential_id] = {
+                            "status": "authentication_required",
+                            "broker_session_id": None,
+                            "reconnect_attempts": 0,
+                            "last_error": "No valid broker session",
+                        }
+                        continue
+
+                    if str(health.get("broker_session_id")) != str(broker_session_id):
+                        logger.info( "Broker session renewed for credential %s; restarting WebSocket processor", credential_id)
+                        self.stop_processor(credential_id)
+                        self.start_processor(credential_id)
+                        continue
+
+                    if not processor.is_healthy:
+                        last_attempt = health.get("last_reconnect_attempt", 0)
+                        attempts = int(health.get("reconnect_attempts", 0))
+                        backoff = min(300, 5 * (2 ** min(attempts, 6)))
+                        if time.time() - float(last_attempt or 0) < backoff:
+                            continue
                         logger.warning(f"WebSocket processor for credential {credential_id} not running, attempting reconnect")
+                        health["last_reconnect_attempt"] = time.time()
                         self._reconnect_processor(credential_id)
                     else:
-                        # Update heartbeat
-                        self.connection_health[credential_id]["last_heartbeat"] = timezone.now()
+                        health["last_heartbeat"] = timezone.now()
+                        health["status"] = "connected"
+                        if time.time() - float(health.get("connected_since", time.time())) >= 120:
+                            health["reconnect_attempts"] = 0
                         
                 except Exception as e:
                     logger.exception(f"Error checking health for credential {credential_id}: {e}")
+
+            self._start_authenticated_processors()
+
+    def _start_authenticated_processors(self) -> None:
+        """Start active, authenticated credentials not currently managed."""
+        from brokers.models import BrokerCredential
+
+        credentials = BrokerCredential.objects.filter(is_active=True, is_verified=True, sessions__is_valid=True, sessions__token_expiry__gt=timezone.now()).distinct()
+        for credential in credentials:
+            if credential.id in self.active_processors:
+                continue
+            health = self.connection_health.get(credential.id, {})
+            attempts = int(health.get("reconnect_attempts", 0))
+            backoff = min(300, 5 * (2 ** min(attempts, 6)))
+            last_attempt = float(health.get("last_reconnect_attempt", 0) or 0)
+            if time.time() - last_attempt < backoff:
+                continue
+            self.start_processor(credential.id)
     
     def _reconnect_processor(self, credential_id: int) -> None:
         """
@@ -175,7 +249,10 @@ class WebSocketConnectionManager:
             self.connection_health[credential_id] = {
                 "status": "connected",
                 "last_heartbeat": timezone.now(),
-                "reconnect_attempts": 0,
+                "connected_since": time.time(),
+                "reconnect_attempts": reconnect_attempts + 1,
+                "broker_session_id": processor.auth_session_id or self._latest_valid_session_id(credential_id),
+                "last_reconnect_attempt": time.time(),
                 "last_error": None
             }
             
@@ -193,24 +270,14 @@ class WebSocketConnectionManager:
         Args:
             credential_id: Broker credential ID
         """
-        from brokers.models import BrokerCredential
-        
         logger.warning(f"Switching to reconciliation mode for credential {credential_id}")
-        
         try:
-            credential = BrokerCredential.objects.get(id=credential_id)
-            reconciliation_service = BrokerReconciliationService(credential)
-            
-            # Perform immediate reconciliation
-            reconciliation_service.reconcile_orders()
-            reconciliation_service.reconcile_positions()
-            
-            # Schedule periodic reconciliation
-            # (This would be implemented with Celery Beat or similar)
-            logger.info(f"Reconciliation completed for credential {credential_id}")
-            
+            from live_trading.tasks import reconcile_all_active_accounts
+            reconcile_all_active_accounts.delay(credential_id=credential_id)
+            health = self.connection_health.setdefault(credential_id, {})
+            health["status"] = "reconciliation"
         except Exception as e:
-            logger.exception(f"Error in reconciliation mode for credential {credential_id}: {e}")
+            logger.exception("Could not schedule REST reconciliation for credential %s: %s", credential_id, e)
     
     def stop_all(self) -> None:
         """Stop all WebSocket processors and health monitor."""

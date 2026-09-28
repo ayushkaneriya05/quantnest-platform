@@ -61,13 +61,13 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
         from live_trading.reconciliation_service import BrokerReconciliationService
         
         try:
-            reconciliation_service = BrokerReconciliationService(session.broker_credential)
+            reconciliation_service = BrokerReconciliationService(session)
             orders_result = reconciliation_service.reconcile_orders()
-            positions_result = reconciliation_service.reconcile_positions()
+            # positions_result = reconciliation_service.reconcile_positions()
             
             return Response({
                 "synced_orders": orders_result.get("matched", 0) + orders_result.get("created", 0),
-                "synced_positions": positions_result.get("updated", 0) + positions_result.get("created", 0),
+                # "synced_positions": positions_result.get("updated", 0) + positions_result.get("created", 0),
                 "account_state": {
                     "orders": orders_result,
                     "positions": positions_result
@@ -86,11 +86,6 @@ class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return LiveOrder.objects.filter(user=self.request.user).select_related("strategy", "session", "broker_credential", "instrument")
-
-    @action(detail=True, methods=["post"])
-    def cancel(self, request, pk=None):
-        order = LiveExecutionService.cancel_open_order(self.get_object())
-        return Response(self.get_serializer(order).data)
 
 
 class LivePositionViewSet(viewsets.ReadOnlyModelViewSet):

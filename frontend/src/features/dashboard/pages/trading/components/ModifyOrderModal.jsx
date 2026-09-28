@@ -104,11 +104,12 @@ export default function ModifyOrderModal({
 
   // Effect to subscribe to live price updates when the modal is open
   useEffect(() => {
-    if (!isOpen || !order?.instrument?.symbol) {
+    const instrumentKey = order?.instrument?.sym_ticker || order?.instrument?.symbol;
+    if (!isOpen || !instrumentKey) {
       setCurrentMarketPrice(null);
       return;
     }
-    const symbol = order.instrument.symbol;
+    const symbol = instrumentKey;
 
     const initialTick = getTickData(symbol);
     if (initialTick) {

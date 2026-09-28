@@ -39,15 +39,21 @@ class OrderDispatcher:
                 order_type=OrderType.MARKET,
                 scope=scope,
                 target_price=None,
-                reason=decision.reason
+                reason=decision.reason,
+                intent="EXIT",
             )
-            router.publish_order(req)
-            
             # Decide if it's a partial exit or full exit phase update
             if decision.quantity < position.get("quantity", 0):
                 context.update_runtime_state(instrument_id, {"phase": TradePhase.PARTIAL_EXIT_PENDING})
             else:
                 context.update_runtime_state(instrument_id, {"phase": TradePhase.EXIT_PENDING})
+            try:
+                router.publish_order(req)
+            except Exception:
+                logger.exception("Failed to publish exit order for runtime instrument %s", instrument_id)
+                from strategy_engine.runtime import StrategyRuntimeState
+                StrategyRuntimeState.reconcile_trade_state(scope, session_id, instrument_id, failed_reason=decision.reason)
+                raise
 
     @staticmethod
     def dispatch_entry(context, risk_evaluator, executor, session_id, strategy_id, scope, instrument_id, side, reason, watch_map, spot_price, execution_price_reader):
@@ -114,8 +120,15 @@ class OrderDispatcher:
                 order_type=str(otype),
                 scope=scope,
                 target_price=target,
-                reason=reason
+                reason=reason,
+                intent="ENTRY",
             )
             # Set the phase immediately before publishing
             context.update_runtime_state(instrument_id, {"phase": TradePhase.ENTRY_PENDING, "side": side})
-            router.publish_order(req)
+            try:
+                router.publish_order(req)
+            except Exception:
+                logger.exception("Failed to publish entry order for runtime instrument %s", instrument_id)
+                from strategy_engine.runtime import StrategyRuntimeState
+                StrategyRuntimeState.reconcile_trade_state(scope, session_id, instrument_id)
+                raise

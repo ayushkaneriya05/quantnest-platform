@@ -520,7 +520,7 @@ export default function ChartView({
           </div>
         )}
 
-        {status === "ready" && historicalData.length === 0 && !realtimeCandle && (
+        {status === "ready" && historicalData.length === 0 && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/60 transition-all text-slate-400">
             <BarChart3 className="h-12 w-12 mb-4 opacity-20" />
             <p>No historical data available for this symbol.</p>

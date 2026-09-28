@@ -372,12 +372,13 @@ class StrategyLifecycleService:
                 side=exit_side,
                 quantity=position.quantity,
                 order_type='MARKET',
+                intent="EXIT",
             )
             
             for _ in range(5):
                 # Use new BrokerReconciliationService instead of old sync method
                 from live_trading.reconciliation_service import BrokerReconciliationService
-                reconciliation_service = BrokerReconciliationService(session.broker_credential)
+                reconciliation_service = BrokerReconciliationService(session)
                 reconciliation_service.reconcile_orders()
                 
                 order.refresh_from_db()

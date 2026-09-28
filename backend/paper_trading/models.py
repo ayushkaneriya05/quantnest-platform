@@ -11,6 +11,7 @@ from common.enums import (
     CapitalAllocationType, TransactionType, RebalanceFrequency
 )
 from decimal import Decimal
+import uuid
 
 
 class Portfolio(BaseTimestampModel):
@@ -436,6 +437,8 @@ class PaperOrder(BaseTimestampModel):
         on_delete=models.CASCADE,
         related_name='paper_orders'
     )
+    reason = models.CharField(max_length=255, blank=True)
+    request_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     
     # Order details
     order_type = models.CharField(max_length=20, choices=OrderType.choices, default=OrderType.MARKET)

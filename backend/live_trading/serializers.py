@@ -48,7 +48,7 @@ class TradingSessionSerializer(serializers.ModelSerializer):
         ).count()
 
     def get_active_orders(self, obj):
-        return obj.orders.filter(status__in=["PENDING", "PLACED", "PARTIAL_FILL"]).count()
+        return obj.orders.filter(status__in=["PENDING", "PLACED", "PARTIAL_FILL", "UNKNOWN"]).count()
 
     def get_broker_session_valid(self, obj):
         latest = obj.broker_credential.sessions.filter(is_valid=True).order_by("-created_at").first() if obj.broker_credential_id else None
@@ -115,7 +115,7 @@ class LiveOrderSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_can_cancel(self, obj):
-        return obj.status in {"PENDING", "PLACED", "PARTIAL_FILL"}
+        return obj.status in {"PENDING", "PLACED", "PARTIAL_FILL", "UNKNOWN"}
 
 
 class LivePositionSerializer(serializers.ModelSerializer):
@@ -224,7 +224,7 @@ class ExecutionLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExecutionLog
-        fields = ["id", "order", "order_symbol", "event_type", "message", "fill_quantity", "fill_price", "latency_ms", "created_at"]
+        fields = ["id", "order", "order_symbol", "event_type", "message", "latency_ms", "created_at"]
         read_only_fields = fields
 
 

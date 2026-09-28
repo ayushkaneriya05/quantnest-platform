@@ -48,9 +48,7 @@ function Watchlist({
     });
   }, [getLatestPrice, items]);
 
-  const existingWatchlistSymbols = useMemo(
-    () =>
-      items.flatMap((item) => [item.symbol, item.sym_ticker].filter(Boolean)),
+  const existingWatchlistSymbols = useMemo(() => items.flatMap((item) => [item.sym_ticker].filter(Boolean)),
     [items],
   );
 
@@ -107,8 +105,7 @@ function Watchlist({
                 onClick={() => onSymbolSelect(item.sym_ticker || item.symbol)}
                 className={cn(
                   "mb-2 flex cursor-pointer items-center justify-between rounded-2xl border px-3 py-3 text-left transition",
-                  activeSymbol === item.symbol ||
-                    activeSymbol === item.sym_ticker
+                  (item.sym_ticker || item.symbol) === activeSymbol
                     ? "border-sky-500/60 bg-sky-500/10"
                     : "border-transparent bg-slate-900/80 hover:border-slate-700 hover:bg-slate-900",
                 )}

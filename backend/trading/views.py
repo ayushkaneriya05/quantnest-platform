@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import generics, status, views
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -30,8 +31,7 @@ class InstrumentSearchView(generics.ListAPIView):
 
     def get_queryset(self):
         query = self.request.query_params.get('q', self.request.query_params.get('query', ''))
-        equity_only = self.request.query_params.get('equity_only', 'false').lower() == 'true'
-        return TradingInstrumentService.search(query, equity_only=equity_only)
+        return TradingInstrumentService.search(query)
 
 class WatchlistView(views.APIView):
     permission_classes = [IsAuthenticated]
@@ -100,7 +100,7 @@ class OrderView(generics.ListCreateAPIView):
         if status_filter:
             queryset = queryset.filter(status__iexact=status_filter)
         if symbol_filter:
-            queryset = queryset.filter(instrument__symbol__icontains=symbol_filter)
+            queryset = queryset.filter(Q(instrument__sym_ticker__icontains=symbol_filter) | Q(instrument__symbol__icontains=symbol_filter))
             
         return queryset
 
@@ -139,7 +139,8 @@ class TradeHistoryView(generics.ListAPIView):
         side_filter = self.request.query_params.get('side') # BUY/SELL
         
         if symbol_filter:
-            queryset = queryset.filter(order__instrument__symbol__icontains=symbol_filter)
+            queryset = queryset.filter(Q(order__instrument__sym_ticker__icontains=symbol_filter) | Q(order__instrument__symbol__icontains=symbol_filter))
+        
         if side_filter:
             queryset = queryset.filter(order__transaction_type__iexact=side_filter)
             
@@ -156,7 +157,7 @@ class ClosedPositionLogView(generics.ListAPIView):
         
         symbol_filter = self.request.query_params.get('symbol')
         if symbol_filter:
-            queryset = queryset.filter(instrument__symbol__icontains=symbol_filter)
+            queryset = queryset.filter(Q(instrument__sym_ticker__icontains=symbol_filter) | Q(instrument__symbol__icontains=symbol_filter))
             
         return queryset
 

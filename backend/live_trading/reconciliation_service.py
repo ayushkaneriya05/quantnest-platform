@@ -18,14 +18,15 @@ class BrokerReconciliationService:
     Reconciles DB state with broker REST API.
     """
     
-    def __init__(self, credential):
+    def __init__(self, session):
         """
         Initialize reconciliation service.
-        
+
         Args:
-            credential: BrokerCredential instance
+            session: TradingSession instance for the live strategy being reconciled.
         """
-        self.credential = credential
+        self.session = session
+        self.credential = getattr(session, "broker_credential", session)
         
     def reconcile_orders(self) -> Dict[str, Any]:
         """
@@ -46,65 +47,74 @@ class BrokerReconciliationService:
             "errors": []
         }
         
+        if self.session is None:
+            logger.error("BrokerReconciliationService requires a live TradingSession instance.")
+            return results
+
         try:
             orderbook = BrokerService.get_orderbook(self.credential)
-            
+            if isinstance(orderbook, dict):
+                orderbook = BrokerService.normalize_order_payload(self.credential, orderbook)
+
             if not isinstance(orderbook, list):
                 logger.error(f"Invalid orderbook format from broker: {type(orderbook)}")
                 return results
-            
+
             results["total_orders"] = len(orderbook)
-            
+
             for row in orderbook:
-                broker_order_id = row.get("id") or row.get("orderid") or row.get("broker_order_id")
+                broker_order_id = row.get("broker_order_id") or row.get("id") or row.get("orderid") or row.get("orderNumStatus")
                 if not broker_order_id:
                     continue
                 
                 try:
-                    order = LiveOrder.objects.get(broker_order_id=broker_order_id)
-                    previous_filled_quantity = int(order.filled_quantity or 0)
-                    
-                    # Update order with REST data
-                    broker_status = BrokerService._normalize_order_status(
-                        self.credential,
-                        row.get("status") or row.get("orderStatus") or row.get("orderNumStatus")
-                    )
-                    
-                    filled_qty = max(int(row.get("filledQty") or row.get("filled_quantity") or 0), 0)
-                    fill_price = row.get("tradedPrice") or row.get("avgPrice") or row.get("avg_fill_price")
-                    
-                    # Check for mismatch
-                    if order.status != broker_status:
-                        logger.warning(
-                            f"Order {broker_order_id} status mismatch: "
-                            f"DB={order.status}, Broker={broker_status}"
-                        )
-                        results["mismatched"] += 1
-                    else:
-                        results["matched"] += 1
-                    
-                    # Update order
-                    order.status = broker_status
-                    order.filled_quantity = filled_qty
-                    order.pending_quantity = max(int(order.quantity or 0) - filled_qty, 0)
-                    if fill_price:
-                        order.avg_fill_price = fill_price
-                    
-                    order.reconciliation_status = "MATCHED"
-                    order.reconciliation_attempts += 1
-                    order.last_reconciliation = timezone.now()
-                    
-                    order.save(update_fields=[
-                        "status", "filled_quantity", "pending_quantity",
-                        "avg_fill_price", "reconciliation_status",
-                        "reconciliation_attempts", "last_reconciliation", "updated_at"
-                    ])
-                    
-                    # If order is FILLED and we missed WebSocket, ensure position exists
-                    if broker_status == OrderStatus.FILLED and filled_qty > 0:
+                    order = LiveOrder.objects.filter(session=self.session, broker_order_id=broker_order_id).first()
+                    if order is None:
+                        row_tag = str(row.get("order_tag") or row.get("orderTag") or row.get("tag") or "")
+                        if row_tag.startswith("QN"):
+                            try:
+                                order = LiveOrder.objects.filter(session=self.session, pk=int(row_tag[2:])).first()
+                            except ValueError:
+                                order = None
+                    if order is None:
+                        raise LiveOrder.DoesNotExist
+                    with transaction.atomic():
+                        order = LiveOrder.objects.select_for_update().get(pk=order.pk)
+                        previous_filled_quantity = int(order.filled_quantity or 0)
+
+                        broker_status = BrokerService._normalize_order_status(self.credential, row.get("status") or row.get("orderStatus") or row.get("orderNumStatus"))
+                        filled_qty = max(int(row.get("filled_quantity") or row.get("filledQty") or 0), 0)
+                        fill_price = row.get("avg_fill_price") or row.get("tradedPrice") or row.get("avgPrice") or row.get("price")
+                        missing_fill_price = filled_qty > previous_filled_quantity and float(fill_price or 0) <= 0
+
+                        if order.status != broker_status:
+                            logger.warning("Order %s status mismatch: DB=%s, Broker=%s", broker_order_id, order.status, broker_status)
+                            results["mismatched"] += 1
+                        else:
+                            results["matched"] += 1
+
+                        order.status = "UNKNOWN" if missing_fill_price else broker_status
+                        order.filled_quantity = previous_filled_quantity if missing_fill_price else max(previous_filled_quantity, filled_qty)
+                        order.pending_quantity = max(int(order.quantity or 0) - order.filled_quantity, 0)
+                        if fill_price:
+                            if float(fill_price or 0) > 0:
+                                order.avg_fill_price = fill_price
+                        order.broker_order_id = str(broker_order_id)
+                        order.reconciliation_status = "PENDING" if missing_fill_price else "MATCHED"
+                        order.reconciliation_attempts += 1
+                        order.last_reconciliation = timezone.now()
+                        order.save(update_fields=[
+                            "status", "filled_quantity", "pending_quantity", "avg_fill_price",
+                            "reconciliation_status", "reconciliation_attempts", "last_reconciliation",
+                            "broker_order_id", "updated_at",
+                        ])
+
                         fill_delta = max(filled_qty - previous_filled_quantity, 0)
-                        if fill_delta > 0:
+                        if fill_delta > 0 and float(fill_price or 0) > 0:
                             self._ensure_position_exists(order, fill_delta, fill_price)
+
+                    from strategy_engine.runtime import StrategyRuntimeState
+                    StrategyRuntimeState.reconcile_trade_state("live", self.session.id, order.instrument_id, failed_reason=(order.reason if broker_status in {OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.EXPIRED} else None))
                         
                 except LiveOrder.DoesNotExist:
                     # External order not in our DB
@@ -145,6 +155,8 @@ class BrokerReconciliationService:
         
         try:
             positions = BrokerService.get_positions(self.credential)
+            if isinstance(positions, dict):
+                positions = BrokerService.normalize_position_payload(self.credential, positions)
             
             if not isinstance(positions, list):
                 logger.error(f"Invalid positions format from broker: {type(positions)}")
@@ -164,20 +176,24 @@ class BrokerReconciliationService:
                     continue
                 
                 # Determine side
-                net_qty = row.get("netQty") or row.get("net_qty") or 0
-                if net_qty > 0:
+                net_qty = int(row.get("quantity") or row.get("netQty") or row.get("net_qty") or row.get("qty") or 0)
+                side_value = row.get("side")
+                if str(side_value or "").strip().upper() in ("BUY", "B", "1"):
+                    side = Side.BUY
+                elif str(side_value or "").strip().upper() in ("SELL", "S", "-1"):
+                    side = Side.SELL
+                elif net_qty > 0:
                     side = Side.BUY
                 elif net_qty < 0:
                     side = Side.SELL
                 else:
+                    logger.warning("Skipping broker position with unknown side for %s", instrument.sym_ticker)
+                    continue
+                if net_qty == 0:
                     continue  # Zero quantity position, skip
                 
                 try:
-                    position = LivePosition.objects.get(
-                        broker_credential=self.credential,
-                        instrument=instrument,
-                        side=side
-                    )
+                    position = LivePosition.objects.get(allocation=self.session.allocation, broker_credential=self.credential, instrument=instrument, side=side)
                     
                     # Check for mismatch
                     if position.quantity != abs(net_qty):
@@ -191,10 +207,18 @@ class BrokerReconciliationService:
                     
                     # Update position with broker state
                     position.quantity = abs(net_qty)
-                    position.avg_price = row.get("avgPrice") or row.get("avg_price") or position.avg_price
-                    position.current_price = row.get("ltp") or position.current_price
-                    position.unrealized_pnl = row.get("pl") or row.get("unrealized_profit") or 0
-                    position.broker_position_id = row.get("id") or ""
+                    position.avg_price = row.get("avg_price") or row.get("avgPrice") or row.get("avg_price") or position.avg_price
+                    position.current_price = row.get("current_price") or row.get("ltp") or position.current_price
+                    position.unrealized_pnl = (
+                        row.get("unrealized_pnl")
+                        if row.get("unrealized_pnl") is not None
+                        else row.get("unrealized_profit")
+                        if row.get("unrealized_profit") is not None
+                        else row.get("pl")
+                        if row.get("pl") is not None
+                        else 0
+                    )
+                    position.broker_position_id = row.get("broker_position_id") or row.get("id") or ""
                     position.sync_status = "SYNCED"
                     position.last_sync_attempt = timezone.now()
                     position.last_broker_sync = timezone.now()
@@ -234,22 +258,14 @@ class BrokerReconciliationService:
             filled_quantity: Filled quantity
             fill_price: Fill price
         """
-        from live_trading.models import LivePosition
+        if float(fill_price or 0) <= 0:
+            logger.warning("Deferring fill application for order %s because broker fill price is missing", order.broker_order_id)
+            return
+
         from live_trading.services import LiveExecutionService
         
-        try:
-            # Call the existing position application logic
-            LiveExecutionService._apply_fill_to_position(
-                order,
-                filled_quantity,
-                fill_price,
-                None
-            )
-            
-            logger.info(f"Ensured position exists for filled order {order.broker_order_id}")
-            
-        except Exception as e:
-            logger.exception(f"Error ensuring position exists for order {order.broker_order_id}: {e}")
+        LiveExecutionService._apply_fill_to_position(order, filled_quantity, fill_price, None)
+        logger.info("Applied %s reconciled fill for order %s", filled_quantity, order.broker_order_id)
     
     def _create_external_order(self, row: Dict[str, Any]) -> None:
         """
@@ -258,56 +274,66 @@ class BrokerReconciliationService:
         Args:
             row: Broker order data
         """
-        from live_trading.models import LiveOrder, TradingSession
-        from common.enums import OrderStatus, Side, OrderType, ProductType
+        from live_trading.models import LiveOrder
+        from common.enums import OrderType, ProductType
         
-        # Try to find a session for this credential
-        session = TradingSession.objects.filter(
-            broker_credential=self.credential,
-            status__in=["RUNNING", "PAUSED"]
-        ).first()
-        
+        session = self.session
         if not session:
-            logger.warning(f"No active session found for credential {self.credential.id}, skipping external order")
+            logger.warning(f"No active session available for credential {self.credential.id}, skipping external order")
             return
-        
+
         # Resolve instrument
         instrument = self._resolve_instrument(row.get("symbol"))
         if not instrument:
             logger.warning(f"Could not resolve instrument for symbol {row.get('symbol')}")
             return
         
-        broker_order_id = row.get("id") or row.get("orderid") or row.get("broker_order_id")
+        broker_order_id = row.get("broker_order_id") or row.get("id") or row.get("orderid") or row.get("broker_order_id")
         from brokers.services import BrokerService
         broker_status = BrokerService._normalize_order_status(
             self.credential,
             row.get("status") or row.get("orderStatus") or row.get("orderNumStatus")
         )
-        
-        # Create external order record
-        LiveOrder.objects.create(
-            user=session.user,
-            strategy=session.strategy,
-            session=session,
-            allocation=session.allocation,
+        row_type = row.get("order_type") or row.get("type")
+        if row_type in (1, "1", "LIMIT", "LIMIT_ORDER"):
+            mapped_order_type = OrderType.LIMIT
+        elif row_type in (2, "2", "MARKET", "MARKET_ORDER"):
+            mapped_order_type = OrderType.MARKET
+        else:
+            mapped_order_type = OrderType.MARKET if row.get("price") in (None, 0, "0") else OrderType.LIMIT
+
+        if not broker_order_id:
+            logger.warning("Skipping broker order without an order ID during reconciliation")
+            return
+
+        # REST reconciliation and WebSocket delivery can discover the same
+        # broker order concurrently. The DB uniqueness constraint is the final
+        # guard; get_or_create keeps the normal repeated path idempotent.
+        order, created = LiveOrder.objects.get_or_create(
             broker_credential=self.credential,
-            instrument=instrument,
-            order_type=OrderType.MARKET,
-            product_type=row.get("productType") or ProductType.INTRADAY,
-            side=self._map_broker_side_to_internal(row.get("side")),
-            price=row.get("limitPrice") or 0,
-            quantity=int(row.get("qty") or 0),
             broker_order_id=broker_order_id,
-            exchange_order_id=row.get("exchOrdId") or row.get("exchange_order_id") or "",
-            status=broker_status,
-            filled_quantity=int(row.get("filledQty") or row.get("filled_quantity") or 0),
-            pending_quantity=int(row.get("remainingQuantity") or 0),
-            avg_fill_price=row.get("tradedPrice") or 0,
-            reconciliation_status="MATCHED",
-            last_reconciliation=timezone.now()
+            defaults={
+                "user": session.user,
+                "strategy": session.strategy,
+                "session": session,
+                "allocation": session.allocation,
+                "instrument": instrument,
+                "order_type": mapped_order_type,
+                "product_type": row.get("product_type") or row.get("productType") or ProductType.INTRADAY,
+                "side": self._map_broker_side_to_internal(row.get("side")),
+                "price": row.get("price") or row.get("limitPrice") or 0,
+                "quantity": int(row.get("quantity") or row.get("qty") or 0),
+                "exchange_order_id": row.get("exchange_order_id") or row.get("exchOrdId") or "",
+                "status": broker_status,
+                "filled_quantity": int(row.get("filled_quantity") or row.get("filledQty") or 0),
+                "pending_quantity": int(row.get("pending_quantity") or row.get("remainingQuantity") or 0),
+                "avg_fill_price": row.get("avg_fill_price") or row.get("tradedPrice") or row.get("avgPrice") or 0,
+                "reconciliation_status": "MATCHED",
+                "last_reconciliation": timezone.now(),
+            },
         )
-        
-        logger.info(f"Created external order {broker_order_id}")
+
+        logger.info("%s external order %s during reconciliation", "Created" if created else "Reused", broker_order_id)
     
     def _create_external_position(self, row: Dict[str, Any], instrument, side) -> None:
         """
@@ -318,20 +344,15 @@ class BrokerReconciliationService:
             instrument: Instrument instance
             side: Side string (BUY/SELL)
         """
-        from live_trading.models import LivePosition, TradingSession
+        from live_trading.models import LivePosition
         
-        # Try to find a session for this credential
-        session = TradingSession.objects.filter(
-            broker_credential=self.credential,
-            status__in=["RUNNING", "PAUSED"]
-        ).first()
-        
+        session = self.session
         if not session:
-            logger.warning(f"No active session found for credential {self.credential.id}, skipping external position")
+            logger.warning(f"No active session available for credential {self.credential.id}, skipping external position")
             return
-        
-        net_qty = row.get("netQty") or row.get("net_qty") or 0
-        
+
+        net_qty = int(row.get("quantity") or row.get("netQty") or row.get("net_qty") or row.get("qty") or 0)
+
         # Create external position record
         LivePosition.objects.create(
             user=session.user,
@@ -339,13 +360,21 @@ class BrokerReconciliationService:
             allocation=session.allocation,
             broker_credential=self.credential,
             instrument=instrument,
-            product_type=row.get("productType") or "INTRADAY",
+            product_type=row.get("product_type") or row.get("productType") or "INTRADAY",
             side=side,
             quantity=abs(net_qty),
-            avg_price=row.get("avgPrice") or row.get("avg_price") or 0,
-            current_price=row.get("ltp") or 0,
-            unrealized_pnl=row.get("pl") or row.get("unrealized_profit") or 0,
-            broker_position_id=row.get("id") or "",
+            avg_price=row.get("avg_price") or row.get("avgPrice") or row.get("avg_price") or 0,
+            current_price=row.get("current_price") or row.get("ltp") or 0,
+            unrealized_pnl=(
+                row.get("unrealized_pnl")
+                if row.get("unrealized_pnl") is not None
+                else row.get("unrealized_profit")
+                if row.get("unrealized_profit") is not None
+                else row.get("pl")
+                if row.get("pl") is not None
+                else 0
+            ),
+            broker_position_id=row.get("broker_position_id") or row.get("id") or "",
             sync_status="SYNCED",
             last_sync_attempt=timezone.now(),
             last_broker_sync=timezone.now()
@@ -395,10 +424,11 @@ class BrokerReconciliationService:
         """
         from common.enums import Side
         
-        if broker_side in (1, '1', 'BUY', 'buy'):
+        normalized_side = str(broker_side).strip().upper() if broker_side is not None else ""
+        if normalized_side in ("1", "BUY", "B"):
             return Side.BUY
-        elif broker_side in (-1, '-1', 'SELL', 'sell'):
+        elif normalized_side in ("-1", "SELL", "S"):
             return Side.SELL
         else:
-            logger.warning(f"Unknown broker side value: {broker_side}, defaulting to BUY")
-            return Side.BUY
+            logger.warning("Unknown broker side value: %r", broker_side)
+            return None

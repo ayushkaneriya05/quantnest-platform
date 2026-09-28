@@ -29,7 +29,10 @@ class RuleEvaluator:
     """
 
     def __init__(self, bars_df, mtf_data=None, indicator_engine=None, mtf_indicator_engines=None, instrument=None):
-        self.df = bars_df.copy()
+        # Evaluation only reads candle data. Custom expressions make their own
+        # copy before injecting variables, so copying the whole frame here is
+        # redundant work on every live/paper candle.
+        self.df = bars_df
         self.instrument = instrument
         self.mtf_data = mtf_data or {} # Dict of {timeframe: df}
         self.indicator_engine = indicator_engine if indicator_engine is not None else IndicatorEngine(self.df)
@@ -159,9 +162,10 @@ class RuleEvaluator:
         target_engine = self.indicator_engine
         if timeframe and timeframe in self.mtf_data:
             target_df = self.mtf_data[timeframe]
-            if timeframe in self.mtf_indicator_engines:
-                target_engine = self.mtf_indicator_engines[timeframe]
-            else:
+            target_engine = self.mtf_indicator_engines.get(timeframe)
+            if target_engine is None or target_engine.df is not target_df:
+                # MTF frames are rebuilt each candle. Reusing an engine tied to
+                # the previous frame silently evaluates stale indicator data.
                 target_engine = IndicatorEngine(target_df)
                 self.mtf_indicator_engines[timeframe] = target_engine
             

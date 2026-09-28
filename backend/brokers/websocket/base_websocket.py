@@ -72,7 +72,7 @@ class BaseBrokerWebSocket(ABC):
             - quantity: int
             - filled_quantity: int
             - pending_quantity: int
-            - status: int (broker status code)
+            - status: str (normalized internal status such as PENDING, PLACED, FILLED)
             - avg_fill_price: float
             - updated_at: str (ISO format timestamp)
             - raw: dict (original broker data)
@@ -174,21 +174,3 @@ class BaseBrokerWebSocket(ABC):
                 callback(data)
             except Exception as e:
                 logger.exception(f"Error in {event_type} callback: {e}")
-    
-    def _normalize_side(self, side_value: Any) -> str:
-        """
-        Normalize side value to standard BUY/SELL format.
-        
-        Args:
-            side_value: Broker-specific side value
-            
-        Returns:
-            'BUY' or 'SELL'
-        """
-        if side_value in (1, '1', 'BUY', 'buy'):
-            return 'BUY'
-        elif side_value in (-1, '-1', 'SELL', 'sell'):
-            return 'SELL'
-        else:
-            logger.warning(f"Unknown side value: {side_value}, defaulting to BUY")
-            return 'BUY'

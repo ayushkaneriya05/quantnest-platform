@@ -23,6 +23,24 @@ class StrategyExecutor:
         self.mtf_data = mtf_data or {}
         self.indicator_engine = indicator_engine
         self.mtf_indicator_engines = mtf_indicator_engines or {}
+        self._active_groups_cache = {}
+
+        # These are derived from the immutable worker config and reused for
+        # every completed candle instead of rescanning all rule operands.
+        from marketdata.access import StrategyMarketDataService
+        self.base_timeframe, required_timeframes = StrategyMarketDataService.required_timeframes(self.config)
+        self.required_timeframes = frozenset(required_timeframes)
+        from marketdata.services import MarketDataService
+        self.required_1m_candles = MarketDataService.required_1m_candles(self.config)
+        timeframe_minutes = {
+            "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30,
+            "1H": 60, "4H": 240, "1D": 375, "1W": 1875,
+        }
+        # Keep enough raw bars for the latest forming base/MTF candle to be
+        # excluded while still retaining every configured indicator warmup bar.
+        self.evaluation_lookback_1m = self.required_1m_candles + max(
+            timeframe_minutes.get(timeframe, 1) for timeframe in self.required_timeframes
+        )
         
         # Pre-cache order configs for speed
         self.entry_config = self.config.get("entry_order_config", {})
@@ -54,6 +72,9 @@ class StrategyExecutor:
         return bars_df
 
     def _active_groups(self, rule_type):
+        cached = self._active_groups_cache.get(rule_type)
+        if cached is not None:
+            return cached
         groups = self.config.get("rule_groups", []) or []
         selected = [
             group for group in groups
@@ -63,7 +84,9 @@ class StrategyExecutor:
             )
             and get_any_field(group, "is_active", True)
         ]
-        return sorted(selected, key=lambda group: get_any_field(group, "priority", 1) or 1)
+        selected.sort(key=lambda group: get_any_field(group, "priority", 1) or 1)
+        self._active_groups_cache[rule_type] = selected
+        return selected
 
 
     def evaluate_entry_signals(self, bars_df):
@@ -231,6 +254,13 @@ class StrategyExecutor:
                 elif action_str == 'PARTIAL_EXIT' and state.get(f'partial_exit_{reason_str}'):
                     matched = False
 
+            # For AND, one miss fixes the result. For OR, EXIT_ALL has the
+            # highest action priority, so no later group can change the winner.
+            if operator == "AND" and not matched:
+                return False, None, 'EXIT_ALL', {}
+            if operator != "AND" and matched and action_str == "EXIT_ALL":
+                return True, reason_str, action_str, get_any_field(group, 'action_params') or {}
+
             hits.append(matched)
             if matched:
                 reasons.append(reason_str)
@@ -259,6 +289,12 @@ class StrategyExecutor:
             matched = False
             if not res_series.empty and bool(res_series.iloc[-1]):
                 matched = True
+
+            if operator == "OR" and matched:
+                reason_str = f"{rule_type} group '{get_any_field(group, 'name', 'unnamed')}' met"
+                return True, reason_str
+            if operator == "AND" and not matched:
+                return False, None
             
             hits.append(matched)
             if matched:

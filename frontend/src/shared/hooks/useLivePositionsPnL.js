@@ -4,7 +4,7 @@ import { useWebSocket } from "./useWebSocket";
 /**
  * Hook to manage live PnL calculations for a list of positions.
  * Subscribes to market data ticks for all position symbols.
- * 
+ *
  * @param {Array} positions - Array of position objects
  * @returns {Object} - { livePnLByPositionId, totals, getLivePrice }
  */
@@ -18,10 +18,10 @@ export function useLivePositionsPnL(positions = []) {
     if (!positions || positions.length === 0) return;
 
     const symbolsToSubscribe = new Set();
-    
+
     positions.forEach((pos) => {
-      // Handle both Paper and Live position structures
-      const symbol = pos.instrument?.symbol || pos.instrument?.sym_ticker || pos.instrument_symbol || pos.symbol;
+      // Handle both Paper and Live position structures; prefer sym_ticker because it is the unique instrument identifier.
+      const symbol =  pos.instrument?.sym_ticker || pos.instrument?.symbol || pos.instrument_symbol || pos.symbol;
       if (symbol && pos.status !== "CLOSED") {
         symbolsToSubscribe.add(symbol);
       }
@@ -82,21 +82,21 @@ export function useLivePositionsPnL(positions = []) {
     positions.forEach((pos) => {
       if (pos.status === "CLOSED") return;
 
-      const symbol = pos.instrument?.symbol || pos.instrument?.sym_ticker || pos.instrument_symbol || pos.symbol;
+      const symbol = pos.instrument?.sym_ticker || pos.instrument?.symbol || pos.instrument_symbol || pos.symbol;
       const quantity = safeNumber(pos.quantity);
       // For paper trading, average_price might be used. Live trading might use avg_price.
       const avgPrice = safeNumber(pos.average_price, safeNumber(pos.avg_price));
-      
+
       // Get live tick price if available, otherwise fallback to static server price
       const tickPrice = tickData[symbol]?.price;
       const livePrice = tickPrice !== undefined ? tickPrice : safeNumber(pos.current_price, avgPrice);
-      
+
       livePrices[symbol] = livePrice;
 
       // Calculate PnL based on side (LONG vs SHORT)
       let pnl = 0;
       const side = (pos.side || "").toUpperCase();
-      
+
       if (side === "LONG" || side === "BUY" || !side) {
         pnl = (livePrice - avgPrice) * quantity;
       } else if (side === "SHORT" || side === "SELL") {
@@ -107,14 +107,14 @@ export function useLivePositionsPnL(positions = []) {
         pnl,
         pnlPercent: avgPrice > 0 ? (pnl / (avgPrice * quantity)) * 100 : 0,
         livePrice,
-        isLive: tickPrice !== undefined
+        isLive: tickPrice !== undefined,
       };
 
       const invested = avgPrice * quantity;
-      
+
       resultTotals.totalInvested += invested;
       resultTotals.totalUnrealizedPnL += pnl;
-      resultTotals.totalCurrentValue += (invested + pnl);
+      resultTotals.totalCurrentValue += invested + pnl;
     });
 
     return { livePnLByPositionId, totals: resultTotals, livePrices };
@@ -128,6 +128,6 @@ export function useLivePositionsPnL(positions = []) {
     livePnLByPositionId,
     totals,
     getLivePrice,
-    livePrices
+    livePrices,
   };
 }

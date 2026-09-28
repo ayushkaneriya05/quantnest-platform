@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.db.models.signals import post_save
 
 from .base_websocket import BaseBrokerWebSocket
+from common.enums import OrderStatus, Side
 
 logger = logging.getLogger(__name__)
 
@@ -231,11 +232,11 @@ class PaperWebSocketSimulator(BaseBrokerWebSocket):
             "broker_order_id": orders.get("id") or "",
             "exchange_order_id": orders.get("exch_ord_id") or "",
             "symbol": orders.get("symbol") or "",
-            "side": self._normalize_side(orders.get("side")),
+            "side": self._normalize_paper_side(orders.get("side")),
             "quantity": int(orders.get("qty") or 0),
             "filled_quantity": int(orders.get("filled_qty") or 0),
             "pending_quantity": int(orders.get("remaining_quantity") or 0),
-            "status": int(orders.get("status") or 0),
+            "status": self._map_paper_status_to_internal(orders.get("status")),
             "avg_fill_price": float(orders.get("traded_price") or 0),
             "limit_price": float(orders.get("limit_price") or 0),
             "stop_price": float(orders.get("stop_price") or 0),
@@ -253,7 +254,7 @@ class PaperWebSocketSimulator(BaseBrokerWebSocket):
             "trade_number": trades.get("trade_number") or "",
             "order_number": trades.get("order_number") or "",
             "symbol": trades.get("symbol") or "",
-            "side": self._normalize_side(trades.get("side")),
+            "side": self._normalize_paper_side(trades.get("side")),
             "quantity": int(trades.get("qty") or 0),
             "trade_price": float(trades.get("trade_price") or 0),
             "trade_value": float(trades.get("trade_value") or 0),
@@ -271,7 +272,7 @@ class PaperWebSocketSimulator(BaseBrokerWebSocket):
         return {
             "broker_position_id": positions.get("id") or "",
             "symbol": positions.get("symbol") or "",
-            "side": self._normalize_side(positions.get("side")),
+            "side": self._normalize_paper_side(positions.get("side")),
             "quantity": int(positions.get("net_qty") or 0),
             "avg_price": float(positions.get("net_avg") or 0),
             "current_price": float(positions.get("ltp") or 0),
@@ -283,3 +284,28 @@ class PaperWebSocketSimulator(BaseBrokerWebSocket):
             "updated_at": timezone.now().isoformat(),
             "raw": positions
         }
+
+    @staticmethod
+    def _normalize_paper_side(side_value):
+        normalized = str(side_value).strip().upper() if side_value is not None else ""
+        if normalized in ("1", "BUY", "B"):
+            return Side.BUY
+        if normalized in ("-1", "SELL", "S"):
+            return Side.SELL
+        logger.warning("Unknown paper side value: %r", side_value)
+        return None
+
+    @staticmethod
+    def _map_paper_status_to_internal(status_value):
+        status_map = {
+            1: OrderStatus.CANCELLED,
+            2: OrderStatus.FILLED,
+            4: OrderStatus.PARTIAL_FILL,
+            5: OrderStatus.REJECTED,
+            6: OrderStatus.PENDING,
+        }
+        try:
+            status_code = int(status_value)
+        except (TypeError, ValueError):
+            return OrderStatus.PENDING
+        return status_map.get(status_code, OrderStatus.PENDING)

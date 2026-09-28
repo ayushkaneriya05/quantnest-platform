@@ -17,7 +17,7 @@ class DataPreprocessor:
             Tuple[pd.DataFrame, datetime]: The base dataframe for the primary timeframe, 
                                            and the exact evaluation timestamp.
         """
-        latest_data = shm.get_latest_data()
+        latest_data = shm.get_latest_data(lookback=executor.evaluation_lookback_1m)
         
         # We need a Pandas DataFrame for the legacy executor for now.
         df = pd.DataFrame(latest_data, columns=["open", "high", "low", "close", "volume", "epoch"])
@@ -47,8 +47,8 @@ class DataPreprocessor:
         df = df.drop(columns=["epoch"])
         
         # --- DYNAMIC MTF RESAMPLING ---
-        from marketdata.access import StrategyMarketDataService
-        base_tf, req_tfs = StrategyMarketDataService.required_timeframes(executor.config)
+        base_tf = executor.base_timeframe
+        req_tfs = executor.required_timeframes
         
         mtf_data = {"1m": df}
         

@@ -426,14 +426,13 @@ class MarketDataService:
                      dt = dt.replace(hour=23, minute=59, second=59)
                 return int(dt.timestamp())
             return int(val_str)
-
         params = {
             "symbol": MarketDataService.normalize_symbol(symbol),
             "resolution": api_resolution,
             "date_format": "0",
             "range_from": str(_to_fyers_epoch(date_from)),
             "range_to": str(_to_fyers_epoch(date_to)),
-            "cont_flag": "0",
+            "cont_flag": "1",
         }
 
         try:

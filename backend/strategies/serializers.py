@@ -6,9 +6,6 @@ from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, Ex
 from common.enums import LogicalOperator
 
 
-# ... (StrategyTagSerializer, EntryOrderConfigSerializer, ReEntryRuleSerializer, StrategyVersionSerializer, StrategyListSerializer remain unchanged)
-
-
 class StrategyTagSerializer(serializers.ModelSerializer):
     class Meta:
         model = StrategyTag

@@ -38,11 +38,9 @@ export default function InstrumentSearch({
       setIsLoading(true);
       try {
         const response = await api.get(
-          `/trading/instruments/search/?q=${encodeURIComponent(searchQuery)}&equity_only=true`
+          `/trading/instruments/search/?q=${encodeURIComponent(searchQuery)}`
         );
-        // Ensure we only show NSE instruments as per system requirements
-        const nseOnly = response.data.filter(inst => inst.exchange === "NSE" || !inst.exchange);
-        setResults(nseOnly);
+        setResults(response.data);
         setIsOpen(true);
       } catch (err) {
         console.error("Search failed:", err);
@@ -96,7 +94,7 @@ export default function InstrumentSearch({
           </div>
           <ul className="py-1 max-h-[300px] overflow-y-auto custom-scrollbar">
             {results.map((instrument) => {
-              const isInWatchlist = existingWatchlistSymbols.includes(instrument.symbol);
+              const isInWatchlist = existingWatchlistSymbols.includes(instrument.sym_ticker);
               return (
                 <li
                   key={instrument.id}
@@ -107,7 +105,7 @@ export default function InstrumentSearch({
                     <div className="flex items-center gap-2">
                       <span className="font-black text-slate-100">{instrument.symbol}</span>
                       <Badge variant="outline" className="text-[8px] h-3.5 px-1 py-0 border-slate-800 bg-slate-900 text-slate-500">
-                        {instrument.exchange || "NSE"}
+                        {instrument.exchange}
                       </Badge>
                     </div>
                     <div className="text-[10px] text-slate-500 font-medium truncate mt-0.5">

@@ -16,6 +16,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         manager = SessionExecutionManager()
+
+        if hasattr(cache, 'client'):
+            redis_client = cache.client.get_client()
+        else:
+            import redis
+            from django.conf import settings
+            redis_client = redis.from_url(getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0'))
+        latest = redis_client.xrevrange("execution_control", count=1)
+        control_stream_id = latest[0][0] if latest else "0-0"
         
         # 1. Sync any existing RUNNING sessions on boot (catch-up mechanism)
         self.stdout.write("Syncing active sessions on boot...")
@@ -32,17 +41,8 @@ class Command(BaseCommand):
 
         self.stdout.write("Boot sync complete. Listening for execution events on Redis...")
 
-        # 2. Connect to the durable execution-control stream.
-        if hasattr(cache, 'client'):
-            redis_client = cache.client.get_client()
-        else:
-            # Fallback if using a non-redis cache but redis is available
-            import redis
-            from django.conf import settings
-            redis_url = getattr(settings, 'CHANNEL_REDIS_URL', 'redis://localhost:6379/0')
-            redis_client = redis.from_url(redis_url)
-
-        control_stream_id = "$"
+        # Read from the cursor captured before boot sync; events arriving during
+        # the database snapshot are replayed and manager operations are idempotent.
         last_health_check = time.monotonic()
         try:
             while True:

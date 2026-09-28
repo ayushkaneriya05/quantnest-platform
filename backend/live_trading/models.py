@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Greatest
 from decimal import Decimal
+import uuid
 from common.enums import CapitalAllocationType
 from common.enums import OrderStatus, OrderType, ProductType, Side
 from common.models import BaseTimestampModel
@@ -106,9 +108,14 @@ class LiveStrategyAllocation(BaseTimestampModel):
         from django.db.models import Sum
         result = LiveOrder.objects.filter(
             allocation=self,
-            status__in=[OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL]
+            status__in=[OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, "UNKNOWN"]
         ).aggregate(
-            total=Sum(models.F('pending_quantity') * models.F('price'))
+            total=Sum(
+                Greatest(
+                    models.F('pending_quantity'),
+                    models.F('quantity') - models.F('filled_quantity'),
+                ) * models.F('price')
+            )
         )['total']
         return result or Decimal("0")
 
@@ -117,7 +124,7 @@ class LiveStrategyAllocation(BaseTimestampModel):
         """Available capital for new orders."""
         return max(
             Decimal("0"),
-            self.allocated_capital - self.invested_value - self.reserved_capital
+            self.allocated_capital - self.invested_value - self.reserved_capital + self.realized_pnl
         )
 
     @property
@@ -135,8 +142,10 @@ class LiveOrder(BaseTimestampModel):
     allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders")
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_orders")
     broker_order_id = models.CharField(max_length=128, blank=True)
+    request_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     exchange_order_id = models.CharField(max_length=128, blank=True)
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE, related_name="live_orders")
+    reason = models.CharField(max_length=255, blank=True)
     order_type = models.CharField(max_length=20, choices=OrderType.choices, default=OrderType.MARKET)
     product_type = models.CharField(max_length=20, choices=ProductType.choices, default=ProductType.INTRADAY)
     side = models.CharField(max_length=10, choices=Side.choices)
@@ -164,6 +173,13 @@ class LiveOrder(BaseTimestampModel):
     class Meta:
         db_table = "live_order"
         ordering = ["-placed_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["broker_credential", "broker_order_id"],
+                condition=models.Q(broker_credential__isnull=False) & ~models.Q(broker_order_id=""),
+                name="uniq_live_order_broker_id_per_credential",
+            ),
+        ]
 
 
 class LivePosition(BaseTimestampModel):
@@ -253,8 +269,6 @@ class ExecutionLog(BaseTimestampModel):
     order = models.ForeignKey(LiveOrder, on_delete=models.CASCADE, related_name="execution_logs")
     event_type = models.CharField(max_length=20, choices=EVENT_TYPES)
     message = models.TextField(blank=True)
-    fill_quantity = models.PositiveIntegerField(default=0)
-    fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     latency_ms = models.PositiveIntegerField(default=0)
 
     class Meta:

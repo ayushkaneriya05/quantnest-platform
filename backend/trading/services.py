@@ -12,6 +12,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from common.enums import Exchange, InstrumentType
 from instruments.models import Instrument
 from marketdata.live_feed import LiveMarketDataRegistry
 
@@ -145,15 +146,14 @@ class TerminalOrderCache:
 
 class TradingInstrumentService:
     @staticmethod
-    def search(query, equity_only=False):
+    def search(query):
         if len(query or "") < 2:
             return Instrument.objects.none()
         
         qs = Instrument.objects.filter(is_active=True)
         
-        if equity_only:
-            # Strict filter for NSE Equities and Indexes
-            qs = qs.filter(exchange='NSE', segment=10, instrument_type__in=['STOCK', 'INDEX'])
+        # Strict filter for NSE Equities and Indexes
+        qs = qs.filter(exchange__in=[Exchange.NSE, Exchange.MCX], instrument_type__in=[InstrumentType.STOCK, InstrumentType.INDEX, InstrumentType.FUTURE, InstrumentType.OPTION, InstrumentType.CURRENCY, InstrumentType.COMMODITY])
 
         from django.db.models import Case, When, Value, IntegerField
         from datetime import date
@@ -167,12 +167,16 @@ class TradingInstrumentService:
             | Q(sym_ticker__icontains=query)
         ).annotate(
             match_score=Case(
-                When(symbol__iexact=query, then=Value(1)),
-                When(symbol__istartswith=query, then=Value(2)),
-                default=Value(3),
+                When(sym_ticker__iexact=query, then=Value(1)),
+                When(name__iexact=query, then=Value(2)),
+                When(symbol__iexact=query, then=Value(3)),
+                When(sym_ticker__istartswith=query, then=Value(4)),
+                When(name__icontains=query, then=Value(6)),
+                When(symbol__istartswith=query, then=Value(5)),
+                default=Value(100),
                 output_field=IntegerField()
             )
-        ).order_by('match_score', 'symbol')
+        ).order_by('match_score', 'sym_ticker')
         
         return qs[:20]
 
@@ -282,8 +286,8 @@ class TradingOrderService:
         instrument_symbol = validated_data.pop("instrument_symbol")
         account = TradingAccountService.get_or_create_account(user)
         instrument = Instrument.objects.filter(
-            Q(symbol=instrument_symbol.upper())
-            | Q(sym_ticker=instrument_symbol.upper())
+            Q(sym_ticker=instrument_symbol.upper())
+            | Q(symbol=instrument_symbol.upper())
             | Q(sym_ticker__icontains=f":{instrument_symbol.upper()}-")
         ).first()
 

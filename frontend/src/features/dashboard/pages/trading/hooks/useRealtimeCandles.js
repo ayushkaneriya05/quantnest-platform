@@ -115,13 +115,6 @@ function isCanceledRequest(error) {
   return error?.code === "ERR_CANCELED" || error?.name === "CanceledError";
 }
 
-function normalizeMarketSymbol(value) {
-  if (!value) return "";
-  const symbol = typeof value === "string" ? value : String(value);
-  const normalized = symbol.includes(":") ? symbol.split(":")[1] : symbol;
-  return normalized.replace(/-(EQ|INDEX)$/i, "");
-}
-
 export function useRealtimeCandles(symbol, interval, onRealtimeCandleUpdate, onTickUpdate) {
   const [historicalData, setHistoricalData] = useState([]);
   const [status, setStatus] = useState("idle");

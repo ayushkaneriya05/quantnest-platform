@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { Clock3, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
+import { Clock3, RefreshCw, ShieldAlert } from "lucide-react";
 
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
@@ -17,7 +17,6 @@ export default function ExecutionLogs() {
   const [orders, setOrders] = useState([]);
   const [slippage, setSlippage] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busyOrder, setBusyOrder] = useState("");
 
   const loadData = async () => {
     try {
@@ -66,19 +65,6 @@ export default function ExecutionLogs() {
       : 0;
     return { pending, rejected, avgLatency, avgSlippage };
   }, [logs, orders, slippage]);
-
-  const cancelOrder = async (orderId) => {
-    try {
-      setBusyOrder(String(orderId));
-      await liveTradingApi.cancelOrder(orderId);
-      notify.success("Order cancellation requested");
-      await loadData();
-    } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to cancel live order");
-    } finally {
-      setBusyOrder("");
-    }
-  };
 
   return (
     <div className="container-padding space-y-6 py-6 lg:py-8">
@@ -131,15 +117,6 @@ export default function ExecutionLogs() {
                   </div>
                   <div className="mt-3 flex items-center justify-between gap-3 text-xs text-gray-500">
                     <span>Broker ID: {order.broker_order_id || "-"}</span>
-                    <Button
-                      size="sm"
-                      className="bg-red-600 hover:bg-red-500"
-                      onClick={() => cancelOrder(order.id)}
-                      disabled={busyOrder === String(order.id)}
-                    >
-                      <XCircle className="mr-2 h-4 w-4" />
-                      Cancel
-                    </Button>
                   </div>
                 </div>
               ))}

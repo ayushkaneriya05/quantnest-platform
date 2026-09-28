@@ -45,13 +45,13 @@ const StatCard = ({
 
   return (
     <Card className={cn(
-      "bg-slate-900/40 backdrop-blur-xl border-dashed transition-all duration-300",
+        "bg-slate-900/40 backdrop-blur-xl border-dashed transition-all duration-300",
       variants[variant] || variants.default
     )}>
       <CardContent className="p-5">
         <div className="flex items-center gap-4">
           <div className={cn(
-            "p-3 rounded-2xl bg-slate-950/50 border border-white/5",
+              "p-3 rounded-2xl bg-slate-950/50 border border-white/5",
             variant === "positive" ? "text-emerald-400" : 
             variant === "negative" ? "text-rose-400" : "text-sky-400"
           )}>
@@ -94,7 +94,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
   const totalInvestment = totals.totalInvested;
   const totalPnl = totals.totalUnrealizedPnL;
   const { notify } = useNotifications();
-  
+
   // Modal states
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedPosition, setSelectedPosition] = useState(null);
@@ -112,15 +112,17 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
   };
 
   const handleClosePosition = async (position) => {
-    const confirmClose = await customConfirm(`Are you sure you want to close ${position.instrument.symbol} position at Market Price?`);
+    const instrumentKey = position.instrument?.sym_ticker || position.instrument?.symbol || position.instrument?.name;
+    const confirmClose = await customConfirm(`Are you sure you want to close ${instrumentKey} position at Market Price?`);
+    
     if (!confirmClose) return;
 
     try {
       const quantity = safeNumber(position.quantity);
       const transaction_type = quantity > 0 ? "SELL" : "BUY";
-      
+
       await api.post("/trading/orders/", {
-        instrument_symbol: position.instrument.symbol,
+        instrument_symbol: instrumentKey,
         order_type: "MARKET",
         transaction_type,
         quantity: Math.abs(quantity),
@@ -132,7 +134,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
       const errorData = error.response?.data;
       const errorMsg = errorData?.detail || 
                        (errorData && typeof errorData === 'object' ? Object.values(errorData).flat()[0] : null) ||
-                       "Failed to place exit order";
+        "Failed to place exit order";
       notify.error(errorMsg);
     }
   };
@@ -146,8 +148,6 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
     setSelectedPosition(position);
     setIsModifyPositionOpen(true);
   };
-
-
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
@@ -186,7 +186,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
               <h3 className="font-black text-white uppercase tracking-tight">Active Positions</h3>
             </div>
           </div>
-          
+
           {positions.length > 0 ? (
             <Card className="bg-slate-950/40 border-slate-800/50 backdrop-blur-xl overflow-hidden rounded-3xl">
               <div className="overflow-x-auto custom-scrollbar">
@@ -208,7 +208,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
                       const liveData = livePnLByPositionId[position.id] || { livePrice: safeNumber(position.current_price, avgPrice), pnl: 0 };
                       const currentPrice = liveData.livePrice;
                       const pnl = liveData.pnl;
-                      
+
                       return (
                         <TableRow key={position.id} className="border-slate-800/50 hover:bg-white/[0.02] transition-colors group">
                           <TableCell className="py-4">
@@ -219,7 +219,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
                           </TableCell>
                           <TableCell className="text-right py-4">
                             <Badge className={cn(
-                              "font-mono font-bold text-xs",
+                                "font-mono font-bold text-xs",
                               quantity > 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
                             )}>
                               {quantity > 0 ? "+" : ""}{quantity}
@@ -228,7 +228,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
                           <TableCell className="text-right text-slate-400 font-mono text-sm py-4">₹{avgPrice.toFixed(2)}</TableCell>
                           <TableCell className="text-right text-slate-100 font-mono font-bold text-sm py-4">₹{currentPrice.toFixed(2)}</TableCell>
                           <TableCell className={cn(
-                            "text-right font-mono font-black text-sm py-4",
+                              "text-right font-mono font-black text-sm py-4",
                             pnl >= 0 ? "text-emerald-400" : "text-rose-400"
                           )}>
                             {pnl >= 0 ? "+" : ""}₹{pnl.toFixed(2)}
@@ -301,7 +301,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
                         <TableCell className="py-4">
                           <div className="flex items-center gap-3">
                             <div className={cn(
-                              "px-2 py-0.5 rounded-lg text-[10px] font-black",
+                                "px-2 py-0.5 rounded-lg text-[10px] font-black",
                               order.transaction_type === "BUY" ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"
                             )}>
                               {order.transaction_type}
@@ -321,7 +321,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
                         </TableCell>
                         <TableCell className="text-center py-4 px-6 min-w-[200px]">
                           <div className="flex items-center justify-center gap-2">
-                             <Button
+                            <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => openModifyOrder(order)}
@@ -361,7 +361,7 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
         order={selectedOrder}
         onOrderModified={onRefresh}
       />
-      
+
       <ModifyPositionModal
         isOpen={isModifyPositionOpen}
         onClose={() => {

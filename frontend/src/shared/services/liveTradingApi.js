@@ -13,7 +13,6 @@ export const liveTradingApi = {
   syncSession: (id, payload = {}) => api.post(`${BASE_URL}/sessions/${id}/sync/`, payload),
   updateAllocation: (id, payload) => api.post(`${BASE_URL}/allocations/${id}/update-allocation/`, payload),
   getOrders: () => api.get(`${BASE_URL}/orders/`),
-  cancelOrder: (id) => api.post(`${BASE_URL}/orders/${id}/cancel/`),
   getPositions: () => api.get(`${BASE_URL}/positions/`),
   getAllocations: (params = {}) => api.get(`${BASE_URL}/allocations/`, { params }),
   getLogs: () => api.get(`${BASE_URL}/execution-logs/`),

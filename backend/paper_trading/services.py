@@ -1,4 +1,5 @@
 import logging
+import uuid
 from decimal import Decimal
 from django.core.cache import cache
 from django.db import transaction
@@ -24,6 +25,11 @@ from .models import (
     PaperOrder, PaperPosition, PaperTrade, PaperAccount,
     Portfolio, CapitalAllocation, FundTransaction, DailyPerformance
 )
+
+
+def _publish_cache_after_commit(method_name, *args, **kwargs):
+    callback = getattr(cache_api, method_name)
+    transaction.on_commit(lambda: callback(*args, **kwargs))
 
 logger = logging.getLogger(__name__)
 
@@ -528,7 +534,13 @@ class PaperExecutionService:
         quantity,
         price=None,
         order_tag="strategy_execution",
+        reason="",
+        request_id=None,
     ):
+        if request_id:
+            existing = PaperOrder.objects.filter(request_id=request_id).first()
+            if existing:
+                return existing.id
 
         PaperExecutionService._validate_auto_disable(
             session=session,
@@ -541,6 +553,8 @@ class PaperExecutionService:
             strategy=strategy, side=side,
             quantity=quantity, order_tag=order_tag,
             fallback_price=price,
+            reason=reason,
+            request_id=request_id,
         ).id
     
     @staticmethod
@@ -590,11 +604,17 @@ class PaperExecutionService:
         fallback_price=None,
         executed_at=None,
         exit_reason="strategy_exit",
+        reason="",
+        request_id=None,
     ):
         executed_at = executed_at or timezone.now()
         quantity = int(quantity)
         if quantity <= 0:
             raise ValueError("Order quantity must be greater than zero")
+        if request_id:
+            existing = PaperOrder.objects.filter(request_id=request_id).first()
+            if existing:
+                return existing
         order_type = OrderType.MARKET
         
         # Lock rows separately because both relations are nullable and PostgreSQL
@@ -633,33 +653,33 @@ class PaperExecutionService:
         if opening_qty > 0:
             required_margin = price * opening_qty
             if allocation and required_margin > allocation.available_amount:
-                PaperOrder.objects.create(
+                rejected_order = PaperOrder.objects.create(
                     account=account, strategy=strategy,
-                    instrument=instrument, order_type=order_type,
+                    instrument=instrument, reason=str(reason or "")[:255], order_type=order_type,
                     product_type=product_type, side=side,
                     quantity=quantity, price=raw_price,
                     status=OrderStatus.REJECTED,
                     rejection_reason="Insufficient allocation capital",
                     executed_at=executed_at, order_tag=order_tag,
+                    request_id=request_id or uuid.uuid4(),
                 )
-                raise ValueError(
-                    f"Insufficient allocation capital. Required: {required_margin}, "
-                    f"Available: {allocation.available_amount}"
-                )
+                return rejected_order
             if required_margin > account.current_balance:
-                PaperOrder.objects.create(
-                    account=account, strategy=strategy, instrument=instrument, order_type=order_type,
+                rejected_order = PaperOrder.objects.create(
+                    account=account, strategy=strategy, instrument=instrument, reason=str(reason or "")[:255], order_type=order_type,
                     product_type=product_type, side=side, quantity=quantity, price=raw_price,
                     status=OrderStatus.REJECTED, rejection_reason="Insufficient margin",
                     executed_at=executed_at, order_tag=order_tag,
+                    request_id=request_id or uuid.uuid4(),
                 )
-                raise ValueError(f"Insufficient margin. Required: {required_margin}, Available: {account.current_balance}")
+                return rejected_order
 
         order = PaperOrder.objects.create(
-            account=account, strategy=strategy, instrument=instrument, order_type=order_type,
+            account=account, strategy=strategy, instrument=instrument, reason=str(reason or "")[:255], order_type=order_type,
             product_type=product_type, side=side, quantity=quantity, price=raw_price,
             avg_fill_price=price, filled_quantity=quantity, status=OrderStatus.FILLED,
             executed_at=executed_at, order_tag=order_tag,
+            request_id=request_id or uuid.uuid4(),
         )
         if opposite_position:
             gross_pnl = (
@@ -723,7 +743,7 @@ class PaperExecutionService:
             wins = int(current.get("winning_trades", 0) or 0)
             current["win_rate"] = (wins / total_closed) * 100 if total_closed else 0.0
 
-            cache_api.update_risk_metrics("paper", session.id, current)
+            _publish_cache_after_commit("update_risk_metrics", "paper", session.id, current)
 
             margin_released = (
                 Decimal(str(opposite_position.margin_blocked or 0))
@@ -748,7 +768,7 @@ class PaperExecutionService:
                     )
 
                     # Update unified cache for paper trading on partial close
-                    cache_api.update_order("paper", str(session.id), {
+                    _publish_cache_after_commit("update_order", "paper", str(session.id), {
                         'id': str(order.id),
                         'instrument_id': order.instrument_id,
                         'symbol': order.instrument.sym_ticker if order.instrument else '',
@@ -761,7 +781,7 @@ class PaperExecutionService:
                     })
                     # Update only the affected position in cache (no DB reload)
                     if opposite_position.quantity > 0:
-                        cache_api.update_position("paper", str(session.id), {
+                        _publish_cache_after_commit("update_position", "paper", str(session.id), {
                             'id': str(opposite_position.id),
                             'instrument_id': opposite_position.instrument_id,
                             'symbol': opposite_position.instrument.sym_ticker if opposite_position.instrument else '',
@@ -782,7 +802,7 @@ class PaperExecutionService:
                 opposite_position.delete()
                 
                 # Update unified cache for paper trading on position close
-                cache_api.remove_position("paper", str(session.id), str(opposite_position.id))
+                _publish_cache_after_commit("remove_position", "paper", str(session.id), str(opposite_position.id))
             remaining -= closing_qty
 
         if remaining > 0:
@@ -798,7 +818,8 @@ class PaperExecutionService:
                 
             else:
                 position = PaperPosition.objects.create(
-                    account=account, strategy=strategy, instrument=instrument, side=side,
+                    account=account, strategy=strategy, instrument=instrument,
+                    side=side,
                     quantity=remaining, avg_price=price, current_price=price, margin_blocked=price * remaining,
                 )
             
@@ -817,7 +838,7 @@ class PaperExecutionService:
                 )
             
             # Update unified cache for paper trading
-            cache_api.update_order("paper", str(session.id), {
+            _publish_cache_after_commit("update_order", "paper", str(session.id), {
                 'id': str(order.id),
                 'instrument_id': order.instrument_id,
                 'symbol': order.instrument.sym_ticker if order.instrument else '',
@@ -830,7 +851,7 @@ class PaperExecutionService:
             })
             # Update only the affected position in cache (no DB reload)
             if position.quantity > 0:
-                cache_api.update_position("paper", str(session.id), {
+                _publish_cache_after_commit("update_position", "paper", str(session.id), {
                     'id': str(position.id),
                     'instrument_id': position.instrument_id,
                     'symbol': position.instrument.sym_ticker if position.instrument else '',
@@ -841,7 +862,7 @@ class PaperExecutionService:
                     'unrealized_pnl': str(position.unrealized_pnl),
                     'session_id': str(session.id),
                 })
-            cache_api.update_risk_metrics("paper", session.id, {"last_entry_time": executed_at})
+            _publish_cache_after_commit("update_risk_metrics", "paper", session.id, {"last_entry_time": executed_at})
 
         account.save(update_fields=["current_balance", "updated_at"])
 
@@ -872,65 +893,49 @@ class PaperExecutionService:
         return StrategyRuntimeState.rebuild_runtime_state_from_db("paper", session_id)
 
     @classmethod
-    def run_zmq_subscriber(cls, stop_event=None):
-        """
-        Runs continuously in a background process/thread, listening to the StrategyOrderRouter
-        ZeroMQ publisher for any 'PAPER' scope OrderRequests.
-        """
-        import zmq
-        import json
-        from strategy_engine.router import OrderRequest
-        from paper_trading.models import PaperTradingSession
+    def run_order_stream_consumer(cls, stop_event=None):
+        """Consume durable paper requests and acknowledge recorded outcomes."""
+        from paper_trading.models import PaperOrder, PaperTradingSession
+        from common.enums import OrderStatus
         from instruments.models import Instrument
+        from strategy_engine.order_queue import consume_orders, entry_is_allowed
 
-        context = zmq.Context.instance()
-        socket = context.socket(zmq.SUB)
-        socket.bind("tcp://127.0.0.1:5556")
-        socket.setsockopt(zmq.RCVTIMEO, 1000)
-        socket.setsockopt_string(zmq.SUBSCRIBE, "PAPER")
-
-        logger.info("PaperExecutionService ZMQ Subscriber listening for PAPER orders...")
-
-        try:
-            while not (stop_event and stop_event.is_set()):
-                req = None
-                try:
-                    topic, message = socket.recv_multipart()
-                    data = json.loads(message.decode('utf-8'))
-                    req = OrderRequest(**data)
-
-                    session = PaperTradingSession.objects.select_related('account', 'strategy').get(id=req.session_id)
-                    instrument = Instrument.objects.get(id=req.instrument_id)
-
-                    PaperExecutionService.place_order(
-                        session=session,
-                        strategy=session.strategy,
-                        account=session.account,
-                        instrument=instrument,
-                        side=req.side,
-                        quantity=req.qty,
-                        price=req.target_price,
-                    )
-                    logger.info(f"ZMQ paper order placed: {req.side} {req.qty} {instrument.sym_ticker} reason={getattr(req, 'reason', 'N/A')}")
-                except zmq.Again:
-                    continue
-                except Exception as e:
-                    session_id = getattr(req, "session_id", "unknown")
-                    logger.error(f"ZMQ Paper Subscriber Error for session {session_id}: {e}", exc_info=True)
-                    try:
-                        if req is None:
-                            continue
-                        state = StrategyRuntimeState.trade_state("paper", req.session_id, req.instrument_id)
-                        if state.get("phase") in (StrategyRuntimeState.ENTRY_PENDING, StrategyRuntimeState.EXIT_PENDING):
-                            revert_phase = StrategyRuntimeState.OPEN if state.get("quantity", 0) > 0 else StrategyRuntimeState.CLOSED
-                            StrategyRuntimeState.update_trade_state("paper", req.session_id, req.instrument_id, {"phase": revert_phase})
-                            logger.info(f"Reverted paper phase to {revert_phase} for session {req.session_id} instrument {req.instrument_id}")
-                    except Exception:
-                        logger.exception("Failed to revert paper trade phase after ZMQ error")
-        finally:
+        def handle(data):
+            request_id = data["request_id"]
+            if PaperOrder.objects.filter(request_id=request_id).exists():
+                return
+            session = PaperTradingSession.objects.select_related("account", "strategy").get(id=data["session_id"])
+            instrument = Instrument.objects.get(id=data["instrument_id"])
             try:
-                socket.close()
-            except Exception:
-                pass
+                if not entry_is_allowed(session.status, data.get("intent")):
+                    raise ValueError(f"Paper session is {session.status}; queued entry was not executed")
+                order_id = PaperExecutionService.place_order(
+                    session=session, strategy=session.strategy, account=session.account,
+                    instrument=instrument, side=data["side"], quantity=data["qty"],
+                    price=data.get("target_price"), reason=data.get("reason") or "", request_id=request_id,
+                )
+                order = PaperOrder.objects.get(pk=order_id)
+            except Exception as exc:
+                logger.exception("Paper request %s failed before a terminal order outcome", request_id)
+                order, _ = PaperOrder.objects.get_or_create(
+                    request_id=request_id,
+                    defaults={
+                        "account": session.account,
+                        "strategy": session.strategy,
+                        "instrument": instrument,
+                        "side": data["side"],
+                        "quantity": max(int(data.get("qty") or 0), 0),
+                        "price": data.get("target_price"),
+                        "status": OrderStatus.REJECTED,
+                        "reason": str(data.get("reason") or "")[:255],
+                        "rejection_reason": str(exc),
+                    },
+                )
+        def reconcile(data):
+            StrategyRuntimeState.reconcile_trade_state(
+                "paper", data["session_id"], data["instrument_id"], failed_reason=data.get("reason")
+            )
+        logger.info("PaperExecutionService Redis Stream consumer is ready")
+        consume_orders("paper", handle, stop_event=stop_event, after_durable=reconcile)
 
 

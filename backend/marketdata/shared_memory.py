@@ -19,8 +19,8 @@ class SharedMemoryManager:
         
         # Safe names for POSIX (can't have special chars)
         safe_sym = symbol.replace(":", "_").replace("-", "_")
-        self.data_name = f"data_v2_{safe_sym}_{timeframe}"
-        self.meta_name = f"meta_v2_{safe_sym}_{timeframe}"
+        self.data_name = f"data_v3_{safe_sym}_{timeframe}"
+        self.meta_name = f"meta_v3_{safe_sym}_{timeframe}"
         
         self.data_shm = None
         self.meta_shm = None
@@ -32,17 +32,35 @@ class SharedMemoryManager:
     def _init_memory(self, create: bool):
         # Data block: max_size * 6 * 8 bytes (float64)
         data_bytes = self.max_size * 6 * 8
-        # Meta block: 2 int64 (16 bytes) for [current_index, tick_counter]
-        meta_bytes = 16
+        # Meta block: [current_index, tick_counter, latest_tick_epoch_ms]
+        meta_bytes = 24
         
+        initialized_here = False
         if create:
             try:
                 self.data_shm = shared_memory.SharedMemory(name=self.data_name, create=True, size=data_bytes)
-                self.meta_shm = shared_memory.SharedMemory(name=self.meta_name, create=True, size=meta_bytes)
+                try:
+                    self.meta_shm = shared_memory.SharedMemory(name=self.meta_name, create=True, size=meta_bytes)
+                except Exception:
+                    self.data_shm.close()
+                    self.data_shm.unlink()
+                    raise
+                initialized_here = True
             except FileExistsError:
-                # If they exist, attach to them
-                self.data_shm = shared_memory.SharedMemory(name=self.data_name)
-                self.meta_shm = shared_memory.SharedMemory(name=self.meta_name)
+                # A concurrent feed process may still be creating the paired block.
+                deadline = time.monotonic() + 5
+                while True:
+                    try:
+                        self.data_shm = shared_memory.SharedMemory(name=self.data_name)
+                        self.meta_shm = shared_memory.SharedMemory(name=self.meta_name)
+                        break
+                    except FileNotFoundError:
+                        if self.data_shm is not None:
+                            self.data_shm.close()
+                            self.data_shm = None
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError(f"Shared memory initialization timed out for {self.symbol} {self.timeframe}")
+                        time.sleep(0.01)
         else:
             try:
                 self.data_shm = shared_memory.SharedMemory(name=self.data_name)
@@ -60,10 +78,10 @@ class SharedMemoryManager:
         self.shape = (self.max_size, 6)
             
         self.array = np.ndarray(self.shape, dtype=self.dtype, buffer=self.data_shm.buf)
-        self.meta_array = np.ndarray((2,), dtype=np.int64, buffer=self.meta_shm.buf)
+        self.meta_array = np.ndarray((3,), dtype=np.int64, buffer=self.meta_shm.buf)
         
-        if create:
-            # Initialize to zero
+        if initialized_here:
+            # Attaching processes must never erase data owned by the feed.
             self.array.fill(0.0)
             self.meta_array.fill(0)
 
@@ -74,6 +92,10 @@ class SharedMemoryManager:
     @property
     def tick_counter(self) -> int:
         return int(self.meta_array[1])
+
+    def is_tick_fresh(self, max_age_seconds: float = 15.0) -> bool:
+        last_tick_ms = int(self.meta_array[2])
+        return last_tick_ms > 0 and 0 <= time.time() - (last_tick_ms / 1000.0) <= max_age_seconds
         
     def advance_candle(self):
         """
@@ -92,6 +114,11 @@ class SharedMemoryManager:
         idx = self.current_index
         tick_timestamp = float(timestamp if timestamp is not None else time.time())
         candle_timestamp = int(tick_timestamp // 60) * 60
+
+        active_timestamp = int(self.array[idx, 5]) if self.array[idx, 5] else 0
+        if active_timestamp and candle_timestamp < active_timestamp:
+            # Out-of-order broker ticks must not move the active candle backward.
+            return
 
         if self.array[idx, 5] and self.array[idx, 5] != candle_timestamp:
             self.advance_candle()
@@ -119,6 +146,7 @@ class SharedMemoryManager:
             self.array[idx, 5] = candle_timestamp
             
         self.meta_array[1] += 1
+        self.meta_array[2] = int(time.time() * 1000)
             
     def get_latest_data(self, lookback: int = None):
         """
@@ -126,15 +154,19 @@ class SharedMemoryManager:
         """
         if lookback is None or lookback > self.max_size:
             lookback = self.max_size
-            
+        lookback = max(0, int(lookback))
+        if lookback == 0:
+            return np.empty((0, self.array.shape[1]), dtype=self.dtype)
+
         idx = self.current_index
-        
-        # Roll the array so the oldest data is at 0 and newest is at the end
-        # 'idx' is the active unclosed candle, so it should be the very last element.
-        # We roll by -(idx + 1) to put (idx + 1) at the start and idx at the end.
-        rolled = np.roll(self.array, -(idx + 1), axis=0)
-        
-        return rolled[-lookback:]
+        start = (idx - lookback + 1) % self.max_size
+
+        # Copy only the requested chronological window. np.roll copied the full
+        # shared-memory capacity on every slow-path evaluation, even when the
+        # strategy only needed a small indicator warmup window.
+        if start <= idx:
+            return self.array[start:idx + 1].copy()
+        return np.concatenate((self.array[start:], self.array[:idx + 1]), axis=0)
 
     def get_latest_price(self):
         """Return the latest forming candle close, or None if empty."""

@@ -35,8 +35,6 @@ class Exchange(models.TextChoices):
     NSE = 'NSE', 'National Stock Exchange'
     BSE = 'BSE', 'Bombay Stock Exchange'
     MCX = 'MCX', 'Multi Commodity Exchange'
-    BINANCE = 'BINANCE', 'Binance'
-    BYBIT = 'BYBIT', 'Bybit'
 
 
 class InstrumentType(models.TextChoices):

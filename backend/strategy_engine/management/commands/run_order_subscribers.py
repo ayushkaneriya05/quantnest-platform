@@ -1,6 +1,7 @@
 import logging
 import signal
 import threading
+import time
 
 from django.core.management.base import BaseCommand
 
@@ -11,18 +12,18 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Runs the LIVE and PAPER ZeroMQ order subscribers."
+    help = "Runs the LIVE and PAPER Redis Stream order consumers."
 
     def handle(self, *args, **options):
         subscribers = (
-            ("live", LiveExecutionService.run_zmq_subscriber),
-            ("paper", PaperExecutionService.run_zmq_subscriber),
+            ("live", LiveExecutionService.run_order_stream_consumer),
+            ("paper", PaperExecutionService.run_order_stream_consumer),
         )
         threads = []
         stop_event = threading.Event()
 
         def _shutdown(signum, frame):
-            logger.info("Received shutdown signal %s; stopping ZeroMQ subscribers.", signum)
+            logger.info("Received shutdown signal %s; stopping Redis order consumers.", signum)
             stop_event.set()
 
         signal.signal(signal.SIGINT, _shutdown)
@@ -32,11 +33,11 @@ class Command(BaseCommand):
             thread = threading.Thread(
                 target=self._run_subscriber,
                 args=(name, subscriber, stop_event),
-                name=f"zmq-{name}-subscriber",
+                name=f"order-stream-{name}-consumer",
             )
             thread.start()
             threads.append(thread)
-            self.stdout.write(f"Started {name} ZeroMQ order subscriber")
+            self.stdout.write(f"Started {name} Redis order consumer")
 
         self.stdout.write(self.style.SUCCESS("LIVE and PAPER order subscribers are running."))
         self.stdout.write("Press Ctrl+C to stop both subscribers.")
@@ -58,8 +59,14 @@ class Command(BaseCommand):
 
     @staticmethod
     def _run_subscriber(name, subscriber, stop_event):
-        try:
-            subscriber(stop_event=stop_event)
-        except Exception:
-            logger.exception("%s ZeroMQ order subscriber stopped unexpectedly", name)
-            raise
+        delay = 1
+        while not stop_event.is_set():
+            try:
+                subscriber(stop_event=stop_event)
+                if stop_event.is_set():
+                    return
+                logger.warning("%s order consumer returned unexpectedly; restarting", name)
+            except Exception:
+                logger.exception("%s Redis order consumer stopped unexpectedly", name)
+            stop_event.wait(delay)
+            delay = min(delay * 2, 30)

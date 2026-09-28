@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from copy import deepcopy
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
@@ -40,6 +41,27 @@ class SessionContext(ABC):
         self.user_id = self._fetch_user_id()
         self._runtime_l1: Dict[int, Dict[str, Any]] = {}
         self._runtime_l1_lock = threading.RLock()
+        self._execution_context_lock = threading.Lock()
+        self._cached_capital = 0.0
+        self._cached_risk_stats: Dict[str, Any] = {}
+        self._execution_context_updated = 0.0
+
+    def refresh_execution_context(self):
+        """Refresh slow-changing funds and risk inputs outside signal evaluation."""
+        funds = cache_view.get_session_funds(self.scope, self.session_id)
+        risk = cache_view.get_risk_metrics(self.scope, self.session_id) or {}
+        capital = 0.0
+        if funds:
+            available = funds.get("available_margin") or funds.get("cash_balance") or funds.get("net_equity") or 0
+            if self.scope == "live":
+                allocation = funds.get("allocation_available_capital")
+                capital = min(float(allocation or 0), float(available or 0))
+            else:
+                capital = float(available or 0)
+        with self._execution_context_lock:
+            self._cached_capital = capital
+            self._cached_risk_stats = dict(risk)
+            self._execution_context_updated = time.monotonic()
 
     @abstractmethod
     def _fetch_user_id(self) -> str:
@@ -67,17 +89,13 @@ class SessionContext(ABC):
         return RiskEvaluator(self.get_available_capital())
         
     def get_runtime_state(self, instrument_id: int) -> Dict[str, Any]:
-        """Get runtime state, refreshing Redis only for missing/pending state."""
+        """Read worker-local state; fetch the Redis projection only on first use."""
         with self._runtime_l1_lock:
             local_state = self._runtime_l1.get(instrument_id)
-            if local_state is None or local_state.get("phase") in self._PENDING_PHASES:
+            if local_state is None:
                 shared_state = StrategyRuntimeState.trade_state(self.scope, self.session_id, instrument_id)
-                if shared_state:
-                    if local_state:
-                        local_state.update(shared_state)
-                    else:
-                        local_state = shared_state
-                    self._runtime_l1[instrument_id] = local_state
+                local_state = shared_state or {}
+                self._runtime_l1[instrument_id] = local_state
 
             return deepcopy(local_state or {})
         
@@ -142,40 +160,16 @@ class LiveSessionContext(SessionContext):
         return session.user_id if session else None
 
     def get_available_capital(self) -> float:
-        try:
-            session_funds = cache_view.get_session_funds("live", self.session_id)
-            if session_funds:
-                broker_margin = float(
-                    session_funds.get("available_margin") or session_funds.get("cash_balance") or session_funds.get("net_equity") or 0
-                )
-                allocation_capital = float(session_funds.get("allocation_available_capital") or 0)
-                return min(allocation_capital, broker_margin)
-
-            # Get allocation directly from database
-            from live_trading.models import TradingSession
-            session = TradingSession.objects.filter(id=self.session_id).select_related('allocation').first()
-            if not session or not session.allocation:
+        with self._execution_context_lock:
+            if time.monotonic() - self._execution_context_updated > 5:
                 return 0.0
-            
-            allocation = session.allocation
-            # Use unified cache interface for funds
-            funds_data = cache_view.get_funds(allocation.broker_credential_id)
-            if funds_data:
-                broker_margin = float(funds_data.get("available_margin") or funds_data.get("cash_balance") or 0)
-            else:
-                # Fallback to direct broker API if cache miss
-                from brokers.services import BrokerService
-                funds_data_api = BrokerService.get_funds(allocation.broker_credential)
-                broker_margin = float(funds_data_api.get("available_margin") or funds_data_api.get("cash_balance") or 0)
-            broker_margin = float(broker_margin) if broker_margin is not None else float("inf")
-            alloc_available = float(allocation.available_capital or 0.0)
-            return min(alloc_available, broker_margin)
-        except Exception as e:
-            logger.error(f"Error fetching live capital: {e}")
-            return 0.0
+            return self._cached_capital
 
     def get_risk_stats(self) -> Dict[str, Any]:
-        return cache_view.get_risk_metrics("live", self.session_id)
+        with self._execution_context_lock:
+            if time.monotonic() - self._execution_context_updated > 5:
+                return {}
+            return dict(self._cached_risk_stats)
 
 
 class PaperSessionContext(SessionContext):
@@ -196,24 +190,13 @@ class PaperSessionContext(SessionContext):
         return session.account.user_id if session and session.account else None
 
     def get_available_capital(self) -> float:
-        try:
-            session_funds = cache_view.get_session_funds("paper", self.session_id)
-            if session_funds:
-                return float(
-                    session_funds.get("available_margin") or session_funds.get("cash_balance") or session_funds.get("net_equity") or 0
-                )
-
-            from paper_trading.models import PaperTradingSession
-
-            session = PaperTradingSession.objects.filter(id=self.session_id).select_related("account").first()
-            if not session or not session.account:
+        with self._execution_context_lock:
+            if time.monotonic() - self._execution_context_updated > 5:
                 return 0.0
-
-            # Fallback to database if cache miss (should be rare)
-            return float(session.account.current_balance or 0.0)
-        except Exception as e:
-            logger.error(f"Error fetching paper capital: {e}")
-            return 0.0
+            return self._cached_capital
 
     def get_risk_stats(self) -> Dict[str, Any]:
-        return cache_view.get_risk_metrics("paper", self.session_id)
+        with self._execution_context_lock:
+            if time.monotonic() - self._execution_context_updated > 5:
+                return {}
+            return dict(self._cached_risk_stats)

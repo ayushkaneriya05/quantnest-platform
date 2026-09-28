@@ -18,12 +18,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Badge } from "@/shared/components/ui/badge";
 import { Separator } from "@/shared/components/ui/separator";
-import {
-  TrendingUp,
-  TrendingDown,
-  Settings,
-  Loader2,
-} from "lucide-react";
+import { TrendingUp, TrendingDown, Settings, Loader2 } from "lucide-react";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import api from "@/shared/services/api";
 import toast from "react-hot-toast";
@@ -85,11 +80,13 @@ export default function ModifyPositionModal({
 
   // Effect to subscribe to live price updates when the modal is open
   useEffect(() => {
-    if (!isOpen || !position?.instrument?.symbol) {
+    const instrumentKey =
+      position?.instrument?.sym_ticker || position?.instrument?.symbol;
+    if (!isOpen || !instrumentKey) {
       setCurrentMarketPrice(null);
       return;
     }
-    const symbol = position.instrument.symbol;
+    const symbol = instrumentKey;
 
     const initialTick = getTickData(symbol);
     if (initialTick) {
@@ -167,7 +164,7 @@ export default function ModifyPositionModal({
       if (formData.action === "SELL" && position) {
         if (quantity > Math.abs(safeNumber(position.quantity))) {
           newErrors.quantity = `Cannot sell more than available quantity (${Math.abs(
-            safeNumber(position.quantity)
+            safeNumber(position.quantity),
           )})`;
         }
       }
@@ -179,7 +176,7 @@ export default function ModifyPositionModal({
       // If no action, ensure SL or TP has been modified
       const slChanged = formData.stop_loss !== (position.stop_loss?.toString() || "");
       const tpChanged = formData.take_profit !== (position.take_profit?.toString() || "");
-      
+
       if (!slChanged && !tpChanged) {
         newErrors.action = "Please select an action or update risk parameters";
       }
@@ -197,8 +194,10 @@ export default function ModifyPositionModal({
     try {
       if (formData.action) {
         // Create an Order (BUY MORE or SELL PARTIAL)
+        const instrumentKey =
+          position.instrument?.sym_ticker || position.instrument?.symbol;
         const orderData = {
-          instrument_symbol: position.instrument?.symbol,
+          instrument_symbol: instrumentKey,
           order_type: formData.order_type,
           transaction_type: formData.action,
           quantity: safeNumber(formData.quantity),
@@ -251,7 +250,7 @@ export default function ModifyPositionModal({
   const positionQuantity = safeNumber(position.quantity);
   const avgPrice = safeNumber(position.average_price);
   const isLongPosition = positionQuantity > 0;
-  
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose} modal={true}>
       <DialogContent className="sm:max-w-[750px] bg-slate-950/95 border-slate-800/80 backdrop-blur-2xl text-white rounded-[2rem] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-300 px-0 py-0">
@@ -286,7 +285,7 @@ export default function ModifyPositionModal({
               {/* Left Column: Position Summary */}
               <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/5 shadow-inner flex flex-col justify-between">
                 <div>
-                   <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-2">
                     <h3 className="font-black text-base text-slate-100 truncate leading-none">
                       {position.instrument?.symbol}
                     </h3>
@@ -303,7 +302,7 @@ export default function ModifyPositionModal({
                   <div className="flex items-center justify-between">
                     <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Entry Avg</span>
                     <div className="font-mono text-slate-300 text-xs font-bold">
-                       {formatCurrency(avgPrice)}
+                      {formatCurrency(avgPrice)}
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
@@ -315,7 +314,7 @@ export default function ModifyPositionModal({
                   <div className="flex items-center justify-between">
                     <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Live P&L</span>
                     <div className={cn(
-                      "font-mono text-xs font-black flex items-center gap-1",
+                        "font-mono text-xs font-black flex items-center gap-1",
                       profitLoss.amount >= 0 ? "text-emerald-400" : "text-rose-400"
                     )}>
                       {profitLoss.amount >= 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
@@ -332,8 +331,8 @@ export default function ModifyPositionModal({
                   <div className="flex justify-between items-center px-1">
                     <Label htmlFor="action" className="text-[9px] font-black text-slate-500 uppercase tracking-wider opacity-70">Trade Modification</Label>
                     {formData.action && (
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={() => { setFormData(p => ({ ...p, action: "" })); setErrors(e => ({ ...e, action: "" })); }}
                         className="text-[8px] font-bold text-sky-500 hover:text-sky-400 uppercase tracking-tighter"
                       >
@@ -351,7 +350,7 @@ export default function ModifyPositionModal({
                     <SelectContent className="bg-slate-950 border-slate-800 rounded-xl">
                       {TRANSACTION_TYPES.map((type) => (
                         <SelectItem key={type.value} value={type.value} className="text-white hover:bg-white/5 py-2">
-                           <div className="flex flex-col">
+                          <div className="flex flex-col">
                             <span className="font-bold text-xs">{type.label}</span>
                             <span className="text-[9px] text-slate-500">{type.description}</span>
                           </div>
@@ -449,19 +448,19 @@ export default function ModifyPositionModal({
               {/* R:R Indicator - Compact Version */}
               {riskReward.ratio > 0 ? (
                 <div className="bg-sky-500/5 px-4 py-2.5 rounded-xl border border-sky-500/10 flex flex-col justify-center">
-                   <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between">
                      <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">R:R Ratio</span>
                      <span className={cn(
                         "text-xs font-black",
                         riskReward.ratio >= 2 ? "text-emerald-400" : "text-amber-400"
                       )}>
-                        1 : {formatPrice(riskReward.ratio)}
-                      </span>
-                   </div>
-                   <div className="flex items-center justify-between mt-1 pt-1 border-t border-white/[0.03]">
+                      1 : {formatPrice(riskReward.ratio)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1 pt-1 border-t border-white/[0.03]">
                      <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Risk Amt</span>
                      <span className="text-xs font-black text-rose-400">{formatCurrency(riskReward.risk)}</span>
-                   </div>
+                  </div>
                 </div>
               ) : (
                 <div className="h-full flex items-center justify-center border border-dashed border-slate-800/50 rounded-xl px-4 py-2 opacity-50">
@@ -494,4 +493,3 @@ export default function ModifyPositionModal({
     </Dialog>
   );
 }
-

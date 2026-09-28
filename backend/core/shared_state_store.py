@@ -22,10 +22,7 @@ class SharedStateStore:
     def __init__(self):
         backend = settings.CACHES.get("default", {}).get("BACKEND", "")
         if "redis" not in backend.lower():
-            logger.warning(
-                "Shared execution state is using %s; configure Redis for multi-process correctness.",
-                backend,
-            )
+            logger.warning("Shared execution state is using %s; configure Redis for multi-process correctness.", backend)
 
     def _key(self, namespace: str, *parts: object) -> str:
         suffix = ":".join(str(part) for part in parts)

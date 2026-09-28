@@ -70,8 +70,7 @@ class LiveMarketDataRegistry:
 
     @classmethod
     def is_ready(cls, symbol, required):
-        heartbeat = cache.get(cls.heartbeat_cache_key)
-        if heartbeat is None or time.time() - float(heartbeat) > 30:
+        if not cls.is_tick_fresh(symbol):
             return False
         readiness = dict(cache.get(cls.readiness_cache_key, {}) or {})
         normalized = MarketDataService.normalize_symbol(symbol)
@@ -81,6 +80,17 @@ class LiveMarketDataRegistry:
                 if value.get("ready"):
                     return True
         return False
+
+    @classmethod
+    def record_tick(cls, symbol, timestamp=None):
+        normalized = MarketDataService.normalize_symbol(symbol)
+        cache.set(f"marketdata:last_tick:{normalized}", float(timestamp or time.time()), timeout=cls.cache_ttl)
+
+    @classmethod
+    def is_tick_fresh(cls, symbol, max_age=15):
+        normalized = MarketDataService.normalize_symbol(symbol)
+        tick_at = cache.get(f"marketdata:last_tick:{normalized}")
+        return tick_at is not None and 0 <= time.time() - float(tick_at) <= max_age
 
 
     @classmethod
@@ -191,6 +201,9 @@ class FyersLiveFeedClient:
         self._sync_thread = None
         self._sync_stop = threading.Event()
         self._sync_wakeup = threading.Event()
+        self._volume_lock = threading.Lock()
+        self._last_cumulative_volume = {}
+        self._last_health_publish = {}
 
 
     def connect(self):
@@ -344,8 +357,13 @@ class FyersLiveFeedClient:
 
     def _on_connect(self):
         logger.info("Connected to Fyers live market websocket")
+        self._subscribed_symbols.clear()
         self.start_subscription_sync()
         self._sync_wakeup.set()
+        try:
+            self.sync_subscriptions(force=True)
+        except Exception:
+            logger.exception("Failed to restore Fyers subscriptions after reconnect")
 
 
     def _on_close(cls, ws=None, code=None, reason=None):
@@ -437,6 +455,21 @@ class FyersLiveFeedClient:
                 "timestamp": traded_at_dt.isoformat(),
             }
 
+            arrival_time = time.time()
+            if arrival_time - self._last_health_publish.get(symbol, 0) >= 2:
+                LiveMarketDataRegistry.record_tick(symbol, arrival_time)
+                self._last_health_publish[symbol] = arrival_time
+            cumulative_volume = float(tick.get("vol_traded_today") or 0)
+            with self._volume_lock:
+                previous_volume = self._last_cumulative_volume.get(symbol)
+                if previous_volume is None or cumulative_volume < previous_volume:
+                    # The daily cumulative total cannot be assigned to the
+                    # current minute when ingestion starts mid-session.
+                    volume_delta = 0.0
+                else:
+                    volume_delta = cumulative_volume - previous_volume
+                self._last_cumulative_volume[symbol] = cumulative_volume
+
             # Write to ultra-fast POSIX shared memory for Execution V2
             if symbol in self.shm_managers:
                 try:
@@ -445,7 +478,7 @@ class FyersLiveFeedClient:
                         with symbol_lock:
                             shm.update_current_candle(
                                 price=float(quote["price"]),
-                                volume=float(quote["volume"] or 0),
+                                volume=volume_delta,
                                 timestamp=traded_at_dt.timestamp(),
                             )
                 except Exception as exc:

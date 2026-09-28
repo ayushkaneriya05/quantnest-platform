@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Any
 from django.utils import timezone
 from django.conf import settings
-from common.enums import Side
+from common.enums import OrderStatus, Side
 
 from .base_websocket import BaseBrokerWebSocket
 
@@ -42,6 +42,7 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
         self.credential = credential
         self.socket = None
         self.access_token = None
+        self.auth_session_id = None
         
     def _get_valid_token(self) -> str:
         """
@@ -64,7 +65,8 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
                 f"No valid Fyers session found for credential {self.credential.id}. "
                 "Please authenticate the broker credential."
             )
-        
+
+        self.auth_session_id = session.id
         self.access_token = session.access_token
         return f"{self.credential.client_id}:{self.access_token}"
     
@@ -241,16 +243,17 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
             "broker_order_id": orders.get("id") or "",
             "exchange_order_id": orders.get("exch_ord_id") or "",
             "symbol": orders.get("symbol") or "",
-            "side": self._normalize_side(orders.get("side")),
+            "side": self._map_fyers_side_to_internal(orders.get("side")),
             "quantity": int(orders.get("qty") or 0),
             "filled_quantity": int(orders.get("filled_qty") or 0),
             "pending_quantity": int(orders.get("remaining_quantity") or 0),
-            "status": int(orders.get("status") or 0),
+            "status": self._map_fyers_status_to_internal(orders.get("status")),
             "avg_fill_price": float(orders.get("traded_price") or 0),
             "limit_price": float(orders.get("limit_price") or 0),
             "stop_price": float(orders.get("stop_price") or 0),
             "product_type": orders.get("productType") or "",
             "order_type": orders.get("type"),
+            "order_tag": orders.get("orderTag") or orders.get("tag") or "",
             "updated_at": timezone.now().isoformat(),
             "raw": orders
         }
@@ -271,7 +274,7 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
             "trade_number": trades.get("trade_number") or "",
             "order_number": trades.get("order_number") or "",
             "symbol": trades.get("symbol") or "",
-            "side": self._normalize_side(trades.get("side")),
+            "side": self._map_fyers_side_to_internal(trades.get("side")),
             "quantity": int(trades.get("qty") or 0),
             "trade_price": float(trades.get("trade_price") or 0),
             "trade_value": float(trades.get("trade_value") or 0),
@@ -294,11 +297,12 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
         """
         positions = raw_data.get("positions", {})
         net_quantity = int(positions.get("net_qty") or 0)
-        position_side = self._normalize_side(positions.get("side"))
         if net_quantity < 0:
             position_side = Side.SELL
         elif net_quantity > 0:
             position_side = Side.BUY
+        else:
+            position_side = None
         
         return {
             "broker_position_id": positions.get("id") or "",
@@ -315,3 +319,48 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
             "updated_at": timezone.now().isoformat(),
             "raw": positions
         }
+
+    @staticmethod
+    def _map_fyers_side_to_internal(fyers_side: Any):
+        """Translate Fyers side codes and labels to the platform's BUY/SELL values."""
+        normalized_side = str(fyers_side).strip().upper() if fyers_side is not None else ""
+        if normalized_side in ("1", "BUY", "B"):
+            return Side.BUY
+        if normalized_side in ("-1", "SELL", "S"):
+            return Side.SELL
+        logger.warning("Unknown Fyers side value: %r", fyers_side)
+        return None
+
+    @classmethod
+    def _map_fyers_status_to_internal(cls, fyers_status: Any):
+        """Translate Fyers order status codes to platform order statuses."""
+        status_map = {
+            cls.STATUS_CANCELLED: OrderStatus.CANCELLED,
+            cls.STATUS_FILLED: OrderStatus.FILLED,
+            cls.STATUS_TRANSIT: OrderStatus.PLACED,
+            cls.STATUS_REJECTED: OrderStatus.REJECTED,
+            cls.STATUS_PENDING: OrderStatus.PENDING,
+        }
+        if isinstance(fyers_status, str):
+            normalized_status = fyers_status.strip().upper()
+            named_statuses = {
+                "CANCELLED": OrderStatus.CANCELLED,
+                "CANCELED": OrderStatus.CANCELLED,
+                "FILLED": OrderStatus.FILLED,
+                "TRADED": OrderStatus.FILLED,
+                "TRANSIT": OrderStatus.PLACED,
+                "PLACED": OrderStatus.PLACED,
+                "REJECTED": OrderStatus.REJECTED,
+                "PENDING": OrderStatus.PENDING,
+                "PARTIAL_FILL": OrderStatus.PARTIAL_FILL,
+                "PARTIALLY_FILLED": OrderStatus.PARTIAL_FILL,
+                "EXPIRED": OrderStatus.EXPIRED,
+            }
+            if normalized_status in named_statuses:
+                return named_statuses[normalized_status]
+            try:
+                fyers_status = int(normalized_status)
+            except ValueError:
+                logger.warning("Unknown Fyers order status %r; keeping order pending", fyers_status)
+                return OrderStatus.PENDING
+        return status_map.get(fyers_status, OrderStatus.PENDING)

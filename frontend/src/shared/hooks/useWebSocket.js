@@ -26,10 +26,12 @@ let mountedConsumers = 0;
 
 const originalSymbolMap = new Map();
 
-const normalizeSymbol = (fullSymbol) => {
-  if (!fullSymbol) return "";
-  const normalized = fullSymbol.includes(":") ? fullSymbol.split(":")[1] : fullSymbol;
-  return normalized.replace(/-(EQ|INDEX)$/, "");
+const getInstrumentKey = (instrumentOrSymbol) => {
+  if (!instrumentOrSymbol) return "";
+  if (typeof instrumentOrSymbol === "object") {
+    return (instrumentOrSymbol.sym_ticker || instrumentOrSymbol.symbol || instrumentOrSymbol);
+  }
+  return instrumentOrSymbol;
 };
 
 export function useWebSocket() {
@@ -80,7 +82,7 @@ export function useWebSocket() {
   }, []);
 
   const notifySymbolSubscribers = useCallback((fullSymbol, payload) => {
-    const symbol = normalizeSymbol(fullSymbol);
+    const symbol = getInstrumentKey(fullSymbol);
     if (!symbol || !subscriptionCallbacks.has(symbol)) return;
 
     subscriptionCallbacks.get(symbol).forEach((callback) => {
@@ -95,8 +97,15 @@ export function useWebSocket() {
   const handleTickData = useCallback(
     (data) => {
       const tick = data?.data || data;
-      const fullSymbol = tick?.symbol || data?.symbol || data?.instrument;
-      const symbol = normalizeSymbol(fullSymbol);
+      const fullSymbol =
+        tick?.sym_ticker ||
+        tick?.instrument?.sym_ticker ||
+        tick?.symbol ||
+        data?.sym_ticker ||
+        data?.instrument?.sym_ticker ||
+        data?.symbol ||
+        data?.instrument;
+      const symbol = getInstrumentKey(fullSymbol);
       if (!symbol) return;
 
       const now = Date.now();
@@ -269,10 +278,10 @@ export function useWebSocket() {
 
   const subscribe = useCallback(
     (symbol, callback) => {
-      const normalizedSymbol = normalizeSymbol(symbol);
+      const normalizedSymbol = getInstrumentKey(symbol);
       if (!normalizedSymbol) return () => {};
 
-      const exactSymbol = symbol?.includes(":") ? symbol : `NSE:${normalizedSymbol}-EQ`;
+      const exactSymbol = typeof symbol === "string" && symbol.includes(":") ? symbol : `NSE:${normalizedSymbol}-EQ`;
       originalSymbolMap.set(normalizedSymbol, exactSymbol);
 
       if (callback) {
@@ -322,7 +331,7 @@ export function useWebSocket() {
     async (symbol, options = {}) => {
       if (!symbol) return null;
 
-      const normalizedSymbol = normalizeSymbol(symbol);
+      const normalizedSymbol = getInstrumentKey(symbol);
       const liveTick = tickDataRef.current[normalizedSymbol];
       if (liveTick && !options.force) {
         return liveTick;
@@ -331,10 +340,10 @@ export function useWebSocket() {
       if (options.force || !fetchingPrices.has(normalizedSymbol)) {
         fetchingPrices.add(normalizedSymbol);
         try {
-          const exactSymbol = symbol?.includes(":") ? symbol : (originalSymbolMap.get(normalizedSymbol) || `NSE:${normalizedSymbol}-EQ`);
+          const exactSymbol = typeof symbol === "string" && symbol.includes(":") ? symbol : originalSymbolMap.get(normalizedSymbol) || `NSE:${normalizedSymbol}-EQ`;
           originalSymbolMap.set(normalizedSymbol, exactSymbol);
           const response = await api.get(
-            `/market/latest-tick/?instrument=${encodeURIComponent(exactSymbol)}`
+            `/market/latest-tick/?instrument=${encodeURIComponent(exactSymbol)}`,
           );
           const lastKnownTick = response.data;
 
@@ -352,7 +361,7 @@ export function useWebSocket() {
   );
 
   const getTickData = useCallback(
-    (symbol) => tickDataRef.current[normalizeSymbol(symbol)] ?? null,
+    (symbol) => tickDataRef.current[getInstrumentKey(symbol)] ?? null,
     []
   );
 

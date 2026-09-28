@@ -29,7 +29,7 @@ export function usePaperTradingTerminal(initialSymbol = null) {
         }
 
         const match = data.watchlist?.find(
-          (item) => item.symbol === current || item.sym_ticker === current,
+          (item) => (item.sym_ticker || item.symbol) === current,
         );
         if (match) {
           setSelectedInstrumentId(match.id);
@@ -97,7 +97,7 @@ export function usePaperTradingTerminal(initialSymbol = null) {
         await refreshSnapshot();
         setSelectedInstrumentId(instrument.id);
         setSelectedSymbol(instrument.sym_ticker || instrument.symbol);
-        toast.success(`${instrument.symbol} added to watchlist`);
+        toast.success(`${instrument.sym_ticker || instrument.symbol} added to watchlist`);
       } catch (error) {
         toast.error("Could not add symbol to watchlist.");
       }
@@ -117,9 +117,7 @@ export function usePaperTradingTerminal(initialSymbol = null) {
           if (
             selectedSymbol &&
             !nextWatchlist.some(
-              (item) =>
-                item.symbol === selectedSymbol ||
-                item.sym_ticker === selectedSymbol,
+              (item) => (item.sym_ticker || item.symbol) === selectedSymbol,
             )
           ) {
             setSelectedInstrumentId(nextWatchlist[0]?.id || null);
@@ -152,8 +150,7 @@ export function usePaperTradingTerminal(initialSymbol = null) {
   useEffect(() => {
     if (!watchlist.length || !selectedSymbol) return;
     const match = watchlist.find(
-      (item) =>
-        item.symbol === selectedSymbol || item.sym_ticker === selectedSymbol,
+      (item) => (item.sym_ticker || item.symbol) === selectedSymbol,
     );
     if (match && selectedInstrumentId !== match.id) {
       setSelectedInstrumentId(match.id);
