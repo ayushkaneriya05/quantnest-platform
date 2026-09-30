@@ -1,5 +1,19 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useWebSocket } from "./useWebSocket";
+
+const getPositionSymbol = (position) =>
+  position?.instrument?.sym_ticker ||
+  position?.instrument_sym_ticker ||
+  position?.instrument?.symbol ||
+  position?.instrument_symbol ||
+  position?.symbol ||
+  "";
+
+const safeNumber = (value, fallback = 0) => {
+  if (value === undefined || value === null || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
 
 /**
  * Hook to manage live PnL calculations for a list of positions.
@@ -10,60 +24,29 @@ import { useWebSocket } from "./useWebSocket";
  */
 export function useLivePositionsPnL(positions = []) {
   const { subscribe, tickData } = useWebSocket();
-  const subscribedSymbolsRef = useRef(new Set());
-  const cleanupFnsRef = useRef(new Map());
+  const [liveTickPrices, setLiveTickPrices] = useState({});
+  const symbols = useMemo(
+    () => [...new Set((Array.isArray(positions) ? positions : [])
+      .filter((position) => position?.status !== "CLOSED")
+      .map(getPositionSymbol)
+      .filter(Boolean))].sort(),
+    [positions],
+  );
+  const symbolsKey = symbols.join("\u001f");
 
-  // Subscribe to all unique symbols
+  // Position polling may replace the array every few seconds. Subscribe only
+  // when the instrument set changes, not on every refresh.
   useEffect(() => {
-    if (!positions || positions.length === 0) return;
-
-    const symbolsToSubscribe = new Set();
-
-    positions.forEach((pos) => {
-      // Handle both Paper and Live position structures; prefer sym_ticker because it is the unique instrument identifier.
-      const symbol =  pos.instrument?.sym_ticker || pos.instrument?.symbol || pos.instrument_symbol || pos.symbol;
-      if (symbol && pos.status !== "CLOSED") {
-        symbolsToSubscribe.add(symbol);
-      }
-    });
-
-    // Unsubscribe from symbols that are no longer needed
-    subscribedSymbolsRef.current.forEach((symbol) => {
-      if (!symbolsToSubscribe.has(symbol)) {
-        const unsubscribe = cleanupFnsRef.current.get(symbol);
-        if (unsubscribe) {
-          unsubscribe();
-          cleanupFnsRef.current.delete(symbol);
-        }
-      }
-    });
-
-    // Subscribe to new symbols
-    symbolsToSubscribe.forEach((symbol) => {
-      if (!subscribedSymbolsRef.current.has(symbol)) {
-        // useWebSocket.subscribe returns an unsubscribe function
-        const unsubscribe = subscribe(symbol);
-        cleanupFnsRef.current.set(symbol, unsubscribe);
-      }
-    });
-
-    subscribedSymbolsRef.current = symbolsToSubscribe;
-
-    // Cleanup all on unmount
-    return () => {
-      cleanupFnsRef.current.forEach((unsubscribe) => unsubscribe && unsubscribe());
-      cleanupFnsRef.current.clear();
-      subscribedSymbolsRef.current.clear();
-    };
-  }, [positions, subscribe]);
-
-  // Safe number parsing
-  const safeNumber = (val, fallback = 0) => {
-    if (val === undefined || val === null || val === "" || isNaN(Number(val))) {
-      return fallback;
-    }
-    return Number(val);
-  };
+    const symbolsToSubscribe = symbolsKey ? symbolsKey.split("\u001f") : [];
+    const unsubscribe = symbolsToSubscribe.map((symbol) => subscribe(symbol, (tick) => {
+      const price = safeNumber(tick?.price ?? tick?.ltp, NaN);
+      if (!Number.isFinite(price) || price <= 0) return;
+      setLiveTickPrices((current) => current[symbol] === price
+        ? current
+        : { ...current, [symbol]: price });
+    }));
+    return () => unsubscribe.forEach((cleanup) => cleanup?.());
+  }, [subscribe, symbolsKey]);
 
   // Calculate live data
   const { livePnLByPositionId, totals, livePrices } = useMemo(() => {
@@ -82,46 +65,57 @@ export function useLivePositionsPnL(positions = []) {
     positions.forEach((pos) => {
       if (pos.status === "CLOSED") return;
 
-      const symbol = pos.instrument?.sym_ticker || pos.instrument?.symbol || pos.instrument_symbol || pos.symbol;
+      const symbol = getPositionSymbol(pos);
       const quantity = safeNumber(pos.quantity);
-      // For paper trading, average_price might be used. Live trading might use avg_price.
       const avgPrice = safeNumber(pos.average_price, safeNumber(pos.avg_price));
 
-      // Get live tick price if available, otherwise fallback to static server price
-      const tickPrice = tickData[symbol]?.price;
-      const livePrice = tickPrice !== undefined ? tickPrice : safeNumber(pos.current_price, avgPrice);
+      // Tick payloads carry canonical Fyers symbols and expose the LTP as price.
+      const tick = tickData[symbol];
+      const tickPrice = safeNumber(liveTickPrices[symbol] ?? tick?.price ?? tick?.ltp, NaN);
+      const hasLivePrice = Number.isFinite(tickPrice) && tickPrice > 0;
+      const livePrice = hasLivePrice ? tickPrice : safeNumber(pos.current_price, avgPrice);
 
       livePrices[symbol] = livePrice;
 
       // Calculate PnL based on side (LONG vs SHORT)
-      let pnl = 0;
+      let calculatedPnl = 0;
       const side = (pos.side || "").toUpperCase();
 
       if (side === "LONG" || side === "BUY" || !side) {
-        pnl = (livePrice - avgPrice) * quantity;
+        calculatedPnl = (livePrice - avgPrice) * quantity;
       } else if (side === "SHORT" || side === "SELL") {
-        pnl = (avgPrice - livePrice) * quantity;
+        calculatedPnl = (avgPrice - livePrice) * quantity;
       }
+      const pnl = hasLivePrice
+        ? calculatedPnl
+        : safeNumber(pos.unrealized_pnl, calculatedPnl);
+      const calculatedPnlPercent = avgPrice > 0 && quantity > 0
+        ? (calculatedPnl / (avgPrice * quantity)) * 100
+        : 0;
+      const persistedPnlPercent = safeNumber(
+        pos.unrealized_pnl_pct,
+        safeNumber(pos.return_percent, calculatedPnlPercent),
+      );
 
       livePnLByPositionId[pos.id] = {
         pnl,
-        pnlPercent: avgPrice > 0 ? (pnl / (avgPrice * quantity)) * 100 : 0,
+        pnlPercent: hasLivePrice ? calculatedPnlPercent : persistedPnlPercent,
         livePrice,
-        isLive: tickPrice !== undefined,
+        isLive: hasLivePrice,
       };
 
       const invested = avgPrice * quantity;
 
       resultTotals.totalInvested += invested;
       resultTotals.totalUnrealizedPnL += pnl;
-      resultTotals.totalCurrentValue += invested + pnl;
+      resultTotals.totalCurrentValue += livePrice * quantity;
     });
 
     return { livePnLByPositionId, totals: resultTotals, livePrices };
-  }, [positions, tickData]);
+  }, [liveTickPrices, positions, tickData]);
 
   const getLivePrice = (symbol) => {
-    return tickData[symbol]?.price;
+    return liveTickPrices[symbol] ?? tickData[symbol]?.price ?? tickData[symbol]?.ltp;
   };
 
   return {

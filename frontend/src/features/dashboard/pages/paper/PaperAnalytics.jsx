@@ -6,40 +6,42 @@ import {
   CardTitle,
 } from "@/shared/components/ui/card";
 import {
-  TrendingDown,
   BarChart3,
   Calendar,
   Activity,
 } from "lucide-react";
 import { portfolioApi } from "@/shared/services/portfolioApi";
+import { paperApi } from "@/shared/services/paperApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency } from "@/shared/utils/formatters";
+import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 
 export default function PaperAnalytics() {
   const { notify } = useNotifications();
   const [portfolio, setPortfolio] = useState(null);
-  const [performance, setPerformance] = useState([]);
+  const [trades, setTrades] = useState([]);
+  const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { livePnLByPositionId } = useLivePositionsPnL(positions);
 
   usePageTitle({
     title: "Paper Performance Analytics",
-    subtitle: "Deep dive into your virtual trading results and drawdown metrics",
+    subtitle: "Portfolio-wide performance across all paper accounts",
   });
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [portRes, perfRes] = await Promise.all([
+      const [portRes, tradesRes, positionsRes] = await Promise.all([
         portfolioApi.getMyPortfolio(),
-        portfolioApi.getPortfolioPerformance(),
+        paperApi.getTrades(),
+        paperApi.getPositions(),
       ]);
       setPortfolio(portRes.data);
-      setPerformance(
-        Array.isArray(perfRes.data)
-          ? perfRes.data
-          : perfRes.data?.results || [],
-      );
+      setTrades(Array.isArray(tradesRes.data) ? tradesRes.data : tradesRes.data?.results || []);
+      setPositions(Array.isArray(positionsRes.data) ? positionsRes.data : positionsRes.data?.results || []);
     } catch (err) {
       notify.error("Failed to load analytics data");
     } finally {
@@ -51,65 +53,51 @@ export default function PaperAnalytics() {
     fetchData();
   }, []);
 
-  const formatCurrency = (val) => {
-    if (val == null) return "₹0";
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(val);
-  };
-
   const perfStats = useMemo(() => {
-    if (!performance.length)
-      return {
-        weekPnl: 0,
-        monthPnl: 0,
-        bestDay: null,
-        worstDay: null,
-        avgWinRate: 0,
-        totalFees: 0,
-        totalTradesToday: 0,
-        avgPnlPct: 0,
-      };
-
-    const sorted = [...performance].sort(
-      (a, b) => new Date(b.date) - new Date(a.date),
-    );
-    const last7 = sorted.slice(0, 7);
-    const last30 = sorted.slice(0, 30);
-
-    const weekPnl = last7.reduce((s, d) => s + parseFloat(d.total_pnl || 0), 0);
-    const monthPnl = last30.reduce((s, d) => s + parseFloat(d.total_pnl || 0), 0);
-
-    let bestDay = sorted[0], worstDay = sorted[0];
-    sorted.forEach((d) => {
-      if (parseFloat(d.total_pnl) > parseFloat(bestDay.total_pnl)) bestDay = d;
-      if (parseFloat(d.total_pnl) < parseFloat(worstDay.total_pnl)) worstDay = d;
+    const today = new Date();
+    const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const todayStart = startOfDay(today);
+    const weekStart = new Date(todayStart);
+    weekStart.setDate(weekStart.getDate() - 6);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const rolling30Start = new Date(todayStart);
+    rolling30Start.setDate(rolling30Start.getDate() - 29);
+    const closedTrades = trades.filter((trade) => trade.exit_time && Number.isFinite(new Date(trade.exit_time).getTime()));
+    const exitedBetween = (trade, start) => {
+      const exit = new Date(trade.exit_time);
+      return exit >= start && exit <= today;
+    };
+    const sumNetPnl = (items) => items.reduce((sum, trade) => sum + Number(trade.net_pnl || 0), 0);
+    const last30Trades = closedTrades.filter((trade) => exitedBetween(trade, rolling30Start));
+    const dailyPnl = new Map();
+    last30Trades.forEach((trade) => {
+      const exit = new Date(trade.exit_time);
+      const key = `${exit.getFullYear()}-${String(exit.getMonth() + 1).padStart(2, "0")}-${String(exit.getDate()).padStart(2, "0")}`;
+      dailyPnl.set(key, (dailyPnl.get(key) || 0) + Number(trade.net_pnl || 0));
     });
+    const dailyEntries = [...dailyPnl.entries()].map(([date, pnl]) => ({ date, pnl }));
+    const bestDay = dailyEntries.length ? dailyEntries.reduce((best, day) => day.pnl > best.pnl ? day : best) : null;
+    const worstDay = dailyEntries.length ? dailyEntries.reduce((worst, day) => day.pnl < worst.pnl ? day : worst) : null;
+    const wins = last30Trades.filter((trade) => Number(trade.net_pnl || 0) > 0).length;
+    const pnlBars = dailyEntries.sort((a, b) => a.date.localeCompare(b.date)).slice(-14);
+    const maxAbs = Math.max(...pnlBars.map((day) => Math.abs(day.pnl)), 1);
 
-    const totalTrades = last30.reduce((s, d) => s + (d.winning_trades || 0) + (d.losing_trades || 0), 0);
-    const totalWins = last30.reduce((s, d) => s + (d.winning_trades || 0), 0);
-    const avgWinRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
+    return {
+      weekPnl: sumNetPnl(closedTrades.filter((trade) => exitedBetween(trade, weekStart))),
+      monthPnl: sumNetPnl(closedTrades.filter((trade) => exitedBetween(trade, monthStart))),
+      bestDay,
+      worstDay,
+      winRate: last30Trades.length ? (wins / last30Trades.length) * 100 : 0,
+      closedTradeCount: last30Trades.length,
+      pnlBars: pnlBars.map((day) => ({ ...day, pct: (Math.abs(day.pnl) / maxAbs) * 100 })),
+    };
+  }, [trades]);
 
-    const totalFees = last30.reduce((s, d) => s + parseFloat(d.brokerage_paid || 0) + parseFloat(d.taxes_paid || 0), 0);
-    const totalTradesToday = last30.reduce((s, d) => s + (d.trades_count || 0), 0);
-    const avgPnlPct = last30.length > 0 ? last30.reduce((s, d) => s + parseFloat(d.pnl_percentage || 0), 0) / last30.length : 0;
-
-    return { weekPnl, monthPnl, bestDay, worstDay, avgWinRate, totalFees, totalTradesToday, avgPnlPct };
-  }, [performance]);
-
-  const pnlBars = useMemo(() => {
-    if (!performance.length) return [];
-    const sorted = [...performance].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const last14 = sorted.slice(-14);
-    const maxAbs = Math.max(...last14.map((d) => Math.abs(parseFloat(d.total_pnl || 0))), 1);
-    return last14.map((d) => ({
-      date: d.date,
-      pnl: parseFloat(d.total_pnl || 0),
-      pct: (Math.abs(parseFloat(d.total_pnl || 0)) / maxAbs) * 100,
-    }));
-  }, [performance]);
+  const pnlBars = perfStats.pnlBars;
+  const liveUnrealizedPnl = positions.reduce(
+    (sum, position) => sum + (livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)),
+    0,
+  );
 
   if (loading) {
     return (
@@ -117,11 +105,9 @@ export default function PaperAnalytics() {
     );
   }
 
-  const drawdown = parseFloat(portfolio?.current_drawdown || 0);
-
   return (
     <div className="container-padding py-6 lg:py-8 space-y-8 animate-in fade-in duration-500">
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid md:grid-cols-2 gap-6">
         {/* P&L Breakdown */}
         <Card className="bg-gray-900/50 border-gray-800">
           <CardHeader className="pb-3 border-b border-gray-800/50">
@@ -132,10 +118,10 @@ export default function PaperAnalytics() {
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
             {[
-              { label: "Realized P&L", value: parseFloat(portfolio?.realized_pnl || 0) },
-              { label: "Unrealized P&L", value: parseFloat(portfolio?.unrealized_pnl || 0) },
-              { label: "Week P&L", value: perfStats.weekPnl },
-              { label: "Month P&L", value: perfStats.monthPnl },
+              { label: "All-time realized P&L", value: parseFloat(portfolio?.realized_pnl || 0) },
+              { label: "Unrealized P&L", value: liveUnrealizedPnl },
+              { label: "7-day realized P&L", value: perfStats.weekPnl },
+              { label: "Month-to-date realized P&L", value: perfStats.monthPnl },
             ].map((item, i) => (
               <div key={i} className="flex justify-between items-center">
                 <span className="text-sm text-gray-400">{item.label}</span>
@@ -144,36 +130,6 @@ export default function PaperAnalytics() {
                 </span>
               </div>
             ))}
-          </CardContent>
-        </Card>
-
-        {/* Drawdown Gauge */}
-        <Card className="bg-gray-900/50 border-gray-800">
-          <CardHeader className="pb-3 border-b border-gray-800/50">
-            <CardTitle className="text-white text-sm flex items-center gap-2">
-              <TrendingDown className="h-4 w-4 text-rose-400" />
-              Drawdown Analysis
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center justify-center py-6">
-            <div className="relative w-32 h-32">
-              <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
-                <circle cx="60" cy="60" r="50" stroke="#1f2937" strokeWidth="8" fill="none" />
-                <circle
-                  cx="60" cy="60" r="50"
-                  stroke={drawdown > 10 ? "#ef4444" : drawdown > 5 ? "#f59e0b" : "#10b981"}
-                  strokeWidth="8" fill="none"
-                  strokeDasharray={`${Math.min(drawdown, 100) * 3.14} 314.16`}
-                  strokeLinecap="round"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className={`text-2xl font-bold ${drawdown > 10 ? "text-red-400" : drawdown > 5 ? "text-amber-400" : "text-emerald-400"}`}>
-                  {drawdown.toFixed(1)}%
-                </span>
-              </div>
-            </div>
-            <p className="text-xs text-gray-500 mt-4">Current Peak to Trough Drawdown</p>
           </CardContent>
         </Card>
 
@@ -187,10 +143,10 @@ export default function PaperAnalytics() {
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
             {[
-              { label: "Win Rate", value: `${perfStats.avgWinRate.toFixed(1)}%`, color: perfStats.avgWinRate >= 50 ? "text-emerald-400" : "text-amber-400" },
-              { label: "Avg Daily P&L %", value: `${perfStats.avgPnlPct >= 0 ? "+" : ""}${perfStats.avgPnlPct.toFixed(2)}%`, color: perfStats.avgPnlPct >= 0 ? "text-emerald-400" : "text-rose-400" },
-              { label: "Best Day", value: perfStats.bestDay ? formatCurrency(perfStats.bestDay.total_pnl) : "—", color: "text-emerald-400" },
-              { label: "Worst Day", value: perfStats.worstDay ? formatCurrency(perfStats.worstDay.total_pnl) : "—", color: "text-rose-400" },
+              { label: "Win Rate", value: `${perfStats.winRate.toFixed(1)}%`, color: perfStats.winRate >= 50 ? "text-emerald-400" : "text-amber-400" },
+              { label: "Closed trades", value: perfStats.closedTradeCount, color: "text-white" },
+              { label: "Best realized day", value: perfStats.bestDay ? formatCurrency(perfStats.bestDay.pnl) : "—", color: "text-emerald-400" },
+              { label: "Worst realized day", value: perfStats.worstDay ? formatCurrency(perfStats.worstDay.pnl) : "—", color: "text-rose-400" },
             ].map((item, i) => (
               <div key={i} className="flex justify-between items-center">
                 <span className="text-sm text-gray-400">{item.label}</span>
@@ -206,16 +162,17 @@ export default function PaperAnalytics() {
         <CardHeader>
           <CardTitle className="text-white text-base flex items-center gap-2">
             <Activity className="h-4 w-4 text-indigo-400" />
-            Equity Curve History (Last 14 Days)
+            Recent Daily Realized P&amp;L
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-end gap-1.5 h-48 pt-4">
-            {pnlBars.map((bar, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-2 group relative">
+          {pnlBars.length ? <>
+            <div className="flex h-48 items-end gap-1.5 border-b border-gray-800 pt-4">
+              {pnlBars.map((bar, i) => (
+              <div key={i} className="group relative flex h-full min-w-0 flex-1 items-end">
                 <div
                   className={`w-full rounded-t-sm transition-all duration-300 ${bar.pnl >= 0 ? "bg-emerald-500/60 group-hover:bg-emerald-500" : "bg-rose-500/60 group-hover:bg-rose-500"}`}
-                  style={{ height: `${Math.max(bar.pct, 5)}%` }}
+                  style={{ height: `${Math.max(bar.pct, 4)}%` }}
                 />
                 <div className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-800 text-[10px] text-white px-2 py-1 rounded shadow-2xl z-20 whitespace-nowrap border border-gray-700">
                   <p className="font-bold">{bar.date}</p>
@@ -224,12 +181,13 @@ export default function PaperAnalytics() {
                   </p>
                 </div>
               </div>
-            ))}
-          </div>
-          <div className="flex justify-between mt-4 border-t border-gray-800 pt-2">
-            <span className="text-[10px] text-gray-500 uppercase tracking-tighter">{pnlBars[0]?.date}</span>
-            <span className="text-[10px] text-gray-500 uppercase tracking-tighter">{pnlBars[pnlBars.length - 1]?.date}</span>
-          </div>
+              ))}
+            </div>
+            <div className="flex justify-between pt-2">
+              <span className="text-[10px] text-gray-500 uppercase tracking-tighter">{pnlBars[0]?.date}</span>
+              <span className="text-[10px] text-gray-500 uppercase tracking-tighter">{pnlBars[pnlBars.length - 1]?.date}</span>
+            </div>
+          </> : <div className="py-12 text-center text-sm text-gray-500">Daily realized P&amp;L will appear after closed trades are recorded.</div>}
         </CardContent>
       </Card>
     </div>

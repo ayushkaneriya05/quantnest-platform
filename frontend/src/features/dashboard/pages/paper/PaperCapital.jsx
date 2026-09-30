@@ -13,7 +13,7 @@ export default function PaperCapital() {
 
   usePageTitle({
     title: "Paper Capital",
-    subtitle: "Manage allocations and track virtual fund settlements",
+    subtitle: "Manage paper allocations and virtual cash movements",
   });
 
   useEffect(() => {

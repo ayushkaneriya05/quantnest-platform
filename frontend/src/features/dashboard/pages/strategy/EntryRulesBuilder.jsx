@@ -1,11 +1,10 @@
 /**
  * Entry Rules Builder - visual rule builder for entry conditions
  */
-import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
-import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import {
   Select,
@@ -14,20 +13,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { Switch } from "@/shared/components/ui/switch";
 import { Plus, Trash2, GripVertical, Target } from "lucide-react";
 import StrategyConfigNav from "./StrategyConfigNav";
 import StrategyFooter from "./StrategyFooter";
 import { ruleGroupApi, ruleApi } from "@/shared/services/rulesApi";
-import { strategyApi, entryConfigApi } from "@/shared/services/strategyApi";
+import { entryConfigApi, strategyApi } from "@/shared/services/strategyApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { usePageActions } from "@/shared/context/PageActionsContext";
 import { useEnums } from "@/shared/context/EnumsContext";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
-import OperandSelector, {
-  getDefaultParams,
-} from "./components/OperandSelector";
+import { getDefaultParams } from "./components/operandUtils";
+import RuleConditionEditor from "./components/RuleConditionEditor";
 
 export default function EntryRulesBuilder() {
   const { id } = useParams();
@@ -55,12 +52,6 @@ export default function EntryRulesBuilder() {
     pendingEdits.entryConfig !== null;
 
   useEffect(() => {
-    if (id) {
-      fetchData();
-    }
-  }, [id]);
-
-  useEffect(() => {
     setPageHeader(<StrategyConfigNav strategy={strategy} />);
     return () => setPageHeader(null);
   }, [strategy, setPageHeader]);
@@ -70,7 +61,7 @@ export default function EntryRulesBuilder() {
     return () => setPageActions(null);
   }, [setPageActions]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [strategyData, groups] = await Promise.all([
@@ -89,14 +80,6 @@ export default function EntryRulesBuilder() {
         if (strategyData.entry_order_config.entry_side) {
           setEntrySide(strategyData.entry_order_config.entry_side);
         }
-      } else {
-        try {
-          const newConfig = await entryConfigApi.create({ strategy: id });
-          strategyData.entry_order_config = newConfig;
-          setStrategy({ ...strategyData });
-        } catch (err) {
-          console.error("Failed to create missing entry config", err);
-        }
       }
     } catch (error) {
       notify.error("Failed to load entry rules");
@@ -104,9 +87,13 @@ export default function EntryRulesBuilder() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, notify]);
 
-  const handleUpdateInterGroupOperator = async () => {
+  useEffect(() => {
+    if (id) fetchData();
+  }, [id, fetchData]);
+
+  const handleUpdateInterGroupOperator = () => {
     const newOp = interGroupOperator === "OR" ? "AND" : "OR";
     setInterGroupOperator(newOp);
     setPendingEdits((prev) => ({
@@ -132,7 +119,7 @@ export default function EntryRulesBuilder() {
         logical_operator: "AND",
         priority: ruleGroups.length + 1,
       });
-      setRuleGroups([...ruleGroups, { ...newGroup, rules: [] }]);
+      setRuleGroups((groups) => [...groups, { ...newGroup, rules: [] }]);
       notify.success("Rule group added");
     } catch (error) {
       notify.error("Failed to add rule group");
@@ -144,7 +131,7 @@ export default function EntryRulesBuilder() {
       return;
     try {
       await ruleGroupApi.delete(groupId);
-      setRuleGroups(ruleGroups.filter((g) => g.id !== groupId));
+      setRuleGroups((groups) => groups.filter((group) => group.id !== groupId));
       notify.success("Rule group deleted");
     } catch (error) {
       notify.error("Failed to delete rule group");
@@ -154,10 +141,10 @@ export default function EntryRulesBuilder() {
   const handleAddRule = async (groupId) => {
     try {
       const defaultTypeA = "RSI";
-      const defaultParamsA = getDefaultParams(defaultTypeA);
+      const defaultParamsA = getDefaultParams(defaultTypeA, enums.OperandParameterConfig);
 
       const defaultTypeB = "CONSTANT";
-      const defaultParamsB = getDefaultParams(defaultTypeB); // Use proper default from PARAM_CONFIG
+      const defaultParamsB = getDefaultParams(defaultTypeB, enums.OperandParameterConfig);
 
       const newRule = await ruleApi.create({
         rule_group: groupId,
@@ -168,9 +155,11 @@ export default function EntryRulesBuilder() {
         operand_b_params: defaultParamsB,
         is_active: true,
       });
-      setRuleGroups(
-        ruleGroups.map((g) =>
-          g.id === groupId ? { ...g, rules: [...(g.rules || []), newRule] } : g,
+      setRuleGroups((groups) =>
+        groups.map((group) =>
+          group.id === groupId
+            ? { ...group, rules: [...(group.rules || []), newRule] }
+            : group,
         ),
       );
       notify.success("Rule added");
@@ -182,11 +171,11 @@ export default function EntryRulesBuilder() {
   const handleDeleteRule = async (groupId, ruleId) => {
     try {
       await ruleApi.delete(ruleId);
-      setRuleGroups(
-        ruleGroups.map((g) =>
-          g.id === groupId
-            ? { ...g, rules: g.rules.filter((r) => r.id !== ruleId) }
-            : g,
+      setRuleGroups((groups) =>
+        groups.map((group) =>
+          group.id === groupId
+            ? { ...group, rules: (group.rules || []).filter((rule) => rule.id !== ruleId) }
+            : group,
         ),
       );
       notify.success("Rule deleted");
@@ -195,17 +184,31 @@ export default function EntryRulesBuilder() {
     }
   };
 
-  const handleUpdateRuleFields = (groupId, ruleId, updates) => {
-    setRuleGroups(
-      ruleGroups.map((g) =>
-        g.id === groupId
+  const handleUpdateRule = (groupId, ruleId, field, value) => {
+    const updates = { [field]: value };
+    if (field === "operand_a_type") {
+      updates.operand_a_params = getDefaultParams(
+        value,
+        enums.OperandParameterConfig,
+      );
+    }
+    if (field === "operand_b_type") {
+      updates.operand_b_params = getDefaultParams(
+        value,
+        enums.OperandParameterConfig,
+      );
+    }
+
+    setRuleGroups((groups) =>
+      groups.map((group) =>
+        group.id === groupId
           ? {
-              ...g,
-              rules: g.rules.map((r) =>
-                r.id === ruleId ? { ...r, ...updates } : r,
+              ...group,
+              rules: (group.rules || []).map((rule) =>
+                rule.id === ruleId ? { ...rule, ...updates } : rule,
               ),
             }
-          : g,
+          : group,
       ),
     );
 
@@ -218,23 +221,11 @@ export default function EntryRulesBuilder() {
     }));
   };
 
-  const handleUpdateRule = (groupId, ruleId, field, value) => {
-    let updates = { [field]: value };
-
-    // When changing operand type, reset its params
-    if (field === "operand_a_type") {
-      updates.operand_a_params = getDefaultParams(value);
-    }
-    if (field === "operand_b_type") {
-      updates.operand_b_params = getDefaultParams(value);
-    }
-
-    handleUpdateRuleFields(groupId, ruleId, updates);
-  };
-
-  const handleUpdateGroup = async (groupId, field, value) => {
-    setRuleGroups(
-      ruleGroups.map((g) => (g.id === groupId ? { ...g, [field]: value } : g)),
+  const handleUpdateGroup = (groupId, field, value) => {
+    setRuleGroups((groups) =>
+      groups.map((group) =>
+        group.id === groupId ? { ...group, [field]: value } : group,
+      ),
     );
 
     setPendingEdits((prev) => ({
@@ -251,18 +242,16 @@ export default function EntryRulesBuilder() {
 
     try {
       setSaving(true);
-      const promises = [];
-
-      Object.entries(pendingEdits.rules).forEach(([id, updates]) => {
-        promises.push(ruleApi.update(id, updates));
-      });
-
-      Object.entries(pendingEdits.groups).forEach(([id, updates]) => {
-        promises.push(ruleGroupApi.update(id, updates));
-      });
-
+      const updates = [
+        ...Object.entries(pendingEdits.rules).map(([ruleId, fields]) =>
+          ruleApi.update(ruleId, fields),
+        ),
+        ...Object.entries(pendingEdits.groups).map(([groupId, fields]) =>
+          ruleGroupApi.update(groupId, fields),
+        ),
+      ];
       if (pendingEdits.entryConfig && strategy?.entry_order_config?.id) {
-        promises.push(
+        updates.push(
           entryConfigApi.update(
             strategy.entry_order_config.id,
             pendingEdits.entryConfig,
@@ -270,7 +259,7 @@ export default function EntryRulesBuilder() {
         );
       }
 
-      await Promise.all(promises);
+      await Promise.all(updates);
       setPendingEdits({ rules: {}, groups: {}, entryConfig: null });
       notify.success("All changes saved");
     } catch (error) {
@@ -284,10 +273,11 @@ export default function EntryRulesBuilder() {
   const handleCancelAll = async () => {
     if (
       hasPendingChanges &&
-      (await customConfirm("Discard all unsaved changes?"))
+      !(await customConfirm("Discard all unsaved changes?"))
     ) {
-      fetchData();
+      return;
     }
+    navigate("/dashboard/strategy/list");
   };
 
   if (loading) {
@@ -360,18 +350,14 @@ export default function EntryRulesBuilder() {
                       </span>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="BUY">
+                      {(enums.Side || []).filter(({ value }) => ["BUY", "SELL"].includes(value)).map((side) => (
+                        <SelectItem key={side.value} value={side.value}>
                         <span className="flex items-center gap-2">
-                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-                          Long (Buy)
+                          <span className={`inline-block h-2 w-2 rounded-full ${side.value === "BUY" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                          {side.value === "BUY" ? "Long" : "Short"} ({side.label})
                         </span>
-                      </SelectItem>
-                      <SelectItem value="SELL">
-                        <span className="flex items-center gap-2">
-                          <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
-                          Short (Sell)
-                        </span>
-                      </SelectItem>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <Button
@@ -476,156 +462,32 @@ export default function EntryRulesBuilder() {
                         <div className="space-y-4">
                           <div className="space-y-2">
                             {(group.rules || []).map((rule, ruleIndex) => (
-                              <div key={rule.id} className="space-y-2">
-                                {ruleIndex > 0 && (
-                                  <div className="flex items-center justify-center -my-1 relative z-10">
-                                    <div className="absolute bg-[#0a0e17] px-2 py-0.5 rounded-full text-[10px] font-bold tracking-widest text-gray-500 border border-gray-800 shadow-sm">
-                                      {group.logical_operator || "AND"}
-                                    </div>
-                                  </div>
-                                )}
-
-                                <div
-                                  className={`group relative rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] hover:bg-white/[0.04] transition-all duration-300 shadow-sm overflow-hidden ${(rule.is_active ?? true) ? "" : "opacity-60"}`}
-                                >
-                                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-emerald-500/30 group-hover:bg-emerald-500/60 transition-colors" />
-
-                                  {/* Rule Sentence Builder */}
-                                  <div className="flex flex-wrap items-center gap-2 p-3 pl-4">
-                                    <Badge
-                                      variant="secondary"
-                                      className="bg-emerald-500/10 text-emerald-400 border-none text-[10px] px-2 py-0.5 font-bold tracking-wider mr-1"
-                                    >
-                                      IF
-                                    </Badge>
-
-                                    {/* Operand A */}
-                                    <OperandSelector
-                                      value={rule.operand_a_type}
-                                      params={rule.operand_a_params}
-                                      timeframe={rule.operand_a_timeframe}
-                                      onChangeType={(v) =>
-                                        handleUpdateRule(
-                                          group.id,
-                                          rule.id,
-                                          "operand_a_type",
-                                          v,
-                                        )
-                                      }
-                                      onChangeParams={(v) =>
-                                        handleUpdateRule(
-                                          group.id,
-                                          rule.id,
-                                          "operand_a_params",
-                                          v,
-                                        )
-                                      }
-                                      onChangeTimeframe={(v) =>
-                                        handleUpdateRule(
-                                          group.id,
-                                          rule.id,
-                                          "operand_a_timeframe",
-                                          v,
-                                        )
-                                      }
-                                      placeholder="Select Data"
-                                      ruleType="ENTRY"
-                                    />
-
-                                    {/* Comparison */}
-                                    <div className="flex items-center bg-black/20 rounded-lg p-0.5 border border-white/[0.05]">
-                                      <Select
-                                        value={rule.comparison || "GT"}
-                                        onValueChange={(v) =>
-                                          handleUpdateRule(
-                                            group.id,
-                                            rule.id,
-                                            "comparison",
-                                            v,
-                                          )
-                                        }
-                                      >
-                                        <SelectTrigger className="w-auto bg-transparent border-none hover:bg-white/5 text-xs h-7 px-2.5 shadow-none focus:ring-0 text-emerald-300 font-semibold">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {(enums.ComparisonOperator || []).map(
-                                            (comp) => (
-                                              <SelectItem
-                                                key={comp.value}
-                                                value={comp.value}
-                                              >
-                                                {comp.label}
-                                              </SelectItem>
-                                            ),
-                                          )}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-
-                                    {/* Operand B */}
-                                    <OperandSelector
-                                      value={rule.operand_b_type}
-                                      params={rule.operand_b_params}
-                                      timeframe={rule.operand_b_timeframe}
-                                      onChangeType={(v) =>
-                                        handleUpdateRule(
-                                          group.id,
-                                          rule.id,
-                                          "operand_b_type",
-                                          v,
-                                        )
-                                      }
-                                      onChangeParams={(v) =>
-                                        handleUpdateRule(
-                                          group.id,
-                                          rule.id,
-                                          "operand_b_params",
-                                          v,
-                                        )
-                                      }
-                                      onChangeTimeframe={(v) =>
-                                        handleUpdateRule(
-                                          group.id,
-                                          rule.id,
-                                          "operand_b_timeframe",
-                                          v,
-                                        )
-                                      }
-                                      placeholder="Compare To"
-                                      ruleType="ENTRY"
-                                    />
-                                  </div>
-
-                                  <div className="flex items-center justify-end gap-4 px-4 pb-2 pt-1 opacity-100">
-                                    <div className="flex items-center gap-1.5">
-                                      <Switch
-                                        checked={rule.is_active ?? true}
-                                        onCheckedChange={(v) =>
-                                          handleUpdateRule(
-                                            group.id,
-                                            rule.id,
-                                            "is_active",
-                                            v,
-                                          )
-                                        }
-                                        className="scale-75 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-gray-600"
-                                      />
-                                    </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        handleDeleteRule(group.id, rule.id)
-                                      }
-                                      className="text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 h-6 w-6 p-0 rounded-md"
-                                      title="Delete Rule"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              </div>
+                              <RuleConditionEditor
+                                key={rule.id}
+                                rule={rule}
+                                logicalOperator={group.logical_operator}
+                                ruleType="ENTRY"
+                                showOperator={ruleIndex > 0}
+                                theme={{
+                                  accentBar:
+                                    "bg-emerald-500/30 group-hover:bg-emerald-500/60",
+                                  badge: "bg-emerald-500/10 text-emerald-400",
+                                  comparison: "text-emerald-300",
+                                  switch: "data-[state=checked]:bg-emerald-500",
+                                }}
+                                deleteTitle="Delete Rule"
+                                onChange={(field, value) =>
+                                  handleUpdateRule(
+                                    group.id,
+                                    rule.id,
+                                    field,
+                                    value,
+                                  )
+                                }
+                                onDelete={() =>
+                                  handleDeleteRule(group.id, rule.id)
+                                }
+                              />
                             ))}
                           </div>
                         </div>

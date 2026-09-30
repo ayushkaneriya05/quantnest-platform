@@ -14,6 +14,7 @@ import {
   Pause,
   Play,
   Square,
+  TrendingDown,
 } from "lucide-react";
 
 import { Badge } from "@/shared/components/ui/badge";
@@ -35,18 +36,23 @@ import {
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
+import { Switch } from "@/shared/components/ui/switch";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import { paperApi } from "@/shared/services/paperApi";
 import { portfolioApi } from "@/shared/services/portfolioApi";
-import { strategyApi } from "@/shared/services/strategyApi";
+import { brokersApi } from "@/shared/services/brokersApi";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency } from "@/shared/utils/formatters";
+import { usePaperTradingUpdate, usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
 
-export default function PaperTradingDashboard({ selectedAccountId, setActiveTab }) {
+export default function PaperTradingDashboard({ selectedAccountId, setActiveTab, paperUpdatesManaged = false }) {
   const { notify } = useNotifications();
-  const { connectionStatus, getTickData, lastMessage } = useWebSocket();
+  const { connectionStatus } = useWebSocket();
+  usePaperTradingWebSocket({ enabled: !paperUpdatesManaged });
+  const lastMessage = usePaperTradingUpdate();
   const refreshTimerRef = React.useRef(null);
   const [accounts, setAccounts] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -59,8 +65,15 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
     name: "Paper Account",
   });
   const [allocations, setAllocations] = useState([]);
-  const [strategies, setStrategies] = useState([]);
   const [deleteDialog, setDeleteDialog] = useState(null);
+  const [chargeProfiles, setChargeProfiles] = useState([]);
+  const [costSettingsOpen, setCostSettingsOpen] = useState(false);
+  const [costSettingsAccount, setCostSettingsAccount] = useState(null);
+  const [costSettingsForm, setCostSettingsForm] = useState({
+    slippage_pct: "0",
+    charge_profile: "",
+    include_charges: true,
+  });
 
   const fetchData = async () => {
     try {
@@ -69,26 +82,17 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
         positionsRes,
         tradesRes,
         allocRes,
-        stratRes,
       ] = await Promise.all([
         paperApi.getAccounts(),
         paperApi.getPositions(),
         paperApi.getTrades(),
         portfolioApi.getAllocations(),
-        strategyApi.getAll(),
       ]);
       setAccounts(accountsRes.data || []);
       setPositions(positionsRes.data || []);
       setTrades(tradesRes.data || []);
       setAllocations(allocRes.data || []);
 
-      let strategiesData = [];
-      if (Array.isArray(stratRes.data)) {
-        strategiesData = stratRes.data;
-      } else if (stratRes.data?.results) {
-        strategiesData = stratRes.data.results;
-      }
-      setStrategies(strategiesData);
     } catch (error) {
       if (loading) notify.error("Failed to load paper account data");
     } finally {
@@ -107,9 +111,17 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
   }, []);
 
   useEffect(() => {
+    brokersApi.getChargeProfiles()
+      .then((response) => {
+        const profiles = Array.isArray(response.data) ? response.data : response.data?.results || [];
+        setChargeProfiles(profiles);
+      })
+      .catch(() => setChargeProfiles([]));
+  }, []);
+
+  useEffect(() => {
     if (!lastMessage) return;
-    const msgType = lastMessage.type;
-    if (msgType === "order_update" || msgType === "order.update" || msgType === "position_update" || msgType === "position.update") {
+    if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(lastMessage.event_type)) {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = setTimeout(fetchData, 150);
     }
@@ -138,6 +150,25 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
 
   const { livePnLByPositionId } = useLivePositionsPnL(positions);
 
+  const accountPerformance = useMemo(() => {
+    if (!selectedAccountData) return null;
+    const liveUnrealizedPnl = filteredPositions.reduce(
+      (sum, position) => sum + (livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)),
+      0,
+    );
+    const openingBalance = Number(selectedAccountData.initial_balance || 0);
+    const currentEquity = Number(selectedAccountData.current_balance || 0) + liveUnrealizedPnl;
+    const drawdownAmount = Math.max(0, openingBalance - currentEquity);
+
+    return {
+      openingBalance,
+      currentEquity,
+      liveUnrealizedPnl,
+      totalPnl: Number(selectedAccountData.realized_pnl || 0) + liveUnrealizedPnl,
+      drawdownPct: openingBalance > 0 ? (drawdownAmount / openingBalance) * 100 : 0,
+    };
+  }, [filteredPositions, livePnLByPositionId, selectedAccountData]);
+
   const accountStats = useMemo(() => {
     const winners = filteredTrades.filter((t) => Number(t.net_pnl || 0) > 0).length;
     return {
@@ -148,7 +179,11 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
 
   const handleReset = async () => {
     if (!selectedAccountData) return;
-    const confirmed = await customConfirm(`Reset ${selectedAccountData.name}?`);
+    const confirmed = await customConfirm(
+      `Reset ${selectedAccountData.name} to its initial balance? Completed trade history is retained. Stop the session and close open positions first.`,
+      "Reset Paper Account",
+      "Reset Account"
+    );
     if (!confirmed) return;
     try {
       setBusy(true);
@@ -156,7 +191,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
       notify.success("Paper account reset");
       await fetchData();
     } catch (error) {
-      notify.error("Failed to reset account");
+      notify.error(error?.response?.data?.error || "Failed to reset account");
     } finally {
       setBusy(false);
     }
@@ -170,7 +205,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
       notify.success("Paper account deleted");
       await fetchData();
     } catch (error) {
-      notify.error(error?.response?.data?.error || "Failed to delete account");
+      notify.error(error?.response?.data?.error || "Failed to delete account and its allocation");
     } finally {
       setBusy(false);
     }
@@ -204,15 +239,20 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
 
   const handleStop = async (accountId, sessionId) => {
     const confirmed = await customConfirm(
-      "Stop Session? This will cancel all orders and close all open positions.",
+      "Stop strategy execution and try to close all open positions? Any position that cannot be closed will remain open.",
       "Stop Session Confirmation",
       "Stop Session"
     );
     if (!confirmed) return;
     try {
       setBusy(true);
-      await paperApi.stopSession(sessionId, { close_positions: true });
-      notify.success("Session stopped");
+      const response = await paperApi.stopSession(sessionId, { close_positions: true });
+      const remainingPositions = Number(response.data?.remaining_positions || 0);
+      if (remainingPositions > 0) {
+        notify.error(`Session stopped, but ${remainingPositions} position(s) remain open. Review the Positions tab.`);
+      } else {
+        notify.success("Session stopped and open positions closed");
+      }
       await fetchData();
     } catch (error) {
       notify.error("Failed to stop session");
@@ -236,33 +276,56 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
     }
   };
 
-  const formatCurrency = (value) =>
-    new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(Number(value || 0));
+  const openCostSettings = (account) => {
+    const current = account.session_execution_costs || {};
+    const defaultProfile = chargeProfiles.find((profile) => profile.is_default) || chargeProfiles[0];
+    setCostSettingsAccount(account);
+    setCostSettingsForm({
+      slippage_pct: current.slippage_pct ?? "0",
+      charge_profile: String(current.charge_profile || defaultProfile?.id || ""),
+      include_charges: current.include_charges ?? true,
+    });
+    setCostSettingsOpen(true);
+  };
+
+  const handleSaveCostSettings = async () => {
+    if (!costSettingsAccount?.session_id) return;
+    try {
+      setBusy(true);
+      await paperApi.configureSessionCosts(costSettingsAccount.session_id, {
+        slippage_pct: Number(costSettingsForm.slippage_pct || 0),
+        charge_profile: costSettingsForm.charge_profile || null,
+        include_charges: costSettingsForm.include_charges,
+      });
+      notify.success("Paper execution costs updated");
+      setCostSettingsOpen(false);
+      setCostSettingsAccount(null);
+      await fetchData();
+    } catch (error) {
+      notify.error(error?.response?.data?.error || "Failed to update paper execution costs");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Summary stats for all accounts
   const globalStats = useMemo(() => {
     let totalBalance = 0;
     let totalPnl = 0;
-    let totalMargin = 0;
     
     accounts.forEach(account => {
       const accountPositions = positions.filter(p => String(p.account) === String(account.id));
-      const dynamicUnrealizedPnl = accountPositions.reduce((sum, p) => sum + (livePnLByPositionId[p.id]?.pnl || Number(p.unrealized_pnl || 0)), 0);
+      const dynamicUnrealizedPnl = accountPositions.reduce((sum, p) => sum + (livePnLByPositionId[p.id]?.pnl ?? Number(p.unrealized_pnl || 0)), 0);
       
       const serverUnrealizedPnl = Number(account.unrealized_pnl || 0);
       const realizedPnl = Number(account.realized_pnl !== undefined ? account.realized_pnl : (Number(account.total_pnl || 0) - serverUnrealizedPnl));
       const accountLiveTotalPnl = realizedPnl + dynamicUnrealizedPnl;
       
-      totalBalance += Number(account.current_balance || 0);
+      totalBalance += Number(account.current_balance || 0) + dynamicUnrealizedPnl;
       totalPnl += accountLiveTotalPnl;
-      totalMargin += Number(account.margin_available || 0);
     });
     
-    return { totalBalance, totalPnl, totalMargin, totalAccounts: accounts.length };
+    return { totalBalance, totalPnl };
   }, [accounts, positions, livePnLByPositionId]);
 
   if (loading) return (
@@ -319,7 +382,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
                 <Radio className="h-6 w-6 text-amber-400" />
               </div>
               <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Engine Status</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Realtime Updates</p>
                 <div className="flex items-center gap-2 mt-1">
                   <div className={`h-2 w-2 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-amber-500"}`} />
                   <p className="text-sm font-semibold text-gray-200 capitalize">{connectionStatus}</p>
@@ -332,7 +395,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
         {/* Accounts List */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">Active Virtual Accounts</h3>
+          <h3 className="text-lg font-bold text-white">Paper Accounts</h3>
             <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-1" /> New Account
             </Button>
@@ -345,27 +408,10 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
                   <CardTitle className="text-white text-base">No paper accounts yet</CardTitle>
                   <CardDescription>Allocate capital to a strategy to create your first virtual trading account.</CardDescription>
                 </CardHeader>
-                <CardContent>
-                   <div className="max-w-xs mx-auto space-y-4">
-                    <Select
-                      value={createForm.strategy_id?.toString() || undefined}
-                      onValueChange={(val) => setCreateForm({...createForm, strategy_id: val})}
-                    >
-                      <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white p-2.5 rounded-lg text-sm h-[42px]">
-                        <SelectValue placeholder="Select allocation..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                        {allocations.filter(a => a.strategy).map(a => (
-                          <SelectItem key={a.id} value={a.strategy.toString()} className="focus:bg-gray-800 focus:text-white">
-                            {a.strategy_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleCreateAccount} disabled={busy || !createForm.strategy_id}>
-                      Create First Account
-                    </Button>
-                  </div>
+              <CardContent>
+                <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" /> Create from allocation
+                </Button>
                 </CardContent>
               </Card>
             ) : (
@@ -406,7 +452,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
                         <p className="text-[10px] uppercase text-gray-500 font-medium">Total P&L</p>
                         {(() => {
                           const accountPositions = positions.filter(p => String(p.account) === String(account.id));
-                          const dynamicUnrealizedPnl = accountPositions.reduce((sum, p) => sum + (livePnLByPositionId[p.id]?.pnl || Number(p.unrealized_pnl || 0)), 0);
+                          const dynamicUnrealizedPnl = accountPositions.reduce((sum, p) => sum + (livePnLByPositionId[p.id]?.pnl ?? Number(p.unrealized_pnl || 0)), 0);
                           const serverUnrealizedPnl = Number(account.unrealized_pnl || 0);
                           const realizedPnl = Number(account.realized_pnl !== undefined ? account.realized_pnl : (Number(account.total_pnl || 0) - serverUnrealizedPnl));
                           const liveTotalPnl = realizedPnl + dynamicUnrealizedPnl;
@@ -419,21 +465,34 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
                       </div>
                     </div>
                     <div className="pt-2 flex flex-col gap-2">
+                        {account.session_execution_costs && (
+                          <p className="text-[11px] text-gray-500">
+                            Costs: {Number(account.session_execution_costs.slippage_pct || 0).toFixed(4)}% slippage · {account.session_execution_costs.charge_profile_name || "No charge profile"} · {account.session_execution_costs.include_charges ? "charges on" : "charges off"}
+                          </p>
+                        )}
                         {account.session_status === 'PAUSED' && (
                           <div className="text-[10px] text-amber-500 text-center mb-1 bg-amber-500/10 py-1 rounded">
                             Exit rules still protecting positions
                           </div>
                         )}
                         <div className="flex gap-2">
+                            {account.session_status === 'STOPPED' && account.session_id && (
+                              <Button variant="outline" className="flex-1 border-gray-800 text-gray-300 hover:text-indigo-300 hover:bg-indigo-400/10 text-xs h-8" onClick={() => openCostSettings(account)} disabled={busy}>
+                                Execution Costs
+                              </Button>
+                            )}
                             {account.session_status === 'RUNNING' && (
                                 <Button variant="outline" className="flex-1 border-gray-800 text-gray-300 hover:text-amber-400 hover:bg-amber-400/10 text-xs h-8" onClick={() => handlePause(account.id, account.session_id)} disabled={busy}>
                                     <Pause className="h-3 w-3 mr-1" /> Pause
                                 </Button>
                             )}
-                            {(account.session_status === 'PAUSED' || account.session_status === 'STOPPED' || account.session_status === 'ERROR') && (
+                            {(account.session_status === 'PAUSED' || account.session_status === 'STOPPED' || account.session_status === 'ERROR') && account.strategy_status === 'ACTIVE' && account.paper_trading_enabled && (
                                 <Button variant="outline" className="flex-1 border-gray-800 text-gray-300 hover:text-emerald-400 hover:bg-emerald-400/10 text-xs h-8" onClick={() => handleResume(account.id, account.session_id)} disabled={busy}>
                                     <Play className="h-3 w-3 mr-1" /> {account.session_status === 'STOPPED' ? 'Restart' : 'Resume'}
                                 </Button>
+                            )}
+                            {(account.session_status === 'PAUSED' || account.session_status === 'STOPPED' || account.session_status === 'ERROR') && (account.strategy_status !== 'ACTIVE' || !account.paper_trading_enabled) && (
+                                <span className="w-full py-2 text-center text-xs text-amber-300">Activate the strategy and enable paper trading to resume.</span>
                             )}
                             {(account.session_status === 'RUNNING' || account.session_status === 'PAUSED') && (
                                 <Button variant="outline" className="flex-1 border-gray-800 text-gray-300 hover:text-rose-400 hover:bg-rose-400/10 text-xs h-8" onClick={() => handleStop(account.id, account.session_id)} disabled={busy}>
@@ -471,9 +530,9 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
                     <SelectValue placeholder="Select allocation..." />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                    {allocations.filter(a => a.strategy && !accounts.some(acc => acc.allocation === a.id)).map(a => (
+                    {allocations.filter(a => a.strategy && a.strategy_status === 'ACTIVE' && a.paper_trading_enabled && !accounts.some(acc => acc.allocation === a.id)).map(a => (
                       <SelectItem key={a.id} value={a.id.toString()} className="focus:bg-gray-800 focus:text-white">
-                        {a.strategy_name} (Alloc #{a.id} - ₹{Number(a.available_amount).toLocaleString()})
+                        {a.strategy_name} (Alloc #{a.id} - {formatCurrency(a.available_amount)})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -491,8 +550,74 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateAccount} className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={busy}>
+              <Button onClick={handleCreateAccount} className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={busy || !createForm.allocation_id}>
                 Create Account
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={costSettingsOpen} onOpenChange={setCostSettingsOpen}>
+          <DialogContent className="bg-gray-900 border-gray-800 text-white">
+            <DialogHeader>
+              <DialogTitle>Paper Execution Costs</DialogTitle>
+              <CardDescription className="text-gray-400">
+                Settings apply to fills after this session is restarted. Open positions must be closed first.
+              </CardDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>Slippage (%)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.0001"
+                  value={costSettingsForm.slippage_pct}
+                  onChange={(event) => setCostSettingsForm((current) => ({ ...current, slippage_pct: event.target.value }))}
+                  className="bg-gray-800 border-gray-700"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Charge Profile</Label>
+                <Select
+                  value={costSettingsForm.charge_profile || "none"}
+                  onValueChange={(value) => setCostSettingsForm((current) => ({ ...current, charge_profile: value === "none" ? "" : value }))}
+                  disabled={!costSettingsForm.include_charges || chargeProfiles.length === 0}
+                >
+                  <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+                    <SelectValue placeholder="No profile available" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                    {chargeProfiles.map((profile) => (
+                      <SelectItem key={profile.id} value={String(profile.id)}>
+                        {profile.name}{profile.is_default ? " (Default)" : ""}
+                      </SelectItem>
+                    ))}
+                    {!chargeProfiles.length && <SelectItem value="none">No profile available</SelectItem>}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-gray-800 px-3 py-3">
+                <div>
+                  <Label>Include transaction charges</Label>
+                  <p className="text-xs text-gray-500">Apply brokerage, taxes, and fees to realized P&amp;L.</p>
+                </div>
+                <Switch
+                  checked={costSettingsForm.include_charges}
+                  onCheckedChange={(checked) => setCostSettingsForm((current) => ({ ...current, include_charges: checked }))}
+                />
+              </div>
+              {!chargeProfiles.length && (
+                <p className="text-xs text-amber-400">
+                  No charge profiles are configured, so paper fees and taxes will be zero.
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setCostSettingsOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveCostSettings} disabled={busy} className="bg-indigo-600 hover:bg-indigo-700">
+                Save Costs
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -511,9 +636,24 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
+    <div className="space-y-3 animate-in fade-in duration-300">
       {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-5 gap-4">
+        <Card className="bg-gray-900/50 border-gray-800 hover:border-gray-700 transition-colors">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-sky-500/20 rounded-lg">
+                <Wallet className="h-5 w-5 text-sky-400" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Opening Balance</p>
+                <p className="text-lg font-bold text-white">
+                  {formatCurrency(accountPerformance?.openingBalance)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         <Card className="bg-gray-900/50 border-gray-800 hover:border-gray-700 transition-colors">
           <CardContent className="py-4">
             <div className="flex items-center gap-3">
@@ -539,17 +679,31 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
               <div>
                 <p className="text-xs text-gray-400">Total P&L</p>
                 {(() => {
-                  const accountPositions = filteredPositions;
-                  const dynamicUnrealizedPnl = accountPositions.reduce((sum, p) => sum + (livePnLByPositionId[p.id]?.pnl || Number(p.unrealized_pnl || 0)), 0);
-                  const serverUnrealizedPnl = Number(selectedAccountData.unrealized_pnl || 0);
-                  const realizedPnl = Number(selectedAccountData.realized_pnl !== undefined ? selectedAccountData.realized_pnl : (Number(selectedAccountData.total_pnl || 0) - serverUnrealizedPnl));
-                  const liveTotalPnl = realizedPnl + dynamicUnrealizedPnl;
+                  const liveTotalPnl = accountPerformance?.totalPnl || 0;
                   return (
                     <p className={`text-lg font-bold ${liveTotalPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      {formatCurrency(liveTotalPnl)}
+                      {liveTotalPnl >= 0 ? "+" : ""}{formatCurrency(liveTotalPnl)}
                     </p>
                   );
                 })()}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+       
+
+        <Card className="bg-gray-900/50 border-gray-800 hover:border-gray-700 transition-colors">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${accountPerformance?.drawdownPct > 0 ? "bg-rose-500/20" : "bg-emerald-500/20"}`}>
+                <TrendingDown className={`h-5 w-5 ${accountPerformance?.drawdownPct > 0 ? "text-rose-400" : "text-emerald-400"}`} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Drawdown vs Opening</p>
+                <p className={`text-lg font-bold ${accountPerformance?.drawdownPct > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                  {Number(accountPerformance?.drawdownPct || 0).toFixed(2)}%
+                </p>
               </div>
             </div>
           </CardContent>
@@ -571,22 +725,6 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
           </CardContent>
         </Card>
 
-        <Card className="bg-gray-900/50 border-gray-800 hover:border-gray-700 transition-colors">
-          <CardContent className="py-4">
-            <div className="flex items-center gap-3 text-sm">
-              <div className="p-2 bg-amber-500/20 rounded-lg">
-                <RefreshCw className="h-5 w-5 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Status</p>
-                <div className="flex items-center gap-1.5">
-                  <div className={`h-1.5 w-1.5 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
-                  <span className="font-medium text-white capitalize">{connectionStatus}</span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
@@ -602,7 +740,6 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
               </div>
             ) : (
               filteredPositions.slice(0, 5).map((position) => {
-                const liveTick = getTickData(position.instrument_symbol);
                 return (
                   <div key={position.id} className="rounded-xl bg-gray-800/30 p-4 border border-gray-800/50 hover:border-gray-700 transition-all">
                     <div className="flex items-center justify-between">
@@ -624,8 +761,8 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
                         <div className="text-white font-medium text-sm">
                           {formatCurrency(livePnLByPositionId[position.id]?.livePrice || position.current_price)}
                         </div>
-                        <div className={`text-xs font-bold ${(livePnLByPositionId[position.id]?.pnl || Number(position.unrealized_pnl || 0)) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                          {(livePnLByPositionId[position.id]?.pnl || Number(position.unrealized_pnl || 0)) >= 0 ? "+" : ""}{formatCurrency(livePnLByPositionId[position.id]?.pnl || position.unrealized_pnl)}
+                        <div className={`text-xs font-bold ${(livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {(livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)) >= 0 ? "+" : ""}{formatCurrency(livePnLByPositionId[position.id]?.pnl ?? position.unrealized_pnl)}
                         </div>
                       </div>
                     </div>
@@ -724,7 +861,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab 
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-gray-300">
-              Are you sure you want to delete <strong>{selectedAccountData?.name}</strong>? All virtual history for this account will be permanently lost.
+              Are you sure you want to delete <strong>{selectedAccountData?.name}</strong>? Its allocation will also be removed, all virtual history will be permanently lost, and the remaining account balance will return to the paper wallet.
             </p>
           </div>
           <DialogFooter className="gap-2">

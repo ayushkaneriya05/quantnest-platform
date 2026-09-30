@@ -7,8 +7,7 @@ if not hasattr(np, "NaN"):
     np.NaN = np.nan
 
 import pandas_ta as ta
-from datetime import datetime
-from common.enums import OperandType
+from common.enums import OperandType, get_operand_parameter_config, get_operand_parameter_defaults
 from common.trading_utils import to_float
 from .math_utils import fast_ffill_align_float, fast_sma, fast_ema
 
@@ -33,34 +32,19 @@ class IndicatorEngine:
 
 
     def get_series(self, indicator_type, params):
-        normalized_params = self._normalize_params(params)
+        normalized_params = self._normalize_params(params, indicator_type=indicator_type)
         cache_key = f"{indicator_type}:{json.dumps(normalized_params, sort_keys=True, default=str)}"
         if cache_key in self._indicators_cached:
             return self._indicators_cached[cache_key]
 
         p = normalized_params
-        close = self._get_price_source(p.get("source", "close"), p)
+        close = self._get_price_source(p.get("source", OperandType.CLOSE.value), p)
         high = self.df["high"]
         low = self.df["low"]
         volume = self.df["volume"]
         open_ = self.df["open"]
         series = None
 
-        # Warm-up guard: emit a warning when there are fewer bars than the
-        # primary indicator period.  The indicator will still be computed
-        # (pandas_ta fills the warm-up rows with NaN which the evaluator
-        # treats as False), but the warning helps users diagnose silent
-        # non-signals at session start.
-        required_bars = max(
-            int(p.get("period", 1)),
-            int(p.get("slow_period", 1)),
-        )
-        if len(self.df) < required_bars:
-            logger.warning(
-                "Indicator %s requires %d bars but only %d are available — "
-                "signals will be suppressed until enough history loads.",
-                indicator_type, required_bars, len(self.df),
-            )
 
         try:
             if indicator_type == OperandType.SMA:
@@ -111,7 +95,7 @@ class IndicatorEngine:
                     if output_line == "LOWER":
                         cols = [c for c in bb_df.columns if c.startswith("BBL_")]
                         series = bb_df[cols[0]] if cols else None
-                    elif output_line == "MIDDLE" or output_line == "MID":
+                    elif output_line == "MIDDLE":
                         cols = [c for c in bb_df.columns if c.startswith("BBM_")]
                         series = bb_df[cols[0]] if cols else None
                     else:  # UPPER
@@ -136,10 +120,10 @@ class IndicatorEngine:
                 adx_df = ta.adx(high, low, close, length=p["period"])
                 if adx_df is not None:
                     output_line = str(p.get("output_line", "ADX")).upper()
-                    if output_line == "PLUS_DI" or output_line == "+DI":
+                    if output_line == "PLUS_DI":
                         cols = [c for c in adx_df.columns if c.startswith("DMP_")]
                         series = adx_df[cols[0]] if cols else None
-                    elif output_line == "MINUS_DI" or output_line == "-DI":
+                    elif output_line == "MINUS_DI":
                         cols = [c for c in adx_df.columns if c.startswith("DMN_")]
                         series = adx_df[cols[0]] if cols else None
                     else:
@@ -181,7 +165,7 @@ class IndicatorEngine:
                     if output_line == "LOWER":
                         cols = [c for c in dc_df.columns if c.startswith("DCL_")]
                         series = dc_df[cols[0]] if cols else None
-                    elif output_line == "MIDDLE" or output_line == "MID":
+                    elif output_line == "MIDDLE":
                         cols = [c for c in dc_df.columns if c.startswith("DCM_")]
                         series = dc_df[cols[0]] if cols else None
                     else:  # UPPER
@@ -194,7 +178,7 @@ class IndicatorEngine:
                     if output_line == "LOWER":
                         cols = [c for c in kc_df.columns if c.startswith("KCLe_")]
                         series = kc_df[cols[0]] if cols else None
-                    elif output_line == "MIDDLE" or output_line == "MID":
+                    elif output_line == "MIDDLE":
                         cols = [c for c in kc_df.columns if c.startswith("KCBs_")]
                         series = kc_df[cols[0]] if cols else None
                     else:  # UPPER
@@ -281,48 +265,54 @@ class IndicatorEngine:
         return series
 
 
-    def _normalize_params(self, params):
+    def _normalize_params(self, params, indicator_type=None):
         params = dict(params or {})
-        normalized = dict(params)
+        normalized = {**get_operand_parameter_defaults(indicator_type), **params}
 
-        alias_map = {
-            "length": "period",
-            "fast": "fast_period",
-            "slow": "slow_period",
-            "signal": "signal_period",
-            "std": "std_dev",
-            "k": "k_period",
-            "d": "d_period",
-            "smooth_k": "smooth",
-        }
+        # Convert numeric input to the values expected by pandas-ta and the fast indicators, then enforce the canonical schema choices.
+        for spec in get_operand_parameter_config(indicator_type):
+            key = spec["key"]
+            if key not in normalized:
+                continue
+            value = normalized[key]
+            if spec.get("type") == "number":
+                if isinstance(value, bool):
+                    raise ValueError(f"{key} must be numeric")
+                try:
+                    number = float(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{key} must be numeric") from exc
+                if not np.isfinite(number):
+                    raise ValueError(f"{key} must be finite")
+                if spec.get("min") is not None and number < spec["min"]:
+                    raise ValueError(f"{key} is below its minimum")
+                if spec.get("max") is not None and number > spec["max"]:
+                    raise ValueError(f"{key} is above its maximum")
+                normalized[key] = (
+                    int(number)
+                    if float(spec.get("step", 1)).is_integer() and number.is_integer()
+                    else number
+                )
+            elif spec.get("type") == "select":
+                options = {item["value"] for item in spec.get("options", [])}
+                if value not in options:
+                    raise ValueError(f"{key} is not a supported choice")
+            elif spec.get("type") == "source":
+                options = {item["value"] for item in spec.get("options", [])}
+                if value not in options:
+                    raise ValueError(f"{key} is not a supported source")
 
-        for old_key, new_key in alias_map.items():
-            if old_key in normalized and new_key not in normalized:
-                normalized[new_key] = normalized[old_key]
-
-        normalized.setdefault("period", 14)
-        normalized.setdefault("fast_period", 12)
-        normalized.setdefault("slow_period", 26)
-        normalized.setdefault("signal_period", 9)
-        normalized.setdefault("std_dev", 2)
-        normalized.setdefault("k_period", 14)
-        normalized.setdefault("d_period", 3)
-        normalized.setdefault("smooth", 3)
-        normalized.setdefault("multiplier", 3)
-        normalized.setdefault("source", "close")
-        normalized.setdefault("lookback", normalized.get("period", 20))
         return normalized
 
 
     def _get_price_source(self, source, params=None):
         if self._recursion_depth > 5:
             logger.warning("Max recursion depth exceeded in _get_price_source")
-            return self.df["close"]
+            return pd.Series(float("nan"), index=self.df.index, dtype="float64")
             
         self._recursion_depth += 1
         try:
             source_str = str(source or "close").upper()
-            shift_val = int(params.get("source_shift", 0)) if params else 0
             price_series = None
     
             if source_str in {"OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"}:
@@ -333,22 +323,8 @@ class IndicatorEngine:
                 price_series = (self.df["high"] + self.df["low"] + self.df["close"]) / 3
             elif source_str == "OHLC4":
                 price_series = (self.df["open"] + self.df["high"] + self.df["low"] + self.df["close"]) / 4
-            elif source_str == "CURRENT_DAY_OPEN":
-                daily_open = self.df["open"].resample("1d").first().dropna()
-                aligned = fast_ffill_align_float(daily_open.index.values.astype(np.int64), daily_open.values, self.df.index.values.astype(np.int64))
-                price_series = pd.Series(aligned, index=self.df.index)
-            elif source_str == "PREV_WEEK_HIGH":
-                weekly_high = self.df["high"].resample("W").max().shift(1).dropna()
-                aligned = fast_ffill_align_float(weekly_high.index.values.astype(np.int64), weekly_high.values, self.df.index.values.astype(np.int64))
-                price_series = pd.Series(aligned, index=self.df.index)
-            elif source_str == "PREV_WEEK_LOW":
-                weekly_low = self.df["low"].resample("W").min().shift(1).dropna()
-                aligned = fast_ffill_align_float(weekly_low.index.values.astype(np.int64), weekly_low.values, self.df.index.values.astype(np.int64))
-                price_series = pd.Series(aligned, index=self.df.index)
     
             if price_series is not None:
-                if shift_val > 0:
-                    price_series = price_series.shift(shift_val)
                 return price_series
                 
             # Indicator Chaining: If source is an OperandType, evaluate it recursively
@@ -361,8 +337,8 @@ class IndicatorEngine:
             except ValueError:
                 pass
     
-            logger.warning("Unsupported price source '%s', defaulting to close", source_str)
-            return self.df["close"]
+            logger.warning("Unsupported price source '%s'; suppressing indicator output", source_str)
+            return pd.Series(float("nan"), index=self.df.index, dtype="float64")
         finally:
             self._recursion_depth -= 1
 

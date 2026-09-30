@@ -1,13 +1,16 @@
 
 import logging
+import time
 import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Avg, Count, Q, Sum
+from django.core.cache import cache
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
-from brokers.models import BrokerCredential
+from brokers.models import BrokerCredential, BrokerFundsSnapshot, BrokerSession
 from brokers.services import BrokerService
 from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Severity, Side, NotificationType
 from marketdata.quote_store import QuoteStore
@@ -115,7 +118,16 @@ class LiveExecutionService:
         
     
     @staticmethod
+    @transaction.atomic
     def create_allocation(user, strategy, credential, allocation_amount=None, allocation_percentage=None, deployed_version=None):
+        from strategies.models import Strategy
+        strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
+        if strategy.user_id != user.id or credential.user_id != user.id:
+            raise ValueError('Strategy and broker account must belong to the selected user.')
+        if strategy.status != 'ACTIVE':
+            raise ValueError('Live allocations can only be created for active strategies.')
+        if not strategy.live_trading_enabled:
+            raise ValueError('Live trading is disabled for this strategy.')
         existing_allocation = LiveStrategyAllocation.objects.filter(
             user=user,
             strategy=strategy,
@@ -182,6 +194,16 @@ class LiveExecutionService:
     @staticmethod
     @transaction.atomic
     def deploy_session(user, strategy, allocation, broker_credential):
+        from strategies.models import Strategy
+        strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
+        if strategy.status != 'ACTIVE':
+            raise ValueError('Only active strategies can start live sessions.')
+        if not strategy.live_trading_enabled:
+            raise ValueError('Live trading is disabled for this strategy.')
+        if allocation.strategy_id != strategy.id or allocation.user_id != user.id:
+            raise ValueError('Live allocation does not belong to this strategy and user.')
+        if allocation.broker_credential_id != broker_credential.id:
+            raise ValueError('Live allocation does not belong to the selected broker account.')
     
         session, _ = TradingSession.objects.update_or_create(
             allocation=allocation,
@@ -238,17 +260,11 @@ class LiveExecutionService:
         if close_positions:
             position_query = LivePosition.objects.filter(allocation=session.allocation)
             for position in position_query:
-                LiveExecutionService._close_position(
-                    session=session,
-                    position=position
-                )
+                LiveExecutionService._close_position(session=session, position=position)
         # Check if any positions failed to close
         has_open_positions = False
         if close_positions:
-            has_open_positions = LivePosition.objects.filter(
-                allocation=session.allocation,
-                quantity__gt=0
-            ).exists()
+            has_open_positions = LivePosition.objects.filter(allocation=session.allocation, quantity__gt=0).exists()
             
         if has_open_positions:
             session.status = "STOPPING"
@@ -280,17 +296,26 @@ class LiveExecutionService:
     @staticmethod
     @transaction.atomic
     def resume_session(session):
+        if session.strategy.status != 'ACTIVE' or not session.strategy.live_trading_enabled:
+            raise ValueError('Activate the strategy and enable live trading before resuming this session.')
+        was_stopped = session.status == "STOPPED"
         BrokerService.ensure_session(session.broker_credential)
         LiveExecutionService.sync_funds(session.broker_credential)
 
         session.status = "RUNNING"
+        if was_stopped:
+            session.started_at = timezone.now()
+        session.ended_at = None
         session.error_message = ""
-        session.save(update_fields=["status", "error_message", "updated_at"])
+        update_fields = ["status", "ended_at", "error_message", "updated_at"]
+        if was_stopped:
+            update_fields.append("started_at")
+        session.save(update_fields=update_fields)
         
         NotificationService.notify(
             user=session.user,
-            title="Live Strategy Resumed",
-            message=f"Strategy '{session.strategy.name}' has been resumed.",
+            title="Live Strategy Started" if was_stopped else "Live Strategy Resumed",
+            message=f"Strategy '{session.strategy.name}' has been {'started' if was_stopped else 'resumed'}.",
             notification_type=NotificationType.SYSTEM_ALERT,
             severity=Severity.INFO,
             strategy=session.strategy,
@@ -824,7 +849,14 @@ class LiveExecutionService:
         broker_equity = BrokerService.to_decimal(funds_data.get("net_equity") or funds_data.get("cash_balance") or 0)
 
         # Get all allocations for this broker credential, ordered by creation time
-        allocations = LiveStrategyAllocation.objects.filter(broker_credential=credential).order_by('created_at')
+        allocations = LiveStrategyAllocation.objects.filter(broker_credential=credential).exclude(session__status__iexact="STOPPED").order_by('created_at')
+        
+        stopped_allocations = LiveStrategyAllocation.objects.filter(broker_credential=credential, session__status__iexact="STOPPED").order_by('created_at')
+        for allocation in stopped_allocations:
+            allocation.is_over_allocated = False
+            allocation.breach_reason = ""
+            allocation.broker_equity_reference = broker_equity
+            allocation.save(update_fields=["is_over_allocated", "breach_reason", "broker_equity_reference", "updated_at"])
         
         cumulative_allocated = Decimal("0")
         
@@ -899,43 +931,62 @@ class LiveExecutionService:
     
     @staticmethod
     def session_summary(user):
-        """Simplified session summary - broker is source of truth for funds."""
+        """Return a read-only snapshot; broker I/O runs in the funds sync task."""
         sessions = TradingSession.objects.filter(user=user).select_related("strategy", "broker_credential")
-        positions = LivePosition.objects.filter(user=user)
+        positions = LivePosition.objects.filter(user=user, quantity__gt=0)
         orders = LiveOrder.objects.filter(user=user)
         active_sessions = sessions.filter(status="RUNNING")
-        open_orders = orders.filter(status__in=LiveExecutionService.ACTIVE_ORDER_STATUSES)
         today_orders = orders.filter(placed_at__date=timezone.localdate())
-        active_credentials = BrokerCredential.objects.filter(user=user, is_active=True)
+        active_credentials = list(BrokerCredential.objects.filter(user=user, is_active=True))
+        latest_snapshots = BrokerFundsSnapshot.objects.filter(
+            credential_id__in=[credential.id for credential in active_credentials]
+        ).order_by("credential_id", "-snapshot_time", "-created_at").distinct("credential_id")
+        snapshots_by_credential = {snapshot.credential_id: snapshot for snapshot in latest_snapshots}
+        credential_ids = [credential.id for credential in active_credentials]
+        allocations_by_credential = {}
+        for allocation in LiveStrategyAllocation.objects.filter(user=user, broker_credential_id__in=credential_ids).select_related("strategy"):
+            allocations_by_credential.setdefault(allocation.broker_credential_id, []).append(allocation)
+        valid_credential_ids = set(BrokerSession.objects.filter(
+            credential_id__in=credential_ids,
+            is_valid=True,
+            token_expiry__gt=timezone.now(),
+        ).values_list("credential_id", flat=True).distinct())
         broker_summaries = []
+        health_keys = [f"live_ws_health:{credential.id}" for credential in active_credentials]
+        health_by_key = cache.get_many(health_keys)
         for credential in active_credentials:
-            # Fetch fresh funds from broker
-            funds_data = BrokerService.get_funds(credential)
-            snapshot = BrokerService.record_funds_snapshot(credential, funds_data)
-            
-            allocation_rows = list(
-                LiveStrategyAllocation.objects.filter(user=user, broker_credential=credential)
-                .select_related("strategy")
-            )
-            session = credential.sessions.filter(is_valid=True, token_expiry__gt=timezone.now()).first()
-            session_valid = session is not None
+            snapshot = snapshots_by_credential.get(credential.id)
+            websocket_health = health_by_key.get(f"live_ws_health:{credential.id}") or {}
+            websocket_status = websocket_health.get("status", "unknown")
+            health_updated_at = parse_datetime(websocket_health.get("updated_at", ""))
+            if websocket_status not in {"authentication_required", "unknown"} and (not health_updated_at or (timezone.now() - health_updated_at).total_seconds() > 90):
+                websocket_status = "unknown"
+            allocation_rows = allocations_by_credential.get(credential.id, [])
+            session_valid = credential.id in valid_credential_ids
 
             is_over_allocated = any(row.is_over_allocated for row in allocation_rows)
-            account_healthy = session_valid and not is_over_allocated
+            account_healthy = session_valid and snapshot is not None and not is_over_allocated
 
             broker_summaries.append(
                 {
+                    "credential_id": credential.id,
                     "broker_label": credential.label,
+                    "broker_name": credential.broker_name,
                     "is_healthy": account_healthy,
                     "broker_session_valid": session_valid,
-                    "available_margin": str(BrokerService.to_decimal(snapshot.available_margin)),
-                    "used_margin": str(BrokerService.to_decimal(snapshot.used_margin)),
-                    "net_equity": str(BrokerService.to_decimal(snapshot.net_equity)),
-                    "cash_balance": str(BrokerService.to_decimal(snapshot.cash_balance)),
+                    "funds_available": snapshot is not None,
+                    "order_websocket_status": websocket_status,
+                    "order_websocket_updated_at": websocket_health.get("updated_at"),
+                    "available_margin": str(snapshot.available_margin) if snapshot else None,
+                    "used_margin": str(snapshot.used_margin) if snapshot else None,
+                    "net_equity": str(snapshot.net_equity) if snapshot else None,
+                    "cash_balance": str(snapshot.cash_balance) if snapshot else None,
+                    "funds_as_of": snapshot.snapshot_time.isoformat() if snapshot else None,
                     "allocations": [
                         {
                             "id": row.id,
                             "strategy_id": row.strategy_id,
+                            "strategy_name": row.strategy.name,
                             "allocated_capital": str(row.allocated_capital),
                             "broker_equity_reference": str(row.broker_equity_reference),
                             "is_over_allocated": row.is_over_allocated,
@@ -946,23 +997,62 @@ class LiveExecutionService:
                 }
             )
 
+        closed_trades = LiveTrade.objects.filter(user=user)
+        closed_trade_stats = closed_trades.aggregate(
+            total=Count("id"),
+            winning=Count("id", filter=Q(realized_pnl__gt=0)),
+            losing=Count("id", filter=Q(realized_pnl__lt=0)),
+            realized=Sum("realized_pnl"),
+        )
+        realized_pnl = closed_trade_stats["realized"] or Decimal("0")
+        realized_today = LiveTrade.objects.filter(user=user, exit_time__date=timezone.localdate()).aggregate(s=Sum("realized_pnl"))["s"] or Decimal("0")
+        todays_trades = LiveTrade.objects.filter(user=user, exit_time__date=timezone.localdate())
+        avg_execution_latency = ExecutionLog.objects.filter(order__user=user, latency_ms__gt=0).aggregate(value=Avg("latency_ms"))["value"]
+        avg_slippage = SlippageRecord.objects.filter(order__user=user).aggregate(value=Avg("slippage_pct"))["value"]
+        order_counts = orders.aggregate(
+            filled=Count("id", filter=Q(status=OrderStatus.FILLED)),
+            partial=Count("id", filter=Q(status=OrderStatus.PARTIAL_FILL)),
+            active=Count("id", filter=Q(status__in=LiveExecutionService.ACTIVE_ORDER_STATUSES)),
+            rejected=Count("id", filter=Q(status=OrderStatus.REJECTED)),
+            cancelled=Count("id", filter=Q(status=OrderStatus.CANCELLED)),
+            expired=Count("id", filter=Q(status=OrderStatus.EXPIRED)),
+            unknown=Count("id", filter=Q(status="UNKNOWN")),
+        )
+        position_counts = positions.aggregate(
+            unrealized=Sum("unrealized_pnl"),
+            profitable=Count("id", filter=Q(unrealized_pnl__gt=0)),
+            losing=Count("id", filter=Q(unrealized_pnl__lt=0)),
+        )
         return {
+            "generated_at": timezone.now().isoformat(),
             "running_sessions": active_sessions.count(),
             "paused_sessions": sessions.filter(status="PAUSED").count(),
             "error_sessions": sessions.filter(status="ERROR").count(),
             "open_positions": positions.count(),
-            "open_orders": open_orders.count(),
+            "open_orders": order_counts["active"],
+            "rejected_orders": order_counts["rejected"],
+            "total_orders": orders.count(),
+            "filled_orders": order_counts["filled"],
+            "partial_orders": order_counts["partial"],
+            "active_orders": order_counts["active"],
+            "cancelled_orders": order_counts["cancelled"],
+            "expired_orders": order_counts["expired"],
+            "unknown_orders": order_counts["unknown"],
+            "profitable_positions": position_counts["profitable"],
+            "losing_positions": position_counts["losing"],
+            "total_closed_trades": closed_trade_stats["total"],
+            "winning_closed_trades": closed_trade_stats["winning"],
+            "losing_closed_trades": closed_trade_stats["losing"],
             "today_orders": today_orders.count(),
             "today_fills": today_orders.filter(status__in=LiveExecutionService.FILLED_ORDER_STATUSES).count(),
-            "unrealized_pnl": str(positions.aggregate(s=Sum("unrealized_pnl"))["s"] or Decimal("0")),
-            "realized_pnl": str(
-                LiveTrade.objects.filter(allocation__user=user).aggregate(s=Sum("realized_pnl"))["s"]
-                or Decimal("0")
-            ),
-            "day_pnl": str(
-                (positions.aggregate(s=Sum("unrealized_pnl"))["s"] or Decimal("0"))
-                + (LiveTrade.objects.filter(allocation__user=user).aggregate(s=Sum("realized_pnl"))["s"] or Decimal("0"))
-            ),
+            "unrealized_pnl": str(position_counts["unrealized"] or Decimal("0")),
+            "realized_pnl": str(realized_pnl),
+            "realized_today": str(realized_today),
+            "day_pnl": str(realized_today + (position_counts["unrealized"] or Decimal("0"))),
+            "closed_trades_today": todays_trades.count(),
+            "winning_trades_today": todays_trades.filter(realized_pnl__gt=0).count(),
+            "avg_execution_latency_ms": avg_execution_latency,
+            "avg_slippage_pct": avg_slippage,
             "active_brokers": sessions.filter(broker_credential__isnull=False).values("broker_credential").distinct().count(),
             "broker_accounts": broker_summaries,
         }
@@ -971,6 +1061,11 @@ class LiveExecutionService:
     @transaction.atomic
     def stop_all_sessions(user, close_positions=False):
         stopped = []
-        for session in TradingSession.objects.filter(user=user).exclude(status="STOPPED"):
+        sessions = TradingSession.objects.filter(user=user)
+        if close_positions:
+            sessions = sessions.filter(Q(status__in=["RUNNING", "PAUSED", "ERROR"]) | Q(status="STOPPED", allocation__positions__quantity__gt=0)).distinct()
+        else:
+            sessions = sessions.filter(status__in=["RUNNING", "PAUSED", "ERROR"])
+        for session in sessions:
             stopped.append(LiveExecutionService.stop_session(session, close_positions=close_positions))
         return stopped

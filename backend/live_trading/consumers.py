@@ -23,18 +23,8 @@ class LiveTradingConsumer(AsyncWebsocketConsumer):
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
-    async def live_update(self, event):
-        """
-        Sends an update payload to the connected client.
-        Expected event format:
-        {
-            "type": "live.update",
-            "message": {
-                "event_type": "ORDER_UPDATE" | "POSITION_UPDATE" | "SESSION_UPDATE" | "EXECUTION_LOG",
-                "data": {...}
-            }
-        }
-        """
+    async def trading_update(self, event):
+        """Forward the signal payload without changing its shape."""
         message = event.get("message")
-        if message:
+        if isinstance(message, dict):
             await self.send(text_data=json.dumps(message))

@@ -2,12 +2,15 @@
 Views for the strategies app.
 """
 from rest_framework import viewsets, status, permissions
+from django.db import transaction
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from brokers.models import BrokerCredential
 from live_trading.services import LiveExecutionService
 from paper_trading.services import PortfolioService
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
+from rules_engine.models import TimeRule, SpecialEventFilter, RuleGroup, Rule
+from instruments.models import WatchlistInstrument, ExecutionRoute
 from .models import Strategy, StrategyTag, EntryOrderConfig, ExitOrderConfig, StrategyVersion
 from .serializers import (
     StrategyListSerializer, StrategyDetailSerializer, StrategyCreateSerializer,
@@ -52,7 +55,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
         except ValidationError as e:
             # Check what data exists for structured response
             has_paper = (
-                strategy.capital_allocations.exists()
+                strategy.paper_sessions.exists()
+                or strategy.capital_allocations.exists()
                 or strategy.paper_positions.exists()
                 or strategy.paper_orders.exists()
                 or strategy.paper_trades.exists()
@@ -62,6 +66,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 or strategy.live_allocations.exists()
                 or strategy.live_positions.exists()
                 or strategy.live_orders.exists()
+                or strategy.live_trades.exists()
             )
             has_backtest = strategy.backtest_runs.exists() if hasattr(strategy, 'backtest_runs') else False
             return Response(
@@ -76,6 +81,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def clone(self, request, pk=None):
         """Clone an existing strategy."""
         original = self.get_object()
@@ -91,8 +97,17 @@ class StrategyViewSet(viewsets.ModelViewSet):
             instrument_type=original.instrument_type,
             visibility='PRIVATE',
             status='DRAFT',
+            paper_trading_enabled=original.paper_trading_enabled,
+            live_trading_enabled=original.live_trading_enabled,
         )
         new_strategy.tags.set(original.tags.all())
+
+        def copy_fields(instance, excluded):
+            return {
+                field.attname: getattr(instance, field.attname)
+                for field in instance._meta.concrete_fields
+                if field.name not in excluded and field.primary_key is False
+            }
 
         # Clone configs
         if hasattr(original, 'entry_order_config'):
@@ -107,8 +122,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     'cooldown_seconds': config.cooldown_seconds,
                 }
             )
-
-
 
         # Clone exit config
         if hasattr(original, 'exit_order_config'):
@@ -133,6 +146,36 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 }
             )
 
+        for relation_name, model in (
+            ('time_rule', TimeRule),
+            ('special_event_filter', SpecialEventFilter),
+        ):
+            related = getattr(original, relation_name, None)
+            if related:
+                model.objects.update_or_create(
+                    strategy=new_strategy,
+                    defaults=copy_fields(related, {'id', 'strategy', 'created_at', 'updated_at'}),
+                )
+
+        for group in original.rule_groups.prefetch_related('rules'):
+            cloned_group = RuleGroup.objects.create(
+                strategy=new_strategy,
+                **copy_fields(group, {'id', 'strategy', 'created_at', 'updated_at'}),
+            )
+            for rule in group.rules.all():
+                Rule.objects.create(
+                    rule_group=cloned_group,
+                    **copy_fields(rule, {'id', 'rule_group', 'created_at', 'updated_at'}),
+                )
+
+        for watched in original.watchlist_instruments.prefetch_related('execution_routes'):
+            cloned_watch = WatchlistInstrument.objects.create(strategy=new_strategy, instrument_id=watched.instrument_id)
+            for route in watched.execution_routes.all():
+                ExecutionRoute.objects.create(
+                    watchlist_instrument=cloned_watch,
+                    **copy_fields(route, {'id', 'watchlist_instrument', 'created_at', 'updated_at'}),
+                )
+
         for auto_disable_rule in original.auto_disable_rules.all():
             StrategyAutoDisable.objects.create(
                 strategy=new_strategy,
@@ -145,16 +188,27 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 is_active=auto_disable_rule.is_active,
             )
 
+        # The creation signal records defaults; replace that snapshot with the cloned config.
+        new_strategy.versions.all().delete()
+        StrategySnapshotService.create_snapshot(new_strategy, user=request.user, change_notes=f'Cloned from {original.name}')
+
         serializer = StrategyDetailSerializer(new_strategy, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def activate(self, request, pk=None):
-        """Activate a draft strategy."""
-        strategy = self.get_object()
-        if strategy.status == 'DRAFT':
+        """Activate a draft or paused strategy."""
+        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
+        if strategy.status == 'ARCHIVED':
+            return Response({'error': 'Unarchive this strategy before activating it.'}, status=status.HTTP_400_BAD_REQUEST)
+        if strategy.status != 'ACTIVE':
+            try:
+                StrategyDeploymentService.validate_strategy_lifecycle(strategy)
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
             strategy.status = 'ACTIVE'
-            strategy.save()
+            strategy.save(update_fields=['status', 'updated_at'])
         serializer = StrategyDetailSerializer(strategy, context={'request': request})
         return Response(serializer.data)
 
@@ -168,22 +222,41 @@ class StrategyViewSet(viewsets.ModelViewSet):
             errors = StrategyDeploymentService.validate_for_deployment(strategy, mode='paper')
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
-            StrategyDeploymentService.activate_for_deployment(strategy)
-
-            if not strategy.paper_trading_enabled:
-                strategy.paper_trading_enabled = True
-                strategy.save(update_fields=['paper_trading_enabled', 'updated_at'])
-
+            from paper_trading.services import PaperExecutionService
+            PaperExecutionService._resolve_cost_configuration(
+                request.user,
+                request.data.get('slippage_pct', 0),
+                request.data.get('charge_profile'),
+                request.data.get('include_charges', True),
+            )
             portfolio = PortfolioService.get_or_create_portfolio(request.user)
             deployed_version_id = None
+            deployed_version = None
             if version_id:
-                deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
+                try:
+                    deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
+                except StrategyVersion.DoesNotExist:
+                    return Response({'error': 'Selected strategy version was not found.'}, status=status.HTTP_400_BAD_REQUEST)
                 deployed_version_id = deployed_version.id
 
             if allocation_id:
-                from paper_trading.models import CapitalAllocation
+                from paper_trading.models import CapitalAllocation, PaperPosition, PaperTradingSession
                 try:
-                    allocation = CapitalAllocation.objects.get(id=allocation_id, portfolio__user=request.user)
+                    allocation = CapitalAllocation.objects.get(id=allocation_id, portfolio__user=request.user, strategy=strategy)
+                    existing_session = PaperTradingSession.objects.filter(
+                        user=request.user, strategy=strategy, allocation=allocation,
+                        status='RUNNING',
+                    ).exists()
+                    if existing_session:
+                        return Response({'error': 'This paper session is already running.'}, status=status.HTTP_400_BAD_REQUEST)
+                    existing_account = getattr(allocation, 'paper_account', None)
+                    if existing_account and PaperPosition.objects.filter(
+                        account=existing_account, strategy=strategy, quantity__gt=0
+                    ).exists():
+                        return Response(
+                            {'error': 'Close open positions before changing paper execution costs or deploying again.'},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     if deployed_version and allocation.deployed_version != deployed_version:
                         allocation.deployed_version = deployed_version
                         allocation.save(update_fields=['deployed_version', 'updated_at'])
@@ -199,13 +272,15 @@ class StrategyViewSet(viewsets.ModelViewSet):
 
             account = PortfolioService.ensure_paper_account_for_allocation(allocation)
             
-            from paper_trading.services import PaperExecutionService
-                    
+
             session = PaperExecutionService.deploy_session(
                 user=request.user,
                 strategy=strategy,
                 allocation=allocation,
                 account=account,
+                slippage_pct=request.data.get('slippage_pct', 0),
+                charge_profile_id=request.data.get('charge_profile'),
+                include_charges=request.data.get('include_charges', True),
             )
             
             from paper_trading.serializers import PaperAccountSerializer
@@ -233,28 +308,21 @@ class StrategyViewSet(viewsets.ModelViewSet):
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
 
-            StrategyDeploymentService.activate_for_deployment(strategy)
-
-            if not strategy.live_trading_enabled:
-                strategy.live_trading_enabled = True
-                strategy.save(update_fields=["live_trading_enabled", "updated_at"])
-
-            if broker_credential_id:
-                broker_credential = BrokerCredential.objects.get(
-                    id=broker_credential_id,
-                    user=request.user,
-                    is_verified=True,
-                )
-
-            from brokers.services import BrokerService
-            BrokerService.ensure_session(broker_credential)
+            if not broker_credential_id:
+                return Response({'error': 'Select a verified broker account.'}, status=status.HTTP_400_BAD_REQUEST)
+            broker_credential = BrokerCredential.objects.get(id=broker_credential_id, user=request.user, is_verified=True)
 
             deployed_version = None
             if version_id:
-                from strategies.models import StrategyVersion
-                deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
+                try:
+                    deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
+                except StrategyVersion.DoesNotExist:
+                    return Response({'error': 'Selected strategy version was not found.'}, status=status.HTTP_400_BAD_REQUEST)
             else:
                 return Response({'error': 'No deployed version found for this strategy'}, status=status.HTTP_400_BAD_REQUEST)
+
+            from brokers.services import BrokerService
+            BrokerService.ensure_session(broker_credential)
             # Create allocation
             allocation = LiveExecutionService.create_allocation(
                 user=request.user,
@@ -287,25 +355,19 @@ class StrategyViewSet(viewsets.ModelViewSet):
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def pause(self, request, pk=None):
-        """Pauses all active paper and live sessions for this strategy."""
-        strategy = self.get_object()
-        
-        # Pause Paper Sessions
-        from paper_trading.models import PaperTradingSession
-        from paper_trading.services import PaperExecutionService
-        paper_sessions = PaperTradingSession.objects.filter(strategy=strategy, status="RUNNING")
-        for session in paper_sessions:
-            PaperExecutionService.pause_session(session)
-            
-        # Pause Live Sessions
-        from live_trading.models import TradingSession
-        from live_trading.services import LiveExecutionService
-        live_sessions = TradingSession.objects.filter(strategy=strategy, status="RUNNING")
-        for session in live_sessions:
-            LiveExecutionService.pause_session(session)
-            
-        return Response({"status": "All active sessions for this strategy have been paused."})
+        """Pause strategy-level activation only when no execution session exists."""
+        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
+        if strategy.status != 'ACTIVE':
+            return Response({'error': 'Only active strategies can be paused.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            StrategyDeploymentService.validate_strategy_lifecycle(strategy)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+        strategy.status = 'PAUSED'
+        strategy.save(update_fields=['status', 'updated_at'])
+        return Response(StrategyDetailSerializer(strategy, context={'request': request}).data)
 
     @action(detail=True, methods=['post'], url_path='create-version')
     def create_version(self, request, pk=None):
@@ -357,33 +419,59 @@ class StrategyViewSet(viewsets.ModelViewSet):
         """
         obj = super().get_object()
 
-        # Ensure EntryOrderConfig exists
-        if not hasattr(obj, 'entry_order_config'):
-            EntryOrderConfig.objects.create(strategy=obj)
-
-
-        # Ensure ExitOrderConfig exists
-        if not hasattr(obj, 'exit_order_config'):
-            ExitOrderConfig.objects.create(strategy=obj)
-
-        # Refresh to get the new reverse relationships
+        # Keep older strategies compatible with the full builder defaults.
+        had_versions = obj.versions.exists()
+        missing_defaults = (
+            not EntryOrderConfig.objects.filter(strategy=obj).exists()
+            or not ExitOrderConfig.objects.filter(strategy=obj).exists()
+            or not PositionSizingRule.objects.filter(strategy=obj).exists()
+            or not TimeRule.objects.filter(strategy=obj).exists()
+            or not SpecialEventFilter.objects.filter(strategy=obj).exists()
+        )
+        auto_version_enabled = obj.auto_version_enabled
+        if auto_version_enabled:
+            Strategy.objects.filter(pk=obj.pk).update(auto_version_enabled=False)
+            obj.auto_version_enabled = False
+        try:
+            with transaction.atomic():
+                EntryOrderConfig.objects.get_or_create(strategy=obj)
+                ExitOrderConfig.objects.get_or_create(strategy=obj)
+                PositionSizingRule.objects.get_or_create(strategy=obj)
+                TimeRule.objects.get_or_create(strategy=obj)
+                SpecialEventFilter.objects.get_or_create(strategy=obj)
+        finally:
+            if auto_version_enabled:
+                Strategy.objects.filter(pk=obj.pk).update(auto_version_enabled=True)
+                obj.auto_version_enabled = True
+        if not had_versions or missing_defaults:
+            StrategySnapshotService.create_snapshot(obj, user=obj.user, change_notes='Initial strategy configuration')
         obj.refresh_from_db()
         return obj
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def archive(self, request, pk=None):
         """Archive a strategy."""
-        strategy = self.get_object()
+        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
+        try:
+            StrategyDeploymentService.validate_strategy_lifecycle(strategy)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
         strategy.status = 'ARCHIVED'
-        strategy.save()
+        strategy.save(update_fields=['status', 'updated_at'])
         serializer = StrategyDetailSerializer(strategy, context={'request': request})
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def unarchive(self, request, pk=None):
         """Unarchive a strategy back to draft."""
-        strategy = self.get_object()
+        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
         if strategy.status == 'ARCHIVED':
+            try:
+                StrategyDeploymentService.validate_strategy_lifecycle(strategy)
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
             strategy.status = 'DRAFT'
             strategy.save()
         serializer = StrategyDetailSerializer(strategy, context={'request': request})
@@ -397,6 +485,13 @@ class StrategyViewSet(viewsets.ModelViewSet):
         at market price, and the strategy status is set to ARCHIVED.
         """
         strategy = self.get_object()
+
+        from paper_trading.models import PaperTradingSession
+        if PaperTradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED']).exists():
+            return Response(
+                {'error': 'Stop all running or paused paper sessions before archiving this strategy.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         try:
             from .services import StrategyLifecycleService

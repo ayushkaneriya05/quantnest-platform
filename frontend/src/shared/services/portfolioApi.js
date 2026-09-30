@@ -54,10 +54,13 @@ export const portfolioApi = {
     axiosInstance.get(`${BASE_URL}/portfolios/performance/`),
 
   // Paper account support from portfolio allocation
-  createPaperAccount: (allocationId, name) =>
+  createPaperAccount: (allocationId, name, executionCosts = {}) =>
     axiosInstance.post(`${BASE_URL}/portfolios/create_paper_account/`, {
       allocation_id: allocationId,
       ...(name ? { name } : {}),
+      slippage_pct: executionCosts.slippage_pct ?? 0,
+      charge_profile: executionCosts.charge_profile || null,
+      include_charges: executionCosts.include_charges ?? true,
     }),
 };
 

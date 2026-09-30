@@ -3,6 +3,130 @@ Serializers for the rules_engine app.
 """
 from rest_framework import serializers
 from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule
+from .math_expressions import is_safe_arithmetic_expression
+from common.enums import (
+    OperandType, ComparisonOperator, CandlePatternType, CandleTimeframe, RuleType,
+    get_math_expression_operand_types, get_operand_parameter_config,
+    get_operand_parameter_defaults,
+)
+
+
+def _normalize_and_validate_operand_params(operand_type, raw_params, field_name, math_variable_types=None):
+    """Fill server-owned operand defaults and validate against the UI schema."""
+    try:
+        operand_type = OperandType(operand_type)
+    except (TypeError, ValueError):
+        return raw_params or {}
+
+    if not isinstance(raw_params, dict):
+        raise serializers.ValidationError({field_name: 'Parameters must be an object.'})
+
+    params = {
+        **get_operand_parameter_defaults(operand_type),
+        **raw_params,
+    }
+    schema = get_operand_parameter_config(operand_type)
+
+    def validate_fields(values, specs, prefix=''):
+        normalized = dict(values)
+        for spec in specs:
+            key = spec['key']
+            if key not in normalized:
+                continue
+            value = normalized[key]
+            error_key = f'{prefix}{key}'
+            if value is None:
+                raise serializers.ValidationError({field_name: f'{error_key} cannot be empty.'})
+            if spec.get('type') == 'number':
+                if isinstance(value, bool):
+                    raise serializers.ValidationError({field_name: f'{error_key} must be a number.'})
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError({field_name: f'{error_key} must be a number.'})
+                if not (-float('inf') < number < float('inf')):
+                    raise serializers.ValidationError({field_name: f'{error_key} must be finite.'})
+                if spec.get('min') is not None and number < spec['min']:
+                    raise serializers.ValidationError({field_name: f'{error_key} must be at least {spec["min"]}.'})
+                if spec.get('max') is not None and number > spec['max']:
+                    raise serializers.ValidationError({field_name: f'{error_key} must be at most {spec["max"]}.'})
+                normalized[key] = int(number) if float(spec.get('step', 1)).is_integer() and number.is_integer() else number
+            elif spec.get('type') == 'select':
+                choices = {choice['value'] for choice in spec.get('options', [])}
+                if value not in choices:
+                    raise serializers.ValidationError({field_name: f'{error_key} is not a supported choice.'})
+                normalized[key] = value
+            elif spec.get('type') == 'enum':
+                choices = {choice[0] for choice in CandlePatternType.choices}
+                if value not in choices:
+                    raise serializers.ValidationError({field_name: f'{error_key} is not a supported candle pattern.'})
+            elif spec.get('type') == 'source':
+                allowed_sources = {choice['value'] for choice in spec.get('options', [])}
+                if value not in allowed_sources:
+                    raise serializers.ValidationError({field_name: f'{error_key} is not a supported price or indicator source.'})
+                try:
+                    source_type = OperandType(str(value).upper())
+                except ValueError:
+                    source_type = None
+                if source_type in OPERAND_PARAMETER_CONFIG:
+                    source_schema = OPERAND_PARAMETER_CONFIG[source_type]
+                    raw_source_params = normalized.get('source_params') or {}
+                    if not isinstance(raw_source_params, dict):
+                        raise serializers.ValidationError({field_name: 'source_params must be an object.'})
+                    source_params = raw_source_params
+                    source_defaults = get_operand_parameter_defaults(source_type)
+                    # Source indicators are configured inside source_params; their own source/shift controls are not nested.
+                    source_defaults.pop('source', None)
+                    source_defaults.pop('shift', None)
+                    source_params = {**source_defaults, **source_params}
+                    nested_schema = [item for item in source_schema if item['key'] not in {'source'}]
+                    normalized['source_params'] = validate_fields(source_params, nested_schema, 'source_params.')
+        return normalized
+
+    params = validate_fields(params, schema)
+
+    if operand_type == OperandType.MACD and params['fast_period'] >= params['slow_period']:
+        raise serializers.ValidationError({field_name: 'fast_period must be less than slow_period.'})
+
+    if operand_type == OperandType.MATH_EXPRESSION:
+        expression_config = params.get('expression') or {}
+        if isinstance(expression_config, str):
+            expression_config = {'expression': expression_config, 'variables': params.get('variables') or {}}
+        if not isinstance(expression_config, dict):
+            raise serializers.ValidationError({field_name: 'Math expression must be an object.'})
+        expression = str(expression_config.get('expression') or '')
+        variables = expression_config.get('variables') or {}
+        if not isinstance(variables, dict):
+            raise serializers.ValidationError({field_name: 'Math expression variables must be an object.'})
+        if not is_safe_arithmetic_expression(expression, variables.keys()):
+            raise serializers.ValidationError({field_name: 'Enter a valid arithmetic expression using configured variables and numeric constants.'})
+        normalized_variables = {}
+        for name, config in variables.items():
+            if not isinstance(name, str) or not name.startswith('VAR_') or not name[4:].isdigit():
+                raise serializers.ValidationError({field_name: f'Invalid math variable name: {name}.'})
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({field_name: f'{name} configuration must be an object.'})
+            try:
+                variable_type = OperandType(config.get('type'))
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({field_name: f'{name} has an unsupported operand type.'})
+            
+            if variable_type.value not in (math_variable_types or ()):
+                raise serializers.ValidationError({field_name: f'{variable_type.label} cannot be used as a numeric math variable.'})
+            variable_params = _normalize_and_validate_operand_params(
+                variable_type, config.get('params') or {}, field_name,
+                math_variable_types=math_variable_types,
+            )
+            
+            variable_timeframe = config.get('timeframe')
+            if variable_timeframe and variable_timeframe not in {choice[0] for choice in CandleTimeframe.choices}:
+                raise serializers.ValidationError({field_name: f'{name} has an unsupported timeframe.'})
+            
+            normalized_variables[name] = {**config, 'type': variable_type.value, 'params': variable_params, 'timeframe': variable_timeframe}
+        expression_config = {**expression_config, 'expression': expression, 'variables': normalized_variables}
+        params['expression'] = expression_config
+
+    return params
 
 
 class TimeRuleSerializer(serializers.ModelSerializer):
@@ -34,13 +158,20 @@ class RuleSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs):
-        from common.enums import OperandType, ComparisonOperator
+        def value(field, default=None):
+            if field in attrs:
+                return attrs[field]
+            if self.instance is not None:
+                return getattr(self.instance, field)
+            return default
 
-        op_a_type = attrs.get('operand_a_type')
-        op_b_type = attrs.get('operand_b_type')
-        comparison = attrs.get('comparison')
+        op_a_type = value('operand_a_type')
+        op_b_type = value('operand_b_type')
+        comparison = value('comparison')
+        rule_group = value('rule_group')
+        rule_type = getattr(rule_group, 'rule_type', None)
+        math_variable_types = set(get_math_expression_operand_types(rule_type))
 
-        # Validate operand_a_type is set
         if not op_a_type:
             raise serializers.ValidationError({"operand_a_type": "Operand A type is required."})
 
@@ -57,23 +188,24 @@ class RuleSerializer(serializers.ModelSerializer):
             if comparison not in valid_comparisons:
                 raise serializers.ValidationError({"comparison": f"Invalid comparison operator: {comparison}"})
 
-        # CONSTANT operand requires a 'value' param
-        op_a_params = attrs.get('operand_a_params') or {}
-        op_b_params = attrs.get('operand_b_params') or {}
+        for field, type_field, operand_type in (
+            ('operand_a_params', 'operand_a_type', op_a_type),
+            ('operand_b_params', 'operand_b_type', op_b_type),
+        ):
+            if not operand_type:
+                continue
 
-        if op_a_type == OperandType.CONSTANT and 'value' not in op_a_params:
-            raise serializers.ValidationError({"operand_a_params": "CONSTANT operand requires a 'value' parameter."})
-        if op_b_type == OperandType.CONSTANT and 'value' not in op_b_params:
-            raise serializers.ValidationError({"operand_b_params": "CONSTANT operand requires a 'value' parameter."})
+            type_changed = self.instance is not None and type_field in attrs and attrs[type_field] != getattr(self.instance, type_field)
+            should_normalize = self.instance is None or field in attrs or type_changed
+            
+            if not should_normalize:
+                continue
 
-        # CANDLE_PATTERN requires a 'pattern' param
-        if op_a_type == OperandType.CANDLE_PATTERN and 'pattern' not in op_a_params:
-            raise serializers.ValidationError({"operand_a_params": "CANDLE_PATTERN operand requires a 'pattern' parameter."})
-
-        # Crosses operators need a comparison target (operand B)
-        crosses_operators = {ComparisonOperator.CROSSES_ABOVE, ComparisonOperator.CROSSES_BELOW}
-        if comparison in crosses_operators and not op_b_type:
-            raise serializers.ValidationError({"operand_b_type": "Crosses comparison requires an Operand B."})
+            raw_params = attrs.get(field) or {}
+            attrs[field] = _normalize_and_validate_operand_params(
+                operand_type, raw_params, field,
+                math_variable_types=math_variable_types,
+            )
 
         return attrs
 

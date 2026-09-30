@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { formatNumber } from "@/shared/utils/formatters";
+import { formatBrokerAccount, formatDateTime as formatLiveDateTime } from "@/shared/utils/formatters";
 
 const StatCard = ({
   icon: Icon,
@@ -52,28 +53,21 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
   ).length;
   const totalOpenPositions = summary?.open_positions || 0;
   const totalOpenOrders = summary?.open_orders || 0;
-  const dayPnl = summary?.day_pnl || 0;
+  const dayPnl = Number(summary?.day_pnl || 0);
 
   const pnlVariant = dayPnl >= 0 ? "positive" : "negative";
 
   const brokerAccounts = summary?.broker_accounts || [];
-  const hasHealthIssues = brokerAccounts.some((acc) => !acc.is_healthy);
 
   const totalEquity = useMemo(() => {
-    return brokerAccounts.reduce((sum, acc) => sum + (acc.net_equity || 0), 0);
+    return brokerAccounts.reduce((sum, acc) => sum + Number(acc.net_equity || 0), 0);
   }, [brokerAccounts]);
-
-  const totalMargin = useMemo(() => {
-    return brokerAccounts.reduce(
-      (sum, acc) => sum + (acc.available_margin || 0),
-      0,
-    );
-  }, [brokerAccounts]);
+  const equityComplete = brokerAccounts.length > 0 && brokerAccounts.every((account) => account.net_equity != null);
 
   return (
     <div className="space-y-8">
       {/* Key Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         <StatCard
           icon={Activity}
           title="Active Sessions"
@@ -92,21 +86,21 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
           icon={Wallet}
           title="Open Orders"
           value={totalOpenOrders}
-          subtitle="Pending fills"
+          subtitle="Awaiting terminal status"
           variant="default"
         />
         <StatCard
           icon={DollarSign}
           title="Total Equity"
-          value={`₹${formatNumber(totalEquity)}`}
-          subtitle="All broker accounts"
+          value={equityComplete ? `₹${formatNumber(totalEquity)}` : "—"}
+          subtitle={equityComplete ? "All broker accounts" : "Broker snapshots incomplete"}
           variant="default"
         />
         <StatCard
           icon={TrendingUp}
-          title="Day P&L"
-          value={`₹${formatNumber(Math.abs(dayPnl))}`}
-          subtitle={dayPnl >= 0 ? "Profit" : "Loss"}
+          title="Today P&L"
+          value={`₹${formatNumber(dayPnl)}`}
+          subtitle="Realized today + open P&L"
           variant={pnlVariant}
         />
       </div>
@@ -115,13 +109,11 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {brokerAccounts.map((account) => (
           <Card
-            key={account.credential_id}
+            key={account.credential_id ?? account.broker_label}
             className="bg-slate-900/50 border-slate-800"
           >
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-lg text-white">
-                {account.broker_label || account.broker_name}
-              </CardTitle>
+              <CardTitle className="text-lg text-white">{formatBrokerAccount(account.broker_name, account.broker_label)}</CardTitle>
               <div className="flex items-center gap-3">
                 {!account.broker_session_valid && (
                   <Button
@@ -143,7 +135,7 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
                       : "bg-rose-500/15 text-rose-300 border-rose-500/30"
                   }
                 >
-                  {account.is_healthy ? "Healthy" : "Action Required"}
+                  {account.is_healthy ? "Account ready" : "Action required"}
                 </Badge>
               </div>
             </CardHeader>
@@ -155,7 +147,7 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
                     Net Equity
                   </p>
                   <p className="text-white font-bold text-lg">
-                    ₹{formatNumber(account.net_equity)}
+                    {account.net_equity == null ? "—" : `₹${formatNumber(Number(account.net_equity))}`}
                   </p>
                 </div>
                 <div>
@@ -163,7 +155,7 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
                     Cash Balance
                   </p>
                   <p className="text-cyan-400 font-bold text-lg">
-                    ₹{formatNumber(account.cash_balance)}
+                    {account.cash_balance == null ? "—" : `₹${formatNumber(Number(account.cash_balance))}`}
                   </p>
                 </div>
                 <div>
@@ -171,7 +163,7 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
                     Available Margin
                   </p>
                   <p className="text-emerald-400 font-bold text-lg">
-                    ₹{formatNumber(account.available_margin)}
+                    {account.available_margin == null ? "—" : `₹${formatNumber(Number(account.available_margin))}`}
                   </p>
                 </div>
                 <div>
@@ -179,107 +171,20 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
                     Used Margin
                   </p>
                   <p className="text-amber-400 font-bold text-lg">
-                    ₹{formatNumber(account.used_margin)}
+                    {account.used_margin == null ? "—" : `₹${formatNumber(Number(account.used_margin))}`}
                   </p>
                 </div>
               </div>
 
-              {/* Allocations */}
-              {(account.allocations || []).length > 0 && (
-                <div className="border-t border-slate-700 pt-4">
-                  <p className="text-xs uppercase tracking-wider font-bold text-slate-500 mb-3">
-                    Strategy Wallets
-                  </p>
-                  <div className="space-y-2">
-                    {account.allocations.map((allocation) => (
-                      <div
-                        key={allocation.id}
-                        className="rounded-lg border border-slate-700 bg-slate-800/20 p-3"
-                      >
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                          <span className="text-slate-200 font-medium">
-                            {allocation.strategy_name ||
-                              `Strategy #${allocation.strategy_id}`}
-                          </span>
-                          {allocation.is_over_allocated ? (
-                            <Badge className="bg-rose-500/15 text-rose-300 border-rose-500/30 text-xs">
-                              Over allocated
-                            </Badge>
-                          ) : (
-                            <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 text-xs">
-                              Healthy
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 text-xs text-slate-400">
-                          <div>
-                            <p className="text-slate-500">Allocated</p>
-                            <p className="text-white font-semibold">
-                              ₹{formatNumber(allocation.allocated_capital)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-slate-500">Used</p>
-                            <p className="text-white font-semibold">
-                              ₹{formatNumber(allocation.used_capital)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-slate-500">Available</p>
-                            <p className="text-white font-semibold">
-                              ₹{formatNumber(allocation.available_capital)}
-                            </p>
-                          </div>
-                        </div>
-                        {allocation.breach_reason && (
-                          <p className="text-xs text-rose-400 mt-2">
-                            {allocation.breach_reason}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="border-t border-slate-800 pt-3 text-xs text-slate-500">
+                <div>Funds snapshot: {account.funds_as_of ? formatLiveDateTime(account.funds_as_of) : "Not synced yet"}</div>
+                <div className="mt-1">Broker order updates: <span className={account.order_websocket_status === "connected" ? "text-emerald-300" : account.order_websocket_status === "reconciliation" ? "text-amber-300" : "text-rose-300"}>{account.order_websocket_status || "unknown"}</span></div>
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Summary Stats Bar */}
-      <Card className="bg-slate-900/50 border-slate-800">
-        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-6 text-sm">
-          <div>
-            <p className="text-slate-500 uppercase tracking-wider text-xs font-bold mb-1">
-              Total Fills Today
-            </p>
-            <p className="text-2xl font-bold text-white">
-              {summary?.today_fills || 0}
-            </p>
-          </div>
-          <div className="h-12 w-px bg-slate-700 hidden sm:block" />
-          <div>
-            <p className="text-slate-500 uppercase tracking-wider text-xs font-bold mb-1">
-              Last Updated
-            </p>
-            <p className="text-slate-300">{new Date().toLocaleTimeString()}</p>
-          </div>
-          <div className="h-12 w-px bg-slate-700 hidden sm:block" />
-          <div>
-            <p className="text-slate-500 uppercase tracking-wider text-xs font-bold mb-1">
-              System Status
-            </p>
-            <div className="flex items-center gap-2">
-              <div
-                className={`h-2 w-2 rounded-full ${hasHealthIssues ? "bg-amber-500" : "bg-emerald-500"}`}
-              />
-              <span className="text-slate-300">
-                {hasHealthIssues ? "Requires attention" : "Operational"}
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

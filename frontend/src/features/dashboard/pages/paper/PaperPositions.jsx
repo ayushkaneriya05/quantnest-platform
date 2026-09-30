@@ -1,15 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/shared/components/ui/card";
-import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Layers, TrendingDown, TrendingUp } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import PaperTablePagination from "./components/PaperTablePagination";
+import { formatCurrency } from "@/shared/utils/formatters";
+import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
+import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
+
+const PAGE_SIZE = 10;
 
 export default function PaperPositions({ selectedAccountId }) {
   const { notify } = useNotifications();
+  const lastMessage = usePaperTradingUpdate();
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const refreshTimerRef = useRef(null);
 
   const fetchPositions = async () => {
     try {
@@ -24,13 +32,18 @@ export default function PaperPositions({ selectedAccountId }) {
 
   useEffect(() => {
     fetchPositions();
-    const interval = setInterval(fetchPositions, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchPositions, 30000);
+    return () => {
+      clearInterval(interval);
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
   }, []);
 
-  const handleClose = async (positionId) => {
-    notify.error("Position closing is managed by trading strategies only");
-  };
+  useEffect(() => {
+    if (!lastMessage || lastMessage.event_type !== "POSITION_UPDATE") return;
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(fetchPositions, 150);
+  }, [lastMessage]);
 
   const filteredPositions = useMemo(
     () =>
@@ -39,20 +52,25 @@ export default function PaperPositions({ selectedAccountId }) {
       ),
     [positions, selectedAccountId],
   );
+  const { livePnLByPositionId } = useLivePositionsPnL(filteredPositions);
 
-  const formatCurrency = (value) =>
-    new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(value || 0);
+  useEffect(() => setPage(1), [selectedAccountId]);
+  const pageCount = Math.max(1, Math.ceil(filteredPositions.length / PAGE_SIZE));
+  const pagePositions = filteredPositions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   const totalValue = filteredPositions.reduce(
-    (sum, position) => sum + parseFloat(position.current_value || 0),
+    (sum, position) => {
+      const livePosition = livePnLByPositionId[position.id];
+      const currentPrice = livePosition?.livePrice ?? Number(position.current_price || 0);
+      return sum + currentPrice * Number(position.quantity || 0);
+    },
     0,
   );
   const totalUnrealizedPnl = filteredPositions.reduce(
-    (sum, position) => sum + parseFloat(position.unrealized_pnl || 0),
+    (sum, position) => sum + (livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)),
     0,
   );
 
@@ -104,7 +122,7 @@ export default function PaperPositions({ selectedAccountId }) {
         </Card>
       ) : (
         <div className="space-y-4">
-          {filteredPositions.map((position) => (
+          {pagePositions.map((position) => (
             <Card key={position.id} className="bg-gray-900/50 border-gray-800 hover:border-gray-700 transition-colors">
               <CardContent className="py-4">
                 <div className="flex items-center justify-between">
@@ -151,40 +169,37 @@ export default function PaperPositions({ selectedAccountId }) {
                     <div className="text-right">
                       <p className="text-xs text-gray-500">Avg Price</p>
                       <p className="text-white font-medium text-sm">
-                        ₹{parseFloat(position.avg_price).toFixed(2)}
+                        {formatCurrency(position.avg_price)}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs text-gray-500">Current</p>
                       <p className="text-white font-medium text-sm">
-                        ₹{parseFloat(position.current_price).toFixed(2)}
+                        {formatCurrency(livePnLByPositionId[position.id]?.livePrice ?? position.current_price)}
                       </p>
                     </div>
                     <div className="text-right min-w-[100px]">
                       <p className="text-xs text-gray-500">P&L</p>
                       <p
-                        className={`font-bold ${parseFloat(position.unrealized_pnl) >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+                        className={`font-bold ${(livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)) >= 0 ? "text-emerald-400" : "text-rose-400"}`}
                       >
-                        {formatCurrency(position.unrealized_pnl)}
+                        {formatCurrency(livePnLByPositionId[position.id]?.pnl ?? position.unrealized_pnl)}
                       </p>
                       <p className="text-[10px] text-gray-500">
-                        ({parseFloat(position.unrealized_pnl_pct).toFixed(2)}%)
+                        ({Number(livePnLByPositionId[position.id]?.pnlPercent ?? position.unrealized_pnl_pct ?? 0).toFixed(2)}%)
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleClose(position.id)}
-                      className="border-gray-700 text-gray-500 cursor-not-allowed text-xs h-8"
-                      disabled
-                    >
-                      Managed
-                    </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
           ))}
+          <PaperTablePagination
+            page={page}
+            count={filteredPositions.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={(nextPage) => setPage(Math.min(nextPage, pageCount))}
+          />
         </div>
       )}
     </div>

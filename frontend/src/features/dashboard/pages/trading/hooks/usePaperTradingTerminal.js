@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSelector } from "react-redux";
 import { toast } from "react-hot-toast";
 
-import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import tradingTerminalApi from "../services/tradingTerminalApi";
 
 export function usePaperTradingTerminal(initialSymbol = null) {
-  const { lastMessage } = useWebSocket();
+  const manualTradingTerminalUpdate = useSelector(
+    (state) => state.websocket.manualTradingTerminalUpdate,
+  );
   const refreshTimerRef = useRef(null);
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -49,15 +51,9 @@ export function usePaperTradingTerminal(initialSymbol = null) {
   }, [refreshSnapshot]);
 
   useEffect(() => {
-    if (!lastMessage) return;
+    if (!manualTradingTerminalUpdate) return;
 
-    const messageType = lastMessage.type;
-    if (
-      messageType === "order_update" ||
-      messageType === "order.update" ||
-      messageType === "position_update" ||
-      messageType === "position.update"
-    ) {
+    if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(manualTradingTerminalUpdate.event_type)) {
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
       }
@@ -65,7 +61,7 @@ export function usePaperTradingTerminal(initialSymbol = null) {
         refreshSnapshot();
       }, 150);
     }
-  }, [lastMessage, refreshSnapshot]);
+  }, [manualTradingTerminalUpdate, refreshSnapshot]);
 
   useEffect(
     () => () => {

@@ -22,22 +22,10 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { useEnums } from '@/shared/context/EnumsContext';
 
 // ── Constants ──
-const TYPE_FILTERS = [
-  { key: '', label: 'All', icon: null },
-  { key: 'STOCK', label: 'Equity' },
-  { key: 'INDEX', label: 'Index' },
-  { key: 'FUTURE', label: 'Futures' },
-  { key: 'OPTION', label: 'Options' },
-  { key: 'CURRENCY', label: 'Currency' },
-  { key: 'COMMODITY', label: 'Commodity' },
-  { key: 'ETF', label: 'ETF' },
-  { key: 'BOND', label: 'Bonds' },
-  { key: 'MF', label: 'Mutual Funds' },
-];
-
-const EXCHANGE_FILTERS = ['', 'NSE', 'BSE', 'MCX'];
+const TYPE_LABELS = { STOCK: 'Equity', FUTURE: 'Futures', OPTION: 'Options', BOND: 'Bonds' };
 
 const TYPE_COLORS = {
   STOCK: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
@@ -522,6 +510,15 @@ export default function AssetRulesEditor() {
   const navigate = useNavigate();
   const { notify } = useNotifications();
   const { setPageHeader } = usePageActions();
+  const { enums } = useEnums();
+  const typeFilters = [
+    { key: '', label: 'All' },
+    ...(enums.InstrumentType || []).map((type) => ({
+      key: type.value,
+      label: TYPE_LABELS[type.value] || type.label,
+    })),
+  ];
+  const exchangeFilters = ['', ...(enums.Exchange || []).map(({ value }) => value)];
 
   const [strategy, setStrategy] = useState(null);
   const [watchlist, setWatchlist] = useState([]);
@@ -670,7 +667,7 @@ export default function AssetRulesEditor() {
               
               {/* Type filter chips */}
               <div className="flex items-center gap-1 flex-wrap">
-                {TYPE_FILTERS.map(f => (
+                {typeFilters.map(f => (
                   <button
                     key={f.key}
                     onClick={() => setTypeFilter(f.key)}
@@ -686,7 +683,7 @@ export default function AssetRulesEditor() {
               </div>
               {/* Exchange pills */}
               <div className="flex items-center gap-0.5 bg-gray-800/40 rounded-lg p-0.5">
-                {EXCHANGE_FILTERS.map(ex => (
+                {exchangeFilters.map(ex => (
                   <button
                     key={ex}
                     onClick={() => setExchangeFilter(ex)}
@@ -785,7 +782,7 @@ export default function AssetRulesEditor() {
               {Object.keys(stats).length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
                   {Object.entries(stats).map(([type, count]) => {
-                    const label = TYPE_FILTERS.find(f => f.key === type)?.label || type;
+                    const label = typeFilters.find(f => f.key === type)?.label || type;
                     return (
                       <span key={type} className="flex items-center gap-1.5 bg-gray-900 px-2 py-0.5 rounded-md border border-gray-800">
                         <div className={`w-1.5 h-1.5 rounded-full ${TYPE_DOT[type] || 'bg-gray-500'}`} />

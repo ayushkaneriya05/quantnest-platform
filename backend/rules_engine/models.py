@@ -4,8 +4,9 @@ Rules Engine app - trading rules, signals, time filters, stop loss, and targets.
 from django.db import models
 from common.models import BaseTimestampModel
 from common.enums import (
-    CandleTimeframe, MarketSession, LogicalOperator,
-    RuleType, OperandType, ComparisonOperator, Timezone
+    CandleTimeframe, MarketSession, LogicalOperator, default_trading_days,
+    DEFAULT_TRADING_START_TIME, DEFAULT_TRADING_END_TIME,
+    RuleType, RuleGroupAction, OperandType, ComparisonOperator, Timezone
 )
 
 
@@ -22,7 +23,7 @@ class TimeRule(BaseTimestampModel):
     
     # Trading days (JSON array of weekday names)
     trading_days = models.JSONField(
-        default=list,
+        default=default_trading_days,
         help_text="List of trading days: ['Monday', 'Tuesday', ...]"
     )
     
@@ -37,11 +38,13 @@ class TimeRule(BaseTimestampModel):
     start_time = models.TimeField(
         null=True,
         blank=True,
+        default=DEFAULT_TRADING_START_TIME,
         help_text="Start time for trading (IST)"
     )
     end_time = models.TimeField(
         null=True,
         blank=True,
+        default=DEFAULT_TRADING_END_TIME,
         help_text="End time for trading (IST)"
     )
     
@@ -133,11 +136,7 @@ class RuleGroup(BaseTimestampModel):
     # Action (e.g., for Stop Loss and Target groups)
     action = models.CharField(
         max_length=50,
-        choices=[
-            ('EXIT_ALL', 'Exit Full Position'),
-            ('PARTIAL_EXIT', 'Partial Exit'),
-            ('MOVE_TO_BREAKEVEN', 'Move Stop Loss to Breakeven')
-        ],
+        choices=RuleGroupAction.choices,
         null=True,
         blank=True,
     )

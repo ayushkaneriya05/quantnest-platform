@@ -25,6 +25,7 @@ export const paperApi = {
   pauseSession: (id) => axiosInstance.post(`${BASE_URL}/sessions/${id}/pause/`),
   stopSession: (id, data = { close_positions: true }) => axiosInstance.post(`${BASE_URL}/sessions/${id}/stop/`, data),
   resumeSession: (id) => axiosInstance.post(`${BASE_URL}/sessions/${id}/resume/`),
+  configureSessionCosts: (id, data) => axiosInstance.post(`${BASE_URL}/sessions/${id}/configure-costs/`, data),
 
   // Allocations & Hot Swapping
   getAllocations: (params = {}) => axiosInstance.get(`${BASE_URL}/allocations/`, { params }),
@@ -37,7 +38,6 @@ export const paperApi = {
   // Orders
   getOrders: () => axiosInstance.get(`${BASE_URL}/orders/`),
   // placeOrder: (data) => axiosInstance.post(`${BASE_URL}/orders/place/`, data), // Handled via trading app endpoints for manual trading
-  cancelOrder: (id) => axiosInstance.post(`${BASE_URL}/orders/${id}/cancel/`),
 
   // Trades
   getTrades: () => axiosInstance.get(`${BASE_URL}/trades/`),

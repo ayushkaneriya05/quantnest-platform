@@ -420,6 +420,11 @@ class StrategyDeploymentService:
     @staticmethod
     def validate_for_deployment(strategy, mode='paper'):
         errors = []
+        if strategy.status != 'ACTIVE':
+            errors.append('Only active strategies can be deployed.')
+        mode_flag = 'paper_trading_enabled' if mode == 'paper' else 'live_trading_enabled'
+        if not getattr(strategy, mode_flag, False):
+            errors.append(f'{mode.title()} trading is disabled for this strategy.')
         if not strategy.watchlist_instruments.exists():
             errors.append('Add at least one instrument to the strategy watchlist.')
 
@@ -456,12 +461,20 @@ class StrategyDeploymentService:
         return errors
 
     @staticmethod
-    def activate_for_deployment(strategy):
-        # Validate no dynamic routing for first release
-        from instruments.services import InstrumentResolver
-        InstrumentResolver.validate_strategy_for_first_release(strategy)
-        
-        if strategy.status != 'ACTIVE':
-            strategy.status = 'ACTIVE'
-            strategy.save(update_fields=['status', 'updated_at'])
-        return strategy
+    def validate_strategy_lifecycle(strategy):
+        """Reject status changes while any deployment is running or paused."""
+        from paper_trading.models import PaperTradingSession
+        from live_trading.models import TradingSession
+
+        paper_count = PaperTradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED']).count()
+        live_count = TradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED']).count()
+        if paper_count or live_count:
+            modes = []
+            if paper_count:
+                modes.append(f'{paper_count} paper')
+            if live_count:
+                modes.append(f'{live_count} live')
+            raise ValueError(
+                f"Cannot change strategy status while {' and '.join(modes)} session(s) are running or paused. "
+                'Stop those sessions first.'
+            )

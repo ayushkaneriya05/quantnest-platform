@@ -53,14 +53,22 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Allocation not found'}, status=404)
 
         try:
+            PaperExecutionService._resolve_cost_configuration(
+                request.user,
+                request.data.get('slippage_pct', 0),
+                request.data.get('charge_profile'),
+                request.data.get('include_charges', True),
+            )
             paper_account = PortfolioService.ensure_paper_account_for_allocation(allocation, name=name)
-            from paper_trading.services import PaperExecutionService
             PaperExecutionService.deploy_session(
                 user=request.user,
                 strategy=strategy,
                 allocation=paper_account.allocation,
                 account=paper_account,
-                initial_status="STOPPED"
+                initial_status="STOPPED",
+                slippage_pct=request.data.get('slippage_pct', 0),
+                charge_profile_id=request.data.get('charge_profile'),
+                include_charges=request.data.get('include_charges', True),
             )
         except ValueError as e:
             return Response({'error': str(e)}, status=400)
@@ -165,23 +173,21 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
                 'message': 'Allocation has an associated paper account. Confirm deletion options.',
             }, status=status.HTTP_200_OK)
 
-        PortfolioService.deallocate_from_strategy(allocation)
+        try:
+            PortfolioService.deallocate_from_strategy(allocation)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'success': True, 'message': 'Allocation deleted'}, status=200)
 
     @action(detail=True, methods=['post'])
     def confirm_delete(self, request, pk=None):
         """Confirm allocation deletion with optional paper account deletion."""
         allocation = self.get_object()
-        paper_account = getattr(allocation, 'paper_account', None)
         delete_paper_account = request.data.get('delete_paper_account', False)
-
-        if paper_account and delete_paper_account:
-            can_delete, reason = PortfolioService.can_delete_paper_account(paper_account)
-            if not can_delete:
-                return Response({'error': reason}, status=status.HTTP_400_BAD_REQUEST)
-            paper_account.delete()
-
-        PortfolioService.deallocate_from_strategy(allocation)
+        try:
+            PortfolioService.deallocate_from_strategy(allocation, delete_paper_account=delete_paper_account is True)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'success': True, 'message': 'Allocation deleted'}, status=200)
 
     @action(detail=False, methods=['get'])
@@ -260,15 +266,29 @@ class DailyPerformanceViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(self.get_serializer(queryset, many=True).data)
 
 
-class PaperSessionViewSet(viewsets.ModelViewSet):
+class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for paper trading sessions."""
     serializer_class = PaperTradingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return PaperTradingSession.objects.filter(user=self.request.user).select_related(
-            'strategy', 'allocation', 'account'
+            'strategy', 'allocation', 'account', 'charge_profile'
         ).order_by('-updated_at')
+
+    @action(detail=True, methods=['post'], url_path='configure-costs')
+    def configure_costs(self, request, pk=None):
+        session = self.get_object()
+        try:
+            PaperExecutionService.configure_session_costs(
+                session,
+                slippage_pct=request.data.get('slippage_pct', session.slippage_pct),
+                charge_profile_id=request.data.get('charge_profile'),
+                include_charges=request.data.get('include_charges', session.include_charges),
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(session).data)
 
     @action(detail=True, methods=['post'])
     def pause(self, request, pk=None):
@@ -283,15 +303,18 @@ class PaperSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         if session.status == "STOPPED":
             return Response({"error": "Session is already STOPPED"}, status=status.HTTP_400_BAD_REQUEST)
-        PaperExecutionService.stop_session(session)
-        return Response({"status": "Stopped"})
+        _, remaining_positions = PaperExecutionService.stop_session(session)
+        return Response({"status": "Stopped", "remaining_positions": remaining_positions})
 
     @action(detail=True, methods=['post'])
     def resume(self, request, pk=None):
         session = self.get_object()
         if session.status == "RUNNING":
             return Response({"error": "Session is already RUNNING"}, status=status.HTTP_400_BAD_REQUEST)
-        PaperExecutionService.resume_session(session)
+        try:
+            PaperExecutionService.resume_session(session)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"status": "Resumed"})
 
 
@@ -301,10 +324,10 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PaperAccount.objects.filter(user=self.request.user)
+        return PaperAccount.objects.filter(user=self.request.user).select_related('allocation__strategy').prefetch_related('sessions')
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+    def create(self, request, *args, **kwargs):
+        return Response({'error': 'Create paper accounts from a strategy allocation so portfolio capital stays in sync.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def perform_update(self, serializer):
         serializer.save()
@@ -312,14 +335,10 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
     def destroy(self, request, pk=None):
         """Delete paper account with validation."""
         account = self.get_object()
-
-        # Check if can be deleted
-        can_delete, message = PortfolioService.can_delete_paper_account(account)
-        if not can_delete:
-            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Delete the account
-        account.delete()
+        try:
+            PortfolioService.delete_paper_account(account)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'success': True, 'message': 'Paper account deleted'}, status=200)
 
     @action(detail=False, methods=['get'])
@@ -334,9 +353,10 @@ class PaperAccountViewSet(viewsets.ModelViewSet):
     def reset(self, request, pk=None):
         """Reset account to initial balance."""
         account = self.get_object()
-        account.reset()
-        # Also close all positions (strategy-managed positions)
-        account.positions.all().delete()
+        try:
+            PortfolioService.reset_paper_account(account)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'success': True, 'message': 'Account reset'})
 
     @action(detail=True, methods=['post'])

@@ -1,155 +1,143 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, RefreshCw, ShieldAlert } from "lucide-react";
-
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
+import { formatNumber } from "@/shared/utils/formatters";
+import LiveTablePagination from "./components/LiveTablePagination";
+import LiveSyncStatus from "./components/LiveSyncStatus";
+import { formatBrokerAccount, formatDateTime as formatLiveDateTime } from "@/shared/utils/formatters";
 
-import { formatNumber, formatDateTime } from "@/shared/utils/formatters";
+const PAGE_SIZE = 25;
+const emptyPage = { count: 0, next: null, previous: null, results: [] };
+const responsePage = (response) => response.data?.results ? response.data : { ...emptyPage, results: Array.isArray(response.data) ? response.data : [] };
+const eventTone = (event) => {
+  if (["FILLED", "PLACED"].includes(event)) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  if (["REJECTED", "CANCELLED"].includes(event)) return "border-rose-500/30 bg-rose-500/10 text-rose-300";
+  if (event === "PARTIAL_FILL") return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+  return "border-slate-700 bg-slate-800/50 text-slate-300";
+};
+
+function Metric({ title, value, note, color = "text-white" }) {
+  return <Card className="border-slate-800 bg-slate-900/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 text-2xl font-semibold ${color}`}>{value}</p>{note && <p className="mt-1 text-xs text-slate-500">{note}</p>}</CardContent></Card>;
+}
 
 export default function ExecutionLogs() {
   const { notify } = useNotifications();
-  const [logs, setLogs] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [slippage, setSlippage] = useState([]);
+  const [summary, setSummary] = useState({});
+  const [logs, setLogs] = useState(emptyPage);
+  const [slippage, setSlippage] = useState(emptyPage);
+  const [logPage, setLogPage] = useState(1);
+  const [slippagePage, setSlippagePage] = useState(1);
+  const [eventType, setEventType] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const timer = useRef(null);
+  const loadDataRef = useRef(null);
 
-  const loadData = async () => {
+  const fetchLogs = useCallback(async (page = logPage, filter = eventType) => {
+    const response = await liveTradingApi.getLogs({ page, page_size: PAGE_SIZE, ...(filter ? { event_type: filter } : {}) });
+    setLogs(responsePage(response));
+    setLogPage(page);
+  }, [eventType, logPage]);
+  const fetchSlippage = useCallback(async (page = slippagePage) => {
+    const response = await liveTradingApi.getSlippage({ page, page_size: PAGE_SIZE });
+    setSlippage(responsePage(response));
+    setSlippagePage(page);
+  }, [slippagePage]);
+
+  const loadData = useCallback(async (spinner = true) => {
+    if (spinner) setLoading(true);
     try {
-      setLoading(true);
-      const [logsRes, ordersRes, slippageRes] = await Promise.all([
-        liveTradingApi.getLogs(),
-        liveTradingApi.getOrders(),
-        liveTradingApi.getSlippage(),
+      const [summaryResponse] = await Promise.all([
+        liveTradingApi.getSummary(), fetchLogs(logPage), fetchSlippage(slippagePage),
       ]);
-      setLogs(Array.isArray(logsRes.data?.results) ? logsRes.data.results : logsRes.data || []);
-      setOrders(Array.isArray(ordersRes.data?.results) ? ordersRes.data.results : ordersRes.data || []);
-      setSlippage(Array.isArray(slippageRes.data?.results) ? slippageRes.data.results : slippageRes.data || []);
+      setSummary(summaryResponse.data || {});
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load execution data");
+      notify.error(error?.response?.data?.detail || "Failed to load execution history");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [fetchLogs, fetchSlippage, logPage, notify, slippagePage]);
+  loadDataRef.current = loadData;
 
   const handleLiveUpdate = useCallback((payload) => {
-    if (payload?.event_type === "ORDER_UPDATE") {
-      liveTradingApi.getOrders().then(res => setOrders(Array.isArray(res.data?.results) ? res.data.results : res.data || [])).catch(console.error);
-      liveTradingApi.getLogs().then(res => setLogs(Array.isArray(res.data?.results) ? res.data.results : res.data || [])).catch(console.error);
-    }
-  }, []);
+    if (!["ORDER_UPDATE", "POSITION_UPDATE"].includes(payload?.event_type)) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      Promise.all([liveTradingApi.getSummary(), fetchLogs(logPage), fetchSlippage(slippagePage)])
+        .then(([response]) => setSummary(response.data || {}))
+        .catch((error) => console.error("Execution history refresh failed", error));
+    }, 200);
+  }, [fetchLogs, fetchSlippage, logPage, slippagePage]);
 
-  useLiveTradingWebSocket(handleLiveUpdate);
-
+  const { isConnected } = useLiveTradingWebSocket(handleLiveUpdate);
   useEffect(() => {
-    loadData();
+    loadDataRef.current?.();
+    const pollTimer = setInterval(() => loadDataRef.current?.(false), 30000);
+    return () => { if (timer.current) clearTimeout(timer.current); clearInterval(pollTimer); };
   }, []);
 
-  useSetPageActions(
-    <Button variant="outline" onClick={loadData} className="border-gray-700 text-gray-100">
-      <RefreshCw className="mr-2 h-4 w-4" />
-      Refresh
-    </Button>,
-  );
+  const refresh = useCallback(() => {
+    setRefreshing(true);
+    return loadData(false);
+  }, [loadData]);
+  const actions = useMemo(() => <div className="flex items-center gap-3"><div className="hidden sm:block"><LiveSyncStatus isConnected={isConnected} /></div><Button variant="outline" onClick={refresh} disabled={refreshing} className="border-gray-700 text-gray-100"><RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</Button></div>, [isConnected, refresh, refreshing]);
+  useSetPageActions(actions);
 
-  const summary = useMemo(() => {
-    const pending = orders.filter((order) => order.can_cancel).length;
-    const rejected = orders.filter((order) => order.status === "REJECTED").length;
-    const avgLatency = logs.length ? logs.reduce((sum, log) => sum + Number(log.latency_ms || 0), 0) / logs.length : 0;
-    const avgSlippage = slippage.length
-      ? slippage.reduce((sum, row) => sum + Number(row.slippage_pct || 0), 0) / slippage.length
-      : 0;
-    return { pending, rejected, avgLatency, avgSlippage };
-  }, [logs, orders, slippage]);
+  const metrics = useMemo(() => ({
+    open: Number(summary.open_orders || 0),
+    rejected: Number(summary.rejected_orders || 0),
+    latency: summary.avg_execution_latency_ms == null ? null : Number(summary.avg_execution_latency_ms),
+    slippage: summary.avg_slippage_pct == null ? null : Number(summary.avg_slippage_pct),
+  }), [summary]);
 
   return (
     <div className="container-padding space-y-6 py-6 lg:py-8">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-gray-800 bg-gray-900/60"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Pending Orders</p><p className="mt-2 text-2xl font-semibold text-amber-300">{summary.pending}</p></CardContent></Card>
-        <Card className="border-gray-800 bg-gray-900/60"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Rejected</p><p className="mt-2 text-2xl font-semibold text-red-300">{summary.rejected}</p></CardContent></Card>
-        <Card className="border-gray-800 bg-gray-900/60"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Avg Latency</p><p className="mt-2 text-2xl font-semibold text-cyan-300">{formatNumber(summary.avgLatency)} ms</p></CardContent></Card>
-        <Card className="border-gray-800 bg-gray-900/60"><CardContent className="p-5"><p className="text-xs uppercase tracking-[0.16em] text-gray-500">Avg Slippage</p><p className="mt-2 text-2xl font-semibold text-white">{formatNumber(summary.avgSlippage)}%</p></CardContent></Card>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric title="Active orders" value={metrics.open} note="Awaiting a terminal broker status" color="text-amber-300" />
+        <Metric title="Rejected orders" value={metrics.rejected} note="All recorded live orders" color="text-rose-300" />
+        <Metric title="Average event latency" value={metrics.latency == null ? "—" : `${formatNumber(metrics.latency)} ms`} note="Average of events with a measured latency" color="text-cyan-300" />
+        <Metric title="Average slippage" value={metrics.slippage == null ? "—" : `${formatNumber(metrics.slippage)}%`} note="Average across completed records" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card className="border-gray-800 bg-gray-900/60">
-          <CardHeader><CardTitle className="text-white">Recent Execution Events</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {loading ? (
-              <div className="py-8 text-center text-gray-400">Loading execution logs...</div>
-            ) : logs.length === 0 ? (
-              <div className="py-8 text-center text-gray-400">No execution logs yet.</div>
-            ) : logs.slice(0, 12).map((log) => (
-              <div key={log.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">{log.order_symbol}</p>
-                    <p className="mt-1 text-sm text-gray-400">{log.message || log.event_type}</p>
-                  </div>
-                  <Badge className="bg-cyan-500/10 text-cyan-300 border-cyan-500/20">{log.event_type}</Badge>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
-                  <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" /> {log.latency_ms || 0} ms</span>
-                  <span>Fill: {log.fill_quantity || 0} @ {log.fill_price || "-"}</span>
-                  <span>{formatDateTime(log.created_at)}</span>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <Card className="border-gray-800 bg-gray-900/60">
-            <CardHeader><CardTitle className="text-white">Actionable Orders</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {orders.filter((order) => order.can_cancel).slice(0, 8).map((order) => (
-                <div key={order.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">{order.instrument_symbol}</p>
-                      <p className="mt-1 text-xs text-gray-400">{order.strategy_name || "Manual"} • {order.side} {order.quantity}</p>
-                    </div>
-                    <Badge className="bg-amber-500/10 text-amber-300 border-amber-500/20">{order.status}</Badge>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between gap-3 text-xs text-gray-500">
-                    <span>Broker ID: {order.broker_order_id || "-"}</span>
-                  </div>
-                </div>
-              ))}
-              {!orders.some((order) => order.can_cancel) && !loading ? (
-                <div className="py-6 text-center text-sm text-gray-400">No pending live orders to cancel.</div>
-              ) : null}
-            </CardContent>
+      <Tabs defaultValue="events" className="space-y-4">
+        <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/60 p-1 sm:w-auto">
+          <TabsTrigger value="events" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">Order lifecycle</TabsTrigger>
+          <TabsTrigger value="slippage" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">Slippage</TabsTrigger>
+        </TabsList>
+        <TabsContent value="events" className="mt-0">
+          <Card className="overflow-hidden border-slate-800 bg-slate-900/50">
+            <CardHeader className="flex flex-col gap-2 space-y-0 border-b border-slate-800 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xl text-slate-300 font-semibold">Order Updates</p>
+              <Select value={eventType || "ALL"} onValueChange={(value) => { const next = value === "ALL" ? "" : value; setEventType(next); fetchLogs(1, next).catch(() => notify.error("Could not filter execution events")); }}>
+                <SelectTrigger className="h-9 w-full border-slate-700 bg-slate-950 text-slate-200 sm:w-48" aria-label="Filter event type"><SelectValue placeholder="All events" /></SelectTrigger>
+                <SelectContent><SelectItem value="ALL">All events</SelectItem><SelectItem value="CREATED">Created</SelectItem><SelectItem value="PLACED">Placed</SelectItem><SelectItem value="PARTIAL_FILL">Partial fill</SelectItem><SelectItem value="FILLED">Filled</SelectItem><SelectItem value="REJECTED">Rejected</SelectItem><SelectItem value="CANCELLED">Cancelled</SelectItem><SelectItem value="UNKNOWN">Unknown</SelectItem></SelectContent>
+              </Select>
+            </CardHeader>
+            {loading ? <CardContent className="py-10 text-center text-slate-400">Loading order events…</CardContent> : logs.results.length === 0 ? <CardContent className="py-12 text-center text-slate-400">No matching execution events.</CardContent> : <>
+              <CardContent className="divide-y divide-slate-800 p-0">{logs.results.map((log) => <div key={log.id} className="flex flex-wrap items-start justify-between gap-4 p-4"><div className="min-w-[220px]"><div className="flex items-center gap-2"><span className="font-semibold text-white">{log.order_symbol || "Order"}</span><Badge variant="outline" className={eventTone(log.event_type)}>{log.event_type}</Badge></div><p className="mt-1 text-xs text-slate-500">{formatBrokerAccount(log.broker_name, log.broker_label)}</p><p className="mt-1 text-sm text-slate-400">{log.message || "No additional broker message"}</p></div><div className="flex items-center gap-4 text-xs text-slate-500"><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{Number(log.latency_ms || 0)} ms</span><span>{formatLiveDateTime(log.created_at)}</span><span className="font-mono">Order #{log.order}</span></div></div>)}</CardContent>
+              <LiveTablePagination page={logPage} count={logs.count} onPageChange={(page) => fetchLogs(page).catch(() => notify.error("Could not load execution events"))} />
+            </>}
           </Card>
-
-          <Card className="border-gray-800 bg-gray-900/60">
-            <CardHeader><CardTitle className="text-white">Execution Quality</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {slippage.slice(0, 6).map((row) => (
-                <div key={row.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">{row.order_symbol}</p>
-                      <p className="mt-1 text-xs text-gray-400">Expected {row.expected_price} • Actual {row.actual_price}</p>
-                    </div>
-                    <Badge className="bg-gray-500/10 text-gray-200 border-gray-500/20">{formatNumber(row.slippage_pct)}%</Badge>
-                  </div>
-                </div>
-              ))}
-              {!slippage.length && !loading ? (
-                <div className="flex items-center gap-2 py-6 text-sm text-gray-400">
-                  <ShieldAlert className="h-4 w-4 text-cyan-300" />
-                  No slippage records yet.
-                </div>
-              ) : null}
-            </CardContent>
+        </TabsContent>
+        <TabsContent value="slippage" className="mt-0">
+          <Card className="overflow-hidden border-slate-800 bg-slate-900/50">
+            <CardHeader className="space-y-0 border-b border-slate-800 px-4 py-2"><p className="text-xl text-slate-300 font-semibold">Slippage</p></CardHeader>
+            {loading ? <CardContent className="py-10 text-center text-slate-400">Loading execution quality…</CardContent> : slippage.results.length === 0 ? <CardContent className="flex items-center justify-center gap-2 py-12 text-slate-400"><ShieldAlert className="h-4 w-4 text-cyan-300" />No completed slippage records.</CardContent> : <>
+              <CardContent className="divide-y divide-slate-800 p-0">{slippage.results.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-4 p-4"><div><p className="font-medium text-white">{row.order_symbol || "Order"}</p><p className="mt-1 text-xs text-slate-500">{formatBrokerAccount(row.broker_name, row.broker_label)}</p><p className="mt-1 text-xs text-slate-400">Expected ₹{formatNumber(Number(row.expected_price))} · Actual ₹{formatNumber(Number(row.actual_price))} · {formatLiveDateTime(row.created_at)}</p></div><div className="text-right"><p className="font-semibold text-slate-100">{formatNumber(Number(row.slippage_pct))}%</p><p className="text-xs text-slate-500">Total impact ₹{formatNumber(Number(row.slippage_amount))}</p></div></div>)}</CardContent>
+              <LiveTablePagination page={slippagePage} count={slippage.count} onPageChange={(page) => fetchSlippage(page).catch(() => notify.error("Could not load slippage records"))} />
+            </>}
           </Card>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

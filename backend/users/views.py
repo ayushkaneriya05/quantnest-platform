@@ -654,12 +654,8 @@ def _graceful_shutdown_user(user):
     # 1. Stop all live trading sessions (cancel pending orders, optionally close positions)
     LiveExecutionService.stop_all_sessions(user, close_positions=False)
     
-    # 2. Strategy status is no longer used for execution control, so we don't pause them.
     # 3. Cancel all pending paper orders
-    PaperOrder.objects.filter(
-        account__user=user, 
-        status='PENDING'
-    ).update(status='CANCELLED')
+    PaperOrder.objects.filter(account__user=user,  status='PENDING').update(status='CANCELLED')
     
     # 4. Deactivate paper accounts
     PaperAccount.objects.filter(user=user, is_active=True).update(is_active=False)
@@ -668,9 +664,7 @@ def _graceful_shutdown_user(user):
     BrokerCredential.objects.filter(user=user, is_active=True).update(is_active=False)
     
     # 6. Stop running backtests
-    BacktestRun.objects.filter(
-        user=user, status__in=['PENDING', 'RUNNING']
-    ).update(status='CANCELLED')
+    BacktestRun.objects.filter(user=user, status__in=['PENDING', 'RUNNING']).update(status='CANCELLED')
     
     
     # 8. Clean up Redis runtime state

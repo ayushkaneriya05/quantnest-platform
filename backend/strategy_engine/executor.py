@@ -368,7 +368,7 @@ class StrategyExecutor:
             start = parse_time(time_rule.get("start_time"))
             end = parse_time(time_rule.get("end_time"))
 
-            if start is None and end is None and not matches_market_session(current_time, session):
+            if not matches_market_session(current_time, session):
                 return True
             if start and current_time < start: return True
             if end and current_time > end: return True

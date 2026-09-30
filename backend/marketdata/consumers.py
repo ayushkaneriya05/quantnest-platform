@@ -94,15 +94,13 @@ class MarketDataConsumer(AsyncWebsocketConsumer):
         await self.send(json.dumps(event["message"]))
 
     async def order_update(self, event):
-        message = event.get("message")
-        if not isinstance(message, dict):
-            return
-        message["type"] = "order_update"
-        await self.send(text_data=json.dumps(message))
+        await self._send_trading_update(event, "ORDER_UPDATE")
 
     async def position_update(self, event):
+        await self._send_trading_update(event, "POSITION_UPDATE")
+
+    async def _send_trading_update(self, event, event_type):
         message = event.get("message")
-        if not isinstance(message, dict):
+        if not isinstance(message, dict) or message.get("event_type") != event_type:
             return
-        message["type"] = "position_update"
         await self.send(text_data=json.dumps(message))

@@ -21,7 +21,7 @@ import { liveTradingApi } from "@/shared/services/liveTradingApi";
 import { strategyApi } from "@/shared/services/strategyApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { formatDateTime } from "@/shared/utils/formatters";
+import { formatDateTime as formatLiveDateTime } from "@/shared/utils/formatters";
 
 export default function LiveHotSwapModal({
   session,
@@ -121,7 +121,7 @@ export default function LiveHotSwapModal({
                   )}
                   {versions.map((v) => (
                     <SelectItem key={v.id} value={v.id.toString()}>
-                      v{v.version_number} {v.created_at ? `(${formatDateTime(v.created_at)})` : ''} {session?.allocation?.version_id === v.id ? '(Deployed)' : ''}
+                      v{v.version_number} {v.created_at ? `(${formatLiveDateTime(v.created_at)})` : ''} {session?.allocation?.version_id === v.id ? '(Deployed)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -21,16 +21,15 @@ import { useEnums } from '@/shared/context/EnumsContext';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
-
-
-
 export default function TimeRulesEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { notify } = useNotifications();
   const { enums } = useEnums();
+  const DAYS = (enums.TradingDay || []).map(({ value }) => value);
+  const dayChoiceCount = DAYS.length;
+  const DAY_SHORT = Object.fromEntries((enums.TradingDay || []).map(({ value, label }) => [value, label.slice(0, 3)]));
+  const timeDefaults = enums.StrategyBuilderDefaults?.time_rule || {};
   const { setPageHeader } = usePageActions(); // Use context
   
   const [strategy, setStrategy] = useState(null);
@@ -40,12 +39,12 @@ export default function TimeRulesEditor() {
   const [eventFilter, setEventFilter] = useState(null);
   
   const [formData, setFormData] = useState({
-    trading_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-    market_session: 'ALL',
-    start_time: '09:15',
-    end_time: '15:30',
-    candle_timeframe: '5m',
-    timezone: 'Asia/Kolkata',
+    trading_days: timeDefaults.trading_days || [],
+    market_session: timeDefaults.market_session || 'ALL',
+    start_time: timeDefaults.start_time || '',
+    end_time: timeDefaults.end_time || '',
+    candle_timeframe: timeDefaults.candle_timeframe || '5m',
+    timezone: timeDefaults.timezone || 'Asia/Kolkata',
     avoid_earnings: false,
     avoid_news: false,
     avoid_rbi_policy: false,
@@ -56,6 +55,12 @@ export default function TimeRulesEditor() {
   useEffect(() => {
     if (id) fetchData();
   }, [id]);
+
+  useEffect(() => {
+    if (!loading && timeRule && dayChoiceCount && !timeRule.trading_days?.length) {
+      setFormData((prev) => ({ ...prev, trading_days: DAYS }));
+    }
+  }, [dayChoiceCount, loading, timeRule]);
 
   // Set Navigation in Header
   useEffect(() => {
@@ -78,10 +83,12 @@ export default function TimeRulesEditor() {
         setTimeRule(rule);
         setFormData(prev => ({
           ...prev,
-          trading_days: rule.trading_days || DAYS,
+          trading_days: Array.isArray(rule.trading_days)
+            ? (rule.trading_days.length ? rule.trading_days : DAYS)
+            : timeDefaults.trading_days ?? DAYS,
           market_session: rule.market_session || 'ALL',
-          start_time: rule.start_time || '09:15',
-          end_time: rule.end_time || '15:30',
+          start_time: rule.start_time || '',
+          end_time: rule.end_time || '',
           candle_timeframe: rule.candle_timeframe || '5m',
           timezone: rule.timezone || 'Asia/Kolkata',
           no_trade_windows: rule.no_trade_windows || [],
@@ -157,6 +164,7 @@ export default function TimeRulesEditor() {
 
   const getTradingDuration = () => {
     try {
+      if (!formData.start_time || !formData.end_time) return null;
       const [sh, sm] = formData.start_time.split(':').map(Number);
       const [eh, em] = formData.end_time.split(':').map(Number);
       let mins = (eh * 60 + em) - (sh * 60 + sm);
@@ -282,7 +290,12 @@ export default function TimeRulesEditor() {
               <Label className="text-xs text-gray-500">Session</Label>
               <Select 
                 value={formData.market_session} 
-                onValueChange={(v) => setFormData({ ...formData, market_session: v })}
+                onValueChange={(v) => setFormData({
+                  ...formData,
+                  market_session: v,
+                  start_time: v === 'ALL' ? (formData.start_time || timeDefaults.start_time || '') : '',
+                  end_time: v === 'ALL' ? (formData.end_time || timeDefaults.end_time || '') : '',
+                })}
               >
                 <SelectTrigger className="bg-gray-800/60 border-gray-700 h-9 text-sm">
                   <SelectValue />
@@ -337,7 +350,7 @@ export default function TimeRulesEditor() {
           </div>
 
           {/* Visual timeline bar */}
-          <div className="pt-2">
+          {formData.start_time && formData.end_time && <div className="pt-2">
             <div className="relative h-3 bg-gray-800/60 rounded-full overflow-hidden border border-gray-700/50">
               {(() => {
                 const [sh, sm] = formData.start_time.split(':').map(Number);
@@ -385,7 +398,7 @@ export default function TimeRulesEditor() {
               <span className="text-[10px] text-gray-600">18:00</span>
               <span className="text-[10px] text-gray-600">23:59</span>
             </div>
-          </div>
+          </div>}
           
           {/* No Trade Windows Builder */}
           <div className="pt-4 border-t border-gray-800/80">
@@ -473,7 +486,7 @@ export default function TimeRulesEditor() {
       </div>
       <StrategyFooter
         onSave={handleSave}
-        onCancel={() => navigate(`/dashboard/strategy/${id}/edit`)}
+        onCancel={() => navigate('/dashboard/strategy/list')}
         saving={saving}
         saveLabel="Save Time Rules"
         savingLabel="Saving..."

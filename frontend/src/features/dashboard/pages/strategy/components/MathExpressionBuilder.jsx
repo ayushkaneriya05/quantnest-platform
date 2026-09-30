@@ -1,11 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
-import { X, Delete, Calculator, Check, Activity, Edit2, Play } from 'lucide-react';
-import OperandSelector, { PARAM_CONFIG } from './OperandSelector';
+import { Delete, Calculator, Check, Activity, Edit2 } from 'lucide-react';
+import OperandSelector from './OperandSelector';
+import { getDefaultParams } from './operandUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/components/ui/tooltip';
 
-export default function MathExpressionBuilder({ value, onChange }) {
+export default function MathExpressionBuilder({
+  value,
+  onChange,
+  parameterConfig = {},
+  allowedVariableTypes = [],
+  ruleType,
+}) {
   // Parse initial value into tokens
   const initialTokens = useMemo(() => {
     if (!value || !value.expression) return [];
@@ -22,10 +29,11 @@ export default function MathExpressionBuilder({ value, onChange }) {
   }, [value]);
 
   const [tokens, setTokens] = useState(initialTokens);
+  useEffect(() => setTokens(initialTokens), [initialTokens]);
 
   // Modal state for variable editor
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingToken, setEditingToken] = useState(null); // The token being edited/created
+  const [editingToken, setEditingToken] = useState(null);
 
   // Internal state for the editor
   const [editType, setEditType] = useState("");
@@ -184,13 +192,12 @@ export default function MathExpressionBuilder({ value, onChange }) {
   }, [tokens]);
 
   const calcButtons = [
-    '(', ')', '/', '*',
-    '7', '8', '9', '-',
-    '4', '5', '6', '+',
-    '1', '2', '3', '.',
-    '0'
+    "(", ")", "/", "*",
+    "7", "8", "9", "-",
+    "4", "5", "6", "+",
+    "1", "2", "3", ".",
+    "0",
   ];
-
   return (
     <div className="w-full space-y-3 bg-black/20 p-3 rounded-lg border border-gray-800/50">
       
@@ -224,7 +231,7 @@ export default function MathExpressionBuilder({ value, onChange }) {
           >
             <Activity className="w-4 h-4 mr-2" />
             <span className="text-xs font-semibold tracking-wide">
-              + Add Indicator
+              + Add Variable / Indicator
             </span>
           </Button>
 
@@ -343,14 +350,14 @@ export default function MathExpressionBuilder({ value, onChange }) {
               <Calculator className="w-5 h-5" />
               {editingToken
                 ? `Edit ${editingToken.name}`
-                : "Configure New Indicator"}
+                : "Configure New Variable / Indicator"}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="bg-black/30 p-4 rounded-lg border border-gray-800">
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">
-                Select Indicator Type
+                Select Variable / Indicator Type
               </label>
               <OperandSelector
                 value={editType}
@@ -359,16 +366,14 @@ export default function MathExpressionBuilder({ value, onChange }) {
                 onChangeType={(v) => {
                   setEditType(v);
                   // Reset params to defaults when type changes
-                  const defaults = {};
-                  (PARAM_CONFIG[v] || []).forEach(
-                    (p) => (defaults[p.key] = p.default),
-                  );
-                  setEditParams(defaults);
+                  setEditParams(getDefaultParams(v, parameterConfig));
                   setEditTimeframe(null);
                 }}
+                ruleType={ruleType}
+                allowedValues={allowedVariableTypes}
                 onChangeParams={setEditParams}
                 onChangeTimeframe={setEditTimeframe}
-                placeholder="Choose Indicator..."
+                placeholder="Choose Variable / Indicator..."
               />
             </div>
           </div>
@@ -386,7 +391,7 @@ export default function MathExpressionBuilder({ value, onChange }) {
               disabled={!editType}
               className="bg-indigo-600 hover:bg-indigo-700 text-white"
             >
-              Save Indicator
+              Save Variable
             </Button>
           </DialogFooter>
         </DialogContent>

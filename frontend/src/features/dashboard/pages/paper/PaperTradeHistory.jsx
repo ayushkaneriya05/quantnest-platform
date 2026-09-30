@@ -12,20 +12,32 @@ import {
 } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
+import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
+import PaperTablePagination from "./components/PaperTablePagination";
+
+const PAGE_SIZE = 10;
 
 export default function PaperTradeHistory({ selectedAccountId }) {
   const { notify } = useNotifications();
+  const lastMessage = usePaperTradingUpdate();
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [pnlMode, setPnlMode] = useState("net");
+  const [page, setPage] = useState(1);
 
   const totalCharges = (trade) =>
     Number(trade.charges_breakdown?.total ?? trade.charges_json?.total_charges ?? 0);
 
   const displayPnl = (trade) =>
     pnlMode === "net" ? Number(trade.net_pnl || 0) : Number(trade.net_pnl || 0) + totalCharges(trade);
+
+  const displayPnlPercent = (trade) => {
+    const entryValue = Number(trade.entry_price || 0) * Number(trade.quantity || 0);
+    return entryValue ? (displayPnl(trade) / entryValue) * 100 : 0;
+  };
 
   const fetchData = async () => {
     try {
@@ -42,12 +54,18 @@ export default function PaperTradeHistory({ selectedAccountId }) {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(lastMessage?.event_type)) {
+      fetchData();
+    }
+  }, [lastMessage]);
+
   const filteredTrades = useMemo(
     () =>
       trades.filter((trade) => {
         if (String(trade.account) !== String(selectedAccountId)) return false;
-        if (filter === "winning" && !trade.is_winner) return false;
-        if (filter === "losing" && trade.is_winner) return false;
+        if (filter === "winning" && displayPnl(trade) <= 0) return false;
+        if (filter === "losing" && displayPnl(trade) >= 0) return false;
         if (
           search &&
           !trade.instrument_symbol?.toLowerCase().includes(search.toLowerCase())
@@ -55,8 +73,15 @@ export default function PaperTradeHistory({ selectedAccountId }) {
           return false;
         return true;
       }),
-    [filter, search, selectedAccountId, trades],
+    [filter, pnlMode, search, selectedAccountId, trades],
   );
+
+  useEffect(() => setPage(1), [filter, pnlMode, search, selectedAccountId]);
+  const pageCount = Math.max(1, Math.ceil(filteredTrades.length / PAGE_SIZE));
+  const pageTrades = filteredTrades.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   const analytics = useMemo(() => {
     const total = filteredTrades.length;
@@ -78,21 +103,6 @@ export default function PaperTradeHistory({ selectedAccountId }) {
       losing_trades: losers.length,
     };
   }, [filteredTrades, pnlMode]);
-
-  const formatCurrency = (value) =>
-    new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(value || 0);
-
-  const formatTime = (dateString) =>
-    new Date(dateString).toLocaleString("en-IN", {
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
 
   const formatDuration = (seconds) => {
     if (seconds < 60) return `${seconds}s`;
@@ -202,18 +212,18 @@ export default function PaperTradeHistory({ selectedAccountId }) {
         </Card>
       ) : (
         <div className="space-y-3">
-          {filteredTrades.map((trade) => (
+          {pageTrades.map((trade) => (
             <Card
               key={trade.id}
-              className={`bg-gray-900/50 border-gray-800 overflow-hidden ${trade.is_winner ? "border-l-4 border-l-emerald-500" : "border-l-4 border-l-rose-500"}`}
+              className={`bg-gray-900/50 border-gray-800 overflow-hidden ${displayPnl(trade) > 0 ? "border-l-4 border-l-emerald-500" : displayPnl(trade) < 0 ? "border-l-4 border-l-rose-500" : "border-l-4 border-l-gray-600"}`}
             >
               <CardContent className="py-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div
-                      className={`p-2 rounded-lg ${trade.is_winner ? "bg-emerald-500/10" : "bg-rose-500/10"}`}
+                      className={`p-2 rounded-lg ${displayPnl(trade) >= 0 ? "bg-emerald-500/10" : "bg-rose-500/10"}`}
                     >
-                      {trade.is_winner ? (
+                      {displayPnl(trade) >= 0 ? (
                         <TrendingUp className="h-5 w-5 text-emerald-400" />
                       ) : (
                         <TrendingDown className="h-5 w-5 text-rose-400" />
@@ -250,13 +260,13 @@ export default function PaperTradeHistory({ selectedAccountId }) {
                     <div className="text-right">
                       <p className="text-[10px] text-gray-500 uppercase tracking-wider">Entry</p>
                       <p className="text-white text-sm font-mono">
-                        ₹{parseFloat(trade.entry_price).toFixed(2)}
+                        {formatCurrency(trade.entry_price)}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] text-gray-500 uppercase tracking-wider">Exit</p>
                       <p className="text-white text-sm font-mono">
-                        ₹{parseFloat(trade.exit_price).toFixed(2)}
+                        {formatCurrency(trade.exit_price)}
                       </p>
                     </div>
                     <div className="text-right hidden sm:block">
@@ -279,7 +289,7 @@ export default function PaperTradeHistory({ selectedAccountId }) {
                         {formatCurrency(displayPnl(trade))}
                       </p>
                       <p className="text-[11px] text-gray-500">
-                        {parseFloat(trade.pnl_pct).toFixed(2)}%
+                        {displayPnlPercent(trade).toFixed(2)}%
                       </p>
                     </div>
                   </div>
@@ -287,10 +297,10 @@ export default function PaperTradeHistory({ selectedAccountId }) {
                 <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-800/50 text-[11px] text-gray-500">
                   <span className="flex items-center gap-1.5">
                     <Calendar className="h-3 w-3" />
-                    Entry: {formatTime(trade.entry_time)}
+                    Entry: {formatDateTime(trade.entry_time)}
                   </span>
                   <span className="hidden sm:inline">•</span>
-                  <span>Exit: {formatTime(trade.exit_time)}</span>
+                  <span>Exit: {formatDateTime(trade.exit_time)}</span>
                   {trade.exit_reason && (
                     <Badge variant="outline" className="ml-auto border-gray-800 text-gray-600 text-[10px]">
                       {trade.exit_reason}
@@ -300,6 +310,12 @@ export default function PaperTradeHistory({ selectedAccountId }) {
               </CardContent>
             </Card>
           ))}
+          <PaperTablePagination
+            page={page}
+            count={filteredTrades.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={(nextPage) => setPage(Math.min(nextPage, pageCount))}
+          />
         </div>
       )}
     </div>

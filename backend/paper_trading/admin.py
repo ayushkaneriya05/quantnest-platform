@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import PaperAccount, PaperPosition, PaperOrder, PaperTrade, Portfolio
+from .models import PaperAccount, PaperPosition, PaperOrder, PaperTrade, Portfolio, PaperTradingSession
 
 @admin.register(Portfolio)
 class PortfolioAdmin(admin.ModelAdmin):
@@ -36,3 +36,9 @@ class PaperTradeAdmin(admin.ModelAdmin):
     list_filter = ['side', 'exit_reason']
     search_fields = ['instrument__symbol']
     readonly_fields = ['created_at', 'updated_at']
+
+@admin.register(PaperTradingSession)
+class PaperTradingSessionAdmin(admin.ModelAdmin):
+    list_display = ['user','allocation', 'status', 'started_at', 'ended_at']
+    search_fields = ['user__username']
+    readonly_fields = ['started_at', 'ended_at']

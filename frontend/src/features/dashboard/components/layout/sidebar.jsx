@@ -358,12 +358,6 @@ export default function Sidebar() {
                   label="Execution Logs"
                   currentPath={pathname}
                 />
-                <SidebarLink
-                  to="/dashboard/live/emergency"
-                  icon={Shield}
-                  label="Emergency Control"
-                  currentPath={pathname}
-                />
               </div>
             )}
           </div>

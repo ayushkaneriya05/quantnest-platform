@@ -1,565 +1,129 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Activity,
-  AlertTriangle,
-  Pause,
-  Play,
-  RefreshCw,
-  RotateCw,
-  Power,
-  Zap,
-  Settings,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
-
+import { AlertTriangle, Clock3, Pause, Play, RefreshCw, RotateCw, Settings, Zap, ShieldX } from "lucide-react";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
-import { Card, CardContent } from "@/shared/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
-import { useWebSocket } from "@/shared/hooks/useWebSocket";
-import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
+import { useLiveTradingData } from "./hooks/useLiveTradingData";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
-import LivePositionsTable from "./LivePositionsTable";
-import LiveOrdersTable from "./LiveOrdersTable";
 import LiveAllocationUpdateModal from "./components/LiveAllocationUpdateModal";
 import LiveHotSwapModal from "./components/LiveHotSwapModal";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/shared/components/ui/tabs";
-import { formatNumber, formatDateTime } from "@/shared/utils/formatters";
+import LiveSyncStatus from "./components/LiveSyncStatus";
+import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
 import { statusTone } from "@/shared/constants/statusColors";
+import { customConfirm } from "@/shared/components/ui/custom-dialog";
 
 export default function LiveStrategies() {
   const navigate = useNavigate();
   const { notify } = useNotifications();
-  const { connectionStatus } = useWebSocket();
-  const [sessions, setSessions] = useState([]);
-  const [expandedSession, setExpandedSession] = useState(null);
-  const [positions, setPositions] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const data = useLiveTradingData({ notify });
   const [busyAction, setBusyAction] = useState("");
-  const [allocationModal, setAllocationModal] = useState({
-    open: false,
-    session: null,
-  });
-  const [hotSwapModal, setHotSwapModal] = useState({
-    open: false,
-    session: null,
-  });
-
-  const loadData = useCallback(async () => {
+  const [allocationSession, setAllocationSession] = useState(null);
+  const [versionSession, setVersionSession] = useState(null);
+  const runAction = async (key, action, success) => {
     try {
-      setLoading(true);
-      const [sessionsRes, positionsRes, ordersRes] = await Promise.all([
-        liveTradingApi.getSessions(),
-        liveTradingApi.getPositions(),
-        liveTradingApi.getOrders(),
-      ]);
-      setSessions(
-        Array.isArray(sessionsRes.data?.results)
-          ? sessionsRes.data.results
-          : sessionsRes.data || [],
-      );
-      setPositions(positionsRes.data || []);
-      setOrders(ordersRes.data?.results || ordersRes.data || []);
+      setBusyAction(key);
+      const response = await action();
+      notify.success(success(response));
+      await data.loadData(false);
     } catch (error) {
-      notify.error(
-        error?.response?.data?.detail || "Failed to load live strategies",
-      );
+      notify.error(error?.response?.data?.detail || error?.response?.data?.error || "Live strategy action failed");
     } finally {
-      setLoading(false);
+      setBusyAction("");
     }
-  }, [notify]);
+  };
 
-  const handleLiveUpdate = useCallback((payload) => {
-    if (payload?.event_type === "SESSION_UPDATE" && payload?.data?.session_id) {
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === payload.data.session_id
-            ? { ...s, status: payload.data.status }
-            : s,
-        ),
-      );
-    } else if (
-      payload?.event_type === "ORDER_UPDATE" ||
-      payload?.event_type === "POSITION_UPDATE"
-    ) {
-      liveTradingApi
-        .getPositions()
-        .then((res) => setPositions(res.data || []))
-        .catch(console.error);
-      liveTradingApi
-        .getOrders()
-        .then((res) => setOrders(res.data?.results || res.data || []))
-        .catch(console.error);
-    }
-  }, []);
+  const stopAndClose = async (session, alreadyStopped = false) => {
+    const title = alreadyStopped ? "Close remaining positions?" : "Stop strategy and close positions?";
+    const message = alreadyStopped
+      ? `This submits market exit orders for open positions in ${session.strategy_name || "this deployment"}. Broker confirmation can arrive asynchronously; reconcile before assuming exposure is flat.`
+      : `This stops new entries for ${session.strategy_name || "this deployment"} and submits market exit orders for its open positions. Broker confirmation can arrive asynchronously; reconcile before assuming exposure is flat.`;
+    const action = alreadyStopped ? "Close positions" : "Stop & close";
+    if (!(await customConfirm(message, title, action))) return;
+    await runAction(`close-${session.id}`, () => liveTradingApi.stopSession(session.id, { close_positions: true }), () => `${action} requests submitted`);
+  };
 
-  const { isConnected: isLiveWsConnected } =
-    useLiveTradingWebSocket(handleLiveUpdate);
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const runAction = useCallback(
-    async (key, action, successMessage) => {
-      try {
-        setBusyAction(key);
-        await action();
-        if (successMessage) notify.success(successMessage);
-        await loadData();
-      } catch (error) {
-        notify.error(
-          error?.response?.data?.detail || "Live trading action failed",
-        );
-      } finally {
-        setBusyAction("");
-      }
-    },
-    [notify, loadData],
-  );
-
-  const pageActions = useMemo(
-    () => (
-      <>
-        <div className="hidden lg:flex items-center gap-4 mr-2 text-xs font-medium border-r border-gray-700 pr-4">
-          <div className="flex items-center gap-1.5">
-            <div
-              className={`h-2 w-2 rounded-full ${connectionStatus === "connected" ? "bg-emerald-500" : "bg-amber-500"}`}
-            />
-            <span
-              className={
-                connectionStatus === "connected"
-                  ? "text-emerald-400"
-                  : "text-amber-400"
-              }
-            >
-              {connectionStatus === "connected"
-                ? "Market Data"
-                : "Market Data Offline"}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div
-              className={`h-2 w-2 rounded-full ${isLiveWsConnected ? "bg-emerald-500" : "bg-amber-500"}`}
-            />
-            <span
-              className={
-                isLiveWsConnected ? "text-emerald-400" : "text-amber-400"
-              }
-            >
-              {isLiveWsConnected ? "Live Feed" : "Feed Offline"}
-            </span>
-          </div>
-        </div>
-        <Button
-          onClick={() => navigate("/dashboard/strategy/list")}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white"
-        >
-          <Zap className="mr-2 h-4 w-4" />
-          Deploy Strategy
-        </Button>
-        <Button
-          variant="outline"
-          onClick={loadData}
-          className="border-gray-700 text-gray-100"
-        >
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
-        <Button
-          className="bg-red-600 hover:bg-red-500"
-          onClick={() =>
-            runAction(
-              "stop-all",
-              () => liveTradingApi.stopAllSessions({ close_positions: false }),
-              "All live sessions stopped",
-            )
-          }
-          disabled={busyAction === "stop-all"}
-        >
-          <Power className="mr-2 h-4 w-4" />
-          Stop All
-        </Button>
-      </>
-    ),
-    [
-      busyAction,
-      connectionStatus,
-      isLiveWsConnected,
-      navigate,
-      loadData,
-      runAction,
-    ],
-  );
-
+  const pageActions = useMemo(() => (
+    <>
+      <div className="hidden lg:block"><LiveSyncStatus isConnected={data.isConnected} /></div>
+      <Button onClick={() => navigate("/dashboard/strategy/list")} className="bg-indigo-600 text-white hover:bg-indigo-500"><Zap className="mr-2 h-4 w-4" />Deploy strategy</Button>
+      <Button variant="outline" onClick={data.refresh} disabled={data.refreshing} className="border-gray-700 text-gray-100"><RefreshCw className={`mr-2 h-4 w-4 ${data.refreshing ? "animate-spin" : ""}`} />Refresh</Button>
+    </>
+  ), [data.isConnected, data.refresh, data.refreshing, navigate]);
   useSetPageActions(pageActions);
+
+  const activeCount = data.sessions.filter((session) => session.status === "RUNNING").length;
+  const pausedCount = data.sessions.filter((session) => session.status === "PAUSED").length;
+  const attentionCount = data.sessions.filter((session) => !session.broker_session_valid && session.status !== "STOPPED").length;
 
   return (
     <div className="container-padding space-y-6 py-6 lg:py-8">
-      {(!isLiveWsConnected || connectionStatus !== "connected") && (
-        <div className="rounded-xl border border-red-900/50 bg-red-500/10 p-4 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-sm font-medium text-red-200">
-              API Outage / Connection Lost
-            </h4>
-            <p className="text-xs text-red-300/80 mt-1">
-              Live market feed or broker API connection is currently down. Order
-              execution and status updates may be delayed.
-            </p>
-          </div>
-        </div>
-      )}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="border-slate-800 bg-slate-900/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Running</p><p className="mt-2 text-2xl font-semibold text-emerald-400">{activeCount}</p></CardContent></Card>
+        <Card className="border-slate-800 bg-slate-900/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Paused</p><p className="mt-2 text-2xl font-semibold text-amber-300">{pausedCount}</p></CardContent></Card>
+        <Card className="border-slate-800 bg-slate-900/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Authentication attention</p><p className="mt-2 text-2xl font-semibold text-rose-300">{attentionCount}</p><p className="mt-1 text-xs text-slate-500">Expired or unavailable broker session</p></CardContent></Card>
+      </div>
 
-      {loading ? (
-        <Card className="border-gray-800 bg-gray-900/60">
-          <CardContent className="py-12 text-center text-gray-400">
-            Loading live sessions...
-          </CardContent>
-        </Card>
-      ) : sessions.length === 0 ? (
-        <Card className="border-gray-800 bg-gray-900/60">
-          <CardContent className="py-12 text-center text-gray-400">
-            No live strategies deployed yet. Deploy from the strategy list into
-            a connected broker account.
-          </CardContent>
-        </Card>
+      {data.loading ? (
+        <Card className="border-gray-800 bg-gray-900/60"><CardContent className="py-12 text-center text-gray-400">Loading live deployments…</CardContent></Card>
+      ) : data.sessions.length === 0 ? (
+        <Card className="border-gray-800 bg-gray-900/60"><CardContent className="py-14 text-center"><Zap className="mx-auto mb-3 h-8 w-8 text-slate-600" /><p className="text-slate-300">No live deployments</p><p className="mt-1 text-sm text-slate-500">Deploy a strategy to a connected broker account to see it here.</p></CardContent></Card>
       ) : (
         <div className="space-y-3">
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              className="border border-gray-800 bg-gray-900/60 rounded-xl overflow-hidden shadow-lg transition-all"
-            >
-              {/* Compact Header Row */}
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between p-4 gap-4 hover:bg-gray-800/30 transition-colors">
-                {/* Identity & Status */}
-                <div className="flex items-center gap-4 flex-1">
-                  <div className="flex-shrink-0 min-w-[80px] flex justify-center">
-                    <Badge
-                      className={`px-3 py-1.5 text-xs font-semibold text-center flex flex-col items-center leading-tight gap-0.5 ${
-                        statusTone[session.status] || statusTone.STOPPED
-                      }`}
-                    >
-                      {session.status === "PAUSED" ? (
-                        <>
-                          <span>Paused</span>
-                          <span className="text-[10px] opacity-80 font-medium">
-                            (Exits Active)
-                          </span>
-                        </>
-                      ) : (
-                        session.status
-                      )}
-                    </Badge>
+          {data.sessions.map((session) => {
+            const canClose = ["RUNNING", "PAUSED", "ERROR"].includes(session.status);
+            const allocation = session.allocation;
+            const brokerHealth = data.summary?.broker_accounts?.find((account) => String(account.credential_id) === String(session.broker_credential));
+            return <Card key={session.id} className="overflow-hidden border-slate-800 bg-slate-900/50">
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex min-w-[220px] items-start gap-3">
+                    <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-2.5"><Zap className="h-5 w-5 text-indigo-300" /></div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2"><CardTitle className="text-lg text-white">{session.strategy_name || `Strategy #${session.strategy}`}</CardTitle>{allocation?.version_number && <Badge className="border-indigo-500/30 bg-indigo-500/10 text-indigo-300">v{allocation.version_number}</Badge>}<Badge className={statusTone[session.status] || statusTone.STOPPED}>{session.status}</Badge></div>
+                      <p className="mt-1 text-sm text-slate-400">{formatBrokerAccount(session.broker_name, session.broker_label)}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-medium text-white flex items-center gap-2">
-                      {session.strategy_name}
-                      {session.allocation?.version_number && (
-                        <Badge className="bg-indigo-500/20 text-indigo-300 border-indigo-500/30 text-[10px] px-1.5 py-0.5 font-mono">
-                          v{session.allocation?.version_number}
-                        </Badge>
-                      )}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {session.broker_label ||
-                        session.broker_name ||
-                        "No broker"}
-                    </p>
+                  <div className="flex flex-wrap gap-2">
+                    {session.status === "RUNNING" && <Button size="sm" variant="outline" onClick={() => runAction(`pause-${session.id}`, () => liveTradingApi.pauseSession(session.id), () => "Deployment paused")} disabled={busyAction === `pause-${session.id}`}><Pause className="mr-2 h-4 w-4" />Pause</Button>}
+                    {session.status === "PAUSED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`resume-${session.id}`, () => liveTradingApi.resumeSession(session.id), () => "Deployment resumed")} disabled={busyAction === `resume-${session.id}`}><Play className="mr-2 h-4 w-4" />Resume</Button>}
+                    {session.status === "STOPPED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`start-${session.id}`, () => liveTradingApi.startSession(session.id), () => "Deployment started")} disabled={busyAction === `start-${session.id}`}><Play className="mr-2 h-4 w-4" />Start</Button>}
+                    {!["RUNNING", "STOPPING"].includes(session.status) && (session.strategy_status !== "ACTIVE" || !session.live_trading_enabled) && <span className="px-2 py-2 text-xs text-amber-300">Activate the strategy and enable live trading to resume.</span>}
+                    {canClose && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session)} disabled={Boolean(busyAction)}><ShieldX className="mr-2 h-4 w-4" />Stop &amp; close</Button>}
+                    {session.status === "STOPPED" && Number(session.open_positions || 0) > 0 && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session, true)} disabled={Boolean(busyAction)}><ShieldX className="mr-2 h-4 w-4" />Close remaining</Button>}
+                    {allocation && <Button size="sm" variant="outline" onClick={() => setAllocationSession(session)}><Settings className="mr-2 h-4 w-4" />Allocation</Button>}
+                    {allocation && <Button size="sm" variant="outline" onClick={() => setVersionSession(session)}><RotateCw className="mr-2 h-4 w-4" />Version</Button>}
+                    <Button size="sm" variant="outline" onClick={() => runAction(`sync-${session.id}`, () => liveTradingApi.syncSession(session.id), (response) => `Reconciled ${response.data?.synced_orders || 0} orders and ${response.data?.synced_positions || 0} positions`)} disabled={busyAction === `sync-${session.id}`}><RefreshCw className="mr-2 h-4 w-4" />Reconcile</Button>
                   </div>
                 </div>
-
-                {/* Key Metrics */}
-                <div className="flex items-center gap-6 lg:gap-8 flex-1 justify-between lg:justify-center text-sm">
-                  <div className="text-center">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">
-                      P&L
-                    </p>
-                    <p
-                      className={`font-medium ${Number(session.pnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}
-                    >
-                      Rs {formatNumber(session.pnl)}
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">
-                      Trades
-                    </p>
-                    <p className="text-gray-200 font-medium">
-                      {session.trades_count}
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">
-                      Positions
-                    </p>
-                    <p className="text-gray-200 font-medium">
-                      {session.open_positions}
-                    </p>
-                  </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4 sm:grid-cols-2 xl:grid-cols-5">
+                  <div><p className="text-xs text-slate-500">Allocation</p><p className="mt-1 font-medium text-white">₹{formatNumber(Number(allocation?.allocated_capital || 0))}</p></div>
+                  <div><p className="text-xs text-slate-500">Used / reserved</p><p className="mt-1 font-medium text-white">₹{formatNumber(Number(allocation?.used_capital || 0))} / ₹{formatNumber(Number(allocation?.reserved_capital || 0))}</p></div>
+                  <div><p className="text-xs text-slate-500">Available</p><p className="mt-1 font-medium text-white">₹{formatNumber(Number(allocation?.available_capital || 0))}</p></div>
+                  <div><p className="text-xs text-slate-500">Lifetime P&amp;L</p><p className={`mt-1 font-medium ${Number(session.pnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>₹{formatNumber(Number(session.pnl || 0))}</p></div>
+                  <div><p className="text-xs text-slate-500">Trades · open positions · active orders</p><p className="mt-1 font-medium text-white">{session.trades_count || 0} · {session.open_positions || 0} · {session.active_orders || 0}</p></div>
                 </div>
-
-                {session.allocation ? (
-                  <div className="flex items-center gap-6 text-xs text-gray-400 flex-wrap">
-                    <span>
-                      Allocated:{" "}
-                      <span className="text-gray-200">
-                        Rs {formatNumber(session.allocation?.allocated_capital)}
-                      </span>
-                    </span>
-                    <span>
-                      Used:{" "}
-                      <span className="text-gray-200">
-                        Rs {formatNumber(session.allocation?.used_capital)}
-                      </span>
-                    </span>
-                    <span>
-                      Available:{" "}
-                      <span className="text-gray-200">
-                        Rs {formatNumber(session.allocation?.available_capital)}
-                      </span>
-                    </span>
-                  </div>
-                ) : null}
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 justify-end flex-shrink-0 mt-4 lg:mt-0">
-                  {session.status === "RUNNING" ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
-                      onClick={() =>
-                        runAction(
-                          `pause-${session.id}`,
-                          () => liveTradingApi.pauseSession(session.id),
-                          "Session paused",
-                        )
-                      }
-                      disabled={busyAction === `pause-${session.id}`}
-                      title="Pause Strategy"
-                    >
-                      <Pause className="h-4 w-4" />
-                    </Button>
-                  ) : (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
-                      onClick={() =>
-                        runAction(
-                          `resume-${session.id}`,
-                          () => liveTradingApi.resumeSession(session.id),
-                          "Session resumed",
-                        )
-                      }
-                      disabled={busyAction === `resume-${session.id}`}
-                      title="Resume Strategy"
-                    >
-                      <Play className="h-4 w-4" />
-                    </Button>
-                  )}
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-rose-500 hover:text-rose-400 hover:bg-rose-500/10"
-                    onClick={() =>
-                      runAction(
-                        `stop-${session.id}`,
-                        () =>
-                          liveTradingApi.stopSession(session.id, {
-                            close_positions: false,
-                          }),
-                        "Session stopped",
-                      )
-                    }
-                    disabled={busyAction === `stop-${session.id}`}
-                    title="Stop Strategy"
-                  >
-                    <Power className="h-4 w-4" />
-                  </Button>
-
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-slate-400 hover:text-slate-100 hover:bg-slate-700/50"
-                    onClick={() => setAllocationModal({ open: true, session })}
-                    title="Edit Allocation"
-                  >
-                    <Settings className="h-4 w-4" />
-                  </Button>
-
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10"
-                    title="Hot-Swap Version"
-                    onClick={() => setHotSwapModal({ open: true, session })}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-
-                  <div className="w-px h-6 bg-gray-800 mx-2 hidden sm:block"></div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setExpandedSession(
-                        expandedSession === session.id ? null : session.id,
-                      )
-                    }
-                    className="border-gray-700 text-gray-300 h-8 text-xs bg-gray-950/40 hover:bg-gray-800"
-                  >
-                    {expandedSession === session.id ? "Close" : "Details"}
-                    {expandedSession === session.id ? (
-                      <ChevronUp className="ml-1 h-3 w-3" />
-                    ) : (
-                      <ChevronDown className="ml-1 h-3 w-3" />
-                    )}
-                  </Button>
+                <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-400">
+                  {session.status === "PAUSED" && <span className="text-amber-300">Entries paused; exit management remains active.</span>}
+                  {session.status === "STOPPED" && Number(session.open_positions || 0) > 0 && <span className="text-rose-300">Strategy stopped with open positions remaining. Review broker positions before treating exposure as closed.</span>}
+                  <span className="inline-flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${session.broker_session_valid ? "bg-emerald-500" : "bg-rose-500"}`} />Broker authentication: {session.broker_session_valid ? "Valid" : "Reconnect required"}</span>
+                  <span>Broker order updates: <span className={brokerHealth?.order_websocket_status === "connected" ? "text-emerald-300" : brokerHealth?.order_websocket_status === "reconciliation" ? "text-amber-300" : "text-rose-300"}>{brokerHealth?.order_websocket_status || "unknown"}</span></span>
+                      <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />Started {formatDateTime(session.started_at)}</span>
+                  {session.error_message && <span className="inline-flex items-center gap-1 text-rose-300"><AlertTriangle className="h-3.5 w-3.5" />{session.error_message}</span>}
+                  {allocation?.is_over_allocated && <span className="text-rose-300">{allocation.breach_reason || "Allocation exceeds broker equity"}</span>}
                 </div>
-              </div>
-
-              {/* Expanded Details */}
-              {expandedSession === session.id && (
-                <div className="border-t border-gray-800 bg-black/30 p-4 sm:p-5 animate-in slide-in-from-top-2 duration-200">
-                  {/* Quick Actions & Health */}
-                  <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-5">
-                    <div className="flex gap-6 text-sm">
-                      <span className="text-gray-400 flex items-center gap-2">
-                        <Activity className="h-4 w-4 text-gray-500" />
-                        Health:
-                        <span
-                          className={
-                            session.broker_session_valid
-                              ? "text-emerald-400"
-                              : "text-rose-400"
-                          }
-                        >
-                          {session.broker_session_valid
-                            ? "Ready"
-                            : "Reconnect Required"}
-                        </span>
-                      </span>
-                      <span className="text-gray-400">
-                        Started:{" "}
-                        <span className="text-gray-200">
-                          {formatDateTime(session.started_at)}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-gray-700 text-gray-200 h-8 bg-gray-900/50 hover:bg-gray-800"
-                        onClick={() =>
-                          runAction(
-                            `sync-${session.id}`,
-                            () => liveTradingApi.syncSession(session.id),
-                            "Session synced",
-                          )
-                        }
-                        disabled={busyAction === `sync-${session.id}`}
-                      >
-                        <RotateCw className="mr-2 h-3 w-3" /> Sync Orders
-                      </Button>
-                    </div>
-                  </div>
-
-                  {session.error_message && (
-                    <div className="rounded-xl border border-red-900/50 bg-red-500/5 p-3 text-sm text-red-200 mb-5">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                        <span>{session.error_message}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {session.phantom_positions > 0 && (
-                    <div className="rounded-xl border border-amber-900/50 bg-amber-500/5 p-3 text-sm text-amber-200 mb-5">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                        <span>
-                          Phantom Position Alert: Strategy holds{" "}
-                          {session.phantom_positions} virtual positions not
-                          matching broker side.
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  <Tabs defaultValue="positions" className="w-full">
-                    <div className="flex items-center justify-between mb-3 border-b border-gray-800 pb-2">
-                      <TabsList className="bg-transparent border-0 p-0 h-auto space-x-4">
-                        <TabsTrigger
-                          value="positions"
-                          className="text-sm data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-indigo-400 p-0 pb-2 border-b-2 border-transparent data-[state=active]:border-indigo-400 rounded-none"
-                        >
-                          Open Positions{" "}
-                          <span className="ml-2 bg-gray-800 text-gray-300 py-0.5 px-2 rounded-full text-xs">
-                            {session.open_positions}
-                          </span>
-                        </TabsTrigger>
-                        <TabsTrigger
-                          value="orders"
-                          className="text-sm data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-indigo-400 p-0 pb-2 border-b-2 border-transparent data-[state=active]:border-indigo-400 rounded-none"
-                        >
-                          Recent Orders{" "}
-                          <span className="ml-2 bg-gray-800 text-gray-300 py-0.5 px-2 rounded-full text-xs">
-                            {session.active_orders}
-                          </span>
-                        </TabsTrigger>
-                      </TabsList>
-                    </div>
-                    <TabsContent
-                      value="positions"
-                      className="mt-0 outline-none"
-                    >
-                      <LivePositionsTable
-                        positions={positions.filter(
-                          (p) => p.strategy === session.strategy,
-                        )}
-                      />
-                    </TabsContent>
-                    <TabsContent value="orders" className="mt-0 outline-none">
-                      <LiveOrdersTable
-                        orders={orders.filter((o) => o.session === session.id)}
-                      />
-                    </TabsContent>
-                  </Tabs>
-                </div>
-              )}
-            </div>
-          ))}
+              </CardContent>
+            </Card>;
+          })}
         </div>
       )}
 
-      <LiveAllocationUpdateModal
-        open={allocationModal.open}
-        session={allocationModal.session}
-        onOpenChange={(open) =>
-          setAllocationModal({ ...allocationModal, open })
-        }
-        onSuccess={loadData}
-      />
-      <LiveHotSwapModal
-        open={hotSwapModal.open}
-        session={hotSwapModal.session}
-        onOpenChange={(open) => setHotSwapModal({ ...hotSwapModal, open })}
-        onSuccess={loadData}
-      />
+      <LiveAllocationUpdateModal open={Boolean(allocationSession)} session={allocationSession} onOpenChange={(open) => !open && setAllocationSession(null)} onSuccess={() => { setAllocationSession(null); data.loadData(false); }} />
+      <LiveHotSwapModal open={Boolean(versionSession)} session={versionSession} onOpenChange={(open) => !open && setVersionSession(null)} onSuccess={() => { setVersionSession(null); data.loadData(false); }} />
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
 import { Input } from "@/shared/components/ui/input";
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
 
 const TYPE_STYLES = {
   ADJUSTMENT: { icon: RefreshCw, color: "text-blue-400", bg: "bg-blue-900/20" },
@@ -34,16 +35,7 @@ export default function PaperTransactions() {
     try {
       setLoading(true);
       const txData = await portfolioApi.getTransactions();
-      // Filter for paper-trading related transactions: Allocations, Settlements, and Paper-specific Wallet moves
-      const paperTxs = (txData.data || []).filter(tx => {
-        const type = tx.transaction_type;
-        const isPaperNote = (tx.notes || "").toLowerCase().includes("paper");
-        return (
-          ['ALLOCATION', 'DEALLOCATION', 'PROFIT_BOOKING', 'LOSS_SETTLEMENT', 'ADJUSTMENT'].includes(type) ||
-          (['DEPOSIT', 'WITHDRAWAL'].includes(type))
-        );
-      });
-      setTransactions(paperTxs);
+      setTransactions(txData.data || []);
     } catch (error) {
       notify.error("Failed to load paper transactions");
     } finally {
@@ -59,23 +51,6 @@ export default function PaperTransactions() {
     tx.transaction_type.toLowerCase().includes(search.toLowerCase()) ||
     (tx.notes && tx.notes.toLowerCase().includes(search.toLowerCase()))
   );
-
-  const formatCurrency = (val) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(Math.abs(val || 0));
-  };
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleString("en-IN", {
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
 
   if (loading) return null;
 
@@ -119,7 +94,7 @@ export default function PaperTransactions() {
                           </p>
                           <span className="text-[10px] text-gray-500">•</span>
                           <p className="text-[11px] text-gray-500">
-                            {formatDate(tx.created_at)}
+                            {formatDateTime(tx.created_at)}
                           </p>
                         </div>
                         {tx.notes && (
@@ -131,7 +106,7 @@ export default function PaperTransactions() {
                     </div>
                     <div className="text-right">
                       <p className={`text-sm font-bold ${tx.amount > 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {tx.amount > 0 ? "+" : "-"} {formatCurrency(tx.amount)}
+                        {tx.amount > 0 ? "+" : "-"} {formatCurrency(Math.abs(tx.amount))}
                       </p>
                       <p className="text-[10px] text-gray-500 mt-0.5">
                          Balance: {formatCurrency(tx.balance_after)}

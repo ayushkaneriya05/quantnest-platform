@@ -2,6 +2,7 @@
 Serializers for the strategies app.
 """
 from rest_framework import serializers
+from django.db import transaction
 from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig
 from common.enums import LogicalOperator
 
@@ -62,8 +63,19 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
             'auto_version_enabled',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['user', 
-                           'created_at', 'updated_at']
+        read_only_fields = ['user', 'status', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        if self.instance:
+            for flag, session_relation in (
+                ('paper_trading_enabled', 'paper_sessions'),
+                ('live_trading_enabled', 'live_sessions'),
+            ):
+                if attrs.get(flag, getattr(self.instance, flag)):
+                    continue
+                if getattr(self.instance, session_relation).filter(status__in=['RUNNING', 'PAUSED']).exists():
+                    raise serializers.ValidationError({flag: 'Stop all running or paused sessions before disabling this trading mode.'})
+        return attrs
 
     def create(self, validated_data):
         tags = validated_data.pop('tags', [])
@@ -111,19 +123,25 @@ class StrategyListSerializer(serializers.ModelSerializer):
 
 class StrategyCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating a new strategy."""
+    tag_ids = serializers.PrimaryKeyRelatedField(queryset=StrategyTag.objects.all(), many=True, write_only=True, required=False, source='tags')
     
     class Meta:
         model = Strategy
         fields = [
             'id', 'name', 'description', 'strategy_type', 'market_type',
             'exchange', 'instrument_type', 'visibility', 'status',
+            'paper_trading_enabled', 'live_trading_enabled',
+            'tag_ids',
             'auto_version_enabled',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'status', 'created_at', 'updated_at']
 
     def create(self, validated_data):
+        tags = validated_data.pop('tags', [])
         validated_data['user'] = self.context['request'].user
         validated_data['status'] = 'DRAFT'
-        strategy = Strategy.objects.create(**validated_data)
-        return strategy
+        with transaction.atomic():
+            strategy = Strategy.objects.create(**validated_data)
+            strategy.tags.set(tags)
+            return strategy

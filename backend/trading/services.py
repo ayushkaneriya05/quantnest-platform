@@ -309,6 +309,8 @@ class TradingOrderService:
         # Add to terminal order cache for matching engine
         if order.status == "OPEN":
             TerminalOrderCache.add_order(order)
+            if order.order_type != "MARKET":
+                order_status_changed.send(sender=cls, order=order)
 
         # Immediate execution for MARKET orders with a fresh live quote.
         if order.order_type == "MARKET":
@@ -388,8 +390,10 @@ class TradingOrderService:
                 entry_time=position.created_at
             )
 
+        deleted_position_id = None
         if new_quantity == 0:
             position.quantity = 0
+            deleted_position_id = position.pk
             cls.sync_position_sl_tp_orders(position)
             if position.pk:
                 position.delete()
@@ -433,7 +437,17 @@ class TradingOrderService:
 
         # Emit Signals
         order_status_changed.send(sender=cls, order=order)
-        position_changed.send(sender=cls, position=position if new_quantity != 0 else None, user_id=account.user.id)
+        position_payload = position if new_quantity != 0 else {
+            "id": deleted_position_id,
+            "instrument": {
+                "id": order.instrument_id,
+                "symbol": order.instrument.symbol,
+                "company_name": order.instrument.name,
+            },
+            "quantity": 0,
+            "deleted": True,
+        }
+        position_changed.send(sender=cls, position=position_payload, user_id=account.user_id)
         
         # Dynamically sync the Position's SL/TP exit orders based on the new quantity (if not already handled by deletion)
         if new_quantity != 0:

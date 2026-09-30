@@ -12,12 +12,14 @@ import {
 } from "lucide-react";
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import { formatCurrency } from "@/shared/utils/formatters";
 
 export default function PaperWallet() {
   const { notify } = useNotifications();
   const [portfolio, setPortfolio] = useState(null);
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -41,25 +43,28 @@ export default function PaperWallet() {
       return;
     }
     try {
+      setSaving(true);
       if (type === "DEPOSIT") {
         await portfolioApi.deposit(
           portfolio.id,
           parseFloat(amount),
           "Paper Fund Addition",
         );
-        notify.success(`₹${amount} added to Paper Wallet`);
+        notify.success(`${formatCurrency(amount)} added to Paper Wallet`);
       } else {
         await portfolioApi.withdraw(
           portfolio.id,
           parseFloat(amount),
           "Paper Fund Removal",
         );
-        notify.success(`₹${amount} removed from Paper Wallet`);
+        notify.success(`${formatCurrency(amount)} removed from Paper Wallet`);
       }
       setAmount("");
-      fetchData();
+      await fetchData();
     } catch (err) {
-      notify.error(`${type === "DEPOSIT" ? "Addition" : "Removal"} failed`);
+      notify.error(err?.response?.data?.error || `${type === "DEPOSIT" ? "Addition" : "Removal"} failed`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -80,9 +85,7 @@ export default function PaperWallet() {
                 </p>
                 <h3 className="text-3xl font-black text-white mt-1">
                   ₹
-                  {Number(portfolio?.current_capital || 0).toLocaleString(
-                    "en-IN",
-                  )}
+                  {Number(portfolio?.current_capital || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </h3>
                 <p className="text-xs text-indigo-400/80 mt-2 flex items-center gap-1">
                   <ShieldCheck className="h-3 w-3" />
@@ -105,19 +108,24 @@ export default function PaperWallet() {
               <div className="flex gap-2">
                 <Input
                   type="number"
+                  min="0.01"
+                  step="0.01"
                   placeholder="Amount (₹)"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
+                  disabled={saving}
                   className="bg-gray-800 border-gray-700 text-white"
                 />
                 <Button
                   onClick={() => handleAction("DEPOSIT")}
+                  disabled={saving}
                   className="bg-emerald-600 hover:bg-emerald-500 shrink-0"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
                 <Button
                   onClick={() => handleAction("WITHDRAW")}
+                  disabled={saving}
                   variant="outline"
                   className="border-rose-800 text-rose-400 hover:bg-rose-500/10 shrink-0"
                 >
@@ -138,9 +146,9 @@ export default function PaperWallet() {
             <TrendingUp className="h-5 w-5 text-emerald-400" />
           </div>
           <div>
-            <p className="text-xs text-gray-500">Total Profits Settled</p>
-            <p className="text-sm font-bold text-emerald-400">
-              ₹{Number(portfolio?.realized_pnl || 0).toLocaleString("en-IN")}
+            <p className="text-xs text-gray-500">Realized P&amp;L</p>
+            <p className={`text-sm font-bold ${Number(portfolio?.realized_pnl || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+              {formatCurrency(portfolio?.realized_pnl)}
             </p>
           </div>
         </div>
@@ -152,11 +160,7 @@ export default function PaperWallet() {
             <p className="text-xs text-gray-500">Total Capital Allocated</p>
             <p className="text-sm font-bold text-indigo-400">
               ₹
-              {Math.max(
-                0,
-                Number(portfolio?.total_value || 0) -
-                  Number(portfolio?.current_capital || 0),
-              ).toLocaleString("en-IN")}
+              {Number((portfolio?.allocations || []).reduce((sum, allocation) => sum + Number(allocation.effective_allocated ?? allocation.allocated_amount ?? 0), 0)).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
         </div>

@@ -54,15 +54,14 @@ class Portfolio(BaseTimestampModel):
 
     @property
     def total_value(self):
-        # E = (C + sum_fixed + U) / (1 - sum_pct)
-        fixed_allocs = self.allocations.filter(allocation_type='FIXED')
-        pct_allocs = self.allocations.filter(allocation_type='PERCENTAGE')
-        
-        sum_fixed = sum((alloc.allocated_amount for alloc in fixed_allocs), Decimal("0"))
-        sum_pct = sum((alloc.allocated_percentage for alloc in pct_allocs), Decimal("0")) / Decimal("100")
-        
-        numerator = self.current_capital + sum_fixed + self.unrealized_pnl
-        denominator = Decimal("1") - sum_pct
+        # Account balances already contain allocated cash and realized P&L.
+        # Only allocations without accounts need to be counted as reserved cash.
+        account_balance = self.user.paper_accounts.aggregate(total=models.Sum("current_balance"))["total"] or Decimal("0")
+        unassigned_allocations = self.allocations.filter(paper_account__isnull=True)
+        fixed_reserved = unassigned_allocations.filter(allocation_type=CapitalAllocationType.FIXED).aggregate(total=models.Sum("allocated_amount"))["total"] or Decimal("0")
+        percentage_reserved = unassigned_allocations.filter(allocation_type=CapitalAllocationType.PERCENTAGE).aggregate(total=models.Sum("allocated_percentage"))["total"] or Decimal("0")
+        denominator = Decimal("1") - (percentage_reserved / Decimal("100"))
+        numerator = self.current_capital + account_balance + fixed_reserved + self.unrealized_pnl
         
         if denominator <= Decimal("0"):
             return Decimal("0") # Prevent division by zero or negative if over-allocated
@@ -119,7 +118,7 @@ class Portfolio(BaseTimestampModel):
     def current_drawdown(self):
         if self.peak_value <= 0:
             return 0
-        return ((self.peak_value - self.total_value) / self.peak_value) * 100
+        return max(Decimal("0"), ((self.peak_value - self.total_value) / self.peak_value) * 100)
 
 
 class CapitalAllocation(BaseTimestampModel):
@@ -320,11 +319,6 @@ class PaperAccount(BaseTimestampModel):
     def __str__(self):
         return f"{self.name} - {self.user.username}"
 
-    def reset(self):
-        """Reset account to initial state."""
-        self.current_balance = self.initial_balance
-        self.save()
-
     @property
     def realized_pnl(self):
         return self.trades.aggregate(value=models.Sum("net_pnl"))["value"] or Decimal("0")
@@ -453,6 +447,8 @@ class PaperOrder(BaseTimestampModel):
     # Execution
     filled_quantity = models.PositiveIntegerField(default=0)
     avg_fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    slippage_pct_applied = models.DecimalField(max_digits=7, decimal_places=4, default=0)
+    slippage_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
     # Status
     status = models.CharField(max_length=20, choices=OrderStatus.choices, default=OrderStatus.PENDING)
@@ -587,6 +583,21 @@ class PaperTradingSession(BaseTimestampModel):
         on_delete=models.CASCADE,
         related_name='sessions'
     )
+    slippage_pct = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        default=0,
+        help_text='Simulated adverse fill adjustment as a percentage.'
+    )
+    charge_profile = models.ForeignKey(
+        'brokers.BrokerChargeProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='paper_sessions',
+    )
+    charge_profile_snapshot = models.JSONField(default=dict, blank=True)
+    include_charges = models.BooleanField(default=True)
     status = models.CharField(
         max_length=20,
         choices=SESSION_STATUSES,

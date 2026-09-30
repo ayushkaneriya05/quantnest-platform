@@ -2,6 +2,7 @@
 Common app - shared enums, base models, and utilities for QuantNest Algo Trading Platform.
 """
 from django.db import models
+from datetime import time
 
 class Timezone(models.TextChoices):
     """Supported timezones for trading rules."""
@@ -105,6 +106,7 @@ class StrategyStatus(models.TextChoices):
     """Strategy lifecycle status."""
     DRAFT = 'DRAFT', 'Draft'
     ACTIVE = 'ACTIVE', 'Active'
+    PAUSED = 'PAUSED', 'Paused'
     ARCHIVED = 'ARCHIVED', 'Archived'
 
 
@@ -128,7 +130,26 @@ class CandleTimeframe(models.TextChoices):
     W1 = '1W', '1 Week'
 
 
+class TradingDay(models.TextChoices):
+    MONDAY = 'Monday', 'Monday'
+    TUESDAY = 'Tuesday', 'Tuesday'
+    WEDNESDAY = 'Wednesday', 'Wednesday'
+    THURSDAY = 'Thursday', 'Thursday'
+    FRIDAY = 'Friday', 'Friday'
+    SATURDAY = 'Saturday', 'Saturday'
+    SUNDAY = 'Sunday', 'Sunday'
 
+
+DEFAULT_TRADING_DAYS = [
+    TradingDay.MONDAY, TradingDay.TUESDAY, TradingDay.WEDNESDAY,
+    TradingDay.THURSDAY, TradingDay.FRIDAY,
+]
+DEFAULT_TRADING_START_TIME = time(9, 15)
+DEFAULT_TRADING_END_TIME = time(15, 30)
+
+
+def default_trading_days():
+    return list(DEFAULT_TRADING_DAYS)
 
 
 class CandlePart(models.TextChoices):
@@ -174,6 +195,13 @@ class RuleType(models.TextChoices):
     EXIT = 'EXIT', 'Exit Rule'
     STOP_LOSS = 'STOP_LOSS', 'Stop Loss Rule'
     TARGET = 'TARGET', 'Target Rule'
+
+
+class RuleGroupAction(models.TextChoices):
+    """Position actions triggered when an exit group matches."""
+    EXIT_ALL = 'EXIT_ALL', 'Exit Full Position'
+    PARTIAL_EXIT = 'PARTIAL_EXIT', 'Take Partial Profit'
+    MOVE_TO_BREAKEVEN = 'MOVE_TO_BREAKEVEN', 'Move SL to Breakeven'
 
 
 class OperandType(models.TextChoices):
@@ -236,6 +264,162 @@ class OperandType(models.TextChoices):
     # Math/Constant
     CONSTANT = 'CONSTANT', 'Constant Value'
     MATH_EXPRESSION = 'MATH_EXPRESSION', 'Math Expression'
+
+
+# The parameter contract for strategy-builder operands. This is the source of
+# truth for frontend defaults/options and backend validation/evaluation. Keep
+# entries JSON-serializable because the common enum endpoint exposes them.
+PRICE_SOURCE_CHOICES = [
+    {'value': operand.value, 'label': operand.label, 'group': 'Price'}
+    for operand in (
+        OperandType.OPEN, OperandType.HIGH, OperandType.LOW, OperandType.CLOSE,
+        OperandType.VOLUME, OperandType.HL2, OperandType.HLC3, OperandType.OHLC4
+    )
+]
+INDICATOR_SOURCE_CHOICES = [
+    {'value': operand.value, 'label': operand.label, 'group': 'Indicators'}
+    for operand in OperandType
+    if operand in {
+        OperandType.SMA, OperandType.EMA, OperandType.WMA, OperandType.HMA,
+        OperandType.ALMA, OperandType.KAMA, OperandType.DEMA, OperandType.TEMA,
+        OperandType.RSI, OperandType.ROC, OperandType.MACD,
+        OperandType.BOLLINGER_BANDS, OperandType.SUPERTREND, OperandType.ADX,
+        OperandType.DMI, OperandType.STOCHASTIC, OperandType.ATR, OperandType.CCI,
+        OperandType.WILLIAMS_R, OperandType.OBV, OperandType.MFI,
+        OperandType.PIVOT_POINT, OperandType.KELTNER_CHANNEL,
+        OperandType.DONCHIAN_CHANNEL, OperandType.PARABOLIC_SAR,
+        OperandType.ICHIMOKU_CLOUD, OperandType.VWAP,
+    }
+]
+
+def _number(key, label, default, minimum=1, maximum=None, step=1):
+    return {
+        'key': key, 'label': label, 'type': 'number', 'default': default,
+        'min': minimum, 'max': maximum, 'step': step,
+    }
+
+
+def _select(key, label, options, default):
+    return {'key': key, 'label': label, 'type': 'select', 'options': options, 'default': default}
+
+
+_CHANNEL_OPTIONS = [
+    {'value': 'UPPER', 'label': 'Upper'},
+    {'value': 'MIDDLE', 'label': 'Middle'},
+    {'value': 'LOWER', 'label': 'Lower'},
+]
+_ADX_OPTIONS = [
+    {'value': 'ADX', 'label': 'ADX'},
+    {'value': 'PLUS_DI', 'label': '+DI'},
+    {'value': 'MINUS_DI', 'label': '-DI'},
+]
+
+OPERAND_PARAMETER_CONFIG = {
+    OperandType.SMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.EMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.WMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.HMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.ALMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.KAMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.DEMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.TEMA: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.RSI: [_number('period', 'Period', 14), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.ROC: [_number('period', 'Period', 9), {'key': 'source', 'label': 'Source', 'type': 'source', 'default': OperandType.CLOSE.value, 'options': PRICE_SOURCE_CHOICES + INDICATOR_SOURCE_CHOICES}],
+    OperandType.CCI: [_number('period', 'Period', 20)],
+    OperandType.ADX: [_number('period', 'Period', 14), _select('output_line', 'Output', _ADX_OPTIONS, 'ADX')],
+    OperandType.DMI: [_number('period', 'Period', 14), _select('output_line', 'Output', _ADX_OPTIONS, 'ADX')],
+    OperandType.MACD: [_number('fast_period', 'Fast', 12), _number('slow_period', 'Slow', 26), _number('signal_period', 'Signal', 9), _select('output_line', 'Output', [
+        {'value': 'MACD_LINE', 'label': 'MACD Line'}, {'value': 'MACD_SIGNAL', 'label': 'Signal'}, {'value': 'MACD_HISTOGRAM', 'label': 'Histogram'},
+    ], 'MACD_LINE')],
+    OperandType.BOLLINGER_BANDS: [_number('period', 'Period', 20), _number('std_dev', 'StdDev', 2, step=0.1), _select('output_line', 'Output Line', _CHANNEL_OPTIONS, 'UPPER')],
+    OperandType.KELTNER_CHANNEL: [_number('period', 'Period', 20), _number('multiplier', 'Multiplier', 2, step=0.1), _select('output_line', 'Output Line', _CHANNEL_OPTIONS, 'UPPER')],
+    OperandType.DONCHIAN_CHANNEL: [_number('period', 'Period', 20), _select('output_line', 'Output Line', _CHANNEL_OPTIONS, 'UPPER')],
+    OperandType.STOCHASTIC: [_number('k_period', '%K', 14), _number('d_period', '%D', 3), _number('smooth', 'Smooth', 3), _select('output_line', 'Output Line', [{'value': 'K', 'label': '%K'}, {'value': 'D', 'label': '%D'}], 'K')],
+    OperandType.SUPERTREND: [_number('period', 'Period', 7), _number('multiplier', 'Multiplier', 3, step=0.1)],
+    OperandType.ATR: [_number('period', 'Period', 14)],
+    OperandType.MFI: [_number('period', 'Period', 14)],
+    OperandType.WILLIAMS_R: [_number('period', 'Period', 14)],
+    OperandType.PARABOLIC_SAR: [_number('af', 'Acceleration Factor', 0.02, minimum=0, step=0.01), _number('max_af', 'Max AF', 0.2, minimum=0, step=0.01)],
+    OperandType.ICHIMOKU_CLOUD: [_number('tenkan', 'Tenkan (Conversion)', 9), _number('kijun', 'Kijun (Base)', 26), _number('senkou', 'Senkou B', 52), _select('output_line', 'Output Line', [
+        {'value': 'TENKAN', 'label': 'Tenkan'}, {'value': 'KIJUN', 'label': 'Kijun'}, {'value': 'SENKOU_A', 'label': 'Senkou A'}, {'value': 'SENKOU_B', 'label': 'Senkou B'}, {'value': 'CHIKOU', 'label': 'Chikou'},
+    ], 'TENKAN')],
+    OperandType.CONSTANT: [{'key': 'value', 'label': 'Value', 'type': 'number', 'default': 0, 'step': 0.01}],
+    OperandType.CANDLE_PATTERN: [{'key': 'pattern', 'label': 'Pattern', 'type': 'enum', 'enumKey': 'CandlePatternType', 'default': CandlePatternType.DOJI}],
+    OperandType.CANDLE_BODY_SIZE: [_select('mode', 'Mode', [{'value': 'POINTS', 'label': 'Points'}, {'value': 'PERCENTAGE', 'label': 'Percentage'}], 'POINTS')],
+    OperandType.VWAP: [_select('anchor', 'Anchor', [{'value': 'D', 'label': 'Daily'}, {'value': 'W', 'label': 'Weekly'}, {'value': 'M', 'label': 'Monthly'}], 'D')],
+    OperandType.MATH_EXPRESSION: [{'key': 'expression', 'label': 'Math Formula', 'type': 'math', 'default': {'expression': '', 'variables': {}}}],
+}
+
+OPERAND_SHIFT_CONFIG = {'key': 'shift', 'label': 'Shift (Candles)', 'type': 'number', 'default': 0, 'min': 0, 'step': 1}
+
+OPERAND_GROUPS = {
+    'Price Action & Volume': [
+        OperandType.LTP, OperandType.OPEN, OperandType.HIGH, OperandType.LOW,
+        OperandType.CLOSE, OperandType.VOLUME, OperandType.VWAP, OperandType.HL2,
+        OperandType.HLC3, OperandType.OHLC4, OperandType.CURRENT_DAY_OPEN,
+        OperandType.PREV_WEEK_HIGH, OperandType.PREV_WEEK_LOW,
+    ],
+    'Candle Analysis': [OperandType.CANDLE_PATTERN, OperandType.CANDLE_BODY_SIZE],
+    'Position State (Exit)': [
+        OperandType.POSITION_PNL_PERCENTAGE, OperandType.POSITION_PNL_POINTS,
+        OperandType.TRAILING_PEAK_OFFSET, OperandType.ENTRY_PRICE,
+        OperandType.POSITION_RR_RATIO,
+    ],
+    'Math & Constants': [OperandType.CONSTANT, OperandType.MATH_EXPRESSION],
+}
+_GROUPED_OPERANDS = {operand for group in OPERAND_GROUPS.values() for operand in group}
+OPERAND_GROUPS['Technical Indicators'] = [operand for operand in OperandType if operand not in _GROUPED_OPERANDS]
+
+# Math expressions accept numeric operands only. Position-state operands need
+# an open position, so they are offered only to exit-related rule groups.
+_MATH_EXPRESSION_BASE_TYPES = {
+    OperandType.LTP, OperandType.OPEN, OperandType.HIGH, OperandType.LOW,
+    OperandType.CLOSE, OperandType.VOLUME, OperandType.VWAP, OperandType.HL2,
+    OperandType.HLC3, OperandType.OHLC4, OperandType.CURRENT_DAY_OPEN,
+    OperandType.PREV_WEEK_HIGH, OperandType.PREV_WEEK_LOW,
+    OperandType.CANDLE_BODY_SIZE, OperandType.CONSTANT,
+    *(operand for operand in OPERAND_PARAMETER_CONFIG if operand not in {
+        OperandType.CONSTANT, OperandType.MATH_EXPRESSION,
+        OperandType.CANDLE_PATTERN,
+    }),
+}
+_MATH_EXPRESSION_STATE_TYPES = {
+    OperandType.POSITION_PNL_PERCENTAGE, OperandType.POSITION_PNL_POINTS,
+    OperandType.TRAILING_PEAK_OFFSET, OperandType.ENTRY_PRICE,
+    OperandType.POSITION_RR_RATIO,
+}
+
+
+def get_math_expression_operand_types(rule_type):
+    """Return numeric math-variable types valid for a rule context."""
+    try:
+        rule_type = RuleType(rule_type)
+    except (TypeError, ValueError):
+        rule_type = None
+
+    allowed = set(_MATH_EXPRESSION_BASE_TYPES)
+    if rule_type in {RuleType.EXIT, RuleType.STOP_LOSS, RuleType.TARGET}:
+        allowed.update(_MATH_EXPRESSION_STATE_TYPES)
+    return sorted(operand.value for operand in allowed)
+
+
+def get_operand_parameter_config(operand_type):
+    """Return a JSON-safe parameter schema for a rule operand."""
+    try:
+        operand_type = OperandType(operand_type)
+    except (TypeError, ValueError):
+        return []
+    config = [dict(item) for item in OPERAND_PARAMETER_CONFIG.get(operand_type, [])]
+    if operand_type not in {OperandType.CONSTANT, OperandType.MATH_EXPRESSION}:
+        config.append(dict(OPERAND_SHIFT_CONFIG))
+    return config
+
+
+def get_operand_parameter_defaults(operand_type):
+    """Return persisted defaults from the same schema rendered by the UI."""
+    return {item['key']: item['default'] for item in get_operand_parameter_config(operand_type)}
+
+
 class ComparisonOperator(models.TextChoices):
     """Comparison operators for rules."""
     GREATER = 'GT', 'Greater Than'

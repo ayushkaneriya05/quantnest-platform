@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -14,9 +15,22 @@ logger = logging.getLogger(__name__)
 @receiver(post_save, sender=Strategy)
 def create_strategy_configs(sender, instance, created, **kwargs):
     if created:
-        EntryOrderConfig.objects.create(strategy=instance)
-        ExitOrderConfig.objects.create(strategy=instance)
-        PositionSizingRule.objects.create(strategy=instance)
+        with transaction.atomic():
+            auto_version_enabled = instance.auto_version_enabled
+            if auto_version_enabled:
+                Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=False)
+                instance.auto_version_enabled = False
+            try:
+                EntryOrderConfig.objects.get_or_create(strategy=instance)
+                ExitOrderConfig.objects.get_or_create(strategy=instance)
+                PositionSizingRule.objects.get_or_create(strategy=instance)
+                TimeRule.objects.get_or_create(strategy=instance)
+                SpecialEventFilter.objects.get_or_create(strategy=instance)
+            finally:
+                if auto_version_enabled:
+                    Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=True)
+                    instance.auto_version_enabled = True
+            StrategySnapshotService.create_snapshot(instance, user=instance.user, change_notes='Initial strategy configuration')
 
 @receiver(post_save, sender=Strategy)
 @receiver(post_save, sender=EntryOrderConfig)
@@ -66,9 +80,6 @@ def auto_create_version(sender, instance, **kwargs):
 
     # 4. Create Snapshot
     try:
-        StrategySnapshotService.create_snapshot(
-            strategy, 
-            change_notes="Auto-save checkpoint"
-        )
+        StrategySnapshotService.create_snapshot(strategy,  change_notes="Auto-save checkpoint")
     except Exception as e:
         logger.error(f"Failed to auto-version strategy {strategy.id}: {e}")

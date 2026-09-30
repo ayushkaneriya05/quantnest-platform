@@ -49,7 +49,7 @@ export default function StrategyWizard() {
     instrument_type: 'STOCK',
     visibility: 'PRIVATE',
     status: 'DRAFT',
-    paper_trading_enabled: false,
+    paper_trading_enabled: true,
     live_trading_enabled: false,
     tags: [], // Array of tag objects {id, name}
   });
@@ -172,7 +172,13 @@ export default function StrategyWizard() {
         navigate(`/dashboard/strategy/${created.id}/edit`, { replace: true });
       }
     } catch (error) {
-      notify.error(isEdit ? 'Failed to update strategy' : 'Failed to create strategy');
+      const validationErrors = Object.values(error?.response?.data || {}).flatMap((value) =>
+        Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+      );
+      notify.error(
+        error?.response?.data?.error || error?.response?.data?.detail || validationErrors.join(' ') ||
+        (isEdit ? 'Failed to update strategy' : 'Failed to create strategy')
+      );
     } finally {
       setSaving(false);
     }

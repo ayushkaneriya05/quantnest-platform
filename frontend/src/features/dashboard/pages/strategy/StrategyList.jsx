@@ -17,6 +17,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Label } from "@/shared/components/ui/label";
 import { Input } from "@/shared/components/ui/input";
+import { Switch } from "@/shared/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -40,7 +41,16 @@ import { GlobalLoader } from '@/shared/components/ui/global-loader';
 const STATUS_CONFIG = {
   DRAFT: { label: 'Draft', className: 'bg-gray-500/15 text-gray-400 border-gray-500/30' },
   ACTIVE: { label: 'Active', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  PAUSED: { label: 'Paused', className: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
   ARCHIVED: { label: 'Archived', className: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
+};
+
+const apiErrorMessage = (error, fallback) => {
+  const data = error?.response?.data;
+  const validationMessages = Object.values(data || {}).flatMap((value) =>
+    Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  );
+  return data?.error || data?.detail || data?.errors?.join?.(' ') || validationMessages.join(' ') || fallback;
 };
 
 const STRATEGY_TYPE_ICONS = {
@@ -79,6 +89,10 @@ export default function StrategyList() {
   const [strategyAllocations, setStrategyAllocations] = useState([]);
   const [selectedAllocation, setSelectedAllocation] = useState("new");
   const [newAllocationAmount, setNewAllocationAmount] = useState(100000);
+  const [chargeProfiles, setChargeProfiles] = useState([]);
+  const [paperSlippagePct, setPaperSlippagePct] = useState("0");
+  const [paperChargeProfile, setPaperChargeProfile] = useState("");
+  const [paperIncludeCharges, setPaperIncludeCharges] = useState(true);
 
   const [deleteConflictOpen, setDeleteConflictOpen] = useState(false);
   const [conflictedStrategy, setConflictedStrategy] = useState(null);
@@ -135,10 +149,21 @@ export default function StrategyList() {
   const openPaperDeploy = async (strategy) => {
     try {
       setDeployingId(strategy.id);
-      const data = await strategyApi.getVersions(strategy.id);
+      const [data, profileResponse] = await Promise.all([
+        strategyApi.getVersions(strategy.id),
+        brokersApi.getChargeProfiles().catch(() => ({ data: [] })),
+      ]);
       const fetchedVersions = Array.isArray(data) ? data : data?.results || [];
+      const profiles = Array.isArray(profileResponse.data)
+        ? profileResponse.data
+        : profileResponse.data?.results || [];
       setVersions(fetchedVersions);
       setSelectedVersion(fetchedVersions.length > 0 ? fetchedVersions[0].id.toString() : "");
+      setChargeProfiles(profiles);
+      const defaultProfile = profiles.find((profile) => profile.is_default) || profiles[0];
+      setPaperChargeProfile(defaultProfile ? String(defaultProfile.id) : "");
+      setPaperSlippagePct("0");
+      setPaperIncludeCharges(true);
 
       const allocRes = await portfolioApi.getAllocationByStrategy(strategy.id);
       const fetchedAllocations = Array.isArray(allocRes.data) ? allocRes.data : allocRes.data?.results || [];
@@ -169,6 +194,9 @@ export default function StrategyList() {
       } else {
           payload.allocationId = selectedAllocation;
       }
+      payload.slippagePct = Number(paperSlippagePct || 0);
+      payload.chargeProfile = paperChargeProfile;
+      payload.includeCharges = paperIncludeCharges;
       const result = await strategyApi.deployPaper(paperDeployStrategy.id, payload);
       notify.success(result.session_id ? `Paper session started (ID: ${result.session_id})` : 'Strategy deployed to paper trading');
       setPaperDeployOpen(false);
@@ -176,7 +204,7 @@ export default function StrategyList() {
       await fetchStrategies();
       navigate('/dashboard/paper');
     } catch (error) {
-      notify.error(error?.response?.data?.error || 'Failed to deploy to paper trading');
+      notify.error(apiErrorMessage(error, 'Failed to deploy to paper trading'));
     } finally {
       setDeployingId(null);
     }
@@ -227,7 +255,7 @@ export default function StrategyList() {
       await fetchStrategies();
       navigate('/dashboard/live/strategies');
     } catch (error) {
-      notify.error(error?.response?.data?.error || 'Failed to deploy to live trading');
+      notify.error(apiErrorMessage(error, 'Failed to deploy to live trading'));
     } finally {
       setDeployingId(null);
     }
@@ -249,7 +277,21 @@ export default function StrategyList() {
       notify.success('Strategy activated');
       fetchStrategies();
     } catch (error) {
-      notify.error('Failed to activate strategy');
+      const message = apiErrorMessage(error, 'Failed to activate strategy');
+      if (error?.response?.status === 409) notify.warning(message);
+      else notify.error(message);
+    }
+  };
+
+  const handlePause = async (id) => {
+    try {
+      await strategyApi.pause(id);
+      notify.success('Strategy paused');
+      fetchStrategies();
+    } catch (error) {
+      const message = apiErrorMessage(error, 'Cannot pause strategy');
+      if (error?.response?.status === 409) notify.warning(message);
+      else notify.error(message);
     }
   };
 
@@ -259,7 +301,9 @@ export default function StrategyList() {
       notify.success('Strategy archived');
       fetchStrategies();
     } catch (error) {
-      notify.error('Failed to archive strategy');
+      const message = apiErrorMessage(error, 'Failed to archive strategy');
+      if (error?.response?.status === 409) notify.warning(message);
+      else notify.error(message);
     }
   };
 
@@ -271,7 +315,9 @@ export default function StrategyList() {
       notify.success('Strategy unarchived');
       fetchStrategies();
     } catch (error) {
-      notify.error('Failed to unarchive strategy');
+      const message = apiErrorMessage(error, 'Failed to unarchive strategy');
+      if (error?.response?.status === 409) notify.warning(message);
+      else notify.error(message);
     }
   };
 
@@ -312,7 +358,9 @@ export default function StrategyList() {
       setDeleteConflictOpen(false);
       fetchStrategies();
     } catch (error) {
-      notify.error('Failed to halt and archive');
+      const message = apiErrorMessage(error, 'Failed to halt and archive');
+      if (error?.response?.status === 409) notify.warning(message);
+      else notify.error(message);
     }
   };
 
@@ -465,30 +513,30 @@ export default function StrategyList() {
                     >
                       <TestTube className="h-3.5 w-3.5" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openPaperDeploy(strategy)}
-                      className="text-gray-500 hover:text-cyan-400 hover:bg-cyan-500/10 h-8 w-8 p-0"
-                      title="Deploy to paper trading"
-                      disabled={deployingId === strategy.id}
-                    >
-                      {deployingId === strategy.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <FlaskConical className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openLiveDeploy(strategy)}
-                      className="text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
-                      title="Deploy to connected broker"
-                      disabled={deployingId === strategy.id}
-                    >
-                      <Rocket className="h-3.5 w-3.5" />
-                    </Button>
+                    {strategy.status === 'ACTIVE' && strategy.paper_trading_enabled && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openPaperDeploy(strategy)}
+                        className="text-gray-500 hover:text-cyan-400 hover:bg-cyan-500/10 h-8 w-8 p-0"
+                        title="Deploy to paper trading"
+                        disabled={deployingId === strategy.id}
+                      >
+                        {deployingId === strategy.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                    {strategy.status === 'ACTIVE' && strategy.live_trading_enabled && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openLiveDeploy(strategy)}
+                        className="text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
+                        title="Deploy to connected broker"
+                        disabled={deployingId === strategy.id}
+                      >
+                        <Rocket className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     {strategy.status === 'DRAFT' && (
                       <Button
                         variant="ghost"
@@ -502,7 +550,15 @@ export default function StrategyList() {
                     )}
                     {strategy.status === 'ACTIVE' && (
                       <>
-
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handlePause(strategy.id)}
+                          className="text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 h-8 w-8 p-0"
+                          title="Pause strategy"
+                        >
+                          <Pause className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -630,6 +686,7 @@ export default function StrategyList() {
                   </SelectContent>
                 </Select>
               </div>
+
             </div>
             <p className="text-xs text-gray-500">
               This live allocation acts as the strategy wallet on the broker account. New entries are blocked once the strategy wallet or broker margin is exhausted.
@@ -725,6 +782,53 @@ export default function StrategyList() {
                     )}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 border-t border-gray-800 pt-4">
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Slippage (%)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.0001"
+                    value={paperSlippagePct}
+                    onChange={(event) => setPaperSlippagePct(event.target.value)}
+                    className="bg-gray-900 border-gray-700 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-300">Charge Profile</Label>
+                  <Select
+                    value={paperChargeProfile || "none"}
+                    onValueChange={(value) => setPaperChargeProfile(value === "none" ? "" : value)}
+                    disabled={!paperIncludeCharges || chargeProfiles.length === 0}
+                  >
+                    <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
+                      <SelectValue placeholder="No profile available" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                      {chargeProfiles.map((profile) => (
+                        <SelectItem key={profile.id} value={String(profile.id)}>
+                          {profile.name}{profile.is_default ? " (Default)" : ""}
+                        </SelectItem>
+                      ))}
+                      {!chargeProfiles.length && <SelectItem value="none">No profile available</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2 flex items-center justify-between rounded-md border border-gray-800 px-3 py-2">
+                  <div>
+                    <Label className="text-gray-200">Include transaction charges</Label>
+                    <p className="text-xs text-gray-500">Apply brokerage, taxes, and fees to realized P&amp;L.</p>
+                  </div>
+                  <Switch checked={paperIncludeCharges} onCheckedChange={setPaperIncludeCharges} />
+                </div>
+                {!chargeProfiles.length && (
+                  <p className="col-span-2 text-xs text-amber-400">
+                    No charge profiles are configured, so paper fees and taxes will be zero.
+                  </p>
+                )}
               </div>
             </div>
           </div>

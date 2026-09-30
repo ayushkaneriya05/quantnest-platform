@@ -6,8 +6,8 @@ from django.conf import settings
 from common.models import BaseTimestampModel
 from common.enums import (
     StrategyType, MarketType, Exchange, InstrumentType,
-    StrategyStatus, StrategyVisibility, OrderType, QuantityType,
-    LogicalOperator, EntryPriceLogic, Side
+    StrategyStatus, StrategyVisibility, OrderType,
+    LogicalOperator, Side
 )
 
 

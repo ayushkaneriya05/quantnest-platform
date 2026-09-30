@@ -96,6 +96,9 @@ export const strategyApi = {
     if (options?.versionId) payload.version_id = options.versionId;
     if (options?.allocationId) payload.allocation_id = options.allocationId;
     if (options?.allocationAmount) payload.allocation_amount = options.allocationAmount;
+    payload.slippage_pct = options?.slippagePct ?? 0;
+    payload.charge_profile = options?.chargeProfile || null;
+    payload.include_charges = options?.includeCharges ?? true;
     const response = await api.post(`${STRATEGIES_URL}strategies/${id}/deploy-paper/`, payload);
     return response.data;
   },

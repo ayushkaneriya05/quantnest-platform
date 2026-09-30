@@ -31,7 +31,6 @@ import BrokerLogs from "@/features/dashboard/pages/brokers/BrokerLogs";
 import LivePortfolio from "@/features/dashboard/pages/live/LivePortfolio";
 import LiveStrategies from "@/features/dashboard/pages/live/LiveStrategies";
 import ExecutionLogs from "@/features/dashboard/pages/live/ExecutionLogs";
-import EmergencyControls from "@/features/dashboard/pages/live/EmergencyControls";
 import TradeJournal from "@/features/dashboard/pages/journal/TradeJournal";
 import PerformanceReports from "@/features/dashboard/pages/journal/PerformanceReports";
 import AIAdvisor from "@/features/dashboard/pages/ai/AIAdvisor";
@@ -79,7 +78,6 @@ import AssetRulesEditor from "@/features/dashboard/pages/strategy/AssetRulesEdit
 import RiskSettings from "@/features/dashboard/pages/strategy/RiskSettings";
 import StrategyAutoDisableConfig from "@/features/dashboard/pages/strategy/StrategyAutoDisableConfig";
 import VersionHistory from "@/features/dashboard/pages/strategy/VersionHistory";
-import StrategyReview from "@/features/dashboard/pages/strategy/StrategyReview";
 import StrategyPermissions from "@/features/dashboard/pages/strategy/StrategyPermissions";
 
 import PaperTrading from "@/features/dashboard/pages/trading/PaperTrading";
@@ -170,7 +168,6 @@ function AppContent() {
             <Route path="live/portfolio" element={<LivePortfolio />} />
             <Route path="live/strategies" element={<LiveStrategies />} />
             <Route path="live/logs" element={<ExecutionLogs />} />
-            <Route path="live/emergency" element={<EmergencyControls />} />
 
             {/* Analytics, Journal, AI, Marketplace, Governance */}
             <Route path="journal" element={<TradeJournal />} />
@@ -255,7 +252,6 @@ function AppContent() {
               element={<StrategyAutoDisableConfig />}
             />
             <Route path="strategy/:id/versions" element={<VersionHistory />} />
-            <Route path="strategy/:id/review" element={<StrategyReview />} />
             <Route
               path="strategy/:id/permissions"
               element={<StrategyPermissions />}

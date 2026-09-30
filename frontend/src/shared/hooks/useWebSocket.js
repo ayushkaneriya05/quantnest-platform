@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import toast from "react-hot-toast";
 import {
   setConnected,
   setConnectionStatus,
-  setLastMessage,
+  setManualTradingTerminalUpdate,
   updateTickData,
-  addOrderUpdate,
-  addPositionUpdate,
   addSubscription,
   removeSubscription,
   incrementReconnectAttempts,
@@ -39,10 +36,7 @@ export function useWebSocket() {
   const {
     isConnected,
     connectionStatus,
-    lastMessage,
     tickData,
-    orderUpdates,
-    positionUpdates,
     subscriptions,
     reconnectAttempts,
   } = useSelector((state) => state.websocket);
@@ -118,25 +112,6 @@ export function useWebSocket() {
     [dispatch, notifySymbolSubscribers]
   );
 
-  const handleOrderUpdate = useCallback(
-    (data) => {
-      dispatch(addOrderUpdate(data));
-      const instrumentSymbol =
-        typeof data.instrument === "string"
-          ? data.instrument
-          : data.instrument?.symbol || "N/A";
-      toast.success(`Order Update: ${instrumentSymbol} ${data.status}`);
-    },
-    [dispatch]
-  );
-
-  const handlePositionUpdate = useCallback(
-    (data) => {
-      dispatch(addPositionUpdate(data));
-    },
-    [dispatch]
-  );
-
   const connect = useCallback(() => {
     if (
       socketRef.current &&
@@ -190,12 +165,10 @@ export function useWebSocket() {
             }
           } else if (data.type === "tick") {
             handleTickData(data);
+          } else if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(data.event_type)) {
+            dispatch(setManualTradingTerminalUpdate(data));
           } else if (data.type === "candle.update" || data.type === "candle.closed") {
             notifySymbolSubscribers(data.symbol, data);
-          } else if (data.type === "order_update" || data.type === "order.update") {
-            handleOrderUpdate(data.data || data);
-          } else if (data.type === "position_update" || data.type === "position.update") {
-            handlePositionUpdate(data.data || data);
           }
         } catch (error) {
           console.error("WS message parse error:", error);
@@ -234,8 +207,6 @@ export function useWebSocket() {
     }
   }, [
     dispatch,
-    handleOrderUpdate,
-    handlePositionUpdate,
     handleTickData,
     notifySymbolSubscribers,
     sendMessage,
@@ -368,10 +339,7 @@ export function useWebSocket() {
   return {
     isConnected,
     connectionStatus,
-    lastMessage,
     tickData,
-    orderUpdates,
-    positionUpdates,
     subscriptions,
     connect,
     disconnect,

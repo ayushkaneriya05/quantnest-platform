@@ -50,7 +50,7 @@ export default function RiskSettings() {
     quantity_type: 'CAPITAL_BASED',
     fixed_quantity: 1,
     capital_percentage: 10,
-    cooldown_seconds: 60,
+    cooldown_seconds: 0,
     risk_per_trade_pct: 1,
   });
 
@@ -76,7 +76,7 @@ export default function RiskSettings() {
           ...prev,
           order_type: c.order_type || 'MARKET',
           price_offset: c.price_offset ?? 0,
-          cooldown_seconds: c.cooldown_seconds || 60,
+          cooldown_seconds: c.cooldown_seconds ?? 0,
         }));
       }
 
@@ -301,7 +301,7 @@ export default function RiskSettings() {
       </div>
       <StrategyFooter
         onSave={handleSave}
-        onCancel={() => navigate(`/dashboard/strategy/${id}/edit`)}
+        onCancel={() => navigate('/dashboard/strategy/list')}
         saving={saving}
         saveLabel="Save Settings"
         savingLabel="Saving..."

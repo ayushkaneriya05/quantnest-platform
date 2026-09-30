@@ -39,8 +39,8 @@ export default function LiveAllocationUpdateModal({
       setAllocationType(currentAllocation.allocation_type || "FIXED");
       setAmount(
         currentAllocation.allocation_type === "FIXED"
-          ? currentAllocation.allocated_capital
-          : currentAllocation.allocated_percentage,
+          ? Number(currentAllocation.allocated_capital || 0).toFixed(2)
+          : Number(currentAllocation.allocated_percentage || 0).toFixed(2),
       );
     }
   }, [open, currentAllocation]);

@@ -1,67 +1,47 @@
-# trading/receivers.py
-import json
 import logging
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.db import transaction
 from django.dispatch import receiver
 
+from .serializers import OrderSerializer, PositionSerializer
 from .signals import order_status_changed, position_changed
 
 logger = logging.getLogger(__name__)
 
-channel_layer = get_channel_layer()
+
+def _broadcast_update(user_id, event_type, data):
+    """Publish a committed terminal update to the existing market-data socket group."""
+    try:
+        channel_layer = get_channel_layer()
+    except Exception:
+        logger.exception("Could not get Channels layer for terminal %s update", event_type)
+        return
+    if channel_layer is None:
+        logger.warning("No Channels layer configured; dropped terminal %s update", event_type)
+        return
+
+    message = {"event_type": event_type, "data": data}
+
+    def send_after_commit():
+        try:
+            async_to_sync(channel_layer.group_send)(
+                f"user_{user_id}",
+                {"type": event_type.lower(), "message": message},
+            )
+        except Exception:
+            logger.exception("Failed to broadcast terminal %s update for user %s", event_type, user_id)
+
+    transaction.on_commit(send_after_commit)
+
 
 @receiver(order_status_changed)
-def handle_order_status_changed(sender, order, **kwargs):
-    """Send order updates to the user’s WebSocket group"""
-    try:
-        group_name = f"user_{order.account.user.id}"
-        async_to_sync(channel_layer.group_send)(
-            group_name,
-            {
-                "type": "order_update",
-                "message": {
-                    "id": order.id,
-                    "status": order.status,
-                    "instrument": {
-                        "id": order.instrument_id,
-                        "symbol": order.instrument.symbol,
-                        "company_name": order.instrument.name,
-                    },
-                    "quantity": order.quantity,
-                },
-            },
-        )
-        logger.info(f"📡 Sent order update for order {order.id} to {group_name}")
-    except Exception as e:
-        logger.error(f"❌ Failed to send order update: {e}")
+def publish_order_update(sender, order, **kwargs):
+    _broadcast_update(order.account.user_id, "ORDER_UPDATE", OrderSerializer(order).data)
 
 
 @receiver(position_changed)
-def handle_position_changed(sender, position, user_id, **kwargs):
-    """Send position updates to the user’s WebSocket group"""
-    try:
-        group_name = f"user_{user_id}"
-        async_to_sync(channel_layer.group_send)(
-            group_name,
-            {
-                "type": "position_update",
-                "message": (
-                    {
-                        "id": position.id,
-                        "instrument": {
-                            "id": position.instrument_id,
-                            "symbol": position.instrument.symbol,
-                            "company_name": position.instrument.name,
-                        },
-                        "quantity": position.quantity,
-                        "average_price": str(position.average_price),
-                    }
-                    if hasattr(position, "id")  # when it's a real model
-                    else position               # when you send a dict before deletion
-                ),
-            },
-        )
-        logger.info(f"📡 Sent position update for {position} to {group_name}")
-    except Exception as e:
-        logger.error(f"❌ Failed to send position update: {e}")
+def publish_position_update(sender, position, user_id, **kwargs):
+    data = PositionSerializer(position).data if hasattr(position, "_meta") else position
+    _broadcast_update(user_id, "POSITION_UPDATE", data)

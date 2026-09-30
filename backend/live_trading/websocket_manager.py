@@ -32,6 +32,20 @@ class WebSocketConnectionManager:
         self.health_check_interval = 30  # seconds
         self.health_check_thread = None
         self.lock = threading.RLock()
+
+    def _publish_health(self, credential_id: int) -> None:
+        """Publish process-local connection state for API/UI processes."""
+        from django.core.cache import cache
+
+        health = dict(self.connection_health.get(credential_id, {}))
+        for key, value in list(health.items()):
+            if hasattr(value, "isoformat"):
+                health[key] = value.isoformat()
+        health["updated_at"] = timezone.now().isoformat()
+        try:
+            cache.set(f"live_ws_health:{credential_id}", health, timeout=86400)
+        except Exception:
+            logger.exception("Could not publish WebSocket health for credential %s", credential_id)
         
     def start_processor(self, credential_id: int) -> bool:
         """
@@ -60,6 +74,7 @@ class WebSocketConnectionManager:
                         "reconnect_attempts": 0,
                         "last_error": "No valid broker session",
                     }
+                    self._publish_health(credential_id)
                     logger.info("WebSocket for credential %s is waiting for broker authentication", credential_id)
                     return False
 
@@ -75,6 +90,7 @@ class WebSocketConnectionManager:
                     "broker_session_id": processor.auth_session_id or broker_session_id,
                     "last_error": None
                 }
+                self._publish_health(credential_id)
                 
                 logger.info(f"Started WebSocket processor for credential {credential_id}")
                 return True
@@ -88,6 +104,7 @@ class WebSocketConnectionManager:
                     "last_reconnect_attempt": time.time(),
                     "last_error": str(e),
                 }
+                self._publish_health(credential_id)
                 logger.exception(f"Failed to start WebSocket processor for credential {credential_id}: {e}")
                 return False
 
@@ -116,6 +133,11 @@ class WebSocketConnectionManager:
             finally:
                 self.active_processors.pop(credential_id, None)
                 self.connection_health.pop(credential_id, None)
+                try:
+                    from django.core.cache import cache
+                    cache.delete(f"live_ws_health:{credential_id}")
+                except Exception:
+                    logger.exception("Could not clear WebSocket health for credential %s", credential_id)
                 logger.info(f"Stopped WebSocket processor for credential {credential_id}")
     
     def start_health_monitor(self) -> None:
@@ -171,6 +193,7 @@ class WebSocketConnectionManager:
                             "reconnect_attempts": 0,
                             "last_error": "No valid broker session",
                         }
+                        self._publish_health(credential_id)
                         continue
 
                     if str(health.get("broker_session_id")) != str(broker_session_id):
@@ -193,6 +216,7 @@ class WebSocketConnectionManager:
                         health["status"] = "connected"
                         if time.time() - float(health.get("connected_since", time.time())) >= 120:
                             health["reconnect_attempts"] = 0
+                    self._publish_health(credential_id)
                         
                 except Exception as e:
                     logger.exception(f"Error checking health for credential {credential_id}: {e}")
@@ -255,6 +279,7 @@ class WebSocketConnectionManager:
                 "last_reconnect_attempt": time.time(),
                 "last_error": None
             }
+            self._publish_health(credential_id)
             
             logger.info(f"Successfully reconnected WebSocket for credential {credential_id}")
             
@@ -262,6 +287,7 @@ class WebSocketConnectionManager:
             logger.exception(f"Reconnect failed for credential {credential_id}: {e}")
             self.connection_health[credential_id]["reconnect_attempts"] = reconnect_attempts + 1
             self.connection_health[credential_id]["last_error"] = str(e)
+            self._publish_health(credential_id)
     
     def _switch_to_reconciliation_mode(self, credential_id: int) -> None:
         """
@@ -276,6 +302,7 @@ class WebSocketConnectionManager:
             reconcile_all_active_accounts.delay(credential_id=credential_id)
             health = self.connection_health.setdefault(credential_id, {})
             health["status"] = "reconciliation"
+            self._publish_health(credential_id)
         except Exception as e:
             logger.exception("Could not schedule REST reconciliation for credential %s: %s", credential_id, e)
     

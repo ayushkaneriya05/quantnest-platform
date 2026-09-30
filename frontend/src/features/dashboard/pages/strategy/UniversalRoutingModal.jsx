@@ -13,6 +13,7 @@ import { Switch } from "@/shared/components/ui/switch";
 import { Search, Loader2, GitMerge, AlertCircle, Trash, Plus, Edit2, ArrowLeft } from 'lucide-react';
 import { executionRoutesApi, instrumentsApi } from '@/shared/services/instrumentsApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
+import { useEnums } from '@/shared/context/EnumsContext';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 const ROUTE_TYPES = [
@@ -50,6 +51,7 @@ const TYPE_DOT = {
 };
 
 export default function UniversalRoutingModal({ open, onClose, watchlistInstrument, strategyConfig }) {
+  const { enums } = useEnums();
   const { notify } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -539,9 +541,9 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
                     <SelectValue placeholder="Select sizing method" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="FIXED">Fixed Quantity</SelectItem>
-                    <SelectItem value="CAPITAL_BASED">Capital Based</SelectItem>
-                    <SelectItem value="RISK_BASED">Risk Based (%)</SelectItem>
+                    {(enums.QuantityType || []).map((sizing) => (
+                      <SelectItem key={sizing.value} value={sizing.value}>{sizing.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

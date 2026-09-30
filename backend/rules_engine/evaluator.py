@@ -1,6 +1,4 @@
-import json
 import logging
-import re
 import numpy as np
 import pandas as pd
 
@@ -16,6 +14,7 @@ from common.enums import (
 from common.trading_utils import get_any_field, to_float
 from .indicators import IndicatorEngine, INDICATOR_OPERANDS
 from .math_utils import fast_ffill_align_float, fast_ffill_align_bool, _fast_crosses_above, _fast_crosses_below
+from .math_expressions import is_safe_arithmetic_expression
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +122,8 @@ class RuleEvaluator:
         if not params:
             return
 
-        from common.enums import OperandType
+        indicator_type = OperandType(indicator_type)
+        params = self._normalize_params(params, indicator_type)
 
         if indicator_type in [OperandType.SMA, OperandType.EMA, OperandType.RSI]:
             if params.get("period", 0) <= 0:
@@ -160,7 +160,10 @@ class RuleEvaluator:
             
         target_df = self.df
         target_engine = self.indicator_engine
-        if timeframe and timeframe in self.mtf_data:
+        if timeframe and timeframe not in self.mtf_data:
+            logger.warning("Configured timeframe %s is unavailable; suppressing operand", timeframe)
+            return pd.Series(float("nan"), index=self.df.index, dtype="float64")
+        if timeframe:
             target_df = self.mtf_data[timeframe]
             target_engine = self.mtf_indicator_engines.get(timeframe)
             if target_engine is None or target_engine.df is not target_df:
@@ -195,8 +198,7 @@ class RuleEvaluator:
                 return 0.0
         
         # State-based operands require state (exit rules only)
-        if op_type in [OperandType.POSITION_PNL_PERCENTAGE, OperandType.POSITION_PNL_POINTS, 
-                      OperandType.ENTRY_PRICE, OperandType.TRAILING_PEAK_OFFSET, OperandType.POSITION_RR_RATIO]:
+        if op_type in [OperandType.POSITION_PNL_PERCENTAGE, OperandType.POSITION_PNL_POINTS, OperandType.ENTRY_PRICE, OperandType.TRAILING_PEAK_OFFSET, OperandType.POSITION_RR_RATIO]:
             logger.warning("State operand %s used without state context, returning NaN", op_type)
             return self._nan_series()
 
@@ -320,6 +322,24 @@ class RuleEvaluator:
             logger.warning("Unsupported comparison operator: %s", operator)
             result = self._false_series()
 
+        # NaN compares unequal to every numeric value in pandas. Without an
+        # explicit validity mask, indicator warmup rows and failed operands
+        # can therefore trigger NOT_EQUAL rules.
+        if isinstance(result, pd.Series):
+            valid = pd.Series(True, index=result.index, dtype=bool)
+            for operand in (value_1, value_2):
+                if isinstance(operand, pd.Series):
+                    values = operand.reindex(result.index)
+                    valid &= values.notna()
+                    if pd.api.types.is_numeric_dtype(values.dtype):
+                        valid &= pd.Series(
+                            np.isfinite(values.to_numpy(dtype=np.float64, na_value=np.nan)),
+                            index=result.index,
+                        )
+                elif isinstance(operand, (int, float, np.number)):
+                    valid &= bool(np.isfinite(operand))
+            result = result.where(valid, False)
+
         return self._normalize_boolean_series(result)
 
 
@@ -334,11 +354,11 @@ class RuleEvaluator:
 
         if not expression:
             logger.warning("Custom rule missing expression")
-            return self._false_series()
+            return self._invalid_numeric_series(target_df)
 
         if not self._is_safe_custom_expression(expression, variables=variables):
             logger.warning("Rejected unsafe custom rule expression: %s", expression)
-            return self._false_series()
+            return self._invalid_numeric_series(target_df)
 
         # Use the target dataframe or self.df, make a copy only if we need to modify it
         eval_df = target_df if target_df is not None else self.df
@@ -372,7 +392,7 @@ class RuleEvaluator:
                 eval_df[var_name] = series
         except Exception as e:
             logger.warning("Failed to evaluate nested variables for math expression: %s", e)
-            return self._false_series()
+            return self._invalid_numeric_series(eval_df)
 
         try:
             result = eval_df.eval(expression, engine="numexpr")
@@ -381,24 +401,26 @@ class RuleEvaluator:
                 result = eval_df.eval(expression, engine="python")
             except Exception:
                 logger.warning("Custom rule expression failed '%s': %s", expression, exc)
-                return self._false_series()
+                return self._invalid_numeric_series(eval_df)
 
         if isinstance(result, pd.Series):
-            return result.reindex(eval_df.index)
-        return pd.Series(result, index=eval_df.index)
+            result = result.reindex(eval_df.index)
+        else:
+            result = pd.Series(result, index=eval_df.index)
+
+        # Expressions such as `VAR_1 / 0` can produce infinities. They are invalid indicator values and must not compare as valid signals.
+        if pd.api.types.is_numeric_dtype(result.dtype):
+            result = result.replace([np.inf, -np.inf], np.nan)
+        return result
+
+    def _invalid_numeric_series(self, frame=None):
+        index = (frame if frame is not None else self.df).index
+        return pd.Series(float("nan"), index=index, dtype="float64")
 
 
     @staticmethod
     def _is_safe_custom_expression(expression, variables=None):
-        if "__" in expression or "@" in expression:
-            return False
-        allowed_columns = {"open", "high", "low", "close", "volume"}
-        if variables:
-            allowed_columns.update(variables.keys())
-        tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression))
-        if not tokens.issubset(allowed_columns):
-            return False
-        return bool(re.fullmatch(r"[A-Za-z0-9_\s\.\<\>\=\!\&\|\(\)\+\-\*\/\%]+", expression))
+        return is_safe_arithmetic_expression(expression, (variables or {}).keys())
 
 
     def _get_group_rules(self, group):
@@ -415,9 +437,9 @@ class RuleEvaluator:
         return list(rules)
 
 
-    def _normalize_params(self, params):
+    def _normalize_params(self, params, indicator_type=None):
         """Delegate to IndicatorEngine for consistent parameter normalization."""
-        return self.indicator_engine._normalize_params(params)
+        return self.indicator_engine._normalize_params(params, indicator_type)
 
 
     def _get_breakout_series(self, breakout_source):

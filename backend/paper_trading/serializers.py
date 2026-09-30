@@ -36,6 +36,7 @@ class PortfolioSerializer(serializers.ModelSerializer):
                 "strategy": allocation.strategy_id,
                 "strategy_name": allocation.strategy.name,
                 "allocated_amount": allocation.allocated_amount,
+                "effective_allocated": str(allocation.effective_allocated),
                 "allocated_percentage": allocation.allocated_percentage,
                 "utilized_amount": str(allocation.utilized_amount),
                 "total_pnl": str(allocation.total_pnl),
@@ -71,6 +72,8 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
     total_pnl = serializers.SerializerMethodField()
     today_pnl = serializers.SerializerMethodField()
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
+    strategy_status = serializers.CharField(source='strategy.status', read_only=True)
+    paper_trading_enabled = serializers.BooleanField(source='strategy.paper_trading_enabled', read_only=True)
     available_amount = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     deployed_version = serializers.PrimaryKeyRelatedField(
         queryset=StrategyVersion.objects.all(),
@@ -83,7 +86,8 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = CapitalAllocation
         fields = [
-            'id', 'portfolio', 'strategy', 'strategy_name', 'allocation_type',
+            'id', 'portfolio', 'strategy', 'strategy_name', 'strategy_status',
+            'paper_trading_enabled', 'allocation_type',
             'allocated_amount', 'allocated_percentage', 'utilized_amount',
             'available_amount', 'total_pnl', 'today_pnl', 'auto_rebalance',
             'rebalance_frequency', 'last_rebalance',
@@ -204,15 +208,21 @@ class PaperTradingSessionSerializer(serializers.ModelSerializer):
     is_active = serializers.SerializerMethodField()
     trades_count = serializers.SerializerMethodField()
     pnl = serializers.SerializerMethodField()
+    charge_profile_name = serializers.SerializerMethodField()
 
     class Meta:
         model = PaperTradingSession
         fields = [
             'id', 'user', 'strategy', 'strategy_name', 'allocation', 'account',
+            'slippage_pct', 'charge_profile', 'include_charges',
+            'charge_profile_name',
             'status', 'started_at', 'ended_at', 'trades_count', 'pnl', 'error_message',
             'is_active', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['user', 'started_at', 'ended_at', 'created_at', 'updated_at']
+        read_only_fields = [
+            'user', 'slippage_pct', 'charge_profile', 'include_charges',
+            'started_at', 'ended_at', 'created_at', 'updated_at'
+        ]
 
     def get_is_active(self, obj):
         return obj.status == "RUNNING"
@@ -223,10 +233,17 @@ class PaperTradingSessionSerializer(serializers.ModelSerializer):
     def get_pnl(self, obj):
         return obj.account.total_pnl
 
+    def get_charge_profile_name(self, obj):
+        return (obj.charge_profile_snapshot or {}).get('name') or (
+            obj.charge_profile.name if obj.charge_profile_id else None
+        )
+
 
 class PaperAccountSerializer(serializers.ModelSerializer):
     strategy_name = serializers.SerializerMethodField()
     strategy = serializers.SerializerMethodField()
+    strategy_status = serializers.SerializerMethodField()
+    paper_trading_enabled = serializers.SerializerMethodField()
     session_status = serializers.SerializerMethodField()
     session_id = serializers.SerializerMethodField()
     total_pnl = serializers.SerializerMethodField()
@@ -236,16 +253,18 @@ class PaperAccountSerializer(serializers.ModelSerializer):
     today_trades = serializers.SerializerMethodField()
     margin_used = serializers.SerializerMethodField()
     margin_available = serializers.SerializerMethodField()
+    session_execution_costs = serializers.SerializerMethodField()
 
     class Meta:
         model = PaperAccount
         fields = [
-            'id', 'name', 'allocation', 'strategy', 'strategy_name', 'initial_balance', 'current_balance',
+            'id', 'name', 'allocation', 'strategy', 'strategy_name', 'strategy_status',
+            'paper_trading_enabled', 'initial_balance', 'current_balance',
             'total_pnl', 'realized_pnl', 'unrealized_pnl',
             'today_pnl', 'today_trades', 'margin_used', 'margin_available',
-            'session_status', 'session_id', 'created_at'
+            'session_status', 'session_id', 'session_execution_costs', 'created_at'
         ]
-        read_only_fields = ['user', 'created_at']
+        read_only_fields = ['user', 'allocation', 'created_at']
 
     def get_session_status(self, obj):
         session = obj.sessions.first()
@@ -257,9 +276,28 @@ class PaperAccountSerializer(serializers.ModelSerializer):
     def get_strategy(self, obj):
         return obj.allocation.strategy_id if obj.allocation else None
 
+    def get_strategy_status(self, obj):
+        return obj.allocation.strategy.status if obj.allocation else None
+
+    def get_paper_trading_enabled(self, obj):
+        return obj.allocation.strategy.paper_trading_enabled if obj.allocation else False
+
     def get_session_id(self, obj):
         session = obj.sessions.first()
         return session.id if session else None
+
+    def get_session_execution_costs(self, obj):
+        session = obj.sessions.first()
+        if not session:
+            return None
+        return {
+            'slippage_pct': str(session.slippage_pct),
+            'charge_profile': session.charge_profile_id,
+            'charge_profile_name': (session.charge_profile_snapshot or {}).get('name') or (
+                session.charge_profile.name if session.charge_profile_id else None
+            ),
+            'include_charges': session.include_charges,
+        }
 
     def get_total_pnl(self, obj):
         return obj.total_pnl
@@ -285,18 +323,26 @@ class PaperAccountSerializer(serializers.ModelSerializer):
 
 class PaperPositionSerializer(serializers.ModelSerializer):
     instrument_symbol = serializers.CharField(source='instrument.symbol', read_only=True)
+    instrument_sym_ticker = serializers.ReadOnlyField(source='instrument.sym_ticker')
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     current_value = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
     invested_value = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    unrealized_pnl_pct = serializers.SerializerMethodField()
     
     class Meta:
         model = PaperPosition
         fields = [
-            'id', 'account', 'strategy', 'strategy_name', 'instrument', 'instrument_symbol',
+            'id', 'account', 'strategy', 'strategy_name', 'instrument', 'instrument_symbol', 'instrument_sym_ticker',
             'side', 'quantity', 'avg_price', 'current_price',
             'unrealized_pnl', 'realized_pnl',
-            'margin_blocked', 'current_value', 'invested_value', 'opened_at'
+            'margin_blocked', 'current_value', 'invested_value', 'unrealized_pnl_pct', 'opened_at'
         ]
+
+    def get_unrealized_pnl_pct(self, obj):
+        invested_value = obj.invested_value
+        if not invested_value:
+            return 0
+        return (obj.unrealized_pnl / invested_value) * 100
 
 
 class PaperOrderSerializer(serializers.ModelSerializer):
@@ -311,10 +357,15 @@ class PaperOrderSerializer(serializers.ModelSerializer):
             'id', 'account', 'strategy', 'strategy_name', 'instrument', 'instrument_symbol',
             'order_type', 'product_type', 'side', 'quantity', 'price', 'trigger_price',
             'filled_quantity', 'avg_fill_price',
+            'slippage_pct_applied', 'slippage_amount',
             'status', 'rejection_reason', 'order_tag',
             'is_filled', 'is_pending', 'placed_at', 'executed_at'
         ]
-        read_only_fields = ['filled_quantity', 'avg_fill_price', 'status', 'placed_at', 'executed_at', 'account', 'strategy', 'instrument', 'order_type', 'product_type', 'side', 'quantity', 'price', 'trigger_price']
+        read_only_fields = [
+            'filled_quantity', 'avg_fill_price', 'slippage_pct_applied', 'slippage_amount',
+            'status', 'placed_at', 'executed_at', 'account', 'strategy', 'instrument',
+            'order_type', 'product_type', 'side', 'quantity', 'price', 'trigger_price'
+        ]
 
 
 class PaperTradeSerializer(serializers.ModelSerializer):

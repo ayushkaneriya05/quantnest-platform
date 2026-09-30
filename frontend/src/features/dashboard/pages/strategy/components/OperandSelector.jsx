@@ -17,214 +17,11 @@ import {
   Dialog,
   DialogContent,
   DialogTrigger,
-  DialogHeader,
-  DialogTitle,
 } from "@/shared/components/ui/dialog";
-import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import { Settings, Clock } from "lucide-react";
 import { useEnums } from "@/shared/context/EnumsContext";
 import MathExpressionBuilder from "./MathExpressionBuilder";
-
-export const PARAM_CONFIG = {
-  // Price Data & Basic
-  // No params needed for base price data since shift is auto-appended
-
-  // Indicators
-  SMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  EMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  WMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  HMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  ALMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  KAMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  DEMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  TEMA: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  RSI: [
-    { key: "period", label: "Period", default: 14 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  ROC: [
-    { key: "period", label: "Period", default: 9 },
-    { key: "source", label: "Source", type: "source", default: "close" },
-  ],
-  CCI: [{ key: "period", label: "Period", default: 20 }],
-  ADX: [
-    { key: "period", label: "Period", default: 14 },
-    {
-      key: "output_line",
-      label: "Output",
-      type: "select",
-      options: ["ADX", "+DI", "-DI"],
-      default: "ADX",
-    },
-  ],
-  DMI: [
-    { key: "period", label: "Period", default: 14 },
-    {
-      key: "output_line",
-      label: "Output",
-      type: "select",
-      options: ["ADX", "+DI", "-DI"],
-      default: "ADX",
-    },
-  ],
-  MACD: [
-    { key: "fast_period", label: "Fast", default: 12 },
-    { key: "slow_period", label: "Slow", default: 26 },
-    { key: "signal_period", label: "Sig", default: 9 },
-    {
-      key: "output_line",
-      label: "Output",
-      type: "select",
-      options: ["MACD_LINE", "MACD_SIGNAL", "MACD_HISTOGRAM"],
-      default: "MACD_LINE",
-    },
-  ],
-  BOLLINGER_BANDS: [
-    { key: "period", label: "Period", default: 20 },
-    { key: "std_dev", label: "StdDev", default: 2 },
-    {
-      key: "output_line",
-      label: "Output Line",
-      type: "select",
-      options: ["UPPER", "MIDDLE", "LOWER"],
-      default: "UPPER",
-    },
-  ],
-  KELTNER_CHANNEL: [
-    { key: "period", label: "Period", default: 20 },
-    { key: "multiplier", label: "Mult", default: 2 },
-    {
-      key: "output_line",
-      label: "Output Line",
-      type: "select",
-      options: ["UPPER", "MIDDLE", "LOWER"],
-      default: "UPPER",
-    },
-  ],
-  DONCHIAN_CHANNEL: [
-    { key: "period", label: "Period", default: 20 },
-    {
-      key: "output_line",
-      label: "Output Line",
-      type: "select",
-      options: ["UPPER", "MIDDLE", "LOWER"],
-      default: "UPPER",
-    },
-  ],
-  STOCHASTIC: [
-    { key: "k_period", label: "%K", default: 14 },
-    { key: "d_period", label: "%D", default: 3 },
-    { key: "smooth", label: "Smth", default: 3 },
-    {
-      key: "output_line",
-      label: "Output Line",
-      type: "select",
-      options: ["K", "D"],
-      default: "K",
-    },
-  ],
-  SUPERTREND: [
-    { key: "period", label: "Period", default: 7 },
-    { key: "multiplier", label: "Mult", default: 3 },
-  ],
-  ATR: [{ key: "period", label: "Period", default: 14 }],
-  MFI: [{ key: "period", label: "Period", default: 14 }],
-  WILLIAMS_R: [{ key: "period", label: "Period", default: 14 }],
-  PARABOLIC_SAR: [
-    { key: "af", label: "Acceleration Factor", default: 0.02 },
-    { key: "max_af", label: "Max AF", default: 0.2 },
-  ],
-  ICHIMOKU_CLOUD: [
-    { key: "tenkan", label: "Tenkan (Conversion)", default: 9 },
-    { key: "kijun", label: "Kijun (Base)", default: 26 },
-    { key: "senkou", label: "Senkou B", default: 52 },
-    {
-      key: "output_line",
-      label: "Output Line",
-      type: "select",
-      options: ["TENKAN", "KIJUN", "SENKOU_A", "SENKOU_B", "CHIKOU"],
-      default: "TENKAN",
-    },
-  ],
-  CONSTANT: [{ key: "value", label: "Value", default: 0 }],
-
-  CANDLE_PATTERN: [
-    {
-      key: "pattern",
-      label: "Pattern",
-      type: "enum",
-      enumKey: "CandlePatternType",
-      default: "DOJI",
-    },
-  ],
-  CANDLE_BODY_SIZE: [
-    {
-      key: "mode",
-      label: "Mode",
-      type: "select",
-      options: ["POINTS", "PERCENTAGE"],
-      default: "POINTS",
-    },
-  ],
-
-  MATH_EXPRESSION: [
-    {
-      key: "expression",
-      label: "Math Formula",
-      type: "math",
-      default: { expression: "", variables: {} },
-    },
-  ],
-  VWAP: [
-    {
-      key: "anchor",
-      label: "Anchor",
-      type: "select",
-      options: ["D", "W", "M"],
-      default: "D",
-    },
-  ],
-  OBV: [],
-  PIVOT_POINT: [],
-  POSITION_RR_RATIO: [],
-  POSITION_PNL_PERCENTAGE: [],
-  POSITION_PNL_POINTS: [],
-  TRAILING_PEAK_OFFSET: [],
-  ENTRY_PRICE: [],
-};
-
-export const getDefaultParams = (type) => {
-  const config = PARAM_CONFIG[type] || [];
-  return config.reduce(
-    (acc, param) => ({ ...acc, [param.key]: param.default }),
-    {},
-  );
-};
 
 export default function OperandSelector({
   value,
@@ -236,88 +33,45 @@ export default function OperandSelector({
   hideTimeframe = false,
   placeholder = "Select Operand",
   ruleType,
+  allowedValues,
 }) {
   const { enums } = useEnums();
   const [popoverOpen, setPopoverOpen] = useState(false);
 
   // Group enums for better selection
-  const options = enums.OperandType || [];
+  const options = (enums.OperandType || []).filter(
+    (option) => !allowedValues || allowedValues.includes(option.value),
+  );
+  const parameterConfig = enums.OperandParameterConfig || {};
+  const mathVariableTypes =
+    enums.MathExpressionOperandTypes?.[ruleType || "ENTRY"] || [];
+  const positionStateTypes = enums.OperandGroups?.["Position State (Exit)"] || [];
 
-  const priceData = [
-    "LTP",
-    "OPEN",
-    "HIGH",
-    "LOW",
-    "CLOSE",
-    "VOLUME",
-    "VWAP",
-    "HL2",
-    "HLC3",
-    "OHLC4",
-    "CURRENT_DAY_OPEN",
-    "PREV_WEEK_HIGH",
-    "PREV_WEEK_LOW",
-  ];
-  const stateData = [
-    "POSITION_PNL_PERCENTAGE",
-    "POSITION_PNL_POINTS",
-    "TRAILING_PEAK_OFFSET",
-    "ENTRY_PRICE",
-    "POSITION_RR_RATIO",
-  ];
-  const mathData = ["CONSTANT", "MATH_EXPRESSION"];
+  const groupedOptions = Object.fromEntries(
+    Object.entries(enums.OperandGroups || {})
+      .filter(
+        ([groupName]) =>
+          groupName !== "Position State (Exit)" || ruleType !== "ENTRY",
+      )
+      .map(([groupName, values]) => [
+        groupName,
+        options.filter((option) => values.includes(option.value)),
+      ]),
+  );
 
-  const candleData = ["CANDLE_PATTERN", "CANDLE_BODY_SIZE"];
-
-  const groupedOptions = {
-    "Price Action & Volume": options.filter((o) => priceData.includes(o.value)),
-    "Candle Analysis": options.filter((o) => candleData.includes(o.value)),
-    ...(ruleType !== "ENTRY"
-      ? {
-          "Position State (Exit)": options.filter((o) =>
-            stateData.includes(o.value),
-          ),
-        }
-      : {}),
-    "Math & Constants": options.filter((o) => mathData.includes(o.value)),
-    "Technical Indicators": options.filter(
-      (o) =>
-        !priceData.includes(o.value) &&
-        !stateData.includes(o.value) &&
-        !mathData.includes(o.value) &&
-        !candleData.includes(o.value),
-    ),
-  };
-
-  // Try to find the label for the current value
-  const currentOption = options.find((o) => o.value === value);
-  const baseParamConfig = PARAM_CONFIG[value] || [];
-
-  // Auto-append Shift parameter to all operands (except CONSTANT)
-  const paramConfig =
-    value && value !== "CONSTANT" && value !== "MATH_EXPRESSION"
-      ? [
-          ...baseParamConfig,
-          {
-            key: "shift",
-            label: "Shift (Candles)",
-            type: "number",
-            default: 0,
-          },
-        ]
-      : baseParamConfig;
+  const currentOption = options.find((option) => option.value === value);
+  const paramConfig = parameterConfig[value] || [];
 
   // Format params for badge display
   const formatParams = () => {
     if (!paramConfig.length || !params) return "";
     if (value === "CONSTANT") return params.value?.toString() || "0";
     if (value === "MATH_EXPRESSION") {
-      if (params.expression && params.expression.expression) {
-        return `(${params.expression.expression})`; // If it's nested
-      } else if (params.expression && typeof params.expression === "string") {
-        return `(${params.expression})`;
-      }
-      return "";
+      const expression =
+        typeof params.expression === "string"
+          ? params.expression
+          : params.expression?.expression;
+      return expression ? `(${expression})` : "";
     }
     return `(${paramConfig.map((p) => params[p.key] ?? p.default).join(", ")})`;
   };
@@ -327,6 +81,10 @@ export default function OperandSelector({
     // through the intermediate "-" state before being saved.
     const parsed = isString ? val : val === "" ? null : parseFloat(val);
     onChangeParams({ ...(params || {}), [key]: parsed });
+  };
+
+  const getParamValue = (param) => {
+    return params?.[param.key] ?? param.default;
   };
 
   return (
@@ -393,6 +151,9 @@ export default function OperandSelector({
                             variables: {},
                           }
                         }
+                        parameterConfig={parameterConfig}
+                        allowedVariableTypes={mathVariableTypes}
+                        ruleType={ruleType}
                         onChange={(val) =>
                           handleParamChange(param.key, val, true)
                         }
@@ -433,7 +194,7 @@ export default function OperandSelector({
                       key={param.key}
                       className={
                         param.type === "source" &&
-                        PARAM_CONFIG[params?.[param.key]]
+                        parameterConfig[params?.[param.key]]
                           ? "col-span-2 space-y-1"
                           : "space-y-1"
                       }
@@ -443,7 +204,7 @@ export default function OperandSelector({
                       </label>
                       {param.type === "source" ? (
                         <Select
-                          value={params?.[param.key] ?? param.default}
+                          value={getParamValue(param)}
                           onValueChange={(v) =>
                             handleParamChange(param.key, v, true)
                           }
@@ -454,27 +215,21 @@ export default function OperandSelector({
                           <SelectContent>
                             <SelectGroup>
                               <SelectLabel>Price</SelectLabel>
-                              {[
-                                "close",
-                                "open",
-                                "high",
-                                "low",
-                                "hl2",
-                                "hlc3",
-                                "ohlc4",
-                              ].map((src) => (
-                                <SelectItem key={src} value={src}>
-                                  {src.toUpperCase()}
-                                </SelectItem>
-                              ))}
+                              {param.options
+                                .filter((source) => source.group === "Price")
+                                .map((source) => (
+                                  <SelectItem key={source.value} value={source.value}>
+                                    {source.label}
+                                  </SelectItem>
+                                ))}
                             </SelectGroup>
                             <SelectGroup>
                               <SelectLabel>Indicators</SelectLabel>
-                              {Object.keys(PARAM_CONFIG)
-                                .filter((k) => k !== "CONSTANT")
-                                .map((ind) => (
-                                  <SelectItem key={ind} value={ind}>
-                                    {ind}
+                              {param.options
+                                .filter((source) => source.group === "Indicators")
+                                .map((source) => (
+                                  <SelectItem key={source.value} value={source.value}>
+                                    {source.label}
                                   </SelectItem>
                                 ))}
                             </SelectGroup>
@@ -482,7 +237,7 @@ export default function OperandSelector({
                         </Select>
                       ) : param.type === "enum" ? (
                         <Select
-                          value={params?.[param.key] ?? param.default}
+                          value={getParamValue(param)}
                           onValueChange={(v) =>
                             handleParamChange(param.key, v, true)
                           }
@@ -500,7 +255,7 @@ export default function OperandSelector({
                         </Select>
                       ) : param.type === "select" ? (
                         <Select
-                          value={params?.[param.key] ?? param.default}
+                          value={getParamValue(param)}
                           onValueChange={(v) =>
                             handleParamChange(param.key, v, true)
                           }
@@ -510,8 +265,8 @@ export default function OperandSelector({
                           </SelectTrigger>
                           <SelectContent>
                             {param.options.map((opt) => (
-                              <SelectItem key={opt} value={opt}>
-                                {opt}
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -535,19 +290,26 @@ export default function OperandSelector({
                                 value === "CONSTANT",
                             )
                           }
+                          min={param.min}
+                          max={param.max ?? undefined}
+                          step={param.step ?? 1}
                           className="h-7 text-xs bg-black/30 border-gray-800 text-gray-200"
                         />
                       )}
 
                       {param.type === "source" &&
-                        PARAM_CONFIG[params?.[param.key]] && (
+                        parameterConfig[params?.[param.key]] && (
                           <div className="mt-2 p-2 border border-gray-800 rounded bg-black/20">
                             <span className="text-[10px] text-indigo-400 font-bold mb-1 block">
                               Source ({params?.[param.key]}) Settings
                             </span>
                             <div className="grid grid-cols-2 gap-2">
-                              {PARAM_CONFIG[params?.[param.key]]
-                                .filter((p) => p.type !== "source")
+                              {parameterConfig[params?.[param.key]]
+                                .filter(
+                                  (sourceParam) =>
+                                    sourceParam.type !== "source" &&
+                                    sourceParam.key !== "shift",
+                                )
                                 .map((sp) => (
                                   <div
                                     key={`source_${sp.key}`}
@@ -556,35 +318,64 @@ export default function OperandSelector({
                                     <label className="text-[10px] text-gray-400 font-medium">
                                       {sp.label}
                                     </label>
-                                    <Input
-                                      type={
-                                        sp.key === "option_type"
-                                          ? "text"
-                                          : "number"
-                                      }
-                                      value={
-                                        params?.source_params?.[sp.key] ??
-                                        sp.default
-                                      }
-                                      onChange={(e) => {
-                                        const val =
-                                          sp.key === "option_type"
-                                            ? e.target.value
-                                            : e.target.value === ""
+                                    {sp.type === "select" ? (
+                                      <Select
+                                        value={params?.source_params?.[sp.key] ?? sp.default}
+                                        onValueChange={(selected) => onChangeParams({
+                                          ...params,
+                                          source_params: { ...(params?.source_params || {}), [sp.key]: selected },
+                                        })}
+                                      >
+                                        <SelectTrigger className="h-7 text-xs bg-black/30 border-gray-800 text-gray-200 focus:ring-0">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {sp.options.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                              {option.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : sp.type === "enum" ? (
+                                      <Select
+                                        value={params?.source_params?.[sp.key] ?? sp.default}
+                                        onValueChange={(selected) => onChangeParams({
+                                          ...params,
+                                          source_params: { ...(params?.source_params || {}), [sp.key]: selected },
+                                        })}
+                                      >
+                                        <SelectTrigger className="h-7 text-xs bg-black/30 border-gray-800 text-gray-200 focus:ring-0">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {(enums[sp.enumKey] || []).map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                              {option.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <Input
+                                        type="number"
+                                        value={params?.source_params?.[sp.key] ?? sp.default}
+                                        min={sp.min}
+                                        max={sp.max ?? undefined}
+                                        step={sp.step ?? 1}
+                                        onChange={(e) => {
+                                          const val =
+                                            e.target.value === ""
                                               ? null
                                               : parseFloat(e.target.value);
-                                        const currentSourceParams =
-                                          params?.source_params || {};
-                                        onChangeParams({
-                                          ...params,
-                                          source_params: {
-                                            ...currentSourceParams,
-                                            [sp.key]: val,
-                                          },
-                                        });
-                                      }}
-                                      className="h-7 text-xs bg-black/30 border-gray-800 text-gray-200"
-                                    />
+                                          onChangeParams({
+                                            ...params,
+                                            source_params: { ...(params?.source_params || {}), [sp.key]: val },
+                                          });
+                                        }}
+                                        className="h-7 text-xs bg-black/30 border-gray-800 text-gray-200"
+                                      />
+                                    )}
                                   </div>
                                 ))}
                             </div>
@@ -598,12 +389,11 @@ export default function OperandSelector({
           </Popover>
         ))}
 
-      {/* Timeframe Selector (Only if not CONSTANT/State based) */}
+      {/* Timeframe Selector */}
       {!hideTimeframe &&
         value &&
         value !== "CONSTANT" &&
-        !value.includes("POSITION") &&
-        value !== "ENTRY_PRICE" && (
+        !positionStateTypes.includes(value) && (
           <div className="flex items-center gap-1.5 bg-black/10 rounded-md px-1.5 py-0.5 border border-white/[0.02]">
             <Clock className="h-3 w-3 text-gray-500" />
             <Select

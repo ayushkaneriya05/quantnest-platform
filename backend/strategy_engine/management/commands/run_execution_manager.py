@@ -26,18 +26,19 @@ class Command(BaseCommand):
         latest = redis_client.xrevrange("execution_control", count=1)
         control_stream_id = latest[0][0] if latest else "0-0"
         
-        # 1. Sync any existing RUNNING sessions on boot (catch-up mechanism)
+        # 1. Restore running and paused sessions on boot so open positions keep
+        #    receiving exit evaluation while paused sessions block new entries.
         self.stdout.write("Syncing active sessions on boot...")
         
         # Sync Live
-        for session in TradingSession.objects.filter(status__in=["RUNNING", "STOPPING"]).select_related("allocation__deployed_version"):
+        for session in TradingSession.objects.filter(status__in=["RUNNING", "PAUSED", "STOPPING"]).select_related("allocation__deployed_version"):
             inst_ids = InstrumentResolver.execution_instrument_ids(session)
             manager.start_worker(str(session.id), str(session.strategy_id), "live", inst_ids, paused=session.status != "RUNNING")
 
         # Sync Paper
-        for session in PaperTradingSession.objects.filter(status="RUNNING").select_related("allocation__deployed_version"):
+        for session in PaperTradingSession.objects.filter(status__in=["RUNNING", "PAUSED"]).select_related("allocation__deployed_version"):
             inst_ids = InstrumentResolver.execution_instrument_ids(session)
-            manager.start_worker(str(session.id), str(session.strategy_id), "paper", inst_ids)
+            manager.start_worker(str(session.id), str(session.strategy_id), "paper", inst_ids, paused=session.status == "PAUSED")
 
         self.stdout.write("Boot sync complete. Listening for execution events on Redis...")
 

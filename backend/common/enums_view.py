@@ -12,13 +12,17 @@ from .enums import (
     CandleTimeframe, CandlePart, MarketSession,
     CandlePatternType,
     LogicalOperator, RuleType,
+    RuleGroupAction,
     OperandType,
     ComparisonOperator,
     QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
     AutoDisableTriggerType,
     ViolationType, ViolationAction, Severity,
     TransactionType, RebalanceFrequency, Timezone, BacktestStatus,
-    BrokerName
+    BrokerName,
+    get_operand_parameter_config, OperandType, TradingDay,
+    DEFAULT_TRADING_DAYS, DEFAULT_TRADING_START_TIME, DEFAULT_TRADING_END_TIME,
+    OPERAND_GROUPS, get_math_expression_operand_types,
 )
 
 
@@ -58,6 +62,7 @@ _ENUM_SOURCES = {
 
     # Candle / time
     'CandleTimeframe': CandleTimeframe,
+    'TradingDay': TradingDay,
 
     'CandlePart': CandlePart,
     'CandlePatternType': CandlePatternType,
@@ -66,6 +71,7 @@ _ENUM_SOURCES = {
     # Rules
     'LogicalOperator': LogicalOperator,
     'RuleType': RuleType,
+    'RuleGroupAction': RuleGroupAction,
     'OperandType': OperandType,
     'ComparisonOperator': ComparisonOperator,
 
@@ -76,8 +82,6 @@ _ENUM_SOURCES = {
     # Options
     'StrikeSelectionLogic': StrikeSelectionLogic,
     'ExpiryType': ExpiryType,
-
-    # Entry config
 
 
     # Risk management
@@ -102,5 +106,42 @@ def enum_choices(request):
     data = {}
     for name, source in _ENUM_SOURCES.items():
         data[name] = _choices_to_list(source)
+
+    data['OperandParameterConfig'] = {
+        operand.value: get_operand_parameter_config(operand)
+        for operand in OperandType
+    }
+    data['OperandGroups'] = {
+        name: [operand.value for operand in operands]
+        for name, operands in OPERAND_GROUPS.items()
+    }
+    data['MathExpressionOperandTypes'] = {
+        rule_type.value: get_math_expression_operand_types(rule_type)
+        for rule_type in RuleType
+    }
+    data['StrategyBuilderDefaults'] = {
+        'time_rule': {
+            'trading_days': list(DEFAULT_TRADING_DAYS),
+            'market_session': 'ALL',
+            'start_time': DEFAULT_TRADING_START_TIME.strftime('%H:%M'),
+            'end_time': DEFAULT_TRADING_END_TIME.strftime('%H:%M'),
+            'candle_timeframe': CandleTimeframe.M5,
+            'timezone': Timezone.ASIA_KOLKATA,
+            'no_trade_windows': [],
+        },
+        'entry_order_config': {
+            'entry_side': 'BUY', 'entry_group_operator': 'OR',
+            'order_type': 'MARKET', 'price_offset': 0, 'cooldown_seconds': 0,
+        },
+        'position_sizing_rule': {
+            'sizing_method': 'CAPITAL_BASED', 'fixed_quantity': 1,
+            'capital_percentage': 10, 'risk_per_trade_percentage': 1,
+        },
+        'auto_disable_rule': {
+            'trigger_type': 'CONSECUTIVE_LOSSES', 'threshold_value': 0,
+            'threshold_count': 5, 'auto_reenable': False,
+            'cooldown_hours': 24, 'is_active': True,
+        },
+    }
         
     return Response(data)

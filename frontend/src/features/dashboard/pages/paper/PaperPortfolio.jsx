@@ -19,8 +19,11 @@ import PaperPositions from "./PaperPositions";
 import PaperOrderBook from "./PaperOrderBook";
 import PaperTradeHistory from "./PaperTradeHistory";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency } from "@/shared/utils/formatters";
+import { usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
 
 export default function PaperPortfolio() {
+  usePaperTradingWebSocket();
   const { notify } = useNotifications();
   const { setPageHeader, clearPageHeader } = usePageActions();
   const [activeTab, setActiveTab] = useState("overview");
@@ -152,7 +155,7 @@ export default function PaperPortfolio() {
                   <SelectContent className="bg-gray-900 border-gray-800 text-white">
                     {accounts.map((account) => (
                       <SelectItem key={account.id} value={account.id.toString()} className="focus:bg-gray-800 focus:text-white">
-                        {account.name} (₹{Number(account.current_balance).toLocaleString()})
+                        {account.name} ({formatCurrency(account.current_balance)})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -206,7 +209,7 @@ export default function PaperPortfolio() {
 
       {/* Tab Content */}
       <div className="mt-6">
-        {activeTab === "overview" && <PaperTradingDashboard selectedAccountId={selectedAccount} setActiveTab={setActiveTab} />}
+        {activeTab === "overview" && <PaperTradingDashboard selectedAccountId={selectedAccount} setActiveTab={setActiveTab} paperUpdatesManaged />}
         {activeTab === "positions" && <PaperPositions selectedAccountId={selectedAccount} />}
         {activeTab === "orders" && <PaperOrderBook selectedAccountId={selectedAccount} />}
         {activeTab === "trades" && <PaperTradeHistory selectedAccountId={selectedAccount} />}

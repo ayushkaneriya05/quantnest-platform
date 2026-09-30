@@ -173,11 +173,6 @@ const routeTitles = {
     title: "Execution Logs",
     subtitle: "Review order lifecycle events and broker acknowledgements",
   },
-  "/dashboard/live/emergency": {
-    title: "Emergency Controls",
-    subtitle: "Pause, resume, or stop running live sessions safely",
-  },
-
   // Journal, AI, Marketplace, Governance
   "/dashboard/journal": {
     title: "Trade Journal",

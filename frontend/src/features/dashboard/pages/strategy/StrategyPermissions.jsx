@@ -314,7 +314,7 @@ export default function StrategyPermissions() {
       </div>
       <StrategyFooter
         onSave={handleSave}
-        onCancel={() => navigate(`/dashboard/strategy/${id}/edit`)}
+        onCancel={() => navigate('/dashboard/strategy/list')}
         saving={saving}
         saveLabel="Save Permissions"
         savingLabel="Saving..."

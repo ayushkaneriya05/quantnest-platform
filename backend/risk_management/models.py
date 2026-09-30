@@ -127,12 +127,13 @@ class StrategyAutoDisable(BaseTimestampModel):
     # Trigger conditions
     trigger_type = models.CharField(
         max_length=20,
-        choices=AutoDisableTriggerType.choices
+        choices=AutoDisableTriggerType.choices,
+        default=AutoDisableTriggerType.CONSECUTIVE_LOSSES,
     )
     
     # Thresholds
     threshold_value = models.DecimalField(max_digits=15, decimal_places=4, null=True, blank=True)
-    threshold_count = models.PositiveIntegerField(default=0, null=True, blank=True)
+    threshold_count = models.PositiveIntegerField(default=5, null=True, blank=True)
     
     # Recovery
     auto_reenable = models.BooleanField(

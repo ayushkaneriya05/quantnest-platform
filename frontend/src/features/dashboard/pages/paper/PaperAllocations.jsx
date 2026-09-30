@@ -28,7 +28,7 @@ import { portfolioApi } from "@/shared/services/portfolioApi";
 import { strategyApi } from "@/shared/services/strategyApi";
 import PaperHotSwapModal from "./components/PaperHotSwapModal";
 import { RefreshCw as RefreshIcon } from "lucide-react";
-import { formatDateTime } from "@/shared/utils/formatters";
+import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const INITIAL_FORM = {
@@ -147,14 +147,6 @@ export default function PaperAllocations() {
     return parseFloat(alloc.allocated_amount || 0);
   };
 
-  const formatCurrency = (val) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(val || 0);
-  };
-
   const handleSave = async () => {
     const portfolioEquity = parseFloat(
       portfolio?.total_value || portfolio?.current_capital || 0,
@@ -259,7 +251,7 @@ export default function PaperAllocations() {
       notify.success("Allocation deleted");
       fetchData();
     } catch (error) {
-      notify.error("Deletion failed");
+      notify.error(error?.response?.data?.error || "Deletion failed");
     }
   };
 
@@ -311,7 +303,7 @@ export default function PaperAllocations() {
                   <span className="text-white font-medium">{formatCurrency(getEffectiveAmount(alloc))}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Live P&L</span>
+                  <span className="text-gray-500">Paper P&amp;L</span>
                   <span className={parseFloat(alloc.total_pnl) >= 0 ? "text-emerald-400" : "text-rose-400"}>
                     {formatCurrency(alloc.total_pnl)}
                   </span>
@@ -344,7 +336,9 @@ export default function PaperAllocations() {
               <Select disabled={!!editingId} value={form.strategy} onValueChange={(v) => setForm({...form, strategy: v})}>
                 <SelectTrigger className="bg-gray-800 border-gray-700"><SelectValue placeholder="Choose strategy" /></SelectTrigger>
                 <SelectContent>
-                  {strategies.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                  {strategies
+                    .filter((strategy) => editingId || (strategy.status === 'ACTIVE' && strategy.paper_trading_enabled))
+                    .map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -405,17 +399,20 @@ export default function PaperAllocations() {
           <DialogHeader>
             <DialogTitle className="text-rose-400">Remove Allocation</DialogTitle>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <p className="text-sm text-gray-400">This allocation has an active paper trading account. What would you like to do?</p>
+          {deleteDialog && <div className="py-4 space-y-4">
+            <p className="text-sm text-gray-400">Stop the paper session and close all positions first. Deleting the account permanently removes its order and trade history.</p>
             <div className="flex flex-col gap-2">
-              <Button variant="outline" className="justify-start border-gray-800" onClick={() => handleConfirmDelete(false)}>
+              <Button variant="outline" className="justify-start border-gray-800" onClick={() => handleConfirmDelete(false)} disabled={!deleteDialog.canDeletePaperAccount}>
                 Keep Paper Account (Detach only)
               </Button>
-              <Button variant="destructive" className="justify-start" onClick={() => handleConfirmDelete(true)}>
+              <Button variant="destructive" className="justify-start" onClick={() => handleConfirmDelete(true)} disabled={!deleteDialog.canDeletePaperAccount}>
                 Delete Both (Allocation + Account)
               </Button>
+              {!deleteDialog.canDeletePaperAccount && (
+                <p className="text-xs text-amber-400">{deleteDialog.deleteReason}</p>
+              )}
             </div>
-          </div>
+          </div>}
         </DialogContent>
       </Dialog>
       <PaperHotSwapModal

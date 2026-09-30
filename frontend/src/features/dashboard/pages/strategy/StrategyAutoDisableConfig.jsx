@@ -24,6 +24,10 @@ export default function StrategyAutoDisableConfig() {
   const { setPageHeader } = usePageActions();
   const { enums } = useEnums();
   const TRIGGER_TYPES = enums.AutoDisableTriggerType || [];
+  const autoDisableDefaults = enums.StrategyBuilderDefaults?.auto_disable_rule || {
+    name: '', trigger_type: 'CONSECUTIVE_LOSSES', threshold_value: 0,
+    threshold_count: 5, auto_reenable: false, cooldown_hours: 24, is_active: true,
+  };
 
   const [loading, setLoading] = useState(true);
   const [rules, setRules] = useState([]);
@@ -85,15 +89,7 @@ export default function StrategyAutoDisableConfig() {
       });
     } else {
       setEditingRule(null);
-      setFormData({
-        name: '',
-        trigger_type: 'CONSECUTIVE_LOSSES',
-        threshold_value: 0,
-        threshold_count: 5,
-        auto_reenable: false,
-        cooldown_hours: 24,
-        is_active: true
-      });
+      setFormData({ name: '', ...autoDisableDefaults });
     }
     setIsModalOpen(true);
   };

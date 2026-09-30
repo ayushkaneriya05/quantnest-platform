@@ -1,4 +1,4 @@
-from common.enums import OperandType
+from common.enums import OperandType, get_operand_parameter_defaults
 from common.trading_utils import get_any_field
 from rules_engine.indicators import INDICATOR_OPERANDS
 
@@ -33,22 +33,45 @@ class IndicatorRequirementAnalyzer:
                         
                     tf_a = get_any_field(rule, "operand_a_timeframe") or base_timeframe
                     tf_b = get_any_field(rule, "operand_b_timeframe") or base_timeframe
-                    
-                    lookback_a = cls._calculate_operand_lookback(
+                    cls._include_operand_requirements(
+                        requirements,
                         get_any_field(rule, "operand_a_type"),
-                        get_any_field(rule, "operand_a_params", {}) or {}
+                        get_any_field(rule, "operand_a_params", {}) or {},
+                        tf_a,
                     )
-                    if tf_a not in requirements or lookback_a > requirements[tf_a]:
-                        requirements[tf_a] = lookback_a
-                        
-                    lookback_b = cls._calculate_operand_lookback(
+                    cls._include_operand_requirements(
+                        requirements,
                         get_any_field(rule, "operand_b_type"),
-                        get_any_field(rule, "operand_b_params", {}) or {}
+                        get_any_field(rule, "operand_b_params", {}) or {},
+                        tf_b,
                     )
-                    if tf_b not in requirements or lookback_b > requirements[tf_b]:
-                        requirements[tf_b] = lookback_b
                         
         return requirements
+
+    @classmethod
+    def _include_operand_requirements(cls, requirements, operand_type, params, timeframe):
+        if not operand_type:
+            return
+        lookback = cls._calculate_operand_lookback(operand_type, params)
+        requirements[timeframe] = max(requirements.get(timeframe, 0), lookback)
+
+        if operand_type != OperandType.MATH_EXPRESSION:
+            return
+        expression_config = (params or {}).get("expression") or {}
+        if isinstance(expression_config, dict):
+            variables = expression_config.get("variables") or {}
+        else:
+            variables = (params or {}).get("variables") or {}
+        for variable in variables.values():
+            if not isinstance(variable, dict):
+                continue
+            variable_timeframe = variable.get("timeframe") or timeframe
+            cls._include_operand_requirements(
+                requirements,
+                variable.get("type"),
+                variable.get("params") or {},
+                variable_timeframe,
+            )
 
     @classmethod
     def get_max_warmup_days(cls, config):
@@ -77,6 +100,8 @@ class IndicatorRequirementAnalyzer:
             return 0
             
         lookback = cls.MIN_LOOKBACK
+        if op_type == OperandType.MATH_EXPRESSION:
+            return lookback
         if op_type in INDICATOR_OPERANDS:
             lookback = cls._get_indicator_lookback(op_type, params)
             
@@ -96,16 +121,17 @@ class IndicatorRequirementAnalyzer:
     @classmethod
     def _get_indicator_lookback(cls, indicator_type, params):
         # Using same defaults as IndicatorEngine
-        period = int(params.get("period", params.get("length", 14)))
+        params = {**get_operand_parameter_defaults(indicator_type), **(params or {})}
+        period = int(params.get("period", 14))
         
         # EMAs and derivatives need a longer "unstable period" to settle
         # Usually 3x to 5x the period is standard practice
-        if indicator_type in {OperandType.EMA, OperandType.WMA}:
+        if indicator_type in {OperandType.EMA, OperandType.WMA, OperandType.HMA, OperandType.ALMA, OperandType.KAMA, OperandType.DEMA, OperandType.TEMA}:
             return period * 5
             
         elif indicator_type == OperandType.MACD:
-            slow = int(params.get("slow_period", params.get("slow", 26)))
-            signal = int(params.get("signal_period", params.get("signal", 9)))
+            slow = int(params.get("slow_period", 26))
+            signal = int(params.get("signal_period", 9))
             return (slow + signal) * 5
             
         elif indicator_type == OperandType.RSI:
@@ -121,9 +147,9 @@ class IndicatorRequirementAnalyzer:
             return period * 5
             
         elif indicator_type == OperandType.STOCHASTIC:
-            k = int(params.get("k_period", params.get("k", 14)))
-            d = int(params.get("d_period", params.get("d", 3)))
-            smooth = int(params.get("smooth", params.get("smooth_k", 3)))
+            k = int(params.get("k_period", 14))
+            d = int(params.get("d_period", 3))
+            smooth = int(params.get("smooth", 3))
             return k + d + smooth
             
         elif indicator_type == OperandType.ATR:
@@ -135,5 +161,8 @@ class IndicatorRequirementAnalyzer:
             
         elif indicator_type == OperandType.CANDLE_PATTERN:
             return 5
+
+        elif indicator_type in {OperandType.KELTNER_CHANNEL, OperandType.ICHIMOKU_CLOUD}:
+            return max(period, int(params.get("tenkan", 9)), int(params.get("kijun", 26)), int(params.get("senkou", 52))) * (5 if indicator_type == OperandType.KELTNER_CHANNEL else 1)
             
         return max(period, cls.MIN_LOOKBACK)
