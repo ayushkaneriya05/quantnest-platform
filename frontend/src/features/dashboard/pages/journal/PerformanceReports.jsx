@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useState } from "react";
 import { BarChart3, GitCompareArrows, RefreshCw, Sparkles } from "lucide-react";
 
@@ -39,7 +40,7 @@ export default function PerformanceReports() {
       setReports(Array.isArray(reportsRes.data?.results) ? reportsRes.data.results : reportsRes.data || []);
       setStrategies(Array.isArray(strategiesRes?.results) ? strategiesRes.results : strategiesRes || []);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load performance reports");
+      notify.error(getApiErrorMessage(error, "Failed to load performance reports"));
     } finally {
       setLoading(false);
     }
@@ -59,7 +60,7 @@ export default function PerformanceReports() {
             notify.success("Analytics refreshed");
             await loadData();
           } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to refresh analytics");
+            notify.error(getApiErrorMessage(error, "Failed to refresh analytics"));
           }
         }}
         className="border-gray-700 text-gray-100"
@@ -86,7 +87,7 @@ export default function PerformanceReports() {
       setCompareOpen(false);
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to generate strategy comparison");
+      notify.error(getApiErrorMessage(error, "Failed to generate strategy comparison"));
     }
   };
 

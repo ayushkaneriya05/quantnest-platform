@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
 import React, { useState } from "react";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
 
@@ -87,17 +88,7 @@ export default function PasswordResetConfirmPage() {
         },
       });
     } catch (err) {
-      const errorData = err.response?.data;
-      if (errorData) {
-        if (typeof errorData === "string") {
-          setError(errorData);
-        } else {
-          const messages = Object.values(errorData).flat().join(" ");
-          setError(messages || "Password reset failed.");
-        }
-      } else {
-        setError("Password reset failed. The link may be expired or invalid.");
-      }
+      setError(getApiErrorMessage(err, "Password reset failed. The link may be expired or invalid."));
     } finally {
       setIsLoading(false);
     }

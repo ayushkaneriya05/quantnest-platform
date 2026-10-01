@@ -154,6 +154,11 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
 REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": (
+        "backend.middleware.api_responses.APIJSONRenderer",
+        "backend.middleware.api_responses.APIBrowsableRenderer",
+    ),
+    "EXCEPTION_HANDLER": "backend.middleware.api_responses.api_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "users.authentication.SafeJWTAuthentication",
     ),
@@ -311,10 +316,6 @@ CELERY_BEAT_SCHEDULE = {
     "analytics-refresh-daily-reports": {
         "task": "analytics.refresh_daily_reports",
         "schedule": 15 * 60,
-    },
-    "notifications-dispatch-daily-summaries": {
-        "task": "notifications.dispatch_daily_summaries",
-        "schedule": 60 * 60,
     },
     "portfolio-rebalance-allocations-nightly": {
         "task": "paper_trading.rebalance_all_portfolios",

@@ -1,3 +1,4 @@
+import { getApiErrorDetails, getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Button } from "@/shared/components/ui/button";
@@ -158,19 +159,16 @@ export default function SecurityTab() {
       console.error("Password change error:", err);
 
       if (err.response?.data) {
-        const serverErrors = err.response.data;
-        if (typeof serverErrors === "object") {
+        const serverErrors = getApiErrorDetails(err);
+        if (Object.keys(serverErrors).length) {
           setPasswordErrors(serverErrors);
         } else {
-          setMessage({
-            type: "error",
-            text: serverErrors.detail || "Failed to change password",
-          });
+          setMessage({ type: "error", text: getApiErrorMessage(err, "Failed to change password") });
         }
       } else {
         setMessage({
           type: "error",
-          text: "Network error. Please try again.",
+          text: getApiErrorMessage(err, "Network error. Please try again."),
         });
       }
     } finally {
@@ -206,7 +204,7 @@ export default function SecurityTab() {
       console.error("Failed to disable 2FA:", err);
       setMessage({
         type: "error",
-        text: err.response?.data?.error || "Failed to disable 2FA. Please check your password.",
+        text: getApiErrorMessage(err, "Failed to disable 2FA. Please check your password."),
       });
     } finally {
       setIsLoading2FA(false);

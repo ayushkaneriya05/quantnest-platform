@@ -2,13 +2,15 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core import signing
-from django.http import HttpResponseBadRequest, HttpResponseRedirect
-from django.utils import timezone
+from django.http import HttpResponseRedirect
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from common.enums import NotificationType
+from notifications.services import NotificationService
 
 from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerSession
 from .serializers import (
@@ -24,6 +26,22 @@ from .services import BrokerService
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def notify_broker_auth_failure(credential, reason):
+    if credential is None:
+        return
+    NotificationService.notify(
+        user=credential.user,
+        type=NotificationType.WARNING,
+        title=f"Broker authentication failed: {credential.broker_name}",
+        message=f"{credential.label or credential.client_id}: {reason}",
+        data={
+            "broker_credential_id": str(credential.id),
+            "broker_name": credential.broker_name,
+            "module": "broker",
+        },
+    )
 
 
 def broker_error_response(exc):
@@ -93,6 +111,12 @@ class BrokerCredentialViewSet(viewsets.ModelViewSet):
             )
             return broker_json_response(BrokerSessionSerializer(session).data, status.HTTP_201_CREATED)
         except ValueError as exc:
+            if auth_code:
+                notify_broker_auth_failure(credential, f"The broker did not accept the authentication response: {exc}")
+            return broker_error_response(exc)
+        except RuntimeError as exc:
+            if auth_code:
+                notify_broker_auth_failure(credential, f"Authentication could not be completed: {exc}")
             return broker_error_response(exc)
 
     @action(detail=True, methods=["get"], url_path="auth-url")
@@ -106,12 +130,15 @@ class BrokerCredentialViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="exchange-auth-code")
     def exchange_auth_code(self, request, pk=None):
+        credential = self.get_object()
         try:
-            session = BrokerService.exchange_auth_code(self.get_object(), request.data.get("auth_code"))
+            session = BrokerService.exchange_auth_code(credential, request.data.get("auth_code"))
             return broker_json_response(BrokerSessionSerializer(session).data, status.HTTP_201_CREATED)
         except ValueError as exc:
+            notify_broker_auth_failure(credential, f"The broker did not accept the authentication response: {exc}")
             return broker_error_response(exc)
         except RuntimeError as exc:
+            notify_broker_auth_failure(credential, f"Authentication could not be completed: {exc}")
             return broker_error_response(exc)
 
     @action(detail=True, methods=["get"])
@@ -252,11 +279,10 @@ class BrokerAPILogViewSet(viewsets.ReadOnlyModelViewSet):
 def fyers_broker_callback(request):
     auth_code = request.GET.get("auth_code") or request.GET.get("authCode")
     raw_state = request.GET.get("state")
-    if not auth_code or not raw_state:
-        return HttpResponseBadRequest("Missing auth_code or state")
-
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
     redirect_url = f"{frontend_url}/dashboard/brokers"
+    if not auth_code or not raw_state:
+        return HttpResponseRedirect(f"{redirect_url}?{urlencode({'broker': 'FYERS', 'status': 'failed', 'message': 'Missing authorization code or state'})}")
 
     try:
         state_data = signing.loads(raw_state, salt="broker-oauth-state", max_age=900)
@@ -271,6 +297,7 @@ def fyers_broker_callback(request):
         )
     except Exception as exc:
         logger.exception("Fyers broker callback failed: %s", exc)
+        notify_broker_auth_failure(locals().get("credential"), f"The broker callback could not complete authentication: {exc}")
         return HttpResponseRedirect(
             f"{redirect_url}?{urlencode({'broker': 'FYERS', 'status': 'failed', 'message': str(exc)})}"
         )

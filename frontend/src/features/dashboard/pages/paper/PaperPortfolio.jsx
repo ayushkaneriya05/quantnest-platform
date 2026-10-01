@@ -12,6 +12,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageActions } from "@/shared/context/PageActionsContext";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { paperApi } from "@/shared/services/paperApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
 
 import PaperTradingDashboard from "./PaperTradingDashboard";
@@ -62,7 +63,7 @@ export default function PaperPortfolio() {
         setSelectedAccount(String(loadedAccounts[0].id));
       }
     } catch (error) {
-      notify.error("Failed to load paper trading data");
+      notify.error(getApiErrorMessage(error, "Failed to load paper trading data"));
     } finally {
       setLoading(false);
     }

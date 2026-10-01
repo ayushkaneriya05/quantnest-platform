@@ -25,6 +25,7 @@ import { useEnums } from "@/shared/context/EnumsContext";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { getDefaultParams } from "./components/operandUtils";
 import RuleConditionEditor from "./components/RuleConditionEditor";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 export default function EntryRulesBuilder() {
   const { id } = useParams();
@@ -82,7 +83,7 @@ export default function EntryRulesBuilder() {
         }
       }
     } catch (error) {
-      notify.error("Failed to load entry rules");
+      notify.error(getApiErrorMessage(error, "Failed to load entry rules"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -122,7 +123,7 @@ export default function EntryRulesBuilder() {
       setRuleGroups((groups) => [...groups, { ...newGroup, rules: [] }]);
       notify.success("Rule group added");
     } catch (error) {
-      notify.error("Failed to add rule group");
+      notify.error(getApiErrorMessage(error, "Failed to add rule group"));
     }
   };
 
@@ -134,7 +135,7 @@ export default function EntryRulesBuilder() {
       setRuleGroups((groups) => groups.filter((group) => group.id !== groupId));
       notify.success("Rule group deleted");
     } catch (error) {
-      notify.error("Failed to delete rule group");
+      notify.error(getApiErrorMessage(error, "Failed to delete rule group"));
     }
   };
 
@@ -164,7 +165,7 @@ export default function EntryRulesBuilder() {
       );
       notify.success("Rule added");
     } catch (error) {
-      notify.error("Failed to add rule");
+      notify.error(getApiErrorMessage(error, "Failed to add rule"));
     }
   };
 
@@ -180,7 +181,7 @@ export default function EntryRulesBuilder() {
       );
       notify.success("Rule deleted");
     } catch (error) {
-      notify.error("Failed to delete rule");
+      notify.error(getApiErrorMessage(error, "Failed to delete rule"));
     }
   };
 
@@ -264,7 +265,7 @@ export default function EntryRulesBuilder() {
       notify.success("All changes saved");
     } catch (error) {
       console.error(error);
-      notify.error("Failed to save some changes");
+      notify.error(getApiErrorMessage(error, "Failed to save some changes"));
     } finally {
       setSaving(false);
     }

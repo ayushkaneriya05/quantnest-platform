@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -5,7 +6,6 @@ import {
   BarChart3,
   Plus,
   Radio,
-  RefreshCw,
   RotateCcw,
   Trash2,
   Wallet,
@@ -94,7 +94,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
       setAllocations(allocRes.data || []);
 
     } catch (error) {
-      if (loading) notify.error("Failed to load paper account data");
+      if (loading) notify.error(getApiErrorMessage(error, "Failed to load paper account data"));
     } finally {
       setLoading(false);
     }
@@ -191,7 +191,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
       notify.success("Paper account reset");
       await fetchData();
     } catch (error) {
-      notify.error(error?.response?.data?.error || "Failed to reset account");
+      notify.error(getApiErrorMessage(error, "Failed to reset account"));
     } finally {
       setBusy(false);
     }
@@ -205,7 +205,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
       notify.success("Paper account deleted");
       await fetchData();
     } catch (error) {
-      notify.error(error?.response?.data?.error || "Failed to delete account and its allocation");
+      notify.error(getApiErrorMessage(error, "Failed to delete account and its allocation"));
     } finally {
       setBusy(false);
     }
@@ -215,10 +215,9 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
     try {
       setBusy(true);
       await paperApi.pauseSession(sessionId);
-      notify.success("Session paused");
       await fetchData();
     } catch (error) {
-      notify.error("Failed to pause session");
+      notify.error(getApiErrorMessage(error, "Failed to pause session"));
     } finally {
       setBusy(false);
     }
@@ -228,10 +227,9 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
     try {
       setBusy(true);
       await paperApi.resumeSession(sessionId);
-      notify.success("Session resumed");
       await fetchData();
     } catch (error) {
-      notify.error("Failed to resume session");
+      notify.error(getApiErrorMessage(error, "Failed to resume session"));
     } finally {
       setBusy(false);
     }
@@ -246,16 +244,10 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
     if (!confirmed) return;
     try {
       setBusy(true);
-      const response = await paperApi.stopSession(sessionId, { close_positions: true });
-      const remainingPositions = Number(response.data?.remaining_positions || 0);
-      if (remainingPositions > 0) {
-        notify.error(`Session stopped, but ${remainingPositions} position(s) remain open. Review the Positions tab.`);
-      } else {
-        notify.success("Session stopped and open positions closed");
-      }
+      await paperApi.stopSession(sessionId, { close_positions: true });
       await fetchData();
     } catch (error) {
-      notify.error("Failed to stop session");
+      notify.error(getApiErrorMessage(error, "Failed to stop session"));
     } finally {
       setBusy(false);
     }
@@ -270,7 +262,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
       notify.success("Paper account created");
       await fetchData();
     } catch (error) {
-      notify.error(error?.response?.data?.error || "Failed to create account");
+      notify.error(getApiErrorMessage(error, "Failed to create account"));
     } finally {
       setBusy(false);
     }
@@ -302,7 +294,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
       setCostSettingsAccount(null);
       await fetchData();
     } catch (error) {
-      notify.error(error?.response?.data?.error || "Failed to update paper execution costs");
+      notify.error(getApiErrorMessage(error, "Failed to update paper execution costs"));
     } finally {
       setBusy(false);
     }

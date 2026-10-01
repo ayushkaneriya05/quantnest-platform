@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
+from common.channel_serialization import json_safe_channel_data
 from .models import LiveOrder, LivePosition, TradingSession
 from .serializers import LiveOrderSerializer, LivePositionSerializer
 
@@ -24,7 +25,8 @@ def _broadcast_update(user_id, event_type, data):
 
     def send_after_commit():
         try:
-            async_to_sync(channel_layer.group_send)(f"user_{user_id}_live", event)
+            message = json_safe_channel_data(event["message"])
+            async_to_sync(channel_layer.group_send)(f"user_{user_id}_live", {**event, "message": message})
         except Exception:
             logger.exception("Failed to broadcast live %s update for user %s", event_type, user_id)
 

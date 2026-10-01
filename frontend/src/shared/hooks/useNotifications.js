@@ -8,14 +8,11 @@ import {
 
 export function useNotifications() {
   const dispatch = useDispatch();
-  const notifications = useSelector(
-    (state) => state.notification.notifications
-  );
+  const notifications = useSelector((state) => state.notification.notifications);
 
   const addNotificationAction = useCallback((notification) => {
-    const id = Date.now().toString();
+    const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const newNotification = { ...notification, id };
-    console.info("Dispatching Notification to Redux:", newNotification);
     dispatch(addNotification(newNotification));
     return id;
   }, [dispatch]);
@@ -31,16 +28,19 @@ export function useNotifications() {
   // Convenience methods
   const notify = useMemo(() => ({
     success: (message, options = {}) =>
-      addNotificationAction({ type: "success", message, ...options }),
+      addNotificationAction({ type: "INFO", variant: "success", title: "Success", message, ...options }),
 
     error: (message, options = {}) =>
-      addNotificationAction({ type: "error", message, ...options }),
+      addNotificationAction({ type: "INFO", variant: "error", title: "Error", message, ...options }),
 
     info: (message, options = {}) =>
-      addNotificationAction({ type: "info", message, ...options }),
+      addNotificationAction({ type: "INFO", message, ...options }),
 
     warning: (message, options = {}) =>
-      addNotificationAction({ type: "warning", message, ...options }),
+      addNotificationAction({ type: "WARNING", title: "Warning", message, ...options }),
+
+    critical: (message, options = {}) =>
+      addNotificationAction({ type: "CRITICAL", title: "Critical alert", message, ...options }),
   }), [addNotificationAction]);
 
   return {

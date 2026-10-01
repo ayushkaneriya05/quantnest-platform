@@ -77,7 +77,6 @@ export default function Sidebar() {
     ai: false,
     marketplace: false,
     governance: false,
-    portfolio: false,
     community: false,
   });
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -356,34 +355,6 @@ export default function Sidebar() {
                   to="/dashboard/live/logs"
                   icon={Terminal}
                   label="Execution Logs"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("portfolio")}
-            >
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 flex-shrink-0 text-cyan-400" />
-                <span className="font-medium">Global Risk Hub</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  openSections.portfolio ? "rotate-180" : ""
-                }`}
-              />
-            </Button>
-            {openSections.portfolio && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/dashboard/portfolio/risk"
-                  icon={Shield}
-                  label="Risk Profiles"
                   currentPath={pathname}
                 />
               </div>

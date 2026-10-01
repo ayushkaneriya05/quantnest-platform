@@ -11,6 +11,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
 import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
@@ -44,7 +45,7 @@ export default function PaperTradeHistory({ selectedAccountId }) {
       const tradesRes = await paperApi.getTrades();
       setTrades(tradesRes.data || []);
     } catch (error) {
-      notify.error("Failed to load trades");
+      notify.error(getApiErrorMessage(error, "Failed to load trades"));
     } finally {
       setLoading(false);
     }

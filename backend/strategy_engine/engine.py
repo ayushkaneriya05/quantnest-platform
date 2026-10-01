@@ -350,9 +350,11 @@ class StrategyExecutionEngine:
                             from common.enums import NotificationType
                             NotificationService.notify(
                                 user_id=config.get('user_id'),
-                                notification_type=NotificationType.STRATEGY_ERROR,
+                                type=NotificationType.CRITICAL,
+                                title=f"Strategy evaluation failed: {shm.symbol}",
                                 message=f"Data corruption detected on {shm.symbol}: {str(e)}",
-                                metadata={"strategy_id": self.strategy_id, "session_id": self.session_id}
+                                data={"strategy_id": self.strategy_id, "session_id": self.session_id},
+                                dedupe_key=f"strategy-worker-error:{self.session_id}:{shm.symbol}:data",
                             )
                         except Exception as e:
                             logger.warning(f"Transient error evaluating tick for {shm.symbol}: {e}")
@@ -501,7 +503,9 @@ class StrategyExecutionEngine:
             from common.enums import NotificationType
             NotificationService.notify(
                 user_id=user_id,
-                notification_type=NotificationType.STRATEGY_ERROR,
+                type=NotificationType.CRITICAL,
+                title=f"Strategy execution failed: {shm.symbol}",
                 message=f"Strategy slow path execution error on {shm.symbol}: {str(e)}",
-                metadata={"strategy_id": self.strategy_id, "session_id": self.session_id}
+                data={"strategy_id": self.strategy_id, "session_id": self.session_id},
+                dedupe_key=f"strategy-worker-error:{self.session_id}:{shm.symbol}:slow-path",
             )

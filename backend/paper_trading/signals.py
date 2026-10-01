@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
+from common.channel_serialization import json_safe_channel_data
 from .models import PaperOrder, PaperPosition
 from .serializers import PaperOrderSerializer, PaperPositionSerializer
 
@@ -19,11 +20,12 @@ def _broadcast_update(user_id, event_type, data):
 
     def send_after_commit():
         try:
+            channel_message = json_safe_channel_data({"event_type": event_type, "data": data})
             async_to_sync(channel_layer.group_send)(
                 f"user_{user_id}_paper",
                 {
                     "type": "trading.update",
-                    "message": {"event_type": event_type, "data": data},
+                    "message": channel_message,
                 },
             )
         except Exception:

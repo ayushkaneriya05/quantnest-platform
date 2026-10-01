@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { Award, BookOpen, Brain, CheckCircle2, GraduationCap, PlayCircle, RefreshCw, Target } from "lucide-react";
 
@@ -43,7 +44,7 @@ export default function LearningCenter() {
       setCertificates(listFromResponse(certRes));
       setChallenges(listFromResponse(challengeRes));
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load learning center");
+      notify.error(getApiErrorMessage(error, "Failed to load learning center"));
     } finally {
       setLoading(false);
     }
@@ -72,7 +73,7 @@ export default function LearningCenter() {
       notify.success("Course added to your learning path");
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to enroll");
+      notify.error(getApiErrorMessage(error, "Failed to enroll"));
     } finally {
       setBusy("");
     }
@@ -85,7 +86,7 @@ export default function LearningCenter() {
       notify.success("Challenge joined");
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to join challenge");
+      notify.error(getApiErrorMessage(error, "Failed to join challenge"));
     } finally {
       setBusy("");
     }

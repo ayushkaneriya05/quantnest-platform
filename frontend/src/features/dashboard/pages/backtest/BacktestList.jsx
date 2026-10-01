@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /**
  * BacktestList — Primary backtesting dashboard.
  * Shows all backtest runs with status, live progress, and quick actions.
@@ -166,8 +167,8 @@ export default function BacktestList() {
       await backtestApi.deleteRun(id);
       notify.success("Backtest deleted");
       setRuns((prev) => prev.filter((r) => r.id !== id));
-    } catch {
-      notify.error("Failed to delete backtest");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to delete backtest"));
     } finally {
       setDeletingId(null);
     }
@@ -188,7 +189,7 @@ export default function BacktestList() {
       }
     } catch (err) {
       console.error(err);
-      notify.error(err.response?.data?.error || "Failed to rerun backtest");
+      notify.error(getApiErrorMessage(err, "Failed to rerun backtest"));
     } finally {
       setRerunningId(null);
     }

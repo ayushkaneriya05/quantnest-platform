@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /* eslint-disable react/prop-types */
 import React, { useState } from "react";
 import { CheckCircle, Mail, XCircle } from "lucide-react";
@@ -27,7 +28,7 @@ export default function EmailVerificationModal({ isOpen, onClose, email }) {
       setResendMessage("Verification email sent. Please check your inbox.");
     } catch (err) {
       setResendError(
-        err.response?.data?.detail || "Failed to resend verification email.",
+        getApiErrorMessage(err, "Failed to resend verification email."),
       );
     } finally {
       setIsResending(false);

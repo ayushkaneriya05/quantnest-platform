@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import tradingTerminalApi from "../services/tradingTerminalApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 export default function useHistoricalData() {
   const { notify } = useNotifications();
@@ -33,7 +34,7 @@ export default function useHistoricalData() {
         setOrdersTotalCount(response.data.length);
       }
     } catch (error) {
-      notify.error("Failed to load order history");
+      notify.error(getApiErrorMessage(error, "Failed to load order history"));
     } finally {
       setOrdersLoading(false);
     }
@@ -52,7 +53,7 @@ export default function useHistoricalData() {
         setTradesTotalCount(response.data.length);
       }
     } catch (error) {
-      notify.error("Failed to load trade history");
+      notify.error(getApiErrorMessage(error, "Failed to load trade history"));
     } finally {
       setTradesLoading(false);
     }
@@ -71,7 +72,7 @@ export default function useHistoricalData() {
         setPnlTotalCount(response.data.length);
       }
     } catch (error) {
-      notify.error("Failed to load P&L history");
+      notify.error(getApiErrorMessage(error, "Failed to load P&L history"));
     } finally {
       setPnlLoading(false);
     }

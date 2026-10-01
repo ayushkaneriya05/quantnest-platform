@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -75,8 +76,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
     } catch (err) {
       console.error("2FA verification failed:", err);
       setError(
-        err.response?.data?.detail ||
-          "Invalid verification code. Please try again."
+        getApiErrorMessage(err, "Invalid verification code. Please try again.")
       );
     } finally {
       setIsVerifying(false);

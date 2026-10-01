@@ -377,16 +377,15 @@ class FyersLiveFeedClient:
             try:
                 from live_trading.models import TradingSession
                 from notifications.services import NotificationService
-                from common.enums import NotificationType, Severity
+                from common.enums import NotificationType
                 notified_users = set()
                 for session in TradingSession.objects.filter(status="RUNNING").select_related("user"):
                     if session.user_id not in notified_users:
                         NotificationService.notify(
                             user=session.user,
-                            title="Market Data Feed Disconnected",
-                            message="Live market data feed has disconnected. Strategies may not receive real-time quotes until reconnection.",
-                            notification_type=NotificationType.SYSTEM_ALERT,
-                            severity=Severity.CRITICAL,
+                            title="Live market data feed disconnected",
+                            message="Live strategies are not receiving fresh quotes. The feed will need to reconnect before entries can resume.",
+                            type=NotificationType.CRITICAL,
                             data={"module": "marketdata", "close_code": str(code)}
                         )
                         notified_users.add(session.user_id)

@@ -181,6 +181,7 @@ class RiskEvaluator:
         trigger_type = get_any_field(rule, "trigger_type")
         return {
             "triggered": triggered,
+            "rule_id": get_any_field(rule, "id"),
             "trigger_type": trigger_type,
             "rule_name": get_any_field(rule, "name", trigger_type),
             "message": message,

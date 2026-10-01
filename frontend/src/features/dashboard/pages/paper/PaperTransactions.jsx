@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/shared/components/ui/input";
 import { portfolioApi } from "@/shared/services/portfolioApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
 
@@ -37,7 +38,7 @@ export default function PaperTransactions() {
       const txData = await portfolioApi.getTransactions();
       setTransactions(txData.data || []);
     } catch (error) {
-      notify.error("Failed to load paper transactions");
+      notify.error(getApiErrorMessage(error, "Failed to load paper transactions"));
     } finally {
       setLoading(false);
     }

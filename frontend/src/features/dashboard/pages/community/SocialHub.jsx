@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { Bookmark, Flag, Hash, MessageSquare, RefreshCw, Send, ShieldCheck, Sparkles, Users } from "lucide-react";
 
@@ -59,7 +60,7 @@ export default function SocialHub() {
       setRooms(listFromResponse(roomRes));
       setChallenges(listFromResponse(challengeRes));
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load community hub");
+      notify.error(getApiErrorMessage(error, "Failed to load community hub"));
     } finally {
       setLoading(false);
     }
@@ -123,7 +124,7 @@ export default function SocialHub() {
       notify.success("Post published");
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to publish post");
+      notify.error(getApiErrorMessage(error, "Failed to publish post"));
     } finally {
       setBusy(false);
     }

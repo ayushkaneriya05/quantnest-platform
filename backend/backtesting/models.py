@@ -63,12 +63,6 @@ class BacktestRun(BaseTimestampModel):
     )
     # Execution settings (JSON for flexibility)
     config_snapshot = models.JSONField(default=dict, blank=True)
-    risk_profile_snapshot = models.JSONField(
-        default=dict,
-        blank=True,
-        help_text="Snapshot of the user's risk profile at the time of the run."
-    )
-    
     # Status
     status = models.CharField(
         max_length=20,

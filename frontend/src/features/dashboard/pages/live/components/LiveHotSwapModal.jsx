@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import React, { useState, useEffect } from "react";
 import {
   Dialog,
@@ -48,7 +49,7 @@ export default function LiveHotSwapModal({
             setSelectedVersion("");
           }
         } catch (error) {
-          notify.error("Failed to load strategy versions");
+          notify.error(getApiErrorMessage(error, "Failed to load strategy versions"));
         } finally {
           setFetchingVersions(false);
         }
@@ -69,7 +70,7 @@ export default function LiveHotSwapModal({
       onSuccess?.();
       onOpenChange(false);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || error?.response?.data?.error || "Failed to hot-swap version");
+      notify.error(getApiErrorMessage(error, "Failed to hot-swap version"));
     } finally {
       setLoading(false);
     }

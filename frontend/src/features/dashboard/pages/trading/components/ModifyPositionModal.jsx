@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { cn } from "@/shared/lib/utils";
 import {
   Dialog,
@@ -20,8 +21,8 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Separator } from "@/shared/components/ui/separator";
 import { TrendingUp, TrendingDown, Settings, Loader2 } from "lucide-react";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 import api from "@/shared/services/api";
-import toast from "react-hot-toast";
 
 // Constants for form selections
 const TRANSACTION_TYPES = [
@@ -56,6 +57,7 @@ export default function ModifyPositionModal({
   position,
   onPositionModified,
 }) {
+  const { notify } = useNotifications();
   // Form and UI State
   const [formData, setFormData] = useState({
     action: "",
@@ -215,7 +217,6 @@ export default function ModifyPositionModal({
             take_profit: formData.take_profit ? safeNumber(formData.take_profit) : null,
           });
         }
-        toast.success("Trade order placed successfully");
       } else {
         // Direct Position Parameter Update (SL/TP Only)
         const positionData = {
@@ -223,18 +224,13 @@ export default function ModifyPositionModal({
           take_profit: formData.take_profit ? safeNumber(formData.take_profit) : null,
         };
         await api.patch(`/trading/positions/${position.id}/`, positionData);
-        toast.success("Risk parameters updated successfully");
+        notify.success("Position updated successfully");
       }
 
       if (onPositionModified) onPositionModified();
       onClose();
     } catch (err) {
-      const errorData = err.response?.data;
-      const errorMsg =
-        errorData?.detail ||
-        (errorData && typeof errorData === "object" ? Object.values(errorData).flat()[0] : null) ||
-        "Failed to update position.";
-      toast.error(errorMsg);
+      notify.error(getApiErrorMessage(err, "Failed to update position."));
     } finally {
       setIsSubmitting(false);
     }

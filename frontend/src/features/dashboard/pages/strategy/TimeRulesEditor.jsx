@@ -16,6 +16,7 @@ import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';
 import { timeRuleApi, specialEventApi } from '@/shared/services/rulesApi';
 import { strategyApi } from '@/shared/services/strategyApi';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
@@ -107,7 +108,7 @@ export default function TimeRulesEditor() {
         }));
       }
     } catch (error) {
-      notify.error('Failed to load time rules');
+      notify.error(getApiErrorMessage(error, 'Failed to load time rules'));
     } finally {
       setLoading(false);
     }
@@ -156,7 +157,7 @@ export default function TimeRulesEditor() {
       notify.success('Time rules saved');
       // navigate removed to keep user on same page
     } catch (error) {
-      notify.error('Failed to save time rules');
+      notify.error(getApiErrorMessage(error, 'Failed to save time rules'));
     } finally {
       setSaving(false);
     }

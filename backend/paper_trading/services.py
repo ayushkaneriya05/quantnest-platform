@@ -12,7 +12,6 @@ from common.enums import (
     OrderStatus,
     OrderType,
     ProductType,
-    Severity,
     Side,
     TransactionType,
     NotificationType,
@@ -699,10 +698,9 @@ class PaperExecutionService:
             user=user,
             title="Paper Strategy Deployed",
             message=f"Strategy '{strategy.name}' has been deployed to paper trading.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.INFO,
-            strategy=strategy,
-            data={"session_id": str(session.id), "module": "paper"}
+            type=NotificationType.INFO,
+            data={"session_id": str(session.id), "strategy_id": str(strategy.pk), "strategy_name": strategy.name, "module": "paper"},
+            dedupe_key=f"paper-session:{session.id}:RUNNING:{session.updated_at.isoformat()}"
         )
         return session
 
@@ -716,10 +714,9 @@ class PaperExecutionService:
             user=session.user,
             title="Paper Strategy Paused",
             message=f"Paper session for '{session.strategy.name}' has been paused.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.WARNING,
-            strategy=session.strategy,
-            data={"session_id": str(session.id), "module": "paper"}
+            type=NotificationType.WARNING,
+            data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "paper"},
+            dedupe_key=f"paper-session:{session.id}:PAUSED:{session.updated_at.isoformat()}"
         )
         PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
         return session
@@ -742,10 +739,9 @@ class PaperExecutionService:
                             user=session.user,
                             title="Paper Position Close Failed",
                             message=f"Failed to close paper position for {pos.instrument.symbol} during session stop. Position may remain open.",
-                            notification_type=NotificationType.STRATEGY_ERROR,
-                            severity=Severity.WARNING,
-                            strategy=session.strategy,
-                            data={"position_id": str(pos.id), "symbol": pos.instrument.symbol, "module": "paper"}
+                            type=NotificationType.WARNING,
+                            data={"position_id": str(pos.id), "session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "symbol": pos.instrument.symbol, "module": "paper"},
+                            dedupe_key=f"paper-position-close-failed:{session.id}:{pos.id}:{session.updated_at.date().isoformat()}"
                         )
                     except Exception:
                         logger.exception("Failed dispatching paper position close failure notification")
@@ -758,12 +754,11 @@ class PaperExecutionService:
         
         NotificationService.notify(
             user=session.user,
-            title="Paper Session Stopped",
-            message=f"Paper session for '{session.strategy.name}' has been stopped.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.CRITICAL,
-            strategy=session.strategy,
-            data={"session_id": str(session.id), "module": "paper"}
+            title="Paper session needs attention" if remaining_positions else "Paper session stopped",
+            message=(f"Session for '{session.strategy.name}' stopped with {remaining_positions} open position(s) remaining." if remaining_positions else f"Paper session for '{session.strategy.name}' has stopped."),
+            type=NotificationType.WARNING if remaining_positions else NotificationType.INFO,
+            data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "open_positions_remaining": remaining_positions, "module": "paper"},
+            dedupe_key=f"paper-session:{session.id}:STOPPED:{session.updated_at.isoformat()}"
         )
         PaperExecutionService._publish_execution_event("SESSION_STOP", session, "paper")
         return session, remaining_positions
@@ -792,10 +787,9 @@ class PaperExecutionService:
             user=session.user,
             title="Paper Strategy Resumed",
             message=f"Paper session for '{session.strategy.name}' is running again.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.INFO,
-            strategy=session.strategy,
-            data={"session_id": str(session.id), "module": "paper"}
+            type=NotificationType.INFO,
+            data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "paper"},
+            dedupe_key=f"paper-session:{session.id}:RUNNING:{session.updated_at.isoformat()}"
         )
         PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
         return session
@@ -825,7 +819,7 @@ class PaperExecutionService:
 
         stats = cache_view.get_risk_metrics("paper", session.id)
         match = AutoDisableGate.evaluate(session, stats, account.initial_balance)
-        if match:
+        if match and match.get("paused_now"):
             PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
         if match and raise_on_trigger:
             raise ValueError(f"Strategy auto-disable triggered: {match.get('message', 'Strategy auto-disable triggered')}")

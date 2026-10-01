@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { cn } from "@/shared/lib/utils";
 import {
   Dialog,
@@ -24,8 +25,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 import api from "@/shared/services/api";
-import toast from "react-hot-toast";
 
 // Constants for order type selection
 const ORDER_TYPES = [
@@ -74,6 +75,7 @@ export default function ModifyOrderModal({
   order,
   onOrderModified,
 }) {
+  const { notify } = useNotifications();
   // Component State
   const [formData, setFormData] = useState({
     order_type: "",
@@ -182,15 +184,11 @@ export default function ModifyOrderModal({
         `/trading/orders/${order.id}/`,
         updateData
       );
-      toast.success("Order modified successfully");
+      notify.success("Order modified successfully");
       if (onOrderModified) onOrderModified(response.data);
       onClose();
     } catch (err) {
-      const errorData = err.response?.data;
-      const errorMsg = errorData?.detail || 
-                       (errorData && typeof errorData === 'object' ? Object.values(errorData).flat()[0] : null) ||
-                       "Failed to modify order.";
-      toast.error(errorMsg);
+      notify.error(getApiErrorMessage(err, "Failed to modify order."));
     } finally {
       setIsSubmitting(false);
     }

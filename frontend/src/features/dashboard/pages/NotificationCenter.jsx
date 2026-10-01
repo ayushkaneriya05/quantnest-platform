@@ -1,19 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bell, CheckCircle2, Clock3, RefreshCw, Settings2, Info, XCircle, Trash2, ExternalLink } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, Info, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
-import { Switch } from "@/shared/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
-import { analyticsSuiteApi } from "@/shared/services/analyticsSuiteApi";
 import { useSystemNotificationsContext } from "@/shared/context/SystemNotificationsContext";
+import { notificationApi } from "@/shared/services/notificationApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
-const severityConfig = {
+const TYPE_CONFIG = {
   INFO: { color: "bg-cyan-500/10 text-cyan-300 border-cyan-500/20", icon: Info },
   WARNING: { color: "bg-amber-500/10 text-amber-300 border-amber-500/20", icon: AlertTriangle },
   CRITICAL: { color: "bg-red-500/10 text-red-300 border-red-500/20", icon: XCircle },
@@ -22,86 +22,81 @@ const severityConfig = {
 function formatDateTime(value) {
   if (!value) return "-";
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium" });
+}
+
+function responseList(data) {
+  if (Array.isArray(data?.results)) return data.results;
+  return Array.isArray(data) ? data : [];
 }
 
 export default function NotificationCenter() {
   const { notify } = useNotifications();
   const navigate = useNavigate();
-  const { clearUnreadCount } = useSystemNotificationsContext();
-  
+  const { syncUnreadCount } = useSystemNotificationsContext();
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState("ALL");
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState({});
-  const [preferences, setPreferences] = useState([]);
-  const [schedule, setSchedule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [itemsRes, summaryRes, prefsRes, scheduleRes] = await Promise.all([
-        analyticsSuiteApi.getNotifications(),
-        analyticsSuiteApi.getNotificationSummary(),
-        analyticsSuiteApi.getNotificationPrefs(),
-        analyticsSuiteApi.getSummarySchedule(),
+      const [itemsResponse, summaryResponse] = await Promise.all([
+        notificationApi.getNotifications(),
+        notificationApi.getSummary(),
       ]);
-      setItems(Array.isArray(itemsRes.data?.results) ? itemsRes.data.results : itemsRes.data || []);
-      setSummary(summaryRes.data || {});
-      setPreferences(Array.isArray(prefsRes.data?.results) ? prefsRes.data.results : prefsRes.data || []);
-      setSchedule(Array.isArray(scheduleRes.data?.results) ? scheduleRes.data.results[0] : scheduleRes.data || null);
+      const nextSummary = summaryResponse.data || {};
+      setItems(responseList(itemsResponse.data));
+      setSummary(nextSummary);
+      syncUnreadCount(nextSummary.unread);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load notifications");
+      notify.error(getApiErrorMessage(error, "Failed to load notifications"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify, syncUnreadCount]);
 
   useEffect(() => {
     loadData();
-    // When the user opens the Notification Center, clear the global unread count
-    clearUnreadCount();
-  }, [clearUnreadCount]);
+  }, [loadData]);
+
+  const runAction = useCallback(async (key, action, successMessage, failureMessage) => {
+    try {
+      setBusy(key);
+      const response = await action();
+      if (successMessage) notify.success(successMessage(response));
+      await loadData();
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, failureMessage));
+    } finally {
+      setBusy("");
+    }
+  }, [loadData, notify]);
 
   useSetPageActions(
     <>
-      <Button variant="outline" onClick={loadData} className="border-gray-700 text-gray-100">
-        <RefreshCw className="mr-2 h-4 w-4" />
-        Refresh
+      <Button variant="outline" onClick={loadData} disabled={loading} className="border-gray-700 text-gray-100">
+        <RefreshCw className="mr-2 h-4 w-4" /> Refresh
       </Button>
       <Button
         className="bg-cyan-600 hover:bg-cyan-500"
-        onClick={async () => {
-          try {
-            await analyticsSuiteApi.markAllNotificationsRead();
-            notify.success("All notifications marked as read");
-            await loadData();
-          } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to mark notifications as read");
-          }
-        }}
+        onClick={() => runAction("mark-all", notificationApi.markAllRead, (response) => `${response.data?.marked || 0} notifications marked as read`, "Failed to mark notifications as read")}
+        disabled={busy === "mark-all" || !summary.unread}
       >
-        <CheckCircle2 className="mr-2 h-4 w-4" />
-        Mark All Read
+        <CheckCircle2 className="mr-2 h-4 w-4" /> Mark All Read
       </Button>
       <Button
         variant="destructive"
         className="bg-red-600/80 hover:bg-red-500/90"
-        onClick={async () => {
-          try {
-            await analyticsSuiteApi.deleteReadNotifications();
-            notify.success("Deleted all read notifications");
-            await loadData();
-          } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to delete read notifications");
-          }
-        }}
+        onClick={() => runAction("delete-read", notificationApi.deleteRead, (response) => `${response.data?.deleted || 0} read notifications deleted`, "Failed to delete read notifications")}
+        disabled={busy === "delete-read" || !items.some((item) => item.is_read)}
       >
-        <Trash2 className="mr-2 h-4 w-4" />
-        Delete Read
+        <Trash2 className="mr-2 h-4 w-4" /> Delete Read
       </Button>
     </>,
   );
@@ -109,87 +104,41 @@ export default function NotificationCenter() {
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
     return items.filter((item) => {
-      // Tab Filtering
-      const isTrading = ["TRADE_EXECUTED", "SL_HIT", "TARGET_HIT"].includes(item.notification_type);
-      const isSystem = ["STRATEGY_PAUSED", "STRATEGY_ERROR", "RISK_ALERT", "DAILY_SUMMARY", "MODERATION_ALERT"].includes(item.notification_type);
-      const isCommunity = ["COMMUNITY_REPLY", "COMMUNITY_MENTION", "COMMUNITY_FOLLOW", "BADGE_UNLOCKED", "STREAK_WARNING", "CHALLENGE_PROGRESS", "CERTIFICATE_ISSUED", "PROOF_VERIFIED"].includes(item.notification_type);
-      
-      if (activeTab === "trading" && !isTrading) return false;
-      if (activeTab === "system" && !isSystem) return false;
-      if (activeTab === "community" && !isCommunity) return false;
-
-      // Text Filtering
-      if (!query) return true;
-      return [item.title, item.message, item.strategy_name]
+      if (activeTab !== "ALL" && item.type !== activeTab) return false;
+      return !query || [item.title, item.message, item.data?.strategy_name]
         .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(query));
+        .some((value) => String(value).toLowerCase().includes(query));
     });
   }, [items, search, activeTab]);
 
-  const markRead = async (id, e) => {
-    if (e) e.stopPropagation();
-    try {
-      setBusy(`read-${id}`);
-      await analyticsSuiteApi.markNotificationRead(id);
-      await loadData();
-    } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to mark notification as read");
-    } finally {
-      setBusy("");
-    }
+  const markRead = (id, event) => {
+    event?.stopPropagation();
+    runAction(`read-${id}`, () => notificationApi.markRead(id), null, "Failed to mark notification as read");
   };
 
-  const deleteNotification = async (id, e) => {
-    if (e) e.stopPropagation();
-    try {
-      setBusy(`delete-${id}`);
-      await analyticsSuiteApi.deleteNotification(id);
-      await loadData();
-      notify.success("Notification deleted");
-    } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to delete notification");
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const updatePreference = async (id, field, value) => {
-    try {
-      setBusy(`pref-${id}`);
-      await analyticsSuiteApi.updateNotificationPref(id, { [field]: value });
-      await loadData();
-    } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to update notification preference");
-    } finally {
-      setBusy("");
-    }
-  };
-
-  const toggleSchedule = async (value) => {
-    try {
-      setBusy("schedule");
-      await analyticsSuiteApi.updateSummarySchedule({ is_enabled: value }, schedule?.id || 1);
-      await loadData();
-    } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to update daily summary schedule");
-    } finally {
-      setBusy("");
-    }
+  const deleteNotification = (id, event) => {
+    event?.stopPropagation();
+    runAction(`delete-${id}`, () => notificationApi.deleteNotification(id), null, "Failed to delete notification");
   };
 
   const handleDeepLink = (item) => {
-    if (item.data && item.data.module) {
-      if (item.data.module === "live") navigate("/dashboard/trading/live");
-      else if (item.data.module === "paper") navigate("/dashboard/trading/paper-trading");
-    }
-    if (!item.is_read) {
-      markRead(item.id);
-    }
+    const data = item.data || {};
+    const routes = {
+      live: "/dashboard/live/portfolio",
+      paper: "/dashboard/paper",
+      manual: "/dashboard/trading/paper-trading",
+      broker: "/dashboard/brokers",
+      marketdata: "/dashboard/live/strategies",
+      backtest: data.backtest_run_id ? `/dashboard/backtest/results/${data.backtest_run_id}` : "/dashboard/backtest",
+      strategy: data.strategy_id ? `/dashboard/strategy/${data.strategy_id}/edit` : "/dashboard/strategy/list",
+    };
+    if (routes[data.module]) navigate(routes[data.module]);
+    if (!item.is_read) markRead(item.id);
   };
 
   const stats = [
     { label: "Unread", value: summary.unread || 0, tone: "text-amber-300" },
-    { label: "Critical", value: summary.critical || 0, tone: "text-red-300" },
+    { label: "Unread critical", value: summary.by_type?.CRITICAL || 0, tone: "text-red-300" },
     { label: "Today", value: summary.today || 0, tone: "text-cyan-300" },
     { label: "Total", value: summary.total || 0, tone: "text-white" },
   ];
@@ -207,133 +156,57 @@ export default function NotificationCenter() {
         ))}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-        <Card className="border-gray-800 bg-gray-900/60">
-          <CardHeader className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-white">Notification Feed</CardTitle>
-              <div className="relative w-full max-w-xs">
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search notifications"
-                  className="border-gray-700 bg-gray-950/70 text-white"
-                />
-              </div>
-            </div>
-            
-            <Tabs defaultValue="all" onValueChange={setActiveTab} className="w-full">
-              <TabsList className="bg-gray-800/50">
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="trading">Trading</TabsTrigger>
-                <TabsTrigger value="system">System</TabsTrigger>
-                <TabsTrigger value="community">Community</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {loading ? (
-              <div className="py-10 text-center text-gray-400">Loading notifications...</div>
-            ) : filteredItems.length === 0 ? (
-              <div className="py-10 text-center text-gray-400">No notifications found.</div>
-            ) : (
-              filteredItems.map((item) => {
-                const SeverityIcon = severityConfig[item.severity]?.icon || Info;
-                const severityClass = severityConfig[item.severity]?.color || severityConfig.INFO.color;
-                const hasDeepLink = !!item.data?.module;
-
-                return (
-                  <div 
-                    key={item.id} 
-                    className={`rounded-2xl border p-4 transition-all duration-200 ${item.is_read ? "border-gray-800 bg-black/20" : "border-cyan-900/50 bg-cyan-500/5"} ${hasDeepLink ? "cursor-pointer hover:border-cyan-700" : ""}`}
-                    onClick={() => hasDeepLink ? handleDeepLink(item) : null}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-2 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <SeverityIcon className={`h-4 w-4 ${item.severity === "CRITICAL" ? "text-red-400" : item.severity === "WARNING" ? "text-amber-400" : "text-cyan-400"}`} />
-                          <p className="font-semibold text-white">{item.title}</p>
-                          <Badge className={severityClass}>{item.severity}</Badge>
-                          {!item.is_read ? <Badge className="bg-indigo-500/10 text-indigo-300 border-indigo-500/20">NEW</Badge> : null}
-                        </div>
-                        <p className="text-sm text-gray-300">{item.message}</p>
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                          <span>{item.strategy_name || "System"}</span>
-                          <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" /> {formatDateTime(item.created_at)}</span>
-                          {hasDeepLink && <span className="flex items-center gap-1 text-cyan-400"><ExternalLink className="h-3 w-3"/> View</span>}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2 items-end">
-                        {!item.is_read && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="border-gray-700 text-gray-100 h-7 text-xs px-2"
-                            onClick={(e) => markRead(item.id, e)}
-                            disabled={busy === `read-${item.id}`}
-                          >
-                            Mark Read
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-red-400 hover:text-red-300 hover:bg-red-400/10 h-7 w-7 p-0"
-                          onClick={(e) => deleteNotification(item.id, e)}
-                          disabled={busy === `delete-${item.id}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+      <Card className="border-gray-800 bg-gray-900/60">
+        <CardHeader className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-white">Notification Feed</CardTitle>
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search notifications" className="max-w-xs border-gray-700 bg-gray-950/70 text-white" />
+          </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="bg-gray-800/50">
+              <TabsTrigger value="ALL">All</TabsTrigger>
+              <TabsTrigger value="INFO">Info</TabsTrigger>
+              <TabsTrigger value="WARNING">Warnings</TabsTrigger>
+              <TabsTrigger value="CRITICAL">Critical</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {loading ? (
+            <div className="py-10 text-center text-gray-400">Loading notifications...</div>
+          ) : filteredItems.length === 0 ? (
+            <div className="py-10 text-center text-gray-400">No notifications found.</div>
+          ) : filteredItems.map((item) => {
+            const typeConfig = TYPE_CONFIG[item.type] || TYPE_CONFIG.INFO;
+            const TypeIcon = typeConfig.icon;
+            const hasDeepLink = Boolean(item.data?.module);
+            return (
+              <div key={item.id} className={`rounded-2xl border p-4 transition-colors ${item.is_read ? "border-gray-800 bg-black/20" : "border-cyan-900/50 bg-cyan-500/5"} ${hasDeepLink ? "cursor-pointer hover:border-cyan-700" : ""}`} onClick={hasDeepLink ? () => handleDeepLink(item) : undefined}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <TypeIcon className={`h-4 w-4 ${item.type === "CRITICAL" ? "text-red-400" : item.type === "WARNING" ? "text-amber-400" : "text-cyan-400"}`} />
+                      <p className="font-semibold text-white">{item.title}</p>
+                      <Badge className={typeConfig.color}>{item.type || "INFO"}</Badge>
+                      {!item.is_read && <Badge className="border-indigo-500/20 bg-indigo-500/10 text-indigo-300">NEW</Badge>}
+                    </div>
+                    <p className="text-sm text-gray-300">{item.message}</p>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                      <span>{item.data?.strategy_name || item.data?.broker_name || item.data?.module || "System"}</span>
+                      <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{formatDateTime(item.created_at)}</span>
+                      {hasDeepLink && <span className="flex items-center gap-1 text-cyan-400"><ExternalLink className="h-3 w-3" />View</span>}
                     </div>
                   </div>
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <Card className="border-gray-800 bg-gray-900/60">
-            <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Settings2 className="h-4 w-4 text-cyan-300" /> Daily Summary</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-2xl border border-gray-800 bg-black/20 p-4">
-                <div>
-                  <p className="text-sm font-medium text-white">Daily report notification</p>
-                  <p className="text-xs text-gray-500">{schedule?.send_time || "18:00"} local time</p>
-                </div>
-                <Switch checked={Boolean(schedule?.is_enabled)} onCheckedChange={toggleSchedule} disabled={busy === "schedule"} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-gray-800 bg-gray-900/60">
-            <CardHeader><CardTitle className="flex items-center gap-2 text-white"><Bell className="h-4 w-4 text-cyan-300" /> Preferences</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {preferences.map((pref) => (
-                <div key={pref.id} className="flex items-center justify-between rounded-2xl border border-gray-800 bg-black/20 p-4">
-                  <div>
-                    <p className="text-sm font-medium text-white">{pref.notification_type.replaceAll("_", " ")}</p>
-                    <p className="text-xs text-gray-500">In-app delivery</p>
+                  <div className="flex flex-col items-end gap-2">
+                    {!item.is_read && <Button size="sm" variant="outline" className="h-7 border-gray-700 px-2 text-xs text-gray-100" onClick={(event) => markRead(item.id, event)} disabled={busy === `read-${item.id}`}>Mark Read</Button>}
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:bg-red-400/10 hover:text-red-300" onClick={(event) => deleteNotification(item.id, event)} disabled={busy === `delete-${item.id}`} aria-label="Delete notification"><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
-                  <Switch
-                    checked={Boolean(pref.in_app_enabled)}
-                    onCheckedChange={(value) => updatePreference(pref.id, "in_app_enabled", value)}
-                    disabled={busy === `pref-${pref.id}`}
-                  />
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="border-gray-800 bg-gray-900/60">
-            <CardHeader><CardTitle className="text-white">Operational note</CardTitle></CardHeader>
-            <CardContent className="text-sm text-gray-400">
-              Risk notifications, analytics refresh updates, and daily summaries are now routed through the same in-app notification system.
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
     </div>
   );
 }

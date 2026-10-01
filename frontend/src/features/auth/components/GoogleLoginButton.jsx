@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState } from 'react';
 import { useNavigate } from "react-router-dom";
 import { useDispatch } from 'react-redux';
@@ -23,7 +24,7 @@ export default function GoogleLoginButton({ onError, isLoading: parentLoading, t
         await dispatch(fetchUserProfile());
         navigate("/dashboard");
       } catch (err) {
-        onError(err.response?.data?.detail || `Google ${type} failed. Please try again.`);
+        onError(getApiErrorMessage(err, `Google ${type} failed. Please try again.`));
       } finally {
         setIsProcessing(false);
       }

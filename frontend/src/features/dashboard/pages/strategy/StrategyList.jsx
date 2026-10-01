@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /**
  * Strategy List Page - displays all user strategies with CRUD actions
  */
@@ -43,14 +44,6 @@ const STATUS_CONFIG = {
   ACTIVE: { label: 'Active', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
   PAUSED: { label: 'Paused', className: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
   ARCHIVED: { label: 'Archived', className: 'bg-rose-500/15 text-rose-400 border-rose-500/30' },
-};
-
-const apiErrorMessage = (error, fallback) => {
-  const data = error?.response?.data;
-  const validationMessages = Object.values(data || {}).flatMap((value) =>
-    Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
-  );
-  return data?.error || data?.detail || data?.errors?.join?.(' ') || validationMessages.join(' ') || fallback;
 };
 
 const STRATEGY_TYPE_ICONS = {
@@ -103,7 +96,7 @@ export default function StrategyList() {
       const data = await strategyApi.getAll();
       setStrategies(Array.isArray(data) ? data : (data?.results || []));
     } catch (error) {
-      notify.error("Failed to load strategies");
+      notify.error(getApiErrorMessage(error, "Failed to load strategies"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -177,7 +170,7 @@ export default function StrategyList() {
       setPaperDeployStrategy(strategy);
       setPaperDeployOpen(true);
     } catch (error) {
-      notify.error("Failed to load deploy data");
+      notify.error(getApiErrorMessage(error, "Failed to load paper deployment data"));
     } finally {
       setDeployingId(null);
     }
@@ -197,14 +190,13 @@ export default function StrategyList() {
       payload.slippagePct = Number(paperSlippagePct || 0);
       payload.chargeProfile = paperChargeProfile;
       payload.includeCharges = paperIncludeCharges;
-      const result = await strategyApi.deployPaper(paperDeployStrategy.id, payload);
-      notify.success(result.session_id ? `Paper session started (ID: ${result.session_id})` : 'Strategy deployed to paper trading');
+      await strategyApi.deployPaper(paperDeployStrategy.id, payload);
       setPaperDeployOpen(false);
       setPaperDeployStrategy(null);
       await fetchStrategies();
       navigate('/dashboard/paper');
     } catch (error) {
-      notify.error(apiErrorMessage(error, 'Failed to deploy to paper trading'));
+      notify.error(getApiErrorMessage(error, 'Failed to deploy to paper trading'));
     } finally {
       setDeployingId(null);
     }
@@ -230,7 +222,7 @@ export default function StrategyList() {
 
       setLiveDeployOpen(true);
     } catch (error) {
-      notify.error('Failed to load connected broker accounts');
+      notify.error(getApiErrorMessage(error, 'Failed to load live deployment data'));
     } finally {
       setDeployingId(null);
     }
@@ -240,7 +232,7 @@ export default function StrategyList() {
     if (!liveDeployStrategy) return;
     try {
       setDeployingId(liveDeployStrategy.id);
-      const result = await strategyApi.deployLive(
+      await strategyApi.deployLive(
         liveDeployStrategy.id,
         {
           brokerCredential: selectedBroker ? Number(selectedBroker) : null,
@@ -249,13 +241,12 @@ export default function StrategyList() {
           versionId: selectedVersion || undefined,
         },
       );
-      notify.success(result.message || 'Strategy deployed to live trading');
       setLiveDeployOpen(false);
       setLiveDeployStrategy(null);
       await fetchStrategies();
       navigate('/dashboard/live/strategies');
     } catch (error) {
-      notify.error(apiErrorMessage(error, 'Failed to deploy to live trading'));
+      notify.error(getApiErrorMessage(error, 'Failed to deploy to live trading'));
     } finally {
       setDeployingId(null);
     }
@@ -267,17 +258,16 @@ export default function StrategyList() {
       notify.success('Strategy cloned successfully');
       fetchStrategies();
     } catch (error) {
-      notify.error('Failed to clone strategy');
+      notify.error(getApiErrorMessage(error, 'Failed to clone strategy'));
     }
   };
 
   const handleActivate = async (id) => {
     try {
       await strategyApi.activate(id);
-      notify.success('Strategy activated');
       fetchStrategies();
     } catch (error) {
-      const message = apiErrorMessage(error, 'Failed to activate strategy');
+      const message = getApiErrorMessage(error, 'Failed to activate strategy');
       if (error?.response?.status === 409) notify.warning(message);
       else notify.error(message);
     }
@@ -286,10 +276,9 @@ export default function StrategyList() {
   const handlePause = async (id) => {
     try {
       await strategyApi.pause(id);
-      notify.success('Strategy paused');
       fetchStrategies();
     } catch (error) {
-      const message = apiErrorMessage(error, 'Cannot pause strategy');
+      const message = getApiErrorMessage(error, 'Cannot pause strategy');
       if (error?.response?.status === 409) notify.warning(message);
       else notify.error(message);
     }
@@ -298,10 +287,9 @@ export default function StrategyList() {
   const handleArchive = async (id) => {
     try {
       await strategyApi.archive(id);
-      notify.success('Strategy archived');
       fetchStrategies();
     } catch (error) {
-      const message = apiErrorMessage(error, 'Failed to archive strategy');
+      const message = getApiErrorMessage(error, 'Failed to archive strategy');
       if (error?.response?.status === 409) notify.warning(message);
       else notify.error(message);
     }
@@ -312,10 +300,9 @@ export default function StrategyList() {
   const handleUnarchive = async (id) => {
     try {
       await strategyApi.unarchive(id);
-      notify.success('Strategy unarchived');
       fetchStrategies();
     } catch (error) {
-      const message = apiErrorMessage(error, 'Failed to unarchive strategy');
+      const message = getApiErrorMessage(error, 'Failed to unarchive strategy');
       if (error?.response?.status === 409) notify.warning(message);
       else notify.error(message);
     }
@@ -333,7 +320,7 @@ export default function StrategyList() {
         setConflictedStrategy(strategy);
         setDeleteConflictOpen(true);
       } else {
-        notify.error(error?.response?.data?.error || 'Failed to delete strategy');
+        notify.error(getApiErrorMessage(error, 'Failed to delete strategy'));
       }
     }
   };
@@ -342,11 +329,10 @@ export default function StrategyList() {
     if (!conflictedStrategy) return;
     try {
       await strategyApi.archive(conflictedStrategy.id);
-      notify.success('Strategy archived');
       setDeleteConflictOpen(false);
       fetchStrategies();
     } catch (error) {
-      notify.error('Failed to archive strategy');
+      notify.error(getApiErrorMessage(error, 'Failed to archive strategy'));
     }
   };
 
@@ -354,11 +340,10 @@ export default function StrategyList() {
     if (!conflictedStrategy) return;
     try {
       await strategyApi.haltAndArchive(conflictedStrategy.id);
-      notify.success('Strategy halted and archived');
       setDeleteConflictOpen(false);
       fetchStrategies();
     } catch (error) {
-      const message = apiErrorMessage(error, 'Failed to halt and archive');
+      const message = getApiErrorMessage(error, 'Failed to halt and archive');
       if (error?.response?.status === 409) notify.warning(message);
       else notify.error(message);
     }

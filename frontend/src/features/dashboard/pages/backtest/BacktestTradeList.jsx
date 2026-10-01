@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
   Card,
   CardContent,
@@ -70,7 +71,7 @@ export default function BacktestTradeList() {
         setTotalCount(tradesData.data.length);
       }
     } catch (error) {
-      notify.error("Failed to load trades");
+      notify.error(getApiErrorMessage(error, "Failed to load backtest trades"));
     } finally {
       setLoading(false);
     }

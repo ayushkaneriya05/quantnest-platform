@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { DatePicker } from "@/shared/components/ui/date-picker";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
   Play,
   Settings,
@@ -154,8 +155,8 @@ export default function BacktestSetup() {
         ? response
         : response.data || [];
       setStrategies(strategyList);
-    } catch {
-      notify.error("Failed to load strategies");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load strategies"));
     }
   };
 
@@ -183,8 +184,8 @@ export default function BacktestSetup() {
       notify.success("Backtest created! Initializing simulation…");
       await backtestApi.startRun(response.data.id);
       navigate(`/dashboard/backtest/results/${response.data.id}`);
-    } catch {
-      notify.error("Failed to create backtest. Check required fields.");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to create backtest"));
     } finally {
       setLoading(false);
     }

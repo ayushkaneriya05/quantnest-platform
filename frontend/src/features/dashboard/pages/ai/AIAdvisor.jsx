@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
@@ -95,7 +96,7 @@ export default function AIAdvisor() {
         setSelectedStrategyId(String(strategyRows[0].id));
       }
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load AI advisor");
+      notify.error(getApiErrorMessage(error, "Failed to load AI advisor"));
     } finally {
       setLoading(false);
     }
@@ -112,7 +113,7 @@ export default function AIAdvisor() {
       if (successMessage) notify.success(successMessage);
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "AI action failed");
+      notify.error(getApiErrorMessage(error, "AI action failed"));
     } finally {
       setBusyAction("");
     }

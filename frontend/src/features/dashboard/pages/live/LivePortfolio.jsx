@@ -4,6 +4,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { usePageActions } from "@/shared/context/PageActionsContext";
 import { useLiveTradingData } from "./hooks/useLiveTradingData";
 import LivePortfolioSummary from "./components/LivePortfolioSummary";
@@ -73,7 +74,7 @@ export default function LivePortfolio() {
           summary={data.positionsSummary}
           sessions={data.sessions}
           allocationFilter={data.positionAllocation}
-          onAllocationChange={(value) => data.filterPositions(value).catch(() => notify.error("Could not filter positions"))}
+          onAllocationChange={(value) => data.filterPositions(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter positions")))}
           pagination={{ page: data.positionsPage, count: data.positions.count }}
           onPageChange={data.changePositionsPage}
         />
@@ -84,9 +85,9 @@ export default function LivePortfolio() {
           summary={data.ordersSummary}
           sessions={data.sessions}
           allocationFilter={data.orderAllocation}
-          onAllocationChange={(value) => data.filterOrderAllocation(value).catch(() => notify.error("Could not filter orders"))}
+          onAllocationChange={(value) => data.filterOrderAllocation(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter orders")))}
           statusFilter={data.orderStatus}
-          onStatusChange={(value) => data.filterOrders(value).catch(() => notify.error("Could not filter orders"))}
+          onStatusChange={(value) => data.filterOrders(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter orders")))}
           pagination={{ page: data.ordersPage, count: data.orders.count }}
           onPageChange={data.changeOrdersPage}
         />
@@ -98,7 +99,7 @@ export default function LivePortfolio() {
         summary={data.tradesSummary}
         sessions={data.sessions}
         allocationFilter={data.tradeAllocation}
-        onAllocationChange={(value) => data.filterTrades(value).catch(() => notify.error("Could not filter trades"))}
+        onAllocationChange={(value) => data.filterTrades(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter trades")))}
         onPageChange={data.changeTradesPage}
       />}
     </>

@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -92,7 +93,7 @@ export default function PaperAllocations() {
         : stratData?.results || [];
       setStrategies(stratArr);
     } catch (error) {
-      notify.error("Failed to load allocation data");
+      notify.error(getApiErrorMessage(error, "Failed to load allocation data"));
     } finally {
       setLoading(false);
     }
@@ -196,26 +197,7 @@ export default function PaperAllocations() {
       fetchData();
       closeModal();
     } catch (error) {
-      let errorMsg = "Failed to save allocation";
-      const data = error?.response?.data;
-      if (typeof data === 'object' && data !== null) {
-        if (data.error) errorMsg = data.error;
-        else if (data.detail) errorMsg = data.detail;
-        else if (data.non_field_errors) errorMsg = Array.isArray(data.non_field_errors) ? data.non_field_errors[0] : data.non_field_errors;
-        else {
-           const firstKey = Object.keys(data)[0];
-           if (firstKey) {
-             const firstError = data[firstKey];
-             const msg = Array.isArray(firstError) ? firstError[0] : firstError;
-             // Capitalize key and replace underscores for better readability
-             const displayKey = firstKey.charAt(0).toUpperCase() + firstKey.slice(1).replace(/_/g, ' ');
-             errorMsg = `${displayKey}: ${msg}`;
-           }
-        }
-      } else if (typeof data === 'string') {
-        errorMsg = data;
-      }
-      notify.error(errorMsg);
+      notify.error(getApiErrorMessage(error, "Failed to save allocation"));
     }
   };
 
@@ -235,7 +217,7 @@ export default function PaperAllocations() {
         fetchData();
       }
     } catch (error) {
-      notify.error("Failed to remove allocation");
+      notify.error(getApiErrorMessage(error, "Failed to remove allocation"));
     } finally {
       setDeletingId(null);
     }
@@ -251,7 +233,7 @@ export default function PaperAllocations() {
       notify.success("Allocation deleted");
       fetchData();
     } catch (error) {
-      notify.error(error?.response?.data?.error || "Deletion failed");
+      notify.error(getApiErrorMessage(error, "Deletion failed"));
     }
   };
 

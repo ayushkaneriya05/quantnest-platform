@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
   Dialog,
   DialogContent,
@@ -59,30 +60,7 @@ export default function LiveAllocationUpdateModal({
       onSuccess?.();
       onOpenChange(false);
     } catch (error) {
-      let errorMsg = "Failed to update allocation";
-      const data = error?.response?.data;
-      if (typeof data === "object" && data !== null) {
-        if (data.error) errorMsg = data.error;
-        else if (data.detail) errorMsg = data.detail;
-        else if (data.non_field_errors)
-          errorMsg = Array.isArray(data.non_field_errors)
-            ? data.non_field_errors[0]
-            : data.non_field_errors;
-        else {
-          const firstKey = Object.keys(data)[0];
-          if (firstKey) {
-            const firstError = data[firstKey];
-            const msg = Array.isArray(firstError) ? firstError[0] : firstError;
-            const displayKey =
-              firstKey.charAt(0).toUpperCase() +
-              firstKey.slice(1).replace(/_/g, " ");
-            errorMsg = `${displayKey}: ${msg}`;
-          }
-        }
-      } else if (typeof data === "string") {
-        errorMsg = data;
-      }
-      notify.error(errorMsg);
+      notify.error(getApiErrorMessage(error, "Failed to update allocation"));
     } finally {
       setLoading(false);
     }

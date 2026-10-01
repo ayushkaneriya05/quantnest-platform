@@ -18,6 +18,7 @@ import {
 import StrategyConfigNav from './StrategyConfigNav';
 import UniversalRoutingModal from './UniversalRoutingModal';
 import { instrumentsApi, watchlistApi } from '@/shared/services/instrumentsApi';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
@@ -591,7 +592,7 @@ export default function AssetRulesEditor() {
       ]);
       setStrategy(s);
       setWatchlist(w);
-    } catch { notify.error('Failed to load asset settings'); }
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Failed to load asset settings')); }
     finally { setLoading(false); }
   };
 
@@ -637,7 +638,7 @@ export default function AssetRulesEditor() {
       const added = await watchlistApi.add(id, instrument.id);
       setWatchlist(prev => [...prev, added]);
       notify.success(`${instrument.symbol} added`);
-    } catch { notify.error('Failed to add instrument'); }
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Failed to add instrument')); }
   };
 
   const handleRemove = async (wlId) => {
@@ -645,7 +646,7 @@ export default function AssetRulesEditor() {
       await watchlistApi.remove(wlId);
       setWatchlist(prev => prev.filter(w => w.id !== wlId));
       notify.success('Removed');
-    } catch { notify.error('Failed to remove'); }
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Failed to remove instrument')); }
   };
 
   if (loading) return (

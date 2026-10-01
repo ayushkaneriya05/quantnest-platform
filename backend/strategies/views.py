@@ -213,6 +213,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='deploy-paper')
+    @transaction.atomic
     def deploy_paper(self, request, pk=None):
         strategy = self.get_object()
         allocation_id = request.data.get('allocation_id')
@@ -297,6 +298,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'], url_path='deploy-live')
+    @transaction.atomic
     def deploy_live(self, request, pk=None):
         strategy = self.get_object()
         broker_credential_id = request.data.get('broker_credential')

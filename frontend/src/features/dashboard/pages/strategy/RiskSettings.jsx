@@ -19,6 +19,7 @@ import { strategyApi, entryConfigApi } from '@/shared/services/strategyApi';
 import { riskApi } from '@/shared/services/portfolioApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 // Risk level indicator
 const getRiskLevel = (pct) => {
@@ -96,7 +97,7 @@ export default function RiskSettings() {
       }
 
     } catch (error) {
-      notify.error('Failed to load risk settings');
+      notify.error(getApiErrorMessage(error, 'Failed to load risk settings'));
     } finally {
       setLoading(false);
     }
@@ -140,7 +141,7 @@ export default function RiskSettings() {
       fetchData(); // Refresh data to ensure sync
     } catch (error) {
       console.error(error);
-      notify.error('Failed to save settings');
+      notify.error(getApiErrorMessage(error, 'Failed to save settings'));
     } finally {
       setSaving(false);
     }

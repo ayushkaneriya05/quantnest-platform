@@ -1,9 +1,8 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  BadgeCheck,
   Building2,
-  Power,
   Radio,
   RefreshCw,
   ShieldCheck,
@@ -176,9 +175,7 @@ export default function BrokerConnections() {
     } catch (error) {
       console.error("Failed to load broker state", error);
       notify.error(
-        error?.response?.data?.detail ||
-          error?.response?.data?.error ||
-          "Failed to load broker connections",
+        getApiErrorMessage(error, "Failed to load broker connections"),
       );
     } finally {
       setLoading(false);
@@ -197,7 +194,7 @@ export default function BrokerConnections() {
     if (!status) return;
 
     if (status === "connected") {
-      notify.success(`${broker || "Broker"} connected successfully`);
+      // Successful authentication is announced by the persisted broker event.
     } else {
       notify.error(message || `${broker || "Broker"} connection failed`);
     }
@@ -228,9 +225,7 @@ export default function BrokerConnections() {
       await loadBrokerState();
     } catch (error) {
       notify.error(
-        error?.response?.data?.detail ||
-          error?.response?.data?.error ||
-          `${brokerName} connection failed`,
+        getApiErrorMessage(error, `${brokerName} connection failed`),
       );
     } finally {
       setBusyBroker("");
@@ -238,34 +233,16 @@ export default function BrokerConnections() {
   };
 
 
-
-  const activateBroker = async (provider) => {
-    if (!provider.credential_id) return;
-    try {
-      setBusyBroker(provider.broker_name);
-      await brokersApi.activateCredential(provider.credential_id);
-      notify.success(`${provider.display_name} activated for execution`);
-      await loadBrokerState();
-    } catch (error) {
-      notify.error(
-        error?.response?.data?.detail || `Failed to activate ${provider.display_name}`,
-      );
-    } finally {
-      setBusyBroker("");
-    }
-  };
 
   const disconnectBroker = async (provider) => {
     if (!provider.credential_id) return;
     try {
       setBusyBroker(provider.broker_name);
       await brokersApi.disconnectCredential(provider.credential_id);
-      notify.success(`${provider.display_name} disconnected`);
       await loadBrokerState();
     } catch (error) {
       notify.error(
-        error?.response?.data?.detail ||
-          `Failed to disconnect ${provider.display_name}`,
+        getApiErrorMessage(error, `Failed to disconnect ${provider.display_name}`),
       );
     } finally {
       setBusyBroker("");

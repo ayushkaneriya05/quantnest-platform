@@ -18,6 +18,7 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/PageActionsContext';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 // UI metadata for each visibility value (icons, colors etc)
 const VISIBILITY_META = {
@@ -72,7 +73,7 @@ export default function StrategyPermissions() {
         allow_backtest: data.allow_backtest ?? false,
       });
     } catch (error) {
-      notify.error('Failed to load strategy');
+      notify.error(getApiErrorMessage(error, 'Failed to load strategy permissions'));
     } finally {
       setLoading(false);
     }
@@ -89,7 +90,7 @@ export default function StrategyPermissions() {
       notify.success('Permissions updated');
       // navigate removed to keep user on same page
     } catch (error) {
-      notify.error('Failed to save permissions');
+      notify.error(getApiErrorMessage(error, 'Failed to save permissions'));
     } finally {
       setSaving(false);
     }

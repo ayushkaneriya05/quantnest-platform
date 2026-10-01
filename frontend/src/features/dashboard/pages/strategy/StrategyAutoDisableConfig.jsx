@@ -16,6 +16,7 @@ import { usePageActions } from '@/shared/context/PageActionsContext';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 
 export default function StrategyAutoDisableConfig() {
@@ -69,7 +70,7 @@ export default function StrategyAutoDisableConfig() {
       setRules(res.data || []);
       setStrategy(stratData);
     } catch (error) {
-      notify.error('Failed to load auto-disable configuration');
+      notify.error(getApiErrorMessage(error, 'Failed to load auto-disable configuration'));
     } finally {
       setLoading(false);
     }
@@ -124,7 +125,7 @@ export default function StrategyAutoDisableConfig() {
       setIsModalOpen(false);
       fetchData();
     } catch (error) {
-      notify.error('Failed to save configuration');
+      notify.error(getApiErrorMessage(error, 'Failed to save configuration'));
     }
   };
 
@@ -136,7 +137,7 @@ export default function StrategyAutoDisableConfig() {
         notify.success('Rule deleted');
         fetchData();
       } catch (error) {
-        notify.error('Failed to delete rule');
+        notify.error(getApiErrorMessage(error, 'Failed to delete rule'));
       }
     }
   };
@@ -147,7 +148,7 @@ export default function StrategyAutoDisableConfig() {
       notify.success(`Rule ${rule.is_active ? 'paused' : 'activated'}`);
       fetchData();
     } catch (error) {
-      notify.error('Failed to update status');
+      notify.error(getApiErrorMessage(error, 'Failed to update status'));
     }
   };
 

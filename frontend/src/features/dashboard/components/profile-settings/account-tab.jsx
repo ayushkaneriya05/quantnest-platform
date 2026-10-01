@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Button } from "@/shared/components/ui/button";
@@ -173,7 +174,7 @@ export default function AccountTab() {
       });
     } catch (err) {
       console.error("Failed to delete account:", err);
-      const errorMsg = err.response?.data?.error || "Failed to delete account. Please try again.";
+      const errorMsg = getApiErrorMessage(err, "Failed to delete account. Please try again.");
       setMessage({
         type: "error",
         text: errorMsg,

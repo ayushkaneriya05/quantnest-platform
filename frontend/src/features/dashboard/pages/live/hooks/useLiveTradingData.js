@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
@@ -103,7 +104,7 @@ export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
       );
       await Promise.all(tasks);
     } catch (error) {
-      notify?.error(error?.response?.data?.detail || "Failed to load live trading data");
+      notify?.error(getApiErrorMessage(error, "Failed to load live trading data"));
     } finally {
       setLoading(false);
       setRefreshing(false);

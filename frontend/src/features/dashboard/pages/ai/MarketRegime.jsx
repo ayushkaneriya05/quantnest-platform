@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, RefreshCw, ShieldAlert, TrendingUp } from "lucide-react";
 
@@ -73,7 +74,7 @@ export default function MarketRegime() {
         setSelectedStrategyId(String(strategyRows[0].id));
       }
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load market regime data");
+      notify.error(getApiErrorMessage(error, "Failed to load market regime data"));
     } finally {
       setLoading(false);
     }
@@ -107,7 +108,7 @@ export default function MarketRegime() {
             notify.success("Market regimes refreshed");
             await loadData();
           } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to refresh market regimes");
+            notify.error(getApiErrorMessage(error, "Failed to refresh market regimes"));
           } finally {
             setBusyAction("");
           }
@@ -127,7 +128,7 @@ export default function MarketRegime() {
             notify.success("Overfit detection refreshed");
             await loadData();
           } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to refresh overfit detection");
+            notify.error(getApiErrorMessage(error, "Failed to refresh overfit detection"));
           } finally {
             setBusyAction("");
           }

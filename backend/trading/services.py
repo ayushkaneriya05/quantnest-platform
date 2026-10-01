@@ -390,14 +390,7 @@ class TradingOrderService:
                 entry_time=position.created_at
             )
 
-        deleted_position_id = None
-        if new_quantity == 0:
-            position.quantity = 0
-            deleted_position_id = position.pk
-            cls.sync_position_sl_tp_orders(position)
-            if position.pk:
-                position.delete()
-        else:
+        if new_quantity != 0:
             if (old_quantity >= 0 and transaction_qty > 0) or (old_quantity <= 0 and transaction_qty < 0):
                 total_cost = (abs(old_quantity) * position.average_price) + (abs(transaction_qty) * fill_price)
                 position.average_price = total_cost / abs(new_quantity)
@@ -418,6 +411,14 @@ class TradingOrderService:
         order.executed_at = timezone.now()
         order.price = fill_price # Store the actual fill price
         order.save(update_fields=["status", "executed_at", "price"])
+
+        deleted_position_id = None
+        if new_quantity == 0:
+            position.quantity = 0
+            deleted_position_id = position.pk
+            cls.sync_position_sl_tp_orders(position)
+            if position.pk:
+                position.delete()
 
         # Remove from terminal order cache
         TerminalOrderCache.remove_order(order)
@@ -786,6 +787,7 @@ class PaperTradingTerminalService:
             "instrument": {
                 "id": position.instrument.id,
                 "symbol": position.instrument.symbol,
+                "sym_ticker": position.instrument.sym_ticker,
                 "company_name": position.instrument.name,
             },
             "quantity": position.quantity,

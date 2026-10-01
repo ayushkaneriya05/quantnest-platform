@@ -65,10 +65,6 @@ export const portfolioApi = {
 };
 
 export const riskApi = {
-  // Risk Profile
-  getMyProfile: () => axiosInstance.get("/risk/profile/me/"),
-  updateProfile: (data) => axiosInstance.patch("/risk/profile/me/", data),
-
   // Position Sizing
   getSizingRules: (params) => axiosInstance.get("/risk/sizing/", { params }),
   getSizingRule: (id) => axiosInstance.get(`/risk/sizing/${id}/`),
@@ -85,10 +81,6 @@ export const riskApi = {
   deleteAutoDisableRule: (id) =>
     axiosInstance.delete(`/risk/auto-disable/${id}/`),
 
-  // Violations
-  getViolations: () => axiosInstance.get("/risk/violations/"),
-  resolveViolation: (id, notes = "") =>
-    axiosInstance.post(`/risk/violations/${id}/resolve/`, { notes }),
 };
 
 export default { portfolioApi, riskApi };

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { portfolioApi } from "@/shared/services/portfolioApi";
 import { paperApi } from "@/shared/services/paperApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
@@ -42,8 +43,8 @@ export default function PaperAnalytics() {
       setPortfolio(portRes.data);
       setTrades(Array.isArray(tradesRes.data) ? tradesRes.data : tradesRes.data?.results || []);
       setPositions(Array.isArray(positionsRes.data) ? positionsRes.data : positionsRes.data?.results || []);
-    } catch (err) {
-      notify.error("Failed to load analytics data");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load analytics data"));
     } finally {
       setLoading(false);
     }

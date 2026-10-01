@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { DollarSign, RefreshCw, Sparkles, Star, Store } from "lucide-react";
 
@@ -67,7 +68,7 @@ export default function CreatorDashboard() {
       setDashboard(dashboardRes.data || {});
       setStrategies(strategyRows);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load creator dashboard");
+      notify.error(getApiErrorMessage(error, "Failed to load creator dashboard"));
     } finally {
       setLoading(false);
     }
@@ -138,7 +139,7 @@ export default function CreatorDashboard() {
       setDialogOpen(false);
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || error?.response?.data?.error || "Failed to save listing");
+      notify.error(getApiErrorMessage(error, "Failed to save listing"));
     } finally {
       setBusyAction("");
     }

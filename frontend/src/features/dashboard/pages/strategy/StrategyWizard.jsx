@@ -4,6 +4,7 @@
  * Edit mode: shows nav bar at top, basic info form, fixed footer
  */
 import { useState, useEffect } from 'react';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNavigate, useParams } from 'react-router-dom';
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
@@ -90,7 +91,7 @@ export default function StrategyWizard() {
           setFormData(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
           notify.success(`Tag "${tagName}" created`);
       } catch (e) {
-          notify.error('Failed to create tag');
+          notify.error(getApiErrorMessage(e, 'Failed to create tag'));
       }
   };
     
@@ -112,7 +113,7 @@ export default function StrategyWizard() {
         tags: Array.isArray(data.tags) ? data.tags : [],
       });
     } catch (error) {
-      notify.error('Failed to load strategy');
+      notify.error(getApiErrorMessage(error, 'Failed to load strategy'));
       navigate('/dashboard/strategy/list');
     } finally {
       setLoading(false);
@@ -172,13 +173,10 @@ export default function StrategyWizard() {
         navigate(`/dashboard/strategy/${created.id}/edit`, { replace: true });
       }
     } catch (error) {
-      const validationErrors = Object.values(error?.response?.data || {}).flatMap((value) =>
-        Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
-      );
-      notify.error(
-        error?.response?.data?.error || error?.response?.data?.detail || validationErrors.join(' ') ||
-        (isEdit ? 'Failed to update strategy' : 'Failed to create strategy')
-      );
+      notify.error(getApiErrorMessage(
+        error,
+        isEdit ? 'Failed to update strategy' : 'Failed to create strategy',
+      ));
     } finally {
       setSaving(false);
     }

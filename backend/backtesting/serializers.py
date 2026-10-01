@@ -29,7 +29,7 @@ class BacktestRunSerializer(serializers.ModelSerializer):
             'id', 'name', 'strategy', 'strategy_name', 'strategy_version', 'start_date', 'end_date',
             'initial_capital', 'slippage_pct', 'brokerage_per_trade', 'brokerage_pct',
             'charge_profile', 'charge_profile_detail', 'include_charges',
-            'parameters', 'config_snapshot', 'risk_profile_snapshot',
+            'parameters', 'config_snapshot',
             'status', 'progress_pct', 'error_message', 'started_at', 'completed_at', 'created_at'
         ]
         read_only_fields = ['user', 'status', 'progress_pct', 'started_at', 'completed_at']

@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw, Search, Star, Store, Trophy } from "lucide-react";
@@ -55,7 +56,7 @@ export default function MarketplaceHome() {
       const response = await marketplaceApi.getListings(params);
       setListings(Array.isArray(response.data?.results) ? response.data.results : response.data || []);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load marketplace listings");
+      notify.error(getApiErrorMessage(error, "Failed to load marketplace listings"));
     } finally {
       setLoading(false);
     }
@@ -72,7 +73,7 @@ export default function MarketplaceHome() {
       notify.success("Strategy subscribed successfully");
       await loadListings();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || error?.response?.data?.error || "Subscription failed");
+      notify.error(getApiErrorMessage(error, "Subscription failed"));
     } finally {
       setBusyAction("");
     }

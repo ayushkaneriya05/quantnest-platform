@@ -15,6 +15,7 @@ import { executionRoutesApi, instrumentsApi } from '@/shared/services/instrument
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 const ROUTE_TYPES = [
   { value: 'DIRECT', label: 'Direct Execution', desc: 'Execute on the same instrument' },
@@ -111,7 +112,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
       
       setRoutes(enrichedRoutes);
     } catch (err) {
-      notify.error('Failed to load routing configuration');
+      notify.error(getApiErrorMessage(err, 'Failed to load routing configuration'));
     } finally {
       setLoading(false);
     }
@@ -217,7 +218,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
       await fetchRoutes();
       setViewMode('list');
     } catch (err) {
-      notify.error('Failed to save execution route');
+      notify.error(getApiErrorMessage(err, 'Failed to save execution route'));
     } finally {
       setSaving(false);
     }
@@ -231,7 +232,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
       notify.success('Execution route removed');
       await fetchRoutes();
     } catch (err) {
-      notify.error('Failed to remove execution route');
+      notify.error(getApiErrorMessage(err, 'Failed to remove execution route'));
     } finally {
       setDeletingId(null);
     }

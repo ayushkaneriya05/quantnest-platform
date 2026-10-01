@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { Award, BarChart3, Medal, RefreshCw, ShieldCheck, Trophy } from "lucide-react";
 
@@ -46,7 +47,7 @@ export default function Leaderboards() {
       setMe(reputationRes.data || null);
       setProofs(listFromResponse(proofRes));
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load leaderboards");
+      notify.error(getApiErrorMessage(error, "Failed to load leaderboards"));
     } finally {
       setLoading(false);
     }

@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -68,7 +69,7 @@ export default function LoginPage() {
         navigate(from, { replace: true });
       }
     } catch (err) {
-      setError(err.response?.data?.detail || "Login failed.");
+      setError(getApiErrorMessage(err, "Login failed."));
       console.error(err.response?.data);
     } finally {
       dispatch(setLoading(false));
@@ -91,7 +92,7 @@ export default function LoginPage() {
         navigate(from, { replace: true });
       }
     } catch (err) {
-      setTwoFAError(err.response?.data?.detail || "2FA verification failed.");
+      setTwoFAError(getApiErrorMessage(err, "2FA verification failed."));
       console.error(err.response?.data);
     } finally {
       dispatch(setLoading(false));

@@ -1,16 +1,11 @@
 """
 Risk Management Models
 
-Handles position sizing rules, portfolio risk profiles, trade halt conditions,
-strategy auto-disable rules, and risk violation logging.
+Handles position sizing rules and strategy auto-disable rules.
 """
 from django.db import models
-from django.conf import settings
 from common.models import BaseTimestampModel
-from common.enums import (
-    QuantityType, AutoDisableTriggerType,
-    ViolationType, ViolationAction, Severity
-)
+from common.enums import QuantityType, AutoDisableTriggerType
 
 
 class PositionSizingRule(BaseTimestampModel):
@@ -53,63 +48,6 @@ class PositionSizingRule(BaseTimestampModel):
 
     def __str__(self):
         return f"Sizing for {self.strategy.name}"
-
-
-class PortfolioRiskProfile(BaseTimestampModel):
-    """
-    Portfolio-level risk limits and controls.
-    Applied across all strategies for a user.
-    """
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='risk_profile'
-    )
-    
-    # Daily limits
-    max_daily_loss_amount = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True,
-        help_text="Maximum daily loss in rupees"
-    )
-    max_daily_loss_percentage = models.DecimalField(
-        max_digits=5, decimal_places=2, default=5.00,
-        help_text="Maximum daily loss as % of capital"
-    )
-    max_daily_profit_amount = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True,
-        help_text="Maximum daily profit in rupees to halt trading"
-    )
-    max_daily_profit_percentage = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True,
-        help_text="Maximum daily profit as % of capital to halt trading"
-    )
-    max_exposure_percentage = models.DecimalField(
-        max_digits=5, decimal_places=2, default=80.00,
-        help_text="Maximum portfolio exposure as % of capital"
-    )
-    
-    # Per-instrument limits
-    max_per_instrument_exposure = models.DecimalField(
-        max_digits=5, decimal_places=2, default=10.00,
-        help_text="Maximum exposure to a single instrument"
-    )
-    
-    # Drawdown controls
-    max_drawdown_percentage = models.DecimalField(
-        max_digits=5, decimal_places=2, default=15.00,
-        help_text="Maximum portfolio drawdown before halt"
-    )
-    
-    # Notifications
-    alert_on_breach = models.BooleanField(default=True)
-
-    class Meta:
-        db_table = 'risk_portfolio_profile'
-        verbose_name = 'Portfolio Risk Profile'
-        verbose_name_plural = 'Portfolio Risk Profiles'
-
-    def __str__(self):
-        return f"Risk Profile for {self.user.username}"
 
 
 class StrategyAutoDisable(BaseTimestampModel):
@@ -156,60 +94,3 @@ class StrategyAutoDisable(BaseTimestampModel):
         return f"{self.name} for {self.strategy.name}"
 
 
-class RiskViolation(BaseTimestampModel):
-    """
-    Log of risk rule violations and actions taken.
-    """
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='risk_violations'
-    )
-    strategy = models.ForeignKey(
-        'strategies.Strategy',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='risk_violations'
-    )
-    
-    # Violation details
-    violation_type = models.CharField(
-        max_length=20,
-        choices=ViolationType.choices
-    )
-    
-    severity = models.CharField(
-        max_length=10,
-        choices=Severity.choices,
-        default=Severity.WARNING
-    )
-    
-    message = models.TextField()
-    threshold_value = models.DecimalField(max_digits=15, decimal_places=4, null=True)
-    actual_value = models.DecimalField(max_digits=15, decimal_places=4, null=True)
-    
-    # Action taken
-    action_taken = models.CharField(
-        max_length=20,
-        choices=ViolationAction.choices
-    )
-    
-    # Resolution
-    is_resolved = models.BooleanField(default=False)
-    resolved_at = models.DateTimeField(null=True, blank=True)
-    resolved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='resolved_violations'
-    )
-    resolution_notes = models.TextField(blank=True)
-    
-    class Meta:
-        db_table = 'risk_violation'
-        verbose_name = 'Risk Violation'
-        verbose_name_plural = 'Risk Violations'
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"{self.violation_type} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"

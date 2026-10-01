@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import React, { useEffect, useState } from "react";
 import { Save, ShieldAlert, Activity, Wifi, Clock, Settings, RefreshCw } from "lucide-react";
 
@@ -55,7 +56,7 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
       });
     } catch (error) {
       notify.error(
-        error?.response?.data?.error || "Failed to load execution settings",
+        getApiErrorMessage(error, "Failed to load execution settings"),
       );
     } finally {
       setLoading(false);
@@ -91,7 +92,7 @@ export function BrokerOrderSettingsModal({ isOpen, onClose, credentialId, provid
       onClose();
     } catch (error) {
       notify.error(
-        error?.response?.data?.error || "Failed to save execution settings",
+        getApiErrorMessage(error, "Failed to save execution settings"),
       );
     } finally {
       setBusy(false);

@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { Gauge, RefreshCw, ShieldAlert } from "lucide-react";
 
@@ -62,7 +63,7 @@ export default function StrategyHealth() {
         setSelectedStrategyId(String(strategyRows[0].id));
       }
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load strategy health");
+      notify.error(getApiErrorMessage(error, "Failed to load strategy health"));
     } finally {
       setLoading(false);
     }
@@ -95,7 +96,7 @@ export default function StrategyHealth() {
             notify.success("Strategy health refreshed");
             await loadData();
           } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to refresh health score");
+            notify.error(getApiErrorMessage(error, "Failed to refresh health score"));
           } finally {
             setBusyAction("");
           }

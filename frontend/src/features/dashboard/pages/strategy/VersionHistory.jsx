@@ -16,6 +16,7 @@ import { usePageActions } from '@/shared/context/PageActionsContext';
 import StrategySnapshotViewer from './components/StrategySnapshotViewer';
 import { customConfirm, customPrompt } from '@/shared/components/ui/custom-dialog';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 export default function VersionHistory() {
   const { id } = useParams();
@@ -49,7 +50,7 @@ export default function VersionHistory() {
       setStrategy(strategyData);
       setVersions(versionsData);
     } catch (error) {
-      notify.error('Failed to load version history');
+      notify.error(getApiErrorMessage(error, 'Failed to load version history'));
     } finally {
       setLoading(false);
     }
@@ -63,7 +64,7 @@ export default function VersionHistory() {
       notify.success('Strategy rolled back to version');
       navigate(`/dashboard/strategy/${id}/edit`);
     } catch (error) {
-      notify.error('Failed to rollback');
+      notify.error(getApiErrorMessage(error, 'Failed to roll back strategy version'));
     }
   };
 
@@ -77,7 +78,7 @@ export default function VersionHistory() {
       notify.success('New version created');
       fetchData(); // Refresh list
     } catch (error) {
-      notify.error('Failed to create version');
+      notify.error(getApiErrorMessage(error, 'Failed to create strategy version'));
       setLoading(false);
     }
   };
@@ -90,7 +91,7 @@ export default function VersionHistory() {
           await strategyApi.update(id, { auto_version_enabled: checked });
           notify.success(`Auto-versioning ${checked ? 'enabled' : 'paused'}`);
       } catch (e) {
-          notify.error('Failed to update settings');
+          notify.error(getApiErrorMessage(e, 'Failed to update version settings'));
           // Revert
           setStrategy(prev => ({ ...prev, auto_version_enabled: !checked }));
       }

@@ -475,24 +475,10 @@ class BrokerName(models.TextChoices):
 
 
 class NotificationType(models.TextChoices):
-    """Notification event types."""
-    TRADE_EXECUTED = 'TRADE_EXECUTED', 'Trade Executed'
-    SL_HIT = 'SL_HIT', 'Stop Loss Hit'
-    TARGET_HIT = 'TARGET_HIT', 'Target Hit'
-    STRATEGY_PAUSED = 'STRATEGY_PAUSED', 'Strategy Paused'
-    STRATEGY_ERROR = 'STRATEGY_ERROR', 'Strategy Error'
-    RISK_ALERT = 'RISK_ALERT', 'Risk Alert'
-    SYSTEM_ALERT = 'SYSTEM_ALERT', 'System Alert'
-    DAILY_SUMMARY = 'DAILY_SUMMARY', 'Daily Summary'
-    COMMUNITY_REPLY = 'COMMUNITY_REPLY', 'Community Reply'
-    COMMUNITY_MENTION = 'COMMUNITY_MENTION', 'Community Mention'
-    COMMUNITY_FOLLOW = 'COMMUNITY_FOLLOW', 'Community Follow'
-    BADGE_UNLOCKED = 'BADGE_UNLOCKED', 'Badge Unlocked'
-    STREAK_WARNING = 'STREAK_WARNING', 'Streak Warning'
-    CHALLENGE_PROGRESS = 'CHALLENGE_PROGRESS', 'Challenge Progress'
-    CERTIFICATE_ISSUED = 'CERTIFICATE_ISSUED', 'Certificate Issued'
-    PROOF_VERIFIED = 'PROOF_VERIFIED', 'Proof Verified'
-    MODERATION_ALERT = 'MODERATION_ALERT', 'Moderation Alert'
+    """Fixed notification urgency values; event details belong in title/message."""
+    INFO = 'INFO', 'Info'
+    WARNING = 'WARNING', 'Warning'
+    CRITICAL = 'CRITICAL', 'Critical'
 
 
 class EntryPriceLogic(models.TextChoices):
@@ -517,29 +503,8 @@ class AutoDisableTriggerType(models.TextChoices):
     DRAWDOWN = 'DRAWDOWN', 'Drawdown Exceeded'
 
 
-class ViolationType(models.TextChoices):
-    """Risk violation types."""
-    POSITION_SIZE = 'POSITION_SIZE', 'Position Size Exceeded'
-    DAILY_LOSS = 'DAILY_LOSS', 'Daily Loss Limit'
-    EXPOSURE = 'EXPOSURE', 'Exposure Limit'
-    DRAWDOWN = 'DRAWDOWN', 'Drawdown Limit'
-    CONSECUTIVE_LOSS = 'CONSECUTIVE_LOSS', 'Consecutive Losses'
-    MAX_TRADES = 'MAX_TRADES', 'Max Trades Reached'
-    HALT_TRIGGERED = 'HALT_TRIGGERED', 'Trading Halt Triggered'
-
-
-class ViolationAction(models.TextChoices):
-    """Actions taken on risk violations."""
-    LOGGED = 'LOGGED', 'Logged Only'
-    NOTIFIED = 'NOTIFIED', 'Notification Sent'
-    BLOCKED = 'BLOCKED', 'Trade Blocked'
-    HALTED = 'HALTED', 'Trading Halted'
-    CLOSED = 'CLOSED', 'Positions Closed'
-    DISABLED = 'DISABLED', 'Strategy Disabled'
-
-
 class Severity(models.TextChoices):
-    """Alert/notification severity."""
+    """Impact level used by economic calendar events."""
     INFO = 'INFO', 'Info'
     WARNING = 'WARNING', 'Warning'
     CRITICAL = 'CRITICAL', 'Critical'

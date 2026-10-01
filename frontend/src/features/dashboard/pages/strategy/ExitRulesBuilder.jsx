@@ -32,18 +32,7 @@ import { usePageActions } from "@/shared/context/PageActionsContext";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { getDefaultParams } from "./components/operandUtils";
 import RuleConditionEditor from "./components/RuleConditionEditor";
-
-const getSaveErrorMessage = (error) => {
-  const responseData = error?.response?.data;
-  if (typeof responseData === "string") return responseData;
-  if (responseData && typeof responseData === "object") {
-    const messages = Object.values(responseData)
-      .flat(Infinity)
-      .filter((value) => typeof value === "string" && value.trim());
-    if (messages.length) return messages.join(" ");
-  }
-  return error?.message || "Failed to save some changes";
-};
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 export default function ExitRulesBuilder() {
   const { id } = useParams();
@@ -93,7 +82,7 @@ export default function ExitRulesBuilder() {
 
       setPendingEdits({ rules: {}, groups: {} });
     } catch (error) {
-      notify.error("Failed to load exit rules");
+      notify.error(getApiErrorMessage(error, "Failed to load exit rules"));
     } finally {
       setLoading(false);
     }
@@ -129,7 +118,7 @@ export default function ExitRulesBuilder() {
       setGroups((currentGroups) => [...currentGroups, { ...newGroup, rules: [] }]);
       notify.success("Group added");
     } catch (error) {
-      notify.error("Failed to add group");
+      notify.error(getApiErrorMessage(error, "Failed to add group"));
     }
   };
 
@@ -141,7 +130,7 @@ export default function ExitRulesBuilder() {
       setGroups((groups) => groups.filter((group) => group.id !== groupId));
       notify.success("Group deleted");
     } catch (error) {
-      notify.error("Failed to delete group");
+      notify.error(getApiErrorMessage(error, "Failed to delete group"));
     }
   };
 
@@ -187,7 +176,7 @@ export default function ExitRulesBuilder() {
       );
       notify.success("Rule added");
     } catch (error) {
-      notify.error("Failed to add rule");
+      notify.error(getApiErrorMessage(error, "Failed to add rule"));
     }
   };
 
@@ -206,7 +195,7 @@ export default function ExitRulesBuilder() {
       );
       notify.success("Rule deleted");
     } catch (error) {
-      notify.error("Failed to delete rule");
+      notify.error(getApiErrorMessage(error, "Failed to delete rule"));
     }
   };
 
@@ -261,7 +250,7 @@ export default function ExitRulesBuilder() {
       notify.success("All changes saved");
     } catch (error) {
       console.error(error);
-      notify.error(getSaveErrorMessage(error));
+      notify.error(getApiErrorMessage(error, "Failed to save some changes"));
     } finally {
       setSaving(false);
     }

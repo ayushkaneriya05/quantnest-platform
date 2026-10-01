@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Mail, ShieldCheck } from "lucide-react";
@@ -32,7 +33,7 @@ export default function PasswordResetRequestPage() {
       setMessage("Password reset email sent. Please check your inbox.");
     } catch (err) {
       setError(
-        err.response?.data?.detail || "Failed to send password reset email.",
+        getApiErrorMessage(err, "Failed to send password reset email."),
       );
     } finally {
       setIsLoading(false);

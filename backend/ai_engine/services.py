@@ -7,9 +7,9 @@ from django.utils import timezone
 
 from analytics.models import DailyReport, PerformanceSnapshot
 from backtesting.models import BacktestMetrics, BacktestRun, BacktestTrade
+from common.enums import NotificationType
 from marketdata.models import Candle
 from notifications.services import NotificationService
-from risk_management.models import RiskViolation
 from strategies.models import Strategy
 
 from .models import AIRecommendation, MarketRegime, OverfitDetection, StrategyHealthScore
@@ -35,11 +35,6 @@ class AIEngineService:
     @staticmethod
     def _latest_metrics(strategy):
         return BacktestMetrics.objects.filter(run__strategy=strategy).order_by("-run__completed_at", "-run__created_at").first()
-
-    @staticmethod
-    def _risk_violation_count(strategy, days=30):
-        since = timezone.now() - timezone.timedelta(days=days)
-        return RiskViolation.objects.filter(strategy=strategy, created_at__gte=since).count()
 
     @staticmethod
     def _latest_live_day_pnl(strategy):
@@ -120,7 +115,6 @@ class AIEngineService:
         daily_pnl_series = [float(snapshot.daily_pnl or 0) for snapshot in reversed(snapshots)]
         pnl_volatility = pstdev(daily_pnl_series) if len(daily_pnl_series) > 1 else 0.0
         live_day_pnl = float(AIEngineService._latest_live_day_pnl(strategy))
-        risk_violations = AIEngineService._risk_violation_count(strategy)
 
         performance_base = 50.0
         if latest_metrics:
@@ -133,7 +127,6 @@ class AIEngineService:
         if latest_metrics:
             risk_base -= float(latest_metrics.max_drawdown_pct or 0) * 1.8
             risk_base -= float(latest_metrics.volatility_pct or 0) * 0.4
-        risk_base -= risk_violations * 6
         risk_score = AIEngineService._score(risk_base)
 
         consistency_base = 80.0 - (pnl_volatility / max(abs(avg_trade_pnl), 1.0))
@@ -254,8 +247,9 @@ class AIEngineService:
                 strategy.user,
                 title=recommendation.title,
                 message=recommendation.description,
-                strategy=strategy,
-                severity="WARNING",
+                type=NotificationType.WARNING,
+                data={"recommendation_id": str(recommendation.pk), "strategy_id": str(strategy.pk), "strategy_name": strategy.name, "module": "ai"},
+                dedupe_key=f"ai-recommendation:{recommendation.pk}",
             )
         return detection
 
@@ -362,20 +356,6 @@ class AIEngineService:
                     },
                     confidence_score=latest_regime.confidence,
                     priority="MEDIUM",
-                )
-            )
-
-        if AIEngineService._risk_violation_count(strategy, days=14) >= 3:
-            created.append(
-                AIEngineService._get_or_create_recommendation(
-                    user=strategy.user,
-                    strategy=strategy,
-                    recommendation_type="RISK_ALERT",
-                    title="Repeated risk pressure detected",
-                    description="This strategy has triggered multiple recent risk violations. Review sizing, exposure limits, and event filters.",
-                    details={"recent_violations": AIEngineService._risk_violation_count(strategy, days=14)},
-                    confidence_score=AIEngineService._score(78),
-                    priority="HIGH",
                 )
             )
 

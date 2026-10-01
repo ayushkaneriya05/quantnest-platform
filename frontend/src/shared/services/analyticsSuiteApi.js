@@ -16,16 +16,6 @@ export const analyticsSuiteApi = {
   getInsights: () => api.get("/journal/insights/"),
   generateInsights: () => api.post("/journal/insights/generate/"),
   createInsight: (payload) => api.post("/journal/insights/", payload),
-  getNotifications: () => api.get("/notifications/items/"),
-  getNotificationSummary: () => api.get("/notifications/items/summary/"),
-  markNotificationRead: (id) => api.post(`/notifications/items/${id}/mark-read/`),
-  markAllNotificationsRead: () => api.post("/notifications/items/mark-all-read/"),
-  deleteNotification: (id) => api.delete(`/notifications/items/${id}/`),
-  deleteReadNotifications: () => api.delete("/notifications/items/delete-read/"),
-  getNotificationPrefs: () => api.get("/notifications/preferences/"),
-  updateNotificationPref: (id, payload) => api.patch(`/notifications/preferences/${id}/`, payload),
-  getSummarySchedule: () => api.get("/notifications/summary-schedule/"),
-  updateSummarySchedule: (payload, id = 1) => api.patch(`/notifications/summary-schedule/${id}/`, payload),
 };
 
 export default analyticsSuiteApi;

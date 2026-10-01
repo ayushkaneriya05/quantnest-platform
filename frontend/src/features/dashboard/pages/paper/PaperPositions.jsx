@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { Layers, TrendingDown, TrendingUp } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import PaperTablePagination from "./components/PaperTablePagination";
 import { formatCurrency } from "@/shared/utils/formatters";
@@ -24,7 +25,7 @@ export default function PaperPositions({ selectedAccountId }) {
       const positionsRes = await paperApi.getPositions();
       setPositions(positionsRes.data || []);
     } catch (error) {
-      notify.error("Failed to load positions");
+      notify.error(getApiErrorMessage(error, "Failed to load positions"));
     } finally {
       setLoading(false);
     }

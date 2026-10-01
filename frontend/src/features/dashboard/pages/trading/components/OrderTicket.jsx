@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Calculator, DollarSign, Loader2, ShieldCheck, Zap } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
@@ -112,17 +113,10 @@ export default function OrderTicket({
 
       await tradingTerminalApi.placeOrder(payload);
 
-      notify.success(`${payload.transaction_type} ${payload.quantity} ${symbol} submitted.`);
-
       onOrderPlaced();
       onClose();
     } catch (error) {
-      const errorData = error.response?.data;
-      const errorMsg = errorData?.detail || 
-                       (errorData && typeof errorData === 'object' ? Object.values(errorData).flat()[0] : null) ||
-                       "Paper order submission failed.";
-                       
-      notify.error(errorMsg);
+      notify.error(getApiErrorMessage(error, "Order submission failed."));
     } finally {
       setIsLoading(false);
     }

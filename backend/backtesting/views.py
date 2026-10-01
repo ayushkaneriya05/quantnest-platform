@@ -19,7 +19,7 @@ from .serializers import (
 )
 from common.enums import BacktestStatus
 from strategies.services import StrategySnapshotService
-from .tasks import run_backtest_task, run_monte_carlo_task
+from .tasks import _notify_backtest_result, run_backtest_task, run_monte_carlo_task
 from .analytics import BacktestAnalytics
 import logging
 
@@ -128,7 +128,6 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
             user=self.request.user, 
             strategy_version=version,
             config_snapshot=version.config_snapshot,
-            risk_profile_snapshot={},
         )
     
     @action(detail=True, methods=['post'])
@@ -207,7 +206,6 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
             include_charges=run.include_charges,
             parameters=run.parameters,
             config_snapshot=run.config_snapshot,
-            risk_profile_snapshot=run.risk_profile_snapshot,
             status='RUNNING',
             started_at=timezone.now(),
         )
@@ -245,6 +243,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         run.status = 'CANCELLED'
         run.completed_at = timezone.now()
         run.save()
+        _notify_backtest_result(run)
         
         return Response({'success': True, 'message': 'Backtest cancelled'})
     

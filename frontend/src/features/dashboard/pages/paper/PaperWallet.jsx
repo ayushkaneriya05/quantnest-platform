@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
@@ -27,7 +28,7 @@ export default function PaperWallet() {
       const res = await portfolioApi.getMyPortfolio();
       setPortfolio(res.data);
     } catch (err) {
-      notify.error("Failed to load paper wallet");
+      notify.error(getApiErrorMessage(err, "Failed to load paper wallet"));
     } finally {
       setLoading(false);
     }
@@ -62,7 +63,7 @@ export default function PaperWallet() {
       setAmount("");
       await fetchData();
     } catch (err) {
-      notify.error(err?.response?.data?.error || `${type === "DEPOSIT" ? "Addition" : "Removal"} failed`);
+      notify.error(getApiErrorMessage(err, `${type === "DEPOSIT" ? "Addition" : "Removal"} failed`));
     } finally {
       setSaving(false);
     }

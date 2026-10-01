@@ -23,7 +23,6 @@ class CacheKeys:
     NOTIF_LIVE_SESSION_ERROR = "notification_live_session_error_{session_id}_{updated_at}" # TTL: 3600s
     NOTIF_PAPER_SESSION_ERROR = "notification_paper_session_error_{session_id}_{updated_at}" # TTL: 3600s
     NOTIF_RISK_ALERT_PAPER = "risk_alert_paper_{account_id}"                    # TTL: 86400s
-    NOTIF_RISK_VIOLATION = "notification_risk_violation_{violation_id}"         # TTL: 86400s
     BROKER_SESSION_EXPIRED = "broker_session_expired_notification_{credential_id}"  # TTL: 3600s
     
     # Auth

@@ -1,75 +1,71 @@
 from django.utils import timezone
 
-from common.enums import NotificationType, Severity
+from common.enums import NotificationType
 
-from .models import DailySummarySchedule, Notification, NotificationPreference
+from .models import Notification, NotificationPreference
 
 
 class NotificationService:
     @staticmethod
-    def _in_quiet_hours(preference):
-        if not preference or not preference.quiet_hours_start or not preference.quiet_hours_end:
-            return False
-        now = timezone.localtime().time()
-        start = preference.quiet_hours_start
-        end = preference.quiet_hours_end
-        if start <= end:
-            return start <= now <= end
-        return now >= start or now <= end
-
-    @staticmethod
     def ensure_preferences(user):
-        preferences = []
-        for notification_type, _label in NotificationType.choices:
-            pref, _created = NotificationPreference.objects.get_or_create(
-                user=user,
-                notification_type=notification_type,
-            )
-            preferences.append(pref)
-        return preferences
+        return [
+            NotificationPreference.objects.get_or_create(user=user, type=notification_type)[0]
+            for notification_type, _label in NotificationType.choices
+        ]
 
     @staticmethod
-    def notify(user, title, message, notification_type=NotificationType.RISK_ALERT, severity=Severity.INFO, strategy=None, data=None):
-        preference = NotificationPreference.objects.filter(user=user, notification_type=notification_type).first()
+    def notify(user=None, title="", message="", type=NotificationType.INFO, user_id=None, data=None, dedupe_key=None):
+        if type not in NotificationType.values:
+            raise ValueError(f"Unsupported notification type: {type}")
+        if user is None and user_id is None:
+            raise ValueError("A user or user_id is required to create a notification")
+        resolved_user_id = user_id or user.pk
+        preference = NotificationPreference.objects.filter(user_id=resolved_user_id, type=type).only("in_app_enabled").first()
         if preference and not preference.in_app_enabled:
             return None
-        if NotificationService._in_quiet_hours(preference):
-            return None
+
+        defaults = {
+            "title": title,
+            "message": message,
+            "data": data or {},
+        }
+        if dedupe_key:
+            notification, created = Notification.objects.get_or_create(
+                dedupe_key=dedupe_key,
+                defaults={"user_id": resolved_user_id, "type": type, **defaults},
+            )
+            return notification if created else None
+
         return Notification.objects.create(
-            user=user,
-            strategy=strategy,
-            type=notification_type,
-            severity=severity,
-            title=title,
-            message=message,
-            data=data or {},
+            user_id=resolved_user_id,
+            type=type,
+            **defaults,
         )
 
     @staticmethod
     def mark_read(notification):
-        notification.is_read = True
-        notification.read_at = timezone.now()
-        notification.save(update_fields=["is_read", "read_at", "updated_at"])
+        if not notification.is_read:
+            notification.is_read = True
+            notification.read_at = timezone.now()
+            notification.save(update_fields=["is_read", "read_at", "updated_at"])
         return notification
 
     @staticmethod
-    def get_summary_schedule(user):
-        schedule, _ = DailySummarySchedule.objects.get_or_create(user=user)
-        return schedule
-
-    @staticmethod
     def mark_all_read(user):
-        unread = Notification.objects.filter(user=user, is_read=False)
         now = timezone.now()
-        unread.update(is_read=True, read_at=now, updated_at=now)
-        return unread.count()
+        return Notification.objects.filter(user=user, is_read=False).update(
+            is_read=True, read_at=now, updated_at=now
+        )
 
     @staticmethod
     def summary(user):
         queryset = Notification.objects.filter(user=user)
+        unread = queryset.filter(is_read=False)
+        counts = {notification_type: unread.filter(type=notification_type).count()
+                  for notification_type, _label in NotificationType.choices}
         return {
             "total": queryset.count(),
-            "unread": queryset.filter(is_read=False).count(),
-            "critical": queryset.filter(severity=Severity.CRITICAL, is_read=False).count(),
+            "unread": unread.count(),
+            "by_type": counts,
             "today": queryset.filter(created_at__date=timezone.localdate()).count(),
         }

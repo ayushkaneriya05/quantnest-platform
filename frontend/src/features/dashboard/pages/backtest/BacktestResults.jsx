@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
   Card,
   CardContent,
@@ -107,7 +108,7 @@ export default function BacktestResults() {
         .catch(() => setAnalytics(null));
 
     } catch (error) {
-      notify.error("Failed to load backtest");
+      notify.error(getApiErrorMessage(error, "Failed to load backtest"));
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -158,7 +159,7 @@ export default function BacktestResults() {
       notify.success("Backtest cancelled");
       fetchData();
     } catch (error) {
-      notify.error("Failed to cancel backtest");
+      notify.error(getApiErrorMessage(error, "Failed to cancel backtest"));
     } finally {
       setCancelling(false);
     }

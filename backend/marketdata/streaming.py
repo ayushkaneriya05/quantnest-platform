@@ -2,6 +2,7 @@ import re
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from common.channel_serialization import json_safe_channel_data
 from .services import MarketDataService
 from .quote_store import QuoteStore
 
@@ -22,15 +23,12 @@ class MarketDataStreamer:
         channel_layer = get_channel_layer()
         if channel_layer is None:
             return payload
+        message = json_safe_channel_data({"type": "tick", "symbol": symbol, "data": payload})
         async_to_sync(channel_layer.group_send)(
             cls._group_name(symbol),
             {
                 "type": "marketdata.message",
-                "message": {
-                    "type": "tick",
-                    "symbol": symbol,
-                    "data": payload,
-                },
+                "message": message,
             },
         )
         return payload
@@ -53,6 +51,7 @@ class MarketDataStreamer:
                 "volume": int(candle.volume or 0),
             },
         }
+        message = json_safe_channel_data(message)
         async_to_sync(channel_layer.group_send)(
             cls._group_name(symbol),
             {

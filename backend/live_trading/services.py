@@ -12,7 +12,7 @@ from django.utils.dateparse import parse_datetime
 
 from brokers.models import BrokerCredential, BrokerFundsSnapshot, BrokerSession
 from brokers.services import BrokerService
-from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Severity, Side, NotificationType
+from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Side, NotificationType
 from marketdata.quote_store import QuoteStore
 from notifications.services import NotificationService
 from core.cache_api import cache_api
@@ -108,10 +108,9 @@ class LiveExecutionService:
             user=allocation.user,
             title="Live Allocation Updated",
             message=f"Allocation for '{allocation.strategy.name}' has been updated to {allocation.allocated_capital}.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.INFO,
-            strategy=allocation.strategy,
-            data={"allocation_id": str(allocation.id), "module": "live"}
+            type=NotificationType.INFO,
+            data={"allocation_id": str(allocation.id), "broker_credential_id": str(allocation.broker_credential_id), "strategy_id": str(allocation.strategy_id), "strategy_name": allocation.strategy.name, "module": "live"},
+            dedupe_key=f"live-allocation-updated:{allocation.id}:{allocation.updated_at.isoformat()}"
         )
         
         return allocation
@@ -227,10 +226,9 @@ class LiveExecutionService:
             user=user,
             title="Live Strategy Deployed",
             message=f"Strategy '{strategy.name}' has been deployed to live trading.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.INFO,
-            strategy=strategy,
-            data={"session_id": str(session.id), "module": "live"}
+            type=NotificationType.INFO,
+            data={"session_id": str(session.id), "strategy_id": str(strategy.pk), "strategy_name": strategy.name, "module": "live"},
+            dedupe_key=f"live-session:{session.id}:RUNNING:{session.updated_at.isoformat()}"
         )
         return session
 
@@ -245,10 +243,9 @@ class LiveExecutionService:
             user=session.user,
             title="Live Strategy Paused",
             message=f"Strategy '{session.strategy.name}' has been paused.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.WARNING,
-            strategy=session.strategy,
-            data={"session_id": str(session.id), "module": "live"}
+            type=NotificationType.WARNING,
+            data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "live"},
+            dedupe_key=f"live-session:{session.id}:PAUSED:{session.updated_at.isoformat()}"
         )
         LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
         return session
@@ -284,12 +281,11 @@ class LiveExecutionService:
             LiveExecutionService._publish_execution_event("SESSION_STOP", session, "live")
         NotificationService.notify(
             user=session.user,
-            title="Live Session Stopped",
-            message=f"Live session for '{session.strategy.name}' has been completely stopped" + (" and positions squared off." if close_positions else "."),
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.CRITICAL,
-            strategy=session.strategy,
-            data={"session_id": str(session.id), "module": "live"}
+            title="Live session needs attention" if has_open_positions else "Live session stopped",
+            message=(f"Session for '{session.strategy.name}' could not close all positions. Review open broker positions." if has_open_positions else f"Session for '{session.strategy.name}' has stopped" + (" and positions were squared off." if close_positions else ".")),
+            type=NotificationType.CRITICAL if has_open_positions else NotificationType.INFO,
+            data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "open_positions_remain": has_open_positions, "module": "live"},
+            dedupe_key=f"live-session:{session.id}:{session.status}:{session.updated_at.isoformat()}"
         )
         return session
 
@@ -316,10 +312,9 @@ class LiveExecutionService:
             user=session.user,
             title="Live Strategy Started" if was_stopped else "Live Strategy Resumed",
             message=f"Strategy '{session.strategy.name}' has been {'started' if was_stopped else 'resumed'}.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.INFO,
-            strategy=session.strategy,
-            data={"session_id": str(session.id), "module": "live"}
+            type=NotificationType.INFO,
+            data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "live"},
+            dedupe_key=f"live-session:{session.id}:RUNNING:{session.updated_at.isoformat()}"
         )
         LiveExecutionService._publish_execution_event("SESSION_START", session, "live")
         return session
@@ -381,7 +376,7 @@ class LiveExecutionService:
         allocation = session.allocation
         capital = allocation.allocated_capital if allocation else Decimal("0")
         match = AutoDisableGate.evaluate(session, stats, capital)
-        if match:
+        if match and match.get("paused_now"):
             LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
         if match and raise_on_trigger:
             raise ValueError(f"Strategy auto-disable triggered: {match.get('message', 'Strategy auto-disable triggered')}")
@@ -404,10 +399,9 @@ class LiveExecutionService:
                 user=session.user,
                 title="Live Order Placement Failed",
                 message=f"Failed to place order for {instrument.symbol}: {str(e)}",
-                notification_type=NotificationType.STRATEGY_ERROR,
-                severity=Severity.CRITICAL,
-                strategy=session.strategy,
-                data={"symbol": instrument.symbol, "module": "live", "error": str(e)}
+                type=NotificationType.CRITICAL,
+                data={"symbol": instrument.symbol, "session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "live", "error": str(e)},
+                dedupe_key=f"live-order-placement-error:{session.id}:{request_id}"
             )
             raise e
 
@@ -887,12 +881,12 @@ class LiveExecutionService:
                         user=allocation.user,
                         title="Live Allocation Over-allocated",
                         message=f"Allocation for '{allocation.strategy.name}' exceeds broker equity. {allocation.breach_reason}",
-                        notification_type=NotificationType.RISK_ALERT,
-                        severity=Severity.CRITICAL,
-                        strategy=allocation.strategy,
+                        type=NotificationType.CRITICAL,
                         data={
                             "allocation_id": str(allocation.id),
                             "broker_credential_id": str(credential.id),
+                            "strategy_id": str(allocation.strategy_id),
+                            "strategy_name": allocation.strategy.name,
                             "cumulative_allocated": str(cumulative_allocated),
                             "broker_equity": str(broker_equity),
                             "module": "live"

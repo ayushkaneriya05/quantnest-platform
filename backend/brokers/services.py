@@ -11,7 +11,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
-from common.enums import BrokerName, FyersOrderSide, FyersOrderType, OrderStatus, NotificationType, Severity
+from common.enums import BrokerName, FyersOrderSide, FyersOrderType, OrderStatus, NotificationType
 from common.cache_keys import CacheKeys
 from notifications.services import NotificationService
 
@@ -33,11 +33,11 @@ def notify_broker_session_expired(credential, reason=None):
         return
     NotificationService.notify(
         user=credential.user,
-        title="Broker Session Expired",
-        message=reason or f"Broker session for '{credential.label}' has expired. Reconnect your broker account to continue live trading.",
-        notification_type=NotificationType.SYSTEM_ALERT,
-        severity=Severity.CRITICAL,
-        data={"broker_credential_id": str(credential.id), "module": "broker"}
+        message=reason or f"Reconnect {credential.label or credential.client_id} to continue live trading.",
+        type=NotificationType.CRITICAL,
+        title=f"{credential.broker_name} session expired: {credential.label or credential.client_id}",
+        data={"broker_credential_id": str(credential.id), "broker_name": credential.broker_name, "module": "broker"},
+        dedupe_key=f"broker-session-expired:{credential.id}:{credential.sessions.order_by('-updated_at').values_list('id', flat=True).first() or 'unknown'}"
     )
     cache.set(cache_key, True, 3600)
 
@@ -906,11 +906,11 @@ class BrokerService:
             try:
                 NotificationService.notify(
                     user=credential.user,
-                    title="Broker Verification Failed",
-                    message=f"Broker credential '{credential.label}' failed verification. Please re-authenticate.",
-                    notification_type=NotificationType.SYSTEM_ALERT,
-                    severity=Severity.WARNING,
-                    data={"broker_credential_id": str(credential.id), "module": "broker"}
+                    message=f"Broker credential '{credential.label or credential.client_id}' failed verification. Re-authenticate before live trading.",
+                    type=NotificationType.WARNING,
+                    title=f"Broker verification failed: {credential.broker_name}",
+                    data={"broker_credential_id": str(credential.id), "broker_name": credential.broker_name, "module": "broker"},
+                    dedupe_key=f"broker-verification-failed:{credential.id}:{credential.last_verified_at.isoformat() if credential.last_verified_at else 'unknown'}"
                 )
             except Exception:
                 logger.exception("Failed dispatching broker verification failure notification")
@@ -924,6 +924,14 @@ class BrokerService:
         BrokerCredential.objects.filter(user=credential.user).exclude(id=credential.id).update(is_active=False)
         credential.is_active = True
         credential.save(update_fields=["is_active", "updated_at"])
+        NotificationService.notify(
+            user=credential.user,
+            type=NotificationType.INFO,
+            title=f"Broker enabled for execution: {credential.broker_name}",
+            message=f"{credential.label or credential.client_id} is the active broker account for live orders.",
+            data={"broker_credential_id": str(credential.id), "broker_name": credential.broker_name, "module": "broker"},
+            dedupe_key=f"broker-activated:{credential.id}:{credential.updated_at.isoformat()}",
+        )
         return credential
 
     @staticmethod
@@ -947,11 +955,11 @@ class BrokerService:
             
         NotificationService.notify(
             user=credential.user,
-            title="Broker Disconnected",
-            message=f"Broker connection for '{credential.label}' has been disconnected and all dependent live strategies stopped.",
-            notification_type=NotificationType.SYSTEM_ALERT,
-            severity=Severity.CRITICAL,
-            data={"broker_credential_id": str(credential.id), "module": "broker"}
+            message=f"Broker account '{credential.label or credential.client_id}' disconnected. Dependent live sessions were stopped.",
+            type=NotificationType.WARNING,
+            title=f"Broker disconnected: {credential.broker_name}",
+            data={"broker_credential_id": str(credential.id), "broker_name": credential.broker_name, "module": "broker"},
+            dedupe_key=f"broker-disconnected:{credential.id}:{credential.updated_at.isoformat()}"
         )
         return credential
 
@@ -1006,5 +1014,13 @@ class BrokerService:
         BrokerCredential.objects.filter(user=credential.user).exclude(id=credential.id).update(is_active=False)
         credential.is_active = True
         credential.save(update_fields=["is_active", "updated_at"])
+        NotificationService.notify(
+            user=credential.user,
+            type=NotificationType.INFO,
+            title=f"Broker connected: {credential.broker_name}",
+            message=f"{credential.label or credential.client_id} authenticated successfully and is ready for live trading.",
+            data={"broker_credential_id": str(credential.id), "broker_name": credential.broker_name, "module": "broker"},
+            dedupe_key=f"broker-connected:{credential.id}:{session.pk}",
+        )
         return session
 

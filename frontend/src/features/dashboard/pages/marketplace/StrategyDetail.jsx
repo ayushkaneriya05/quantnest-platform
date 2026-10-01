@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { RefreshCw, ShieldCheck, Star, TrendingUp } from "lucide-react";
@@ -29,7 +30,7 @@ export default function StrategyDetail() {
       const response = await marketplaceApi.getListingDetail(id);
       setPayload(response.data || null);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load listing details");
+      notify.error(getApiErrorMessage(error, "Failed to load listing details"));
     } finally {
       setLoading(false);
     }
@@ -51,7 +52,7 @@ export default function StrategyDetail() {
       notify.success("Strategy subscribed successfully");
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || error?.response?.data?.error || "Subscription failed");
+      notify.error(getApiErrorMessage(error, "Subscription failed"));
     } finally {
       setBusyAction("");
     }
@@ -63,7 +64,7 @@ export default function StrategyDetail() {
       await marketplaceApi.markReviewHelpful(reviewId);
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to mark review helpful");
+      notify.error(getApiErrorMessage(error, "Failed to mark review helpful"));
     } finally {
       setBusyAction("");
     }

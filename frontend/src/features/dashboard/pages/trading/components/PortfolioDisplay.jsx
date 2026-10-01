@@ -26,6 +26,7 @@ import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import api from "@/shared/services/api";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 import ModifyOrderModal from "./ModifyOrderModal";
 import ModifyPositionModal from "./ModifyPositionModal";
@@ -104,10 +105,9 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
   const handleCancelOrder = async (orderId) => {
     try {
       await api.delete(`/trading/orders/${orderId}/`);
-      notify.success("Order cancelled");
       if (onRefresh) onRefresh();
     } catch (error) {
-      notify.error("Failed to cancel order");
+      notify.error(getApiErrorMessage(error, "Failed to cancel order"));
     }
   };
 
@@ -128,14 +128,9 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
         quantity: Math.abs(quantity),
       });
 
-      notify.success("Exit order placed successfully");
       if (onRefresh) onRefresh();
     } catch (error) {
-      const errorData = error.response?.data;
-      const errorMsg = errorData?.detail || 
-                       (errorData && typeof errorData === 'object' ? Object.values(errorData).flat()[0] : null) ||
-        "Failed to place exit order";
-      notify.error(errorMsg);
+      notify.error(getApiErrorMessage(error, "Failed to place exit order"));
     }
   };
 

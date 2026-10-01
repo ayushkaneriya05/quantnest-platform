@@ -1,95 +1,74 @@
-import React, { useEffect, useState } from "react";
-import { analyticsSuiteApi } from "@/shared/services/analyticsSuiteApi";
+import { useCallback, useEffect, useState } from "react";
+import { Bell } from "lucide-react";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Switch } from "@/shared/components/ui/switch";
-import { Bell, Mail } from "lucide-react";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import { notificationApi } from "@/shared/services/notificationApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+
+const labels = { INFO: "Information", WARNING: "Warnings", CRITICAL: "Critical alerts" };
 
 export default function NotificationsTab() {
   const [preferences, setPreferences] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [savingType, setSavingType] = useState("");
   const { notify } = useNotifications();
 
-  useEffect(() => {
-    loadPreferences();
-  }, []);
-
-  const loadPreferences = async () => {
+  const loadPreferences = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await analyticsSuiteApi.getNotificationPrefs();
-      setPreferences(Array.isArray(res.data?.results) ? res.data.results : res.data || []);
+      const response = await notificationApi.getPreferences();
+      setPreferences(Array.isArray(response.data?.results) ? response.data.results : response.data || []);
     } catch (error) {
-      notify.error("Failed to load notification preferences");
+      notify.error(getApiErrorMessage(error, "Failed to load notification preferences"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify]);
 
-  const handleToggle = async (id, field, value) => {
+  useEffect(() => {
+    loadPreferences();
+  }, [loadPreferences]);
+
+  const handleToggle = async (preference, enabled) => {
+    setSavingType(preference.type);
+    setPreferences((current) => current.map((item) => item.id === preference.id ? { ...item, in_app_enabled: enabled } : item));
     try {
-      // Optimistic UI update
-      setPreferences(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-      await analyticsSuiteApi.updateNotificationPref(id, { [field]: value });
-      notify.success("Preference updated");
+      await notificationApi.updatePreference(preference.id, { in_app_enabled: enabled });
+      notify.success(`${labels[preference.type] || preference.type} notifications ${enabled ? "enabled" : "disabled"}`);
     } catch (error) {
-      // Revert on error
-      notify.error("Failed to update preference");
-      loadPreferences();
+      setPreferences((current) => current.map((item) => item.id === preference.id ? { ...item, in_app_enabled: preference.in_app_enabled } : item));
+      notify.error(getApiErrorMessage(error, "Failed to update notification preference"));
+    } finally {
+      setSavingType("");
     }
   };
 
-  if (loading) {
-    return <div className="p-8 text-center text-slate-400">Loading preferences...</div>;
-  }
+  if (loading) return <div className="p-8 text-center text-slate-400">Loading preferences...</div>;
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-100">Notification Preferences</h2>
-          <p className="text-sm text-slate-400 mt-1">Manage how and when you receive notifications from QuantNest.</p>
-        </div>
+      <div>
+        <h2 className="text-xl font-semibold text-slate-100">Notification Preferences</h2>
+        <p className="mt-1 text-sm text-slate-400">Choose which in-app notification types appear in your feed and toast alerts.</p>
       </div>
-
       <div className="grid gap-4">
-        {preferences.map((pref) => (
-          <Card key={pref.id} className="bg-gray-900 border-gray-800">
+        {preferences.map((preference) => (
+          <Card key={preference.id} className="border-gray-800 bg-gray-900">
             <CardHeader className="py-4">
-              <CardTitle className="text-base text-slate-200">
-                {pref.notification_type.replace(/_/g, ' ')}
-              </CardTitle>
+              <CardTitle className="text-base text-slate-200">{labels[preference.type] || preference.type}</CardTitle>
             </CardHeader>
-            <CardContent className="py-4 border-t border-gray-800 flex flex-col sm:flex-row gap-6">
-              <div className="flex items-center justify-between w-full sm:w-1/2">
-                <div className="flex items-center gap-2 text-slate-300">
-                  <Bell className="w-4 h-4 text-indigo-400" />
-                  <span className="text-sm">In-App Notifications</span>
-                </div>
-                <Switch 
-                  checked={pref.in_app_enabled}
-                  onCheckedChange={(val) => handleToggle(pref.id, 'in_app_enabled', val)}
-                />
+            <CardContent className="flex items-center justify-between gap-4 border-t border-gray-800 py-4">
+              <div className="flex items-center gap-2 text-slate-300">
+                <Bell className="h-4 w-4 text-indigo-400" />
+                <span className="text-sm">In-app notifications</span>
               </div>
-
-              <div className="flex items-center justify-between w-full sm:w-1/2">
-                <div className="flex items-center gap-2 text-slate-300">
-                  <Mail className="w-4 h-4 text-indigo-400" />
-                  <span className="text-sm">Email Notifications</span>
-                </div>
-                <Switch 
-                  checked={pref.email_enabled}
-                  onCheckedChange={(val) => handleToggle(pref.id, 'email_enabled', val)}
-                />
-              </div>
+              <Switch checked={Boolean(preference.in_app_enabled)} onCheckedChange={(enabled) => handleToggle(preference, enabled)} disabled={savingType === preference.type} />
             </CardContent>
           </Card>
         ))}
-        {preferences.length === 0 && (
-          <div className="text-center p-8 text-slate-400 bg-gray-900 rounded-lg border border-gray-800">
-            No preferences found. Backend might need to initialize them.
-          </div>
-        )}
+        {!preferences.length && <div className="rounded-lg border border-gray-800 bg-gray-900 p-8 text-center text-slate-400">No notification preferences are available.</div>}
       </div>
     </div>
   );

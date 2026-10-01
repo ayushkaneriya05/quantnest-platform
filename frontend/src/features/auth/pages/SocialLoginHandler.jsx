@@ -1,8 +1,9 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import api from "@/services/api";
-import { loginSuccess, fetchUserProfile } from "@/store/authSlice";
+import api from "@/shared/services/api";
+import { loginSuccess, fetchUserProfile } from "@/shared/store/authSlice";
 import {
   Card,
   CardDescription,
@@ -54,8 +55,7 @@ export default function SocialLoginHandler() {
           console.error("Google login failed on backend", error);
           setStatus("error");
           setError(
-            error.response?.data?.detail ||
-              "Google authentication failed. Please try again."
+            getApiErrorMessage(error, "Google authentication failed. Please try again.")
           );
         });
     } else {

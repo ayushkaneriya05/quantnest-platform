@@ -16,8 +16,7 @@ from .enums import (
     OperandType,
     ComparisonOperator,
     QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
-    AutoDisableTriggerType,
-    ViolationType, ViolationAction, Severity,
+    AutoDisableTriggerType, Severity,
     TransactionType, RebalanceFrequency, Timezone, BacktestStatus,
     BrokerName,
     get_operand_parameter_config, OperandType, TradingDay,
@@ -86,8 +85,6 @@ _ENUM_SOURCES = {
 
     # Risk management
     'AutoDisableTriggerType': AutoDisableTriggerType,
-    'ViolationType': ViolationType,
-    'ViolationAction': ViolationAction,
     'Severity': Severity,
 
     # Portfolio

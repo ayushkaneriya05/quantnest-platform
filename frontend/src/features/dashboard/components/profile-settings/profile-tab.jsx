@@ -1,3 +1,4 @@
+import { getApiErrorDetails, getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Button } from "@/shared/components/ui/button";
@@ -183,19 +184,16 @@ export default function ProfileTab() {
       console.error("Profile update error:", err);
 
       if (err.response?.data) {
-        const serverErrors = err.response.data;
-        if (typeof serverErrors === "object") {
+        const serverErrors = getApiErrorDetails(err);
+        if (Object.keys(serverErrors).length) {
           setErrors(serverErrors);
         } else {
-          setMessage({
-            type: "error",
-            text: serverErrors.detail || "Failed to update profile",
-          });
+          setMessage({ type: "error", text: getApiErrorMessage(err, "Failed to update profile") });
         }
       } else {
         setMessage({
           type: "error",
-          text: "Network error. Please try again.",
+          text: getApiErrorMessage(err, "Network error. Please try again."),
         });
       }
     } finally {

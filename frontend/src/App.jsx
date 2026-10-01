@@ -14,7 +14,6 @@ import LoginPage from "@/features/auth/pages/LoginPage";
 import RegisterPage from "@/features/auth/pages/RegisterPage";
 import DashboardLayout from "@/shared/components/layout/DashboardLayout";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
-import RiskProfile from "@/features/dashboard/pages/portfolio/RiskProfile";
 import BacktestList from "@/features/dashboard/pages/backtest/BacktestList";
 import BacktestSetup from "@/features/dashboard/pages/backtest/BacktestSetup";
 import BacktestResults from "@/features/dashboard/pages/backtest/BacktestResults";
@@ -62,7 +61,6 @@ import TradeReplayView from "@/features/dashboard/pages/community/TradeReplayVie
 import ChallengeDetail from "@/features/dashboard/pages/community/ChallengeDetail";
 import CourseDetail from "@/features/dashboard/pages/community/CourseDetail";
 import LessonDetail from "@/features/dashboard/pages/community/LessonDetail";
-import RiskDashboard from "@/features/dashboard/pages/portfolio/RiskDashboard";
 import ProfileSettings from "@/features/dashboard/pages/ProfileSettings";
 import NotificationCenter from "@/features/dashboard/pages/NotificationCenter";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
@@ -228,13 +226,6 @@ function AppContent() {
             <Route
               path="community/learning/lessons/:id"
               element={<LessonDetail />}
-            />
-
-            {/* Portfolio routes */}
-            <Route path="portfolio/risk" element={<RiskProfile />} />
-            <Route
-              path="portfolio/risk-violations"
-              element={<RiskDashboard />}
             />
 
             {/* Strategy routes */}

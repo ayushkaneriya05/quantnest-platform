@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
 import React, { useState } from "react";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -120,19 +121,7 @@ export default function RegisterPage() {
       setRegisteredEmail(email);
       setIsEmailModalOpen(true);
     } catch (err) {
-      const errorData = err.response?.data;
-      if (errorData) {
-        if (typeof errorData === "string") {
-          setError({ detail: errorData });
-        } else {
-          const messages = Object.values(errorData).flat().join(" ");
-          setError({
-            detail: messages || "An unknown registration error occurred.",
-          });
-        }
-      } else {
-        setError({ detail: "An unknown registration error occurred." });
-      }
+      setError({ detail: getApiErrorMessage(err, "An unknown registration error occurred.") });
     } finally {
       setIsLoading(false);
     }

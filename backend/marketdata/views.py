@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from decouple import config
 from django.conf import settings
-from django.http import HttpResponseBadRequest, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
@@ -16,6 +16,7 @@ from .services import ChartDataService, MarketDataService
 from .quote_store import QuoteStore
 from .utils import refresh_fyers_token, _get_token_row, _get_today_eod
 from instruments.models import Instrument
+from backend.middleware.api_responses import api_json_error
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def _empty_quote_payload(symbol):
 def latest_tick_data(request):
     symbol = request.query_params.get("instrument")
     if not symbol:
-        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+        return api_json_error("Instrument symbol is required", status_code=400)
 
     normalized = MarketDataService.normalize_symbol(symbol)
     quote = QuoteStore.get_latest(normalized)
@@ -59,7 +60,7 @@ def latest_tick_data(request):
 def live_quote(request):
     symbol = request.query_params.get("instrument")
     if not symbol:
-        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+        return api_json_error("Instrument symbol is required", status_code=400)
 
     normalized = MarketDataService.normalize_symbol(symbol)
     LiveMarketDataRegistry.add_symbols([normalized])
@@ -69,7 +70,7 @@ def live_quote(request):
     if not quote:
         quote = MarketDataService.latest_quote_from_storage(normalized)
     if not quote:
-        return JsonResponse({"error": "Quote unavailable"}, status=404)
+        return api_json_error("Quote unavailable", status_code=404)
     return JsonResponse(quote)
 
 
@@ -134,7 +135,7 @@ def ohlc_data(request):
     symbol = request.query_params.get("instrument")
     resolution = request.query_params.get("resolution", "1D")
     if not symbol:
-        return JsonResponse({"error": "Instrument symbol is required"}, status=400)
+        return api_json_error("Instrument symbol is required", status_code=400)
 
     try:
         candles_data = ChartDataService.list_candles(
@@ -143,7 +144,7 @@ def ohlc_data(request):
             limit=500,
         )
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return api_json_error(str(exc), status_code=400)
 
     payload = [{**candle, "time": candle["time"] * 1000} for candle in candles_data]
     return JsonResponse(payload, safe=False)
@@ -161,11 +162,11 @@ def candles(request):
     if instrument_id:
         instrument = Instrument.objects.filter(id=instrument_id).first()
         if not instrument:
-            return JsonResponse({"detail": "instrument_id is invalid"}, status=400)
+            return api_json_error("instrument_id is invalid", status_code=400)
         symbol = instrument.sym_ticker or instrument.symbol
 
     if not symbol:
-        return JsonResponse({"detail": "symbol is required"}, status=400)
+        return api_json_error("symbol is required", status_code=400)
 
     try:
         payload = ChartDataService.chart_window(
@@ -182,10 +183,10 @@ def candles(request):
             payload["source"]["fetched_count"],
         )
     except ValueError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
+        return api_json_error(str(exc), status_code=400)
     except Exception as exc:
         logger.exception("Failed loading candles for %s %s: %s", symbol, resolution, exc)
-        return JsonResponse({"detail": "Unable to load candles"}, status=500)
+        return api_json_error("Unable to load candles", status_code=500)
 
     return JsonResponse(payload)
 
@@ -201,13 +202,13 @@ except Exception as exc:
 @permission_classes([AllowAny])
 def fyers_login(request):
     if fyersModel is None:
-        return JsonResponse({"error": "fyers_apiv3 not installed on server"}, status=500)
+        return api_json_error("fyers_apiv3 not installed on server", status_code=500)
 
     client_id = getattr(settings, "FYERS_CLIENT_ID", None)
     secret_key = getattr(settings, "FYERS_SECRET", None)
     redirect_uri = getattr(settings, "FYERS_REDIRECT_URI", None)
     if not client_id or not secret_key or not redirect_uri:
-        return JsonResponse({"error": "FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured"}, status=500)
+        return api_json_error("FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured", status_code=500)
 
     session = fyersModel.SessionModel(
         client_id=client_id,
@@ -224,17 +225,17 @@ def fyers_login(request):
 @csrf_exempt
 def fyers_callback(request):
     if fyersModel is None:
-        return JsonResponse({"error": "fyers_apiv3 not installed on server"}, status=500)
+        return api_json_error("fyers_apiv3 not installed on server", status_code=500)
 
     auth_code = request.GET.get("auth_code") or request.GET.get("authCode")
     if not auth_code:
-        return HttpResponseBadRequest("Missing auth_code in callback query params")
+        return api_json_error("Missing auth_code in callback query params", status_code=400)
 
     client_id = getattr(settings, "FYERS_CLIENT_ID", None)
     secret_key = getattr(settings, "FYERS_SECRET", None)
     redirect_uri = getattr(settings, "FYERS_REDIRECT_URI", None)
     if not client_id or not secret_key or not redirect_uri:
-        return JsonResponse({"error": "FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured"}, status=500)
+        return api_json_error("FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured", status_code=500)
 
     session = fyersModel.SessionModel(
         client_id=client_id,
@@ -249,7 +250,7 @@ def fyers_callback(request):
         token_resp = session.generate_token()
     except Exception as exc:
         logger.exception("Error exchanging auth_code for token: %s", exc)
-        return JsonResponse({"error": "token exchange failed", "detail": str(exc)}, status=500)
+        return api_json_error("Token exchange failed", status_code=500)
 
     access_token = token_resp.get("access_token") or token_resp.get("accessToken")
     refresh_token = token_resp.get("refresh_token") or token_resp.get("refreshToken")
@@ -291,9 +292,9 @@ def fyers_token_status(request):
 def fyers_token_refresh(request):
     token_row = _get_token_row()
     if not token_row:
-        return JsonResponse({"error": "No active token row"}, status=400)
+        return api_json_error("No active token row", status_code=400)
 
     refreshed = refresh_fyers_token(token_row)
     if not refreshed:
-        return JsonResponse({"error": "refresh_failed"}, status=500)
+        return api_json_error("Token refresh failed", status_code=500)
     return JsonResponse({"status": "ok", "expires_at": token_row.expires_at})

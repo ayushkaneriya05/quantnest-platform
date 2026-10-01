@@ -46,38 +46,6 @@ const routeTitles = {
     title: "Social Hub",
     subtitle: "Connect with other traders",
   },
-
-  // Portfolio routes (Phase 2)
-  "/dashboard/portfolio": {
-    title: "Portfolio Overview",
-    subtitle: "Capital summary and allocation breakdown",
-  },
-  "/dashboard/portfolio/allocations": {
-    title: "Portfolio Allocations",
-    subtitle: "Manage capital allocation across strategies",
-  },
-  "/dashboard/portfolio/transactions": {
-    title: "Transactions",
-    subtitle: "Deposit, withdraw, and track fund movements",
-  },
-  "/dashboard/portfolio/risk": {
-    title: "Risk Settings",
-    subtitle: "Configure risk limits and breach actions",
-  },
-  "/dashboard/portfolio/advanced-risk-hub": {
-    title: "Advanced Risk Hub",
-    subtitle: "Comprehensive risk management tools",
-  },
-  "/dashboard/portfolio/tax-center": {
-    title: "Tax Center",
-    subtitle: "Tax reporting and optimization",
-  },
-  "/dashboard/portfolio/trade-journal": {
-    title: "Trade Journal",
-    subtitle: "Track and analyze your trades",
-  },
-
-  // Strategy routes (Phase 1)
   "/dashboard/strategy/list": {
     title: "My Strategies",
     subtitle: "Create and manage algorithmic trading strategies",
@@ -103,7 +71,7 @@ const routeTitles = {
     subtitle: "Discover and share trading strategies",
   },
 
-  // Backtesting routes (Phase 3)
+  // Backtesting routes
   "/dashboard/backtest": {
     title: "Backtesting Lab",
     subtitle: "Launch, monitor, and analyze strategy simulations",
@@ -121,7 +89,7 @@ const routeTitles = {
     subtitle: "Analyze strategy performance distributions",
   },
 
-  // Paper Trading routes (Phase 4)
+  // Paper Trading routes
   "/dashboard/paper": {
     title: "Paper Trading",
     subtitle: "Practice trading with virtual money",
@@ -224,15 +192,7 @@ const routeTitles = {
       "Configure audit policies, governance rules, and platform settings",
   },
 
-  // Trading routes
-  "/dashboard/trading/broker-connections": {
-    title: "Broker Connections",
-    subtitle: "Connect and manage your broker accounts",
-  },
-  "/dashboard/trading/paper-trading": {
-    title: "Paper Trading",
-    subtitle: "Practice trading with virtual money",
-  },
+  // Manual Trading routes
   "/dashboard/trading/trade-terminal": {
     title: "Trade Terminal",
     subtitle: "Execute trades and monitor positions",

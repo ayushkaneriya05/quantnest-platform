@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Clock3, Pause, Play, RefreshCw, RotateCw, Settings, Zap, ShieldX } from "lucide-react";
@@ -26,10 +27,10 @@ export default function LiveStrategies() {
     try {
       setBusyAction(key);
       const response = await action();
-      notify.success(success(response));
+      if (success) notify.success(success(response));
       await data.loadData(false);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || error?.response?.data?.error || "Live strategy action failed");
+      notify.error(getApiErrorMessage(error, "Live strategy action failed"));
     } finally {
       setBusyAction("");
     }
@@ -42,7 +43,7 @@ export default function LiveStrategies() {
       : `This stops new entries for ${session.strategy_name || "this deployment"} and submits market exit orders for its open positions. Broker confirmation can arrive asynchronously; reconcile before assuming exposure is flat.`;
     const action = alreadyStopped ? "Close positions" : "Stop & close";
     if (!(await customConfirm(message, title, action))) return;
-    await runAction(`close-${session.id}`, () => liveTradingApi.stopSession(session.id, { close_positions: true }), () => `${action} requests submitted`);
+    await runAction(`close-${session.id}`, () => liveTradingApi.stopSession(session.id, { close_positions: true }));
   };
 
   const pageActions = useMemo(() => (
@@ -87,9 +88,9 @@ export default function LiveStrategies() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {session.status === "RUNNING" && <Button size="sm" variant="outline" onClick={() => runAction(`pause-${session.id}`, () => liveTradingApi.pauseSession(session.id), () => "Deployment paused")} disabled={busyAction === `pause-${session.id}`}><Pause className="mr-2 h-4 w-4" />Pause</Button>}
-                    {session.status === "PAUSED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`resume-${session.id}`, () => liveTradingApi.resumeSession(session.id), () => "Deployment resumed")} disabled={busyAction === `resume-${session.id}`}><Play className="mr-2 h-4 w-4" />Resume</Button>}
-                    {session.status === "STOPPED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`start-${session.id}`, () => liveTradingApi.startSession(session.id), () => "Deployment started")} disabled={busyAction === `start-${session.id}`}><Play className="mr-2 h-4 w-4" />Start</Button>}
+                    {session.status === "RUNNING" && <Button size="sm" variant="outline" onClick={() => runAction(`pause-${session.id}`, () => liveTradingApi.pauseSession(session.id))} disabled={busyAction === `pause-${session.id}`}><Pause className="mr-2 h-4 w-4" />Pause</Button>}
+                    {session.status === "PAUSED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`resume-${session.id}`, () => liveTradingApi.resumeSession(session.id))} disabled={busyAction === `resume-${session.id}`}><Play className="mr-2 h-4 w-4" />Resume</Button>}
+                    {session.status === "STOPPED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`start-${session.id}`, () => liveTradingApi.startSession(session.id))} disabled={busyAction === `start-${session.id}`}><Play className="mr-2 h-4 w-4" />Start</Button>}
                     {!["RUNNING", "STOPPING"].includes(session.status) && (session.strategy_status !== "ACTIVE" || !session.live_trading_enabled) && <span className="px-2 py-2 text-xs text-amber-300">Activate the strategy and enable live trading to resume.</span>}
                     {canClose && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session)} disabled={Boolean(busyAction)}><ShieldX className="mr-2 h-4 w-4" />Stop &amp; close</Button>}
                     {session.status === "STOPPED" && Number(session.open_positions || 0) > 0 && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session, true)} disabled={Boolean(busyAction)}><ShieldX className="mr-2 h-4 w-4" />Close remaining</Button>}

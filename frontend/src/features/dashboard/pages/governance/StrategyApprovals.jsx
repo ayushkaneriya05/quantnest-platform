@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useState } from "react";
 import {
   CheckCircle,
@@ -107,7 +108,7 @@ function ApprovalCard({ approval, onAction }) {
       }
       onAction();
     } catch (err) {
-      notify.error(err?.response?.data?.detail || `Failed to ${action}`);
+      notify.error(getApiErrorMessage(err, `Failed to ${action}`));
     } finally {
       setBusy("");
       setComment("");

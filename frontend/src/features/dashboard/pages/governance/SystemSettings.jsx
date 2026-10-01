@@ -68,7 +68,6 @@ export default function SystemSettings() {
     auditMarketplace: true,
     requireComplianceForApproval: true,
     notifyOnApproval: true,
-    notifyOnViolation: true,
   });
 
   const loadStats = async () => {
@@ -217,12 +216,6 @@ export default function SystemSettings() {
             description="Send in-app notification when an approval is decided"
             enabled={settings.notifyOnApproval}
             onChange={() => toggleSetting("notifyOnApproval")}
-          />
-          <ToggleRow
-            label="Notify on Risk Violation"
-            description="Alert when risk violations are detected"
-            enabled={settings.notifyOnViolation}
-            onChange={() => toggleSetting("notifyOnViolation")}
           />
         </SettingCard>
 

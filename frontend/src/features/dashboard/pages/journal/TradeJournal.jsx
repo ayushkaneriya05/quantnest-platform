@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Lightbulb, PencilLine, Plus, RefreshCw, Sparkles } from "lucide-react";
 
@@ -51,7 +52,7 @@ export default function TradeJournal() {
       setInsights(Array.isArray(insightsRes.data?.results) ? insightsRes.data.results : insightsRes.data || []);
       setTags(Array.isArray(tagsRes.data?.results) ? tagsRes.data.results : tagsRes.data || []);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load trade journal");
+      notify.error(getApiErrorMessage(error, "Failed to load trade journal"));
     } finally {
       setLoading(false);
     }
@@ -99,7 +100,7 @@ export default function TradeJournal() {
             notify.success("Journal entries created from recent paper and live trades");
             await loadData();
           } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to bootstrap journal entries");
+            notify.error(getApiErrorMessage(error, "Failed to bootstrap journal entries"));
           } finally {
             setBusy("");
           }
@@ -118,7 +119,7 @@ export default function TradeJournal() {
             notify.success("Journal insights generated");
             await loadData();
           } catch (error) {
-            notify.error(error?.response?.data?.detail || "Failed to generate insights");
+            notify.error(getApiErrorMessage(error, "Failed to generate insights"));
           } finally {
             setBusy("");
           }
@@ -151,7 +152,7 @@ export default function TradeJournal() {
       setOpen(false);
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to save journal entry");
+      notify.error(getApiErrorMessage(error, "Failed to save journal entry"));
     }
   };
 

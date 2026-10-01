@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSelector } from "react-redux";
-import { toast } from "react-hot-toast";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 
 import tradingTerminalApi from "../services/tradingTerminalApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 export function usePaperTradingTerminal(initialSymbol = null) {
+  const { notify } = useNotifications();
   const manualTradingTerminalUpdate = useSelector(
     (state) => state.websocket.manualTradingTerminalUpdate,
   );
@@ -40,11 +42,11 @@ export function usePaperTradingTerminal(initialSymbol = null) {
         return current;
       });
     } catch (error) {
-      toast.error("Failed to load paper trading terminal.");
+      notify.error(getApiErrorMessage(error, "Failed to load paper trading terminal."));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     refreshSnapshot();
@@ -93,12 +95,12 @@ export function usePaperTradingTerminal(initialSymbol = null) {
         await refreshSnapshot();
         setSelectedInstrumentId(instrument.id);
         setSelectedSymbol(instrument.sym_ticker || instrument.symbol);
-        toast.success(`${instrument.sym_ticker || instrument.symbol} added to watchlist`);
+        notify.success(`${instrument.sym_ticker || instrument.symbol} added to watchlist`);
       } catch (error) {
-        toast.error("Could not add symbol to watchlist.");
+        notify.error(getApiErrorMessage(error, "Could not add symbol to watchlist."));
       }
     },
-    [refreshSnapshot],
+    [notify, refreshSnapshot],
   );
 
   const removeFromWatchlist = useCallback(
@@ -125,12 +127,12 @@ export function usePaperTradingTerminal(initialSymbol = null) {
           }
           return { ...current, watchlist: nextWatchlist };
         });
-        toast.success("Removed from watchlist");
+        notify.success("Removed from watchlist");
       } catch (error) {
-        toast.error("Could not remove symbol from watchlist.");
+        notify.error(getApiErrorMessage(error, "Could not remove symbol from watchlist."));
       }
     },
-    [initialSymbol, selectedSymbol],
+    [initialSymbol, notify, selectedSymbol],
   );
 
   const account = snapshot?.account ?? null;

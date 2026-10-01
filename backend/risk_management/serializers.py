@@ -3,10 +3,7 @@ Serializers for the risk_management app.
 """
 from rest_framework import serializers
 from common.enums import QuantityType, AutoDisableTriggerType
-from .models import (
-    PositionSizingRule, PortfolioRiskProfile,
-    StrategyAutoDisable, RiskViolation
-)
+from .models import PositionSizingRule, StrategyAutoDisable
 
 
 class PositionSizingRuleSerializer(serializers.ModelSerializer):
@@ -33,35 +30,6 @@ class PositionSizingRuleSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class PortfolioRiskProfileSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PortfolioRiskProfile
-        fields = [
-            'id', 'max_daily_loss_amount', 'max_daily_loss_percentage',
-            'max_daily_profit_amount', 'max_daily_profit_percentage',
-            'max_exposure_percentage', 'max_per_instrument_exposure',
-            'max_drawdown_percentage', 'alert_on_breach'
-        ]
-        read_only_fields = ['user']
-
-    def validate(self, attrs):
-        percentage_fields = [
-            'max_daily_loss_percentage',
-            'max_exposure_percentage',
-            'max_per_instrument_exposure',
-            'max_drawdown_percentage',
-        ]
-        for field in percentage_fields:
-            value = attrs.get(field, getattr(self.instance, field, None))
-            if value is not None and (value <= 0 or value > 100):
-                raise serializers.ValidationError({field: 'Percentage must be between 0 and 100.'})
-
-        max_loss_amount = attrs.get('max_daily_loss_amount', getattr(self.instance, 'max_daily_loss_amount', None))
-        if max_loss_amount is not None and max_loss_amount < 0:
-            raise serializers.ValidationError({'max_daily_loss_amount': 'Daily loss amount cannot be negative.'})
-        return attrs
-
-
 class StrategyAutoDisableSerializer(serializers.ModelSerializer):
     class Meta:
         model = StrategyAutoDisable
@@ -85,16 +53,3 @@ class StrategyAutoDisableSerializer(serializers.ModelSerializer):
         if cooldown_hours is not None and cooldown_hours < 0:
             raise serializers.ValidationError({'cooldown_hours': 'Cooldown cannot be negative.'})
         return attrs
-
-
-class RiskViolationSerializer(serializers.ModelSerializer):
-    strategy_name = serializers.CharField(source='strategy.name', read_only=True)
-    
-    class Meta:
-        model = RiskViolation
-        fields = [
-            'id', 'strategy', 'strategy_name', 'violation_type', 'severity',
-            'message', 'threshold_value', 'actual_value', 'action_taken',
-            'is_resolved', 'resolved_at', 'resolution_notes', 'created_at'
-        ]
-        read_only_fields = ['user', 'created_at']

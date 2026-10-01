@@ -135,7 +135,7 @@ const authSlice = createSlice({
       })
       .addCase(fetchUserProfile.rejected, (state, action) => {
         state.isLoading = false;
-        state.error = action.payload?.detail || "Failed to fetch user profile";
+        state.error = action.payload?.message || action.payload?.detail || action.payload || "Failed to fetch user profile";
       })
       // Logout User
       .addCase(logoutUser.pending, (state) => {

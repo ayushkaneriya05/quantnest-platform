@@ -3,6 +3,7 @@
  */
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
   Card,
   CardContent,
@@ -96,8 +97,8 @@ export default function EquityDrawdownCharts() {
         drawdown: -Math.abs(toNumber(point.drawdown_pct)), // Negative for visual
       }));
       setEquityCurve(points);
-    } catch {
-      notify.error("Failed to load chart data");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load chart data"));
     } finally {
       setLoading(false);
     }

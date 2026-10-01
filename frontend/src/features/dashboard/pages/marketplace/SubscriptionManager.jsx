@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useState } from "react";
 import { MessageSquare, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 
@@ -55,7 +56,7 @@ export default function SubscriptionManager() {
       setSubscriptions(Array.isArray(subscriptionsRes.data?.results) ? subscriptionsRes.data.results : subscriptionsRes.data || []);
       setSummary(summaryRes.data || {});
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load subscriptions");
+      notify.error(getApiErrorMessage(error, "Failed to load subscriptions"));
     } finally {
       setLoading(false);
     }
@@ -72,7 +73,7 @@ export default function SubscriptionManager() {
       notify.success("Subscription cancelled");
       await loadData();
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to cancel subscription");
+      notify.error(getApiErrorMessage(error, "Failed to cancel subscription"));
     } finally {
       setBusyAction("");
     }
@@ -98,7 +99,7 @@ export default function SubscriptionManager() {
       );
       setReviewDialogOpen(true);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to load review data");
+      notify.error(getApiErrorMessage(error, "Failed to load review data"));
     }
   };
 
@@ -123,7 +124,7 @@ export default function SubscriptionManager() {
       }
       setReviewDialogOpen(false);
     } catch (error) {
-      notify.error(error?.response?.data?.detail || "Failed to save review");
+      notify.error(getApiErrorMessage(error, "Failed to save review"));
     } finally {
       setBusyAction("");
     }

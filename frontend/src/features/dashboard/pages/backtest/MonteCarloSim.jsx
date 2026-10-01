@@ -5,6 +5,7 @@
  */
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
   Card,
   CardContent,
@@ -88,7 +89,7 @@ export default function MonteCarloSim() {
       );
       setMonteCarloRuns(mcData.data || []);
     } catch (error) {
-      notify.error("Failed to load data");
+      notify.error(getApiErrorMessage(error, "Failed to load Monte Carlo data"));
     } finally {
       setLoading(false);
     }
@@ -148,7 +149,7 @@ export default function MonteCarloSim() {
       setIsModalOpen(false);
       fetchData();
     } catch (error) {
-      notify.error("Failed to start simulation");
+      notify.error(getApiErrorMessage(error, "Failed to start simulation"));
     } finally {
       setSubmitting(false);
     }
@@ -160,7 +161,7 @@ export default function MonteCarloSim() {
       const response = await backtestApi.getMonteCarloResults(mcRun.id);
       setResults(response.data || []);
     } catch (error) {
-      notify.error("Failed to load results");
+      notify.error(getApiErrorMessage(error, "Failed to load simulation results"));
     }
   };
 

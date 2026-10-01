@@ -7,6 +7,7 @@ import {
 } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { paperApi } from "@/shared/services/paperApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
 import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
@@ -35,7 +36,7 @@ export default function PaperOrderBook({ selectedAccountId }) {
       const ordersData = await paperApi.getOrders();
       setOrders(ordersData.data || []);
     } catch (error) {
-      notify.error("Failed to load order history");
+      notify.error(getApiErrorMessage(error, "Failed to load order history"));
     } finally {
       setLoading(false);
     }

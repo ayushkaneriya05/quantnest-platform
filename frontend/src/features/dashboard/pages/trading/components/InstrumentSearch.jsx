@@ -4,7 +4,6 @@ import { Search, PlusCircle, Loader2 } from "lucide-react";
 import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import { useToast } from "@/shared/hooks/use-toast";
 import api from "@/shared/services/api";
 
 export default function InstrumentSearch({
@@ -15,7 +14,6 @@ export default function InstrumentSearch({
   const [results, setResults] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
   const searchRef = useRef(null);
 
   useEffect(() => {
