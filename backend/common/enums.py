@@ -177,10 +177,10 @@ class CandlePatternType(models.TextChoices):
 
 class MarketSession(models.TextChoices):
     """Market session filter."""
-    PRE_MARKET = 'PRE_MARKET', 'Pre-Market'
+    # PRE_MARKET = 'PRE_MARKET', 'Pre-Market'
     MARKET_OPEN = 'MARKET_OPEN', 'Market Open'
-    MARKET_CLOSE = 'MARKET_CLOSE', 'Market Close'
-    ALL = 'ALL', 'All Sessions'
+    # MARKET_CLOSE = 'MARKET_CLOSE', 'Market Close'
+    # ALL = 'ALL', 'All Sessions'
 
 
 class LogicalOperator(models.TextChoices):

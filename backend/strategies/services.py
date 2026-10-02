@@ -127,47 +127,6 @@ class StrategySnapshotService:
             logger.error(f"Error restoring version {version_id} for strategy {strategy.id}: {str(e)}")
             raise
 
-    @staticmethod
-    def extract_tunable_parameters(snapshot):
-        """
-        Scans strategy config snapshot and returns list of tunable parameters as dict-paths.
-        Returns list of {label: str, path: str, current_value: any}
-        """
-        tunables = []
-        
-        # 1. Scan Rule Groups -> Rules
-        groups = snapshot.get('rule_groups', [])
-        for g_idx, group in enumerate(groups):
-            group_name = group.get('name') or f"Group {g_idx + 1}"
-            
-            # Indicator Rules
-            rules = group.get('rules', [])
-            for r_idx, rule in enumerate(rules):
-                ind_type = rule.get('operand_a_type')
-                if ind_type:
-                    # Common params
-                    params = rule.get('operand_a_params', {}) or {}
-                    for p_name, p_val in params.items():
-                        if isinstance(p_val, (int, float)) and not isinstance(p_val, bool):
-                            tunables.append({
-                                'label': f"{group_name} - {ind_type} {p_name}",
-                                'path': f"rule_groups.{g_idx}.rules.{r_idx}.operand_a_params.{p_name}",
-                                'current_value': p_val
-                            })
-                            
-                    # Operand B
-                    op_b = rule.get('operand_b_type')
-                    if op_b:
-                        c_params = rule.get('operand_b_params', {}) or {}
-                        for p_name, p_val in c_params.items():
-                            if isinstance(p_val, (int, float)) and not isinstance(p_val, bool):
-                                tunables.append({
-                                    'label': f"{group_name} - Comp {op_b} {p_name}",
-                                    'path': f"rule_groups.{g_idx}.rules.{r_idx}.operand_b_params.{p_name}",
-                                    'current_value': p_val
-                                })
-
-        return tunables
 
     @staticmethod
     def _serialize_strategy(strategy):

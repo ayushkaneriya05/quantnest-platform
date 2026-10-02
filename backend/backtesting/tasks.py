@@ -63,30 +63,6 @@ def run_backtest_task(self, run_id):
             _notify_backtest_result(run)
             return f"Backtest {run_id} cancelled"
         _notify_backtest_result(run)
-        try:
-            from gamification.services import GamificationService
-            from platform_events.services import ActivityService, DomainEventService
-
-            event = DomainEventService.emit(
-                "BACKTEST_FINISHED",
-                user=run.user,
-                source=run,
-                source_app="backtesting",
-                payload={"strategy": run.strategy_id, "status": run.status},
-            )
-            ActivityService.create(
-                run.user,
-                "STRATEGY_DEPLOYED",
-                f"Backtest completed: {run.name}",
-                target=run,
-                domain_event=event,
-                strategy=run.strategy,
-                visibility="PRIVATE",
-                metadata={"source": "backtest"},
-            )
-            GamificationService.grant_xp(run.user, "BACKTEST_FINISHED", 25, source=run)
-        except Exception:
-            pass
         return f"Backtest {run_id} completed successfully"
     except Exception as e:
         logger.exception(f"Error in backtest task {run_id}: {str(e)}")
@@ -94,10 +70,33 @@ def run_backtest_task(self, run_id):
         BacktestRun.objects.filter(id=run_id).update(
             status=BacktestStatus.FAILED,
             error_message=str(e),
+            progress_message=f"Backtest failed: {e}"[:255],
             completed_at=timezone.now()
         )
         failed_run = BacktestRun.objects.select_related("user", "strategy").filter(id=run_id).first()
         if failed_run:
+            try:
+                from asgiref.sync import async_to_sync
+                from channels.layers import get_channel_layer
+
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_{failed_run.user_id}_backtest",
+                        {
+                            "type": "backtest.error",
+                            "message": {
+                                "run_id": failed_run.id,
+                                "status": BacktestStatus.FAILED,
+                                "progress_pct": failed_run.progress_pct,
+                                "error": failed_run.error_message,
+                                "message": failed_run.progress_message,
+                                "timestamp": timezone.now().isoformat(),
+                            },
+                        },
+                    )
+            except Exception:
+                logger.exception("Failed to broadcast backtest task failure for run %s", run_id)
             _notify_backtest_result(failed_run)
         return f"Backtest {run_id} failed: {str(e)}"
 
@@ -112,11 +111,15 @@ def run_monte_carlo_task(self, mc_id):
     try:
         simulator = MonteCarloSimulator(mc_id)
         simulator.run_simulation()
+        simulator.run.refresh_from_db(fields=["status", "error_message"])
+        if simulator.run.status == BacktestStatus.FAILED:
+            return f"Monte Carlo {mc_id} failed: {simulator.run.error_message}"
         return f"Monte Carlo {mc_id} completed successfully"
     except Exception as e:
         logger.exception(f"Error in monte carlo task {mc_id}: {str(e)}")
         MonteCarloRun.objects.filter(id=mc_id).update(
             status=BacktestStatus.FAILED,
+            error_message=str(e),
             completed_at=timezone.now()
         )
         return f"Monte Carlo {mc_id} failed: {str(e)}"

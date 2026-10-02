@@ -2,7 +2,7 @@
  * BacktestSetup — Professional backtest configuration form.
  * Step-grouped wizard-style layout with strategy info preview.
  */
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Card,
@@ -38,9 +38,9 @@ import { backtestApi } from "@/shared/services/backtestApi";
 import { strategyApi } from "@/shared/services/strategyApi";
 import { brokersApi } from "@/shared/services/brokersApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { useEnums } from "@/shared/context/EnumsContext";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { Switch } from "@/shared/components/ui/switch";
+import PropTypes from "prop-types";
 
 /* ─── Step Indicator ─── */
 function StepIndicator({ number, title, active }) {
@@ -66,6 +66,12 @@ function StepIndicator({ number, title, active }) {
   );
 }
 
+StepIndicator.propTypes = {
+  number: PropTypes.number.isRequired,
+  title: PropTypes.string.isRequired,
+  active: PropTypes.bool.isRequired,
+};
+
 /* ─── Date Duration Helper ─── */
 function dateDuration(start, end) {
   if (!start || !end) return null;
@@ -86,8 +92,6 @@ export default function BacktestSetup() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { notify } = useNotifications();
-  const { enums } = useEnums();
-  const timeframes = enums.CandleTimeframe || [];
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -106,32 +110,34 @@ export default function BacktestSetup() {
 
   const [chargeProfiles, setChargeProfiles] = useState([]);
 
-  useEffect(() => {
-    fetchStrategies();
-    fetchChargeProfiles();
-  }, []);
-
-  const fetchChargeProfiles = async () => {
+  const fetchChargeProfiles = useCallback(async () => {
     try {
       const res = await brokersApi.getChargeProfiles();
-      const profiles = res.data || [];
+      const payload = res?.data;
+      const profiles = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.results)
+          ? payload.results
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : Array.isArray(payload?.data?.results)
+              ? payload.data.results
+            : [];
       setChargeProfiles(profiles);
-      const defaultProfile = profiles.find((p) => p.is_default);
-      if (defaultProfile) {
-        setFormData((prev) => ({
-          ...prev,
-          charge_profile: defaultProfile.id.toString(),
-        }));
-      } else if (profiles.length > 0) {
-        setFormData((prev) => ({
-          ...prev,
-          charge_profile: profiles[0].id.toString(),
+      const selectedProfile =
+        profiles.find((profile) => profile.is_default) || profiles[0];
+
+      if (selectedProfile) {
+        setFormData((current) => ({
+          ...current,
+          charge_profile:
+            current.charge_profile || selectedProfile.id.toString(),
         }));
       }
-    } catch {
-      //
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load charge profiles"));
     }
-  };
+  }, [notify]);
 
   useEffect(() => {
     if (preSelectedStrategy && strategies.length > 0) {
@@ -148,7 +154,7 @@ export default function BacktestSetup() {
     }
   }, [preSelectedStrategy, strategies]);
 
-  const fetchStrategies = async () => {
+  const fetchStrategies = useCallback(async () => {
     try {
       const response = await strategyApi.getAll();
       const strategyList = Array.isArray(response)
@@ -158,7 +164,12 @@ export default function BacktestSetup() {
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load strategies"));
     }
-  };
+  }, [notify]);
+
+  useEffect(() => {
+    fetchStrategies();
+    fetchChargeProfiles();
+  }, [fetchStrategies, fetchChargeProfiles]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -443,6 +454,11 @@ export default function BacktestSetup() {
                     ))}
                   </SelectContent>
                 </Select>
+                {formData.include_charges && !formData.charge_profile && (
+                  <p className="text-xs text-amber-400">
+                    Choose a charge profile or turn off charges before launching.
+                  </p>
+                )}
               </div>
               <div className="space-y-2 flex items-center justify-between col-span-full mt-2 pt-4 border-t border-gray-800">
                 <div className="space-y-0.5">
@@ -468,7 +484,7 @@ export default function BacktestSetup() {
         <div className="flex flex-col items-center gap-4 pt-2">
           <Button
             type="submit"
-            disabled={loading || !formData.strategy || !formData.name.trim()}
+            disabled={loading || !formData.strategy || !formData.name.trim() || (formData.include_charges && !formData.charge_profile)}
             className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-12 px-10 shadow-lg shadow-indigo-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? (

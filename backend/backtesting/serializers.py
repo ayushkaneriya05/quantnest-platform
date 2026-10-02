@@ -1,6 +1,7 @@
 """
 Serializers for the backtesting app.
 """
+from decimal import Decimal
 from rest_framework import serializers
 from .models import (
     BacktestRun, BacktestTrade, BacktestMetrics, EquityCurvePoint,
@@ -15,7 +16,7 @@ class BacktestRunListSerializer(serializers.ModelSerializer):
         model = BacktestRun
         fields = [
             'id', 'name', 'strategy', 'strategy_name', 'strategy_version', 'start_date', 'end_date',
-            'initial_capital', 'status', 'progress_pct', 'created_at'
+            'initial_capital', 'status', 'progress_pct', 'progress_message', 'created_at'
         ]
 
 
@@ -27,12 +28,12 @@ class BacktestRunSerializer(serializers.ModelSerializer):
         model = BacktestRun
         fields = [
             'id', 'name', 'strategy', 'strategy_name', 'strategy_version', 'start_date', 'end_date',
-            'initial_capital', 'slippage_pct', 'brokerage_per_trade', 'brokerage_pct',
+            'initial_capital', 'slippage_pct',
             'charge_profile', 'charge_profile_detail', 'include_charges',
-            'parameters', 'config_snapshot',
-            'status', 'progress_pct', 'error_message', 'started_at', 'completed_at', 'created_at'
+            'parameters', 'config_snapshot', 'data_quality',
+            'status', 'progress_pct', 'progress_message', 'error_message', 'started_at', 'completed_at', 'created_at'
         ]
-        read_only_fields = ['user', 'status', 'progress_pct', 'started_at', 'completed_at']
+        read_only_fields = ['user', 'status', 'progress_pct', 'progress_message', 'data_quality', 'started_at', 'completed_at']
 
     def get_charge_profile_detail(self, obj):
         if obj.charge_profile:
@@ -41,6 +42,26 @@ class BacktestRunSerializer(serializers.ModelSerializer):
                 'name': getattr(obj.charge_profile, 'name', str(obj.charge_profile))
             }
         return None
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
+        end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
+        initial_capital = attrs.get("initial_capital", getattr(self.instance, "initial_capital", None))
+        slippage_pct = attrs.get("slippage_pct", getattr(self.instance, "slippage_pct", None))
+        include_charges = attrs.get("include_charges", getattr(self.instance, "include_charges", True))
+        charge_profile = attrs.get("charge_profile", getattr(self.instance, "charge_profile", None))
+        if start_date and end_date and end_date < start_date:
+            raise serializers.ValidationError({"end_date": "End date must be on or after start date."})
+        if initial_capital is not None and initial_capital <= 0:
+            raise serializers.ValidationError({"initial_capital": "Initial capital must be greater than zero."})
+        if slippage_pct is not None and slippage_pct < 0:
+            raise serializers.ValidationError({"slippage_pct": "Slippage cannot be negative."})
+        if include_charges and charge_profile is None:
+            raise serializers.ValidationError({"charge_profile": "Select a charge profile or turn off charges."})
+        request = self.context.get("request")
+        if charge_profile is not None and request and charge_profile.user_id != request.user.id:
+            raise serializers.ValidationError({"charge_profile": "Select a charge profile owned by your account."})
+        return attrs
 
 
 class BacktestTradeSerializer(serializers.ModelSerializer):
@@ -53,7 +74,7 @@ class BacktestTradeSerializer(serializers.ModelSerializer):
             'id', 'instrument', 'instrument_symbol', 'side', 'entry_time', 'exit_time',
             'entry_price', 'exit_price', 'quantity', 'gross_pnl', 'brokerage',
             'slippage', 'net_pnl', 'charges_json', 'charges_breakdown', 'pnl_pct', 'mae', 'mfe', 'holding_duration_minutes',
-            'exit_reason', 'entry_rule', 'exit_rule'
+            'exit_reason'
         ]
 
     def get_charges_breakdown(self, obj):
@@ -94,16 +115,14 @@ class BacktestMetricsSerializer(serializers.ModelSerializer):
             'max_drawdown_pct', 'max_drawdown_amount', 'max_drawdown_duration_days',
             'recovery_factor', 'final_capital', 'total_return_pct', 'cagr', 'volatility_pct',
             'total_brokerage', 'total_slippage', 'total_charges', 'charges_breakdown', 'avg_mae', 'avg_mfe',
-            'trade_efficiency', 'monthly_returns_json'
+            'trade_efficiency', 'monthly_returns_json', 'instrument_breakdown_json'
         ]
 
     def get_charges_breakdown(self, obj):
         totals = {
             'brokerage': 0.0,
             'stt': 0.0,
-            'exchange_charges': 0.0,
             'exchange_txn': 0.0,
-            'sebi_fee': 0.0,
             'sebi': 0.0,
             'stamp_duty': 0.0,
             'gst': 0.0,
@@ -118,9 +137,7 @@ class BacktestMetricsSerializer(serializers.ModelSerializer):
                 totals['stt'] += float(leg.get('stt', 0) or 0)
                 exchange = float(leg.get('exchange_charges', leg.get('exchange', 0)) or 0)
                 sebi = float(leg.get('sebi_fee', leg.get('sebi', 0)) or 0)
-                totals['exchange_charges'] += exchange
                 totals['exchange_txn'] += exchange
-                totals['sebi_fee'] += sebi
                 totals['sebi'] += sebi
                 totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
                 totals['gst'] += float(leg.get('gst', 0) or 0)
@@ -143,9 +160,9 @@ class BacktestRunDetailSerializer(serializers.ModelSerializer):
         model = BacktestRun
         fields = [
             'id', 'name', 'strategy', 'strategy_name', 'start_date', 'end_date',
-            'initial_capital', 'slippage_pct', 'brokerage_per_trade', 'brokerage_pct',
+            'initial_capital', 'slippage_pct',
             'charge_profile', 'charge_profile_detail', 'include_charges',
-            'config_snapshot', 'status', 'progress_pct',
+            'config_snapshot', 'data_quality', 'status', 'progress_pct', 'progress_message',
             'error_message', 'started_at', 'completed_at', 'created_at',
             'metrics', 'trades_count'
         ]
@@ -160,15 +177,34 @@ class BacktestRunDetailSerializer(serializers.ModelSerializer):
 
 
 class MonteCarloRunSerializer(serializers.ModelSerializer):
+    num_simulations = serializers.IntegerField(min_value=100, max_value=10000)
+    confidence_level = serializers.DecimalField(
+        max_digits=4, decimal_places=2, min_value=Decimal("0.90"), max_value=Decimal("0.99"),
+    )
+
     class Meta:
         model = MonteCarloRun
-        fields = ['id', 'backtest_run', 'num_simulations', 'confidence_level', 'status', 'completed_at', 'equity_distribution_json']
+        fields = [
+            'id', 'backtest_run', 'num_simulations', 'confidence_level', 'status',
+            'error_message', 'completed_at', 'equity_distribution_json',
+        ]
+        read_only_fields = ['status', 'error_message', 'completed_at', 'equity_distribution_json']
+
+    def validate_backtest_run(self, backtest_run):
+        request = self.context.get('request')
+        if request and backtest_run.user_id != request.user.id:
+            raise serializers.ValidationError("Select a backtest owned by your account.")
+        if backtest_run.status != 'COMPLETED':
+            raise serializers.ValidationError("Monte Carlo requires a completed backtest.")
+        if not backtest_run.trades.exists():
+            raise serializers.ValidationError("The selected backtest has no trades to simulate.")
+        return backtest_run
 
 
 class MonteCarloResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = MonteCarloResult
         fields = [
-            'id', 'metric_name', 'mean_value', 'median_value', 'std_dev',
-            'percentile_5', 'percentile_95', 'worst_case', 'best_case'
+            'id', 'metric_name', 'valid_simulations', 'mean_value', 'median_value', 'std_dev',
+            'lower_outcome_bound', 'upper_outcome_bound', 'worst_case', 'best_case'
         ]

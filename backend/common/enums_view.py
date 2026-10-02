@@ -119,7 +119,7 @@ def enum_choices(request):
     data['StrategyBuilderDefaults'] = {
         'time_rule': {
             'trading_days': list(DEFAULT_TRADING_DAYS),
-            'market_session': 'ALL',
+            'market_session': 'MARKET_OPEN',
             'start_time': DEFAULT_TRADING_START_TIME.strftime('%H:%M'),
             'end_time': DEFAULT_TRADING_END_TIME.strftime('%H:%M'),
             'candle_timeframe': CandleTimeframe.M5,

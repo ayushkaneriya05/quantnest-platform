@@ -41,6 +41,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useBacktestProgress } from "@/shared/hooks/useBacktestProgress";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 
 const STATUS_STYLES = {
   PENDING: { bg: "bg-yellow-600", text: "Pending", icon: RefreshCw },
@@ -56,15 +57,8 @@ const toNumber = (val) => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
-const formatCurrency = (val) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(toNumber(val));
-
 const formatPercent = (val) => `${toNumber(val).toFixed(2)}%`;
-const formatRatio = (val) => toNumber(val).toFixed(2);
+const formatRatio = (val) => val == null ? "N/A" : formatNumber(val);
 
 export default function BacktestResults() {
   const { id } = useParams();
@@ -74,39 +68,28 @@ export default function BacktestResults() {
   const [run, setRun] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [equityData, setEquityData] = useState([]);
-  const [chargesTimeline, setChargesTimeline] = useState([]);
-  const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [pnlMode, setPnlMode] = useState("net"); // "net" or "gross"
 
   const fetchData = useCallback(async (isSilent = true) => {
     if (!isSilent) setIsRefreshing(true);
     try {
-      const [runData, metricsData, equityCurveData, chargesTimelineData] = await Promise.all([
+      const [runData, metricsData, equityCurveData] = await Promise.all([
         backtestApi.getRun(id),
         backtestApi.getRunMetrics(id),
         backtestApi.getRunEquityCurve(id),
-        backtestApi.getRunChargesTimeline(id),
       ]);
       setRun(runData.data);
       setMetrics(metricsData.data);
       setEquityData(
         (equityCurveData.data || []).map((point) => ({
           ...point,
-          rawTimestamp: new Date(point.timestamp).getTime(),
-          timestamp: new Date(point.timestamp).toLocaleDateString(),
+          timestamp: formatDateTime(point.timestamp),
           equity: parseFloat(point.equity_value),
         })),
       );
-      setChargesTimeline(chargesTimelineData.data || []);
       
-      // Lazy load analytics in background without blocking
-      backtestApi.getRunAnalytics(id)
-        .then(res => setAnalytics(res.data))
-        .catch(() => setAnalytics(null));
-
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load backtest"));
     } finally {
@@ -115,33 +98,31 @@ export default function BacktestResults() {
     }
   }, [id, notify]);
 
-  const chartEquityData = useMemo(() => {
-    if (pnlMode === "net") return equityData;
-    const sortedCharges = chargesTimeline;
-    let chargeIndex = 0;
-    let cumulativeCharges = 0;
-    return equityData.map((point) => {
-      while (chargeIndex < sortedCharges.length && sortedCharges[chargeIndex].exitTime <= point.rawTimestamp) {
-        cumulativeCharges += sortedCharges[chargeIndex].charges;
-        chargeIndex += 1;
-      }
-      return {
-        ...point,
-        equity: point.equity + cumulativeCharges,
-      };
-    });
-  }, [equityData, pnlMode, chargesTimeline]);
+  const chartEquityData = equityData;
 
   useEffect(() => {
     fetchData(true);
   }, [fetchData]);
 
+
   const handleProgress = useCallback((data) => {
-    setRun((prev) => prev ? { ...prev, progress_pct: data.progress_pct, status: data.status, message: data.message || prev.message } : prev);
+    setRun((prev) => prev ? {
+      ...prev,
+      progress_pct: data.progress_pct,
+      status: data.status,
+      progress_message: data.message || prev.progress_message,
+    } : prev);
   }, []);
 
   const handleCompleteOrError = useCallback((data) => {
-    setRun((prev) => prev ? { ...prev, progress_pct: data.progress_pct, status: data.status, message: data.error || data.message || prev.message } : prev);
+    if (!['COMPLETED', 'FAILED'].includes(data.status)) return;
+
+    setRun((prev) => prev ? {
+      ...prev,
+      progress_pct: data.progress_pct ?? prev.progress_pct,
+      status: data.status,
+      progress_message: data.error || data.message || prev.progress_message,
+    } : prev);
     fetchData(); // Fetch the full results when done
   }, [fetchData]);
 
@@ -152,7 +133,7 @@ export default function BacktestResults() {
     handleCompleteOrError
   );
 
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
     try {
       setCancelling(true);
       await backtestApi.cancelRun(id);
@@ -163,7 +144,7 @@ export default function BacktestResults() {
     } finally {
       setCancelling(false);
     }
-  };
+  }, [fetchData, id, notify]);
 
   const consolidatedActions = useMemo(() => (
     <div className="flex items-center gap-2">
@@ -212,7 +193,7 @@ export default function BacktestResults() {
           className="border-amber-500/30 bg-amber-500/5 text-amber-300 hover:bg-amber-500 hover:text-white h-9"
         >
           <Dices className="h-4 w-4 mr-2" />
-          Analysis
+          Monte Carlo
         </Button>
       </div>
 
@@ -226,7 +207,7 @@ export default function BacktestResults() {
           className="border-gray-700 hover:bg-gray-800 text-gray-300 h-9 w-9 p-0"
         >
           <RefreshCw
-            className={`h-4 w-4 ${isRefreshing || run?.status === "RUNNING" ? "animate-spin" : ""}`}
+            className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
           />
         </Button>
         <Link to={`/dashboard/backtest/trades/${id}`}>
@@ -249,31 +230,14 @@ export default function BacktestResults() {
             Charts
           </Button>
         </Link>
-        <div className="ml-2 flex bg-gray-800 rounded-lg p-1">
-          <button
-            onClick={() => setPnlMode("net")}
-            className={`px-3 py-1 rounded text-xs font-medium transition-all ${pnlMode === "net" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"}`}
-          >
-            Net
-          </button>
-          <button
-            onClick={() => setPnlMode("gross")}
-            className={`px-3 py-1 rounded text-xs font-medium transition-all ${pnlMode === "gross" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"}`}
-          >
-            Gross
-          </button>
-        </div>
       </div>
     </div>
-  ), [id, run?.status, cancelling, isRefreshing, pnlMode, navigate, fetchData]);
+  ), [id, run?.status, cancelling, isRefreshing, navigate, fetchData, handleCancel]);
 
   useSetPageActions(consolidatedActions);
 
-  const instrumentBreakdown = Object.entries(
-    analytics?.trade_distribution?.instrument_breakdown || {},
-  );
-  const monthlyReturns = Object.entries(analytics?.monthly_returns || {});
-  const drawdownPeriods = analytics?.drawdown_periods || [];
+  const instrumentBreakdown = Object.entries(metrics?.instrument_breakdown_json || {});
+  const monthlyReturns = Object.entries(metrics?.monthly_returns_json || {});
 
   if (loading) {
     return (
@@ -292,11 +256,22 @@ export default function BacktestResults() {
         </div>
       )}
 
-      {run?.config?.instrument_type && ["FUTURES", "OPTIONS"].includes(run.config.instrument_type) && (
-        <div className="bg-amber-900/20 border border-amber-800/50 rounded-xl p-4 flex gap-3 mb-6">
+      {run?.data_quality?.complete === false && (
+        <div className="bg-amber-900/20 border border-amber-700/50 rounded-xl p-4 flex gap-3">
           <AlertCircle className="h-5 w-5 text-amber-400 shrink-0" />
-          <div className="text-amber-300 text-sm">
-            <strong>F&O Instrument Detected:</strong> This backtest uses underlying spot prices (continuous data) to simulate fills. Real-world derivatives may trade at a premium or discount (contango/backwardation) to the spot price. Please interpret these PnL results with caution.
+          <div className="text-amber-200 text-sm">
+            <strong>Historical data is incomplete.</strong> Some expected candles were unavailable after vendor backfill; interpret this run with caution.
+            {run.data_quality.warnings?.length > 0 && <ul className="mt-2 list-disc pl-5">{run.data_quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+            {run.data_quality.instruments?.filter((item) => !item.complete).map((item) => (
+              <div className="mt-2" key={item.instrument}>
+                <span className="font-medium">{item.instrument}:</span>{" "}
+                {Object.entries(item.timeframes || {}).filter(([, coverage]) => coverage.missing_count > 0).map(([timeframe, coverage]) => (
+                  <span key={timeframe} className="mr-3">
+                    {timeframe} has {coverage.missing_count} missing {coverage.source_timeframe || timeframe} source candle(s) on {coverage.missing_dates?.join(", ")}
+                  </span>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -313,16 +288,10 @@ export default function BacktestResults() {
                 <div className="flex justify-between items-end mb-2">
                   <div>
                     <p className="text-indigo-200 text-sm font-semibold">
-                      Simulation in progress
+                      Backtest in progress
                     </p>
                     <p className="text-indigo-400/60 text-xs mt-0.5">
-                      {(run.progress_pct || 0) < 10
-                        ? "Fetching market data…"
-                        : (run.progress_pct || 0) < 40
-                        ? "Computing entry/exit signals…"
-                        : (run.progress_pct || 0) < 80
-                        ? "Simulating trades…"
-                        : "Calculating metrics…"}
+                      {run.progress_message || "Preparing backtest..."}
                     </p>
                   </div>
                   <span className="text-indigo-300 text-lg font-bold tabular-nums">
@@ -344,12 +313,9 @@ export default function BacktestResults() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           {
-            label: pnlMode === "net" ? "Net Profit" : "Gross Profit",
-            value: formatCurrency(
-              Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0) + (pnlMode === "gross" ? Number(metrics?.total_charges || 0) : 0)
-            ),
-            positive:
-              Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0) + (pnlMode === "gross" ? Number(metrics?.total_charges || 0) : 0) >= 0,
+            label: "Net Profit",
+            value: formatCurrency(Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0)),
+            positive: Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0) >= 0,
             icon: TrendingUp,
           },
           {
@@ -531,8 +497,8 @@ export default function BacktestResults() {
                     color: "text-red-400",
                   },
                   {
-                    label: "Expectancy (Pts)",
-                    value: formatRatio(metrics?.expectancy),
+                    label: "Expectancy",
+                    value: formatCurrency(metrics?.expectancy),
                     color: "text-indigo-400",
                   },
                   {
@@ -753,19 +719,20 @@ export default function BacktestResults() {
               <div className="flex items-start gap-3">
                 <Info className="h-5 w-5 text-indigo-400 mt-0.5" />
                 <div>
-                  <h4 className="text-sm font-bold text-white uppercase italic tracking-tighter">
+                  <h4 className="text-md font-bold text-white uppercase ">
                     Consistency Note
                   </h4>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-400 mt-1 uppercase font-medium">
                     Max consecutive wins:{" "}
                     <span className="text-green-400 font-bold">
                       {metrics?.max_consecutive_wins || 0}
                     </span>
-                    . Max consecutive losses:{" "}
+                  </p>
+                   <p className="text-xs text-gray-400 mt-1 uppercase font-medium">
+                    Max consecutive losses:{" "}
                     <span className="text-red-400 font-bold">
                       {metrics?.max_consecutive_losses || 0}
                     </span>
-                    .
                   </p>
                 </div>
               </div>
@@ -781,7 +748,7 @@ export default function BacktestResults() {
               Instrument Breakdown
             </CardTitle>
             <CardDescription className="text-xs text-gray-500">
-              Phase 5 multi-instrument results summary
+              Multi-instrument results summary
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -836,10 +803,6 @@ export default function BacktestResults() {
               <div className="bg-gray-800/50 rounded-lg p-3">
                 <div className="text-xs text-gray-500 uppercase">Efficiency</div>
                 <div className="text-indigo-300 font-semibold">{formatRatio(metrics?.trade_efficiency)}</div>
-              </div>
-              <div className="bg-gray-800/50 rounded-lg p-3">
-                <div className="text-xs text-gray-500 uppercase">Drawdowns</div>
-                <div className="text-white font-semibold">{drawdownPeriods.length}</div>
               </div>
             </div>
             <div>

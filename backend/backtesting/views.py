@@ -1,7 +1,6 @@
 """
 Views for the backtesting app.
 """
-from django.conf import settings
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,78 +19,20 @@ from .serializers import (
 from common.enums import BacktestStatus
 from strategies.services import StrategySnapshotService
 from .tasks import _notify_backtest_result, run_backtest_task, run_monte_carlo_task
-from .analytics import BacktestAnalytics
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-import threading
 from backend.celery import app as celery_app
 
-def _run_task_with_broker_fallback(task, object_id, object_to_refresh, failure_reset=None):
-    """
-    Try to dispatch via Celery broker if workers are active; fall back to in-process background thread otherwise.
-    """
+def _queue_task(task, obj):
     try:
-        # Check if any Celery workers are active
-        workers = celery_app.control.ping(timeout=0.5)
-        if workers:
-            task.delay(object_id)
-            return False
-            
-        logger.warning("No active Celery workers found for task %s(%s). Falling back to background thread.", task.name, object_id)
-    except Exception as exc:
-        logger.warning("Celery broker unavailable for task %s(%s): %s", task.name, object_id, exc)
-
-    # Fallback: Run asynchronously in a background thread so the HTTP request doesn't block
-    if getattr(settings, "DEBUG", False):
-        def _run_in_thread():
-            try:
-                task.apply(args=(object_id,))
-            except Exception as e:
-                logger.exception("Background thread task execution failed: %s", e)
-                if object_to_refresh:
-                    try:
-                        object_to_refresh.refresh_from_db()
-                        if hasattr(object_to_refresh, 'status'):
-                            object_to_refresh.status = 'FAILED'
-                        if hasattr(object_to_refresh, 'error_message'):
-                            object_to_refresh.error_message = f"Task failed: {str(e)}"
-                        object_to_refresh.save()
-
-                        # Broadcast the error via WebSocket
-                        try:
-                            from asgiref.sync import async_to_sync
-                            from channels.layers import get_channel_layer
-                            channel_layer = get_channel_layer()
-                            if channel_layer and hasattr(object_to_refresh, 'user_id'):
-                                group_name = f"user_{object_to_refresh.user_id}_backtest"
-                                message_data = {
-                                    "type": "backtest.error",
-                                    "message": {
-                                        "run_id": object_to_refresh.id,
-                                        "status": "FAILED",
-                                        "error": str(e)
-                                    }
-                                }
-                                async_to_sync(channel_layer.group_send)(group_name, message_data)
-                        except Exception as ws_e:
-                            logger.exception("Failed to broadcast backtest error: %s", ws_e)
-
-                    except Exception as db_e:
-                        logger.exception("Failed to update task status in DB: %s", db_e)
-        
-        thread = threading.Thread(target=_run_in_thread)
-        thread.start()
+        task.delay(obj.pk)
         return True
-
-    # In production without workers/broker, reset status
-    if failure_reset:
-        for field, value in failure_reset.items():
-            setattr(object_to_refresh, field, value)
-        object_to_refresh.save(update_fields=list(failure_reset.keys()))
-    raise OperationalError("Celery broker/workers are unavailable.")
+    except Exception as exc:
+        logger.warning("Unable to queue %s(%s): %s", task.name, obj.pk, exc)
+        return False
 
 
 class BacktestRunViewSet(viewsets.ModelViewSet):
@@ -134,14 +75,17 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
     def start(self, request, pk=None):
         """Start a backtest run (triggers Celery task)."""
         run = self.get_object()
-        if run.status not in ['PENDING', 'FAILED', 'CANCELLED']:
+        if run.status != BacktestStatus.PENDING:
             return Response({'error': f'Backtest cannot be started in {run.status} status'}, status=400)
-        
-        run.status = 'RUNNING'
-        run.started_at = timezone.now()
-        run.error_message = ""
-        run.progress_pct = 0
-        run.save()
+
+        started_at = timezone.now()
+        updated = BacktestRun.objects.filter(pk=run.pk, status=BacktestStatus.PENDING).update(
+            status=BacktestStatus.RUNNING, started_at=started_at, error_message="", progress_pct=0,
+            progress_message="Starting backtest and loading historical candles...",
+        )
+        if not updated:
+            return Response({'error': 'Backtest has already been started.'}, status=status.HTTP_409_CONFLICT)
+        run.refresh_from_db()
         
         # Broadcast that backtest has started
         try:
@@ -157,7 +101,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
                         "run_id": run.id,
                         "status": "RUNNING",
                         "progress_pct": 0,
-                        "message": "Backtest started, loading data...",
+                        "message": run.progress_message,
                         "timestamp": timezone.now().isoformat(),
                     }
                 }
@@ -165,25 +109,19 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.warning(f"Failed to broadcast backtest start: {e}")
 
-        try:
-            ran_inline = _run_task_with_broker_fallback(
-                run_backtest_task,
-                run.id,
-                run,
-                failure_reset={
-                    'status': BacktestStatus.PENDING,
-                    'started_at': None,
-                    'error_message': 'Task broker is unavailable. Start a Celery worker/broker or retry in DEBUG mode.'
-                },
+        if not _queue_task(run_backtest_task, run):
+            BacktestRun.objects.filter(pk=run.pk, status=BacktestStatus.RUNNING).update(
+                status=BacktestStatus.PENDING,
+                started_at=None,
+                error_message='Task queue is unavailable. Start a Celery worker and try again.',
+                progress_message="Backtest is waiting to be started.",
             )
-        except OperationalError:
             return Response(
                 {'error': 'Backtest queue is unavailable. Start the Celery broker/worker and try again.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        message = 'Backtest completed in local fallback mode' if ran_inline else 'Backtest started'
-        return Response({'success': True, 'message': message, 'status': run.status})
+        return Response({'success': True, 'message': 'Backtest started', 'status': run.status})
 
     @action(detail=True, methods=['post'])
     def rerun(self, request, pk=None):
@@ -200,31 +138,19 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
             strategy_version=run.strategy_version,
             initial_capital=run.initial_capital,
             slippage_pct=run.slippage_pct,
-            brokerage_per_trade=run.brokerage_per_trade,
-            brokerage_pct=run.brokerage_pct,
             charge_profile=run.charge_profile,
             include_charges=run.include_charges,
             parameters=run.parameters,
             config_snapshot=run.config_snapshot,
-            status='RUNNING',
-            started_at=timezone.now(),
+            status=BacktestStatus.PENDING,
         )
-        
-        try:
-            ran_inline = _run_task_with_broker_fallback(
-                run_backtest_task,
-                new_run.id,
-                new_run,
-                failure_reset={
-                    'status': 'PENDING',
-                    'started_at': None,
-                    'error_message': 'Task broker is unavailable. Start a Celery worker/broker or retry in DEBUG mode.'
-                },
-            )
-        except OperationalError:
-            new_run.status = 'FAILED'
-            new_run.error_message = 'Backtest queue is unavailable. Start the Celery broker/worker and try again.'
-            new_run.save()
+        new_run.started_at = timezone.now()
+        new_run.status = BacktestStatus.RUNNING
+        new_run.save(update_fields=['status', 'started_at'])
+        if not _queue_task(run_backtest_task, new_run):
+            new_run.status = BacktestStatus.FAILED
+            new_run.error_message = 'Backtest queue is unavailable. Start a Celery worker and try again.'
+            new_run.save(update_fields=['status', 'error_message'])
             return Response(
                 {'error': 'Backtest queue is unavailable. Start the Celery broker/worker and try again.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -240,9 +166,33 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         if run.status != 'RUNNING':
             return Response({'error': 'Backtest not running'}, status=400)
         
-        run.status = 'CANCELLED'
-        run.completed_at = timezone.now()
-        run.save()
+        updated = BacktestRun.objects.filter(pk=run.pk, status=BacktestStatus.RUNNING).update(
+            status=BacktestStatus.CANCELLED, completed_at=timezone.now(), progress_message="Backtest cancelled."
+        )
+        if not updated:
+            return Response({'error': 'Backtest is no longer running.'}, status=status.HTTP_409_CONFLICT)
+        run.refresh_from_db()
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{request.user.id}_backtest",
+                    {
+                        "type": "backtest.progress",
+                        "message": {
+                            "run_id": run.id,
+                            "status": run.status,
+                            "progress_pct": run.progress_pct,
+                            "message": run.progress_message,
+                            "timestamp": timezone.now().isoformat(),
+                        },
+                    },
+                )
+        except Exception as exc:
+            logger.warning("Failed to broadcast backtest cancellation: %s", exc)
         _notify_backtest_result(run)
         
         return Response({'success': True, 'message': 'Backtest cancelled'})
@@ -275,7 +225,11 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         page = paginator.paginate_queryset(trades, request, view=self)
         if page is not None:
             serializer = BacktestTradeSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
+            response = paginator.get_paginated_response(serializer.data)
+            response.data['instrument_options'] = list(
+                run.trades.order_by().values_list('instrument__symbol', flat=True).distinct().order_by('instrument__symbol')
+            )
+            return response
             
         serializer = BacktestTradeSerializer(trades, many=True)
         return Response(serializer.data)
@@ -295,34 +249,6 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         serializer = EquityCurvePointSerializer(points, many=True)
         return Response(serializer.data)
         
-    @action(detail=True, methods=['get'], url_path='charges_timeline')
-    def charges_timeline(self, request, pk=None):
-        """Get lightweight timeline of charges for frontend gross P&L calculations."""
-        run = self.get_object()
-        trades = run.trades.filter(exit_time__isnull=False).only('exit_time', 'charges_json').order_by('exit_time')
-        
-        timeline = []
-        for t in trades:
-            try:
-                charges_json = t.charges_json or {}
-                if isinstance(charges_json, str):
-                    import json
-                    charges_json = json.loads(charges_json)
-                
-                charges = float(charges_json.get('total_charges', 0))
-                if charges > 0:
-                    exit_time = t.exit_time
-                    timeline.append({
-                        'exitTime': int(exit_time.timestamp() * 1000),
-                        'charges': charges
-                    })
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).error(f"Error parsing charges for trade {t.id}: {e}")
-                continue
-        
-        return Response(timeline)
-    
     @action(detail=True, methods=['get'])
     def metrics(self, request, pk=None):
         """Get metrics for a backtest run."""
@@ -333,17 +259,11 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         except BacktestMetrics.DoesNotExist:
             return Response({})
 
-    @action(detail=True, methods=['get'])
-    def analytics(self, request, pk=None):
-        run = self.get_object()
-        analytics = BacktestAnalytics(run.id)
-        return Response(analytics.full_report())
-
-
 class MonteCarloRunViewSet(viewsets.ModelViewSet):
     """ViewSet for Monte Carlo runs."""
     serializer_class = MonteCarloRunSerializer
     permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ["get", "post", "head", "options"]
     
     def get_queryset(self):
         return MonteCarloRun.objects.filter(
@@ -357,26 +277,26 @@ class MonteCarloRunViewSet(viewsets.ModelViewSet):
         if run.status != 'PENDING':
             return Response({'error': 'Simulation already started'}, status=400)
         
-        run.status = 'RUNNING'
-        run.save()
+        updated = MonteCarloRun.objects.filter(pk=run.pk, status=BacktestStatus.PENDING).update(
+            status=BacktestStatus.RUNNING,
+            error_message="",
+            completed_at=None,
+        )
+        if not updated:
+            return Response({'error': 'Simulation has already been started.'}, status=status.HTTP_409_CONFLICT)
+        run.refresh_from_db()
 
-        try:
-            ran_inline = _run_task_with_broker_fallback(
-                run_monte_carlo_task,
-                run.id,
-                run,
-                failure_reset={
-                    'status': BacktestStatus.PENDING,
-                },
+        if not _queue_task(run_monte_carlo_task, run):
+            MonteCarloRun.objects.filter(pk=run.pk, status=BacktestStatus.RUNNING).update(
+                status=BacktestStatus.PENDING,
+                error_message="Monte Carlo queue is unavailable. Start the Celery broker/worker and try again.",
             )
-        except OperationalError:
             return Response(
                 {'error': 'Monte Carlo queue is unavailable. Start the Celery broker/worker and try again.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        message = 'Monte Carlo simulation completed in local fallback mode' if ran_inline else 'Monte Carlo simulation started'
-        return Response({'success': True, 'message': message, 'status': run.status})
+        return Response({'success': True, 'message': 'Monte Carlo simulation started', 'status': run.status})
     
     @action(detail=True, methods=['get'])
     def results(self, request, pk=None):

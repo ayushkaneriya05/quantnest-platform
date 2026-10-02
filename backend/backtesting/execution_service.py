@@ -15,25 +15,13 @@ class BacktestExecutionService:
     """
     
     @staticmethod
-    def execute_market_order(
-        context,  # BacktestContext
-        instrument,
-        side,
-        quantity,
-        price,
-        timestamp,
-        strategy_config,
-        exit_reason="strategy_entry",
-        slippage_pct=0.0,
-        execute_immediately=False,
-    ):
+    def execute_market_order(context, instrument, side, quantity, price, timestamp, strategy_config, exit_reason="strategy_entry", slippage_pct=0.0, execute_immediately=False):
         """
         Execute market order in backtest context.
         If execute_immediately=False, queues order for next candle open.
         Mirrors PaperExecutionService._execute_market_order()
         """
-        from common.costs import TradingCostCalculator
-        from common.enums import Side, OrderType
+        from common.enums import Side
 
         if not execute_immediately:
             # Queue order for next candle open
@@ -41,15 +29,12 @@ class BacktestExecutionService:
                 'instrument': instrument,
                 'side': side,
                 'quantity': quantity,
-                'price': price,
-                'timestamp': timestamp,
                 'strategy_config': strategy_config,
                 'exit_reason': exit_reason,
                 'slippage_pct': slippage_pct,
             })
             return
 
-        # Immediate execution (for SL/Target or end of backtest)
         # 1. Check for opposite position (close existing)
         opposite_side = Side.SELL if side == Side.BUY else Side.BUY
         opposite_position = context.get_position(instrument.id)
@@ -63,7 +48,6 @@ class BacktestExecutionService:
                 closing_qty,
                 price,
                 timestamp,
-                strategy_config,
                 exit_reason=exit_reason,
                 slippage_pct=slippage_pct,
             )
@@ -74,28 +58,10 @@ class BacktestExecutionService:
 
         # 2. Open new position if remaining quantity
         if quantity > 0:
-            BacktestExecutionService._open_position(
-                context,
-                instrument,
-                side,
-                quantity,
-                price,
-                timestamp,
-                strategy_config,
-                slippage_pct=slippage_pct,
-            )
+            BacktestExecutionService._open_position(context, instrument, side, quantity, price, timestamp, strategy_config, slippage_pct=slippage_pct)
     
     @staticmethod
-    def _apply_fill_to_position(
-        context,
-        position,
-        fill_quantity,
-        fill_price,
-        timestamp,
-        strategy_config,
-        exit_reason="strategy_exit",
-        slippage_pct=0.0,
-    ):
+    def _apply_fill_to_position(context, position, fill_quantity, fill_price, timestamp, exit_reason="strategy_exit", slippage_pct=0.0):
         """
         Apply fill to position in backtest context.
         Mirrors PaperExecutionService._apply_fill_to_position()
@@ -114,6 +80,10 @@ class BacktestExecutionService:
 
         # Calculate actual slippage amount
         slippage_amount = abs(fill_price - original_fill_price) * fill_quantity
+        position['capital_used'] = max(
+            float(position.get('capital_used', 0.0)) - float(entry_price) * fill_quantity,
+            0.0,
+        )
 
         # Calculate PnL
         if side == Side.BUY:
@@ -140,72 +110,25 @@ class BacktestExecutionService:
         # Update context capital
         context.current_capital += float(net_pnl)
 
-        # Update risk metrics
-        risk_metrics = context.get_risk_metrics()
-        pnl = float(net_pnl)
-        risk_metrics['daily_trades'] += 1
-        risk_metrics['daily_pnl'] += pnl
-        risk_metrics['weekly_pnl'] += pnl
-        risk_metrics['monthly_pnl'] += pnl
-        risk_metrics['total_closed_trades'] += 1
-
-        if pnl < 0:
-            risk_metrics['consecutive_losses'] += 1
-            risk_metrics['consecutive_wins'] = 0
-            risk_metrics['losing_trades'] += 1
-        elif pnl > 0:
-            risk_metrics['consecutive_wins'] += 1
-            risk_metrics['consecutive_losses'] = 0
-            risk_metrics['winning_trades'] += 1
-
-        total_closed = risk_metrics['total_closed_trades']
-        wins = risk_metrics['winning_trades']
-        risk_metrics['win_rate'] = (wins / total_closed) * 100 if total_closed else 0.0
-
-        context.update_risk_metrics(risk_metrics)
-
-        # Create trade record (saved to DB after backtest)
-        # Total slippage = entry slippage + exit slippage
-        entry_slippage = position.get('entry_slippage', 0)
-        total_slippage = entry_slippage + slippage_amount
-
-        trade_data = {
-            'instrument': position.get('instrument'),
-            'side': side,
-            'entry_time': position['entry_time'],
-            'exit_time': timestamp,
-            'entry_price': entry_price,
-            'exit_price': fill_price,
-            'quantity': fill_quantity,
-            'gross_pnl': gross_pnl,
-            'net_pnl': net_pnl,
-            'charges_json': charges,
-            'exit_reason': exit_reason,
-            'mae': position.get('max_loss', 0),
-            'mfe': position.get('max_profit', 0),
-            'slippage': total_slippage,  # Track total slippage (entry + exit)
-        }
-        context.closed_trades.append(trade_data)
+        position['realized_quantity'] = position.get('realized_quantity', 0) + fill_quantity
+        position['realized_gross_pnl'] = position.get('realized_gross_pnl', 0.0) + float(gross_pnl)
+        position['realized_net_pnl'] = position.get('realized_net_pnl', 0.0) + float(net_pnl)
+        position['realized_slippage'] = position.get('realized_slippage', 0.0) + slippage_amount
+        position['realized_exit_notional'] = position.get('realized_exit_notional', 0.0) + fill_price * fill_quantity
+        position['realized_charges'] = _merge_charges(position.get('realized_charges', {}), charges)
+        position['exit_reasons'] = position.get('exit_reasons', []) + [exit_reason]
+        position['last_exit_time'] = timestamp
 
         # Update position quantity
         position['quantity'] -= fill_quantity
         if position['quantity'] <= 0:
             position['quantity'] = 0
-            # If position is fully closed, return True to signal removal
+            context.closed_trades.append(_position_trade(position, timestamp))
             return True
         return False
     
     @staticmethod
-    def _open_position(
-        context,
-        instrument,
-        side,
-        quantity,
-        price,
-        timestamp,
-        strategy_config,
-        slippage_pct=0.0,
-    ):
+    def _open_position(context, instrument, side, quantity, price, timestamp, strategy_config, slippage_pct=0.0):
         """
         Open new position in backtest context.
         Mirrors paper trading position creation.
@@ -225,27 +148,32 @@ class BacktestExecutionService:
 
         position = {
             'instrument': instrument,
-            'instrument_id': instrument.id,
             'instrument_type': getattr(instrument, 'instrument_type', 'EQUITY'),
             'side': side,
             'quantity': quantity,
             'avg_price': price,
-            'current_price': price,
             'entry_time': timestamp,
             'protected_stop_price': protection.get('protected_stop_price'),
             'protected_target_price': protection.get('protected_target_price'),
             'peak_price': price,
-            'trailing_stop': None,
-            'trailing_target': None,
             'max_profit': 0.0,
             'max_loss': 0.0,
-            'entry_slippage': entry_slippage,  # Track entry slippage
+            'entry_slippage': entry_slippage,
+            'initial_quantity': quantity,
+            'capital_used': price * quantity,
+            'realized_quantity': 0,
+            'realized_gross_pnl': 0.0,
+            'realized_net_pnl': 0.0,
+            'realized_slippage': 0.0,
+            'realized_exit_notional': 0.0,
+            'realized_charges': {},
+            'exit_reasons': [],
         }
 
         context.update_position(instrument.id, position)
     
     @staticmethod
-    def execute_pending_orders(context, datasets, timestamp):
+    def execute_pending_orders(context, candles_by_instrument, timestamp):
         """
         Execute all pending orders at the current candle open.
         Orders are executed at the OPEN price of the current candle.
@@ -254,6 +182,8 @@ class BacktestExecutionService:
         if not pending_orders:
             return
 
+        remaining_orders = []
+        committed_capital = sum(float(position.get('capital_used', 0.0)) for position in context.positions.values())
         for order in pending_orders:
             instrument = order['instrument']
             side = order['side']
@@ -262,19 +192,19 @@ class BacktestExecutionService:
             strategy_config = order['strategy_config']
             exit_reason = order['exit_reason']
 
-            # Get execution candle for this instrument
-            execution_candle = None
-            for payload in datasets.values():
-                if payload['instrument'].id == instrument.id:
-                    execution_candle = payload['df_dict'].get(timestamp)
-                    break
-
+            execution_candle = candles_by_instrument.get(instrument.id)
             if execution_candle is None:
-                logger.warning(f"Missing execution candle for instrument {instrument.id} at {timestamp}, skipping order")
+                remaining_orders.append(order)
                 continue
 
             # Execute at OPEN price
             execution_price = float(execution_candle["open"])
+            if exit_reason == "strategy_entry" and execution_price * quantity > context.current_capital - committed_capital:
+                logger.info(
+                    "Backtest entry rejected at fill: instrument=%s required=%.2f available=%.2f",
+                    instrument.id, execution_price * quantity, context.current_capital - committed_capital,
+                )
+                continue
             BacktestExecutionService.execute_market_order(
                 context,
                 instrument,
@@ -287,5 +217,51 @@ class BacktestExecutionService:
                 slippage_pct=slippage_pct,
                 execute_immediately=True,
             )
+            if exit_reason == "strategy_entry":
+                committed_capital += execution_price * quantity
 
-        context.clear_pending_orders()
+        context.pending_orders = remaining_orders
+
+    @staticmethod
+    def finalize_open_positions(context):
+        """Keep realized partial exits as one record per entry; discard residual exposure."""
+        for instrument_id, position in list(context.positions.items()):
+            if position.get('realized_quantity', 0) > 0:
+                context.closed_trades.append(_position_trade(position, position['last_exit_time']))
+            context.remove_position(instrument_id)
+
+
+def _merge_charges(total, update):
+    result = dict(total or {})
+    for key, value in (update or {}).items():
+        if isinstance(value, dict):
+            result[key] = _merge_charges(result.get(key), value)
+        elif isinstance(value, (int, float)):
+            result[key] = float(result.get(key, 0) or 0) + float(value)
+        else:
+            result[key] = value
+    return result
+
+
+def _position_trade(position, exit_time):
+    quantity = position.get('realized_quantity', 0)
+    exit_price = position.get('realized_exit_notional', 0.0) / quantity if quantity else position['avg_price']
+    charges = position.get('realized_charges', {})
+    entry_slippage = position.get('entry_slippage', 0.0)
+    entry_quantity = position.get('initial_quantity', quantity) or quantity
+    return {
+        'instrument': position.get('instrument'),
+        'side': position['side'],
+        'entry_time': position['entry_time'],
+        'exit_time': exit_time,
+        'entry_price': position['avg_price'],
+        'exit_price': exit_price,
+        'quantity': quantity,
+        'gross_pnl': position.get('realized_gross_pnl', 0.0),
+        'net_pnl': position.get('realized_net_pnl', 0.0),
+        'charges_json': charges,
+        'exit_reason': ", ".join(dict.fromkeys(position.get('exit_reasons', []))),
+        'mae': position.get('max_loss', 0.0),
+        'mfe': position.get('max_profit', 0.0),
+        'slippage': entry_slippage * quantity / entry_quantity + position.get('realized_slippage', 0.0),
+    }

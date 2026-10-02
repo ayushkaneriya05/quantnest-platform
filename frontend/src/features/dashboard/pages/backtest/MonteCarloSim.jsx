@@ -3,7 +3,7 @@
  * B12: Auto-refresh when RUNNING
  * B13: Display worst/best case + equity distribution chart
  */
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
@@ -48,13 +48,14 @@ import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
 
-const formatCurrency = (val) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(Number(val) || 0);
+const formatMetricValue = (value, metricName) => {
+  if (value == null) return "N/A";
+  if (["Terminal Capital", "Expectancy"].includes(metricName)) return formatCurrency(value);
+  if (["Total Return", "Max Drawdown", "Win Rate"].includes(metricName)) return `${formatNumber(value)}%`;
+  return formatNumber(value);
+};
 
 export default function MonteCarloSim() {
   const location = useLocation();
@@ -64,9 +65,13 @@ export default function MonteCarloSim() {
   const [monteCarloRuns, setMonteCarloRuns] = useState([]);
   const [selectedRun, setSelectedRun] = useState(null);
   const [results, setResults] = useState([]);
+  const selectedRunId = selectedRun?.id;
+  const selectedRunStatus = selectedRun?.status;
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [startingRunId, setStartingRunId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [resultsLoading, setResultsLoading] = useState(false);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
@@ -87,17 +92,19 @@ export default function MonteCarloSim() {
       setBacktestRuns(
         (runsData.data || []).filter((run) => run.status === "COMPLETED"),
       );
-      setMonteCarloRuns(mcData.data || []);
+      const runs = mcData.data || [];
+      setMonteCarloRuns(runs);
+      setSelectedRun((current) => current ? runs.find((run) => run.id === current.id) || current : current);
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load Monte Carlo data"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
     if (backtestFilterId) {
@@ -144,33 +151,63 @@ export default function MonteCarloSim() {
     try {
       setSubmitting(true);
       const response = await backtestApi.createMonteCarlo(formData);
-      notify.success("Monte Carlo simulation started!");
       await backtestApi.startMonteCarlo(response.data.id);
       setIsModalOpen(false);
-      fetchData();
+      notify.success("Monte Carlo simulation started.");
+      await fetchData();
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to start simulation"));
+      await fetchData();
     } finally {
       setSubmitting(false);
     }
   };
 
-  const viewResults = async (mcRun) => {
+  const handleStart = useCallback(async (mcRun) => {
     try {
-      setSelectedRun(mcRun);
-      const response = await backtestApi.getMonteCarloResults(mcRun.id);
-      setResults(response.data || []);
+      setStartingRunId(mcRun.id);
+      await backtestApi.startMonteCarlo(mcRun.id);
+      notify.success("Monte Carlo simulation started.");
+      await fetchData();
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load simulation results"));
+      notify.error(getApiErrorMessage(error, "Failed to start simulation"));
+      await fetchData();
+    } finally {
+      setStartingRunId(null);
     }
-  };
+  }, [fetchData, notify]);
+
+  const viewResults = useCallback((mcRun) => setSelectedRun(mcRun), []);
+
+  useEffect(() => {
+    if (!selectedRunId || selectedRunStatus !== "COMPLETED") {
+      setResults([]);
+      setResultsLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    setResultsLoading(true);
+    backtestApi.getMonteCarloResults(selectedRunId)
+      .then((response) => {
+        if (active) setResults(response.data || []);
+      })
+      .catch((error) => {
+        if (active) notify.error(getApiErrorMessage(error, "Failed to load simulation results"));
+      })
+      .finally(() => {
+        if (active) setResultsLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [selectedRunId, selectedRunStatus, notify]);
 
   // Auto-select latest completed run on load
   useEffect(() => {
     if (filteredAndSortedRuns.length > 0 && !selectedRun) {
       const latestCompleted = filteredAndSortedRuns.find((run) => run.status === "COMPLETED");
       if (latestCompleted) {
-        viewResults(latestCompleted);
+        setSelectedRun(latestCompleted);
       }
     }
   }, [filteredAndSortedRuns, selectedRun]);
@@ -187,6 +224,19 @@ export default function MonteCarloSim() {
       to: bin_edges[i + 1],
     }));
   }, [selectedRun]);
+
+  const confidenceLevel = Number(selectedRun?.confidence_level ?? 0.95);
+  const lowerBoundPercentile = ((1 - confidenceLevel) / 2) * 100;
+  const upperBoundPercentile = 100 - lowerBoundPercentile;
+  const formatPercentile = (value) => Number(value.toFixed(2));
+  const selectedRunMessage = selectedRun?.error_message || ({
+    FAILED: "The simulation failed.",
+    RUNNING: "Simulation is running. Results will appear here when it completes.",
+    PENDING: "This simulation is waiting to start. Use Start simulation in the history list.",
+    COMPLETED: resultsLoading
+      ? "Loading simulation results..."
+      : "No result metrics are available for this simulation.",
+  }[selectedRun?.status] || "Select a completed simulation from the history log to view its detailed metrics and charts.");
 
   const handleBack = () => {
     if (backtestFilterId) {
@@ -271,6 +321,9 @@ export default function MonteCarloSim() {
                   <Label className="text-gray-400">Simulations</Label>
                   <Input
                     type="number"
+                    min={100}
+                    max={10000}
+                    step={100}
                     value={formData.num_simulations}
                     onChange={(e) =>
                       setFormData({
@@ -282,7 +335,7 @@ export default function MonteCarloSim() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-gray-400">Confidence Level</Label>
+                    <Label className="text-gray-400">Central Outcome Range</Label>
                   <Select
                     value={formData.confidence_level.toString()}
                     onValueChange={(value) =>
@@ -296,9 +349,9 @@ export default function MonteCarloSim() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                      <SelectItem value="0.9">90%</SelectItem>
-                      <SelectItem value="0.95">95%</SelectItem>
-                      <SelectItem value="0.99">99%</SelectItem>
+                      <SelectItem value="0.9">90% of outcomes</SelectItem>
+                      <SelectItem value="0.95">95% of outcomes</SelectItem>
+                      <SelectItem value="0.99">99% of outcomes</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -343,7 +396,7 @@ export default function MonteCarloSim() {
             <CardContent>
               {filteredAndSortedRuns.length === 0 ? (
                 <div className="py-8 text-center text-gray-500 text-sm">
-                  No simulations available. Click "New Simulation" to start.
+                  No simulations available. Click &quot;New Simulation&quot; to start.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -364,7 +417,7 @@ export default function MonteCarloSim() {
                               ?.name || `Backtest #${mc.backtest_run}`}
                           </p>
                           <p className="text-xs text-gray-400">
-                            {mc.num_simulations} sims • {(mc.confidence_level * 100).toFixed(0)}% conf
+                            {mc.num_simulations} sims • {(mc.confidence_level * 100).toFixed(0)}% outcome range
                           </p>
                         </div>
                         <Badge
@@ -381,6 +434,22 @@ export default function MonteCarloSim() {
                           {mc.status}
                         </Badge>
                       </div>
+                      {mc.status === "PENDING" && (
+                        <div className="flex justify-end mt-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={startingRunId === mc.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleStart(mc);
+                            }}
+                            className="h-7 border-gray-700 text-xs"
+                          >
+                            {startingRunId === mc.id ? "Starting..." : "Start simulation"}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
 
@@ -431,8 +500,11 @@ export default function MonteCarloSim() {
                       ?.name || `Backtest #${selectedRun.backtest_run}`}
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Tested across {selectedRun.num_simulations} sequences at {(selectedRun.confidence_level * 100).toFixed(0)}% confidence
+                    Estimated central {(selectedRun.confidence_level * 100).toFixed(0)}% outcome range across {selectedRun.num_simulations} resampled trade sequences
                   </CardDescription>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Resamples closed-trade net P&amp;L with replacement; drawdown uses realized trade closes.
+                  </p>
                 </CardHeader>
                 <CardContent className="pt-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -447,50 +519,55 @@ export default function MonteCarloSim() {
                         <div className="flex justify-between">
                           <span className="text-gray-400">Mean (Expected)</span>
                           <span className="text-white font-semibold">
-                            {parseFloat(result.mean_value).toFixed(2)}
+                            {formatMetricValue(result.mean_value, result.metric_name)}
                           </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-400">Median</span>
                           <span className="text-gray-300">
-                            {parseFloat(result.median_value).toFixed(2)}
+                            {formatMetricValue(result.median_value, result.metric_name)}
                           </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-400">Std Deviation</span>
                           <span className="text-gray-400">
-                            {parseFloat(result.std_dev).toFixed(2)}
+                            {formatMetricValue(result.std_dev, result.metric_name)}
                           </span>
                         </div>
-                        <div className="flex justify-between border-t border-gray-800/50 pt-1 text-red-400">
+                        <div className={`flex justify-between border-t border-gray-800/50 pt-1 ${result.metric_name === "Max Drawdown" ? "text-green-400" : "text-red-400"}`}>
                           <span className="flex items-center gap-1 font-medium">
                             <TrendingDown className="h-3 w-3" />
-                            5th Percentile
+                            Lower outcome bound ({formatPercentile(lowerBoundPercentile)}th percentile)
                           </span>
                           <span className="font-bold">
-                            {parseFloat(result.percentile_5).toFixed(2)}
+                            {formatMetricValue(result.lower_outcome_bound, result.metric_name)}
                           </span>
                         </div>
-                        <div className="flex justify-between text-green-400">
+                        <div className={`flex justify-between ${result.metric_name === "Max Drawdown" ? "text-red-400" : "text-green-400"}`}>
                           <span className="flex items-center gap-1 font-medium">
                             <TrendingUp className="h-3 w-3" />
-                            95th Percentile
+                            Upper outcome bound ({formatPercentile(upperBoundPercentile)}th percentile)
                           </span>
                           <span className="font-bold">
-                            {parseFloat(result.percentile_95).toFixed(2)}
+                            {formatMetricValue(result.upper_outcome_bound, result.metric_name)}
                           </span>
                         </div>
+                        {result.valid_simulations != null && result.valid_simulations < selectedRun.num_simulations && (
+                          <p className="text-[10px] text-amber-400">
+                            Valid outcomes: {result.valid_simulations} of {selectedRun.num_simulations} simulations
+                          </p>
+                        )}
                         <div className="h-px bg-gray-800/50 my-1" />
                         <div className="flex justify-between text-red-500">
-                          <span className="font-semibold">Worst Case</span>
+                          <span className="font-semibold">Worst observed</span>
                           <span className="font-bold">
-                            {parseFloat(result.worst_case).toFixed(2)}
+                            {formatMetricValue(result.worst_case, result.metric_name)}
                           </span>
                         </div>
                         <div className="flex justify-between text-green-500">
-                          <span className="font-semibold">Best Case</span>
+                          <span className="font-semibold">Best observed</span>
                           <span className="font-bold">
-                            {parseFloat(result.best_case).toFixed(2)}
+                            {formatMetricValue(result.best_case, result.metric_name)}
                           </span>
                         </div>
                       </div>
@@ -578,7 +655,9 @@ export default function MonteCarloSim() {
           ) : (
             <Card className="bg-gray-900/50 border-gray-800 h-96 flex flex-col items-center justify-center text-gray-500">
               <BarChart2 className="h-10 w-10 mb-2 text-gray-700" />
-              <p className="text-sm">Select a simulation run from the history log to view its detailed metrics and charts.</p>
+              <p className="text-sm text-center px-6">
+                {selectedRunMessage}
+              </p>
             </Card>
           )}
         </div>

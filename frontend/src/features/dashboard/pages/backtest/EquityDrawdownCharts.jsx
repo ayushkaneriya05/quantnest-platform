@@ -1,7 +1,7 @@
 /**
  * Equity & Drawdown Charts — professional recharts-based visualization.
  */
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
@@ -34,19 +34,14 @@ import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
+import PropTypes from "prop-types";
 
 /* ─── Helpers ─── */
 const toNumber = (val) => {
   const numeric = Number(val);
   return Number.isFinite(numeric) ? numeric : 0;
 };
-
-const formatCurrency = (val) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(toNumber(val));
 
 /* ─── Custom Tooltip ─── */
 function ChartTooltip({ active, payload, label, type }) {
@@ -63,6 +58,13 @@ function ChartTooltip({ active, payload, label, type }) {
   );
 }
 
+ChartTooltip.propTypes = {
+  active: PropTypes.bool,
+  payload: PropTypes.arrayOf(PropTypes.shape({ color: PropTypes.string, value: PropTypes.number })),
+  label: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  type: PropTypes.string,
+};
+
 export default function EquityDrawdownCharts() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -73,11 +75,7 @@ export default function EquityDrawdownCharts() {
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-  }, [id]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [runData, curveData, metricsData] = await Promise.all([
         backtestApi.getRun(id),
@@ -89,10 +87,7 @@ export default function EquityDrawdownCharts() {
 
       // Process curve data for recharts
       const points = (curveData.data || []).map((point) => ({
-        date: new Date(point.timestamp).toLocaleDateString("en-IN", {
-          day: "numeric",
-          month: "short",
-        }),
+        date: formatDateTime(point.timestamp),
         equity: toNumber(point.equity_value),
         drawdown: -Math.abs(toNumber(point.drawdown_pct)), // Negative for visual
       }));
@@ -102,7 +97,11 @@ export default function EquityDrawdownCharts() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, notify]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   useSetPageActions(
     <Button

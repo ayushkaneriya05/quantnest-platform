@@ -3,6 +3,8 @@ Common app - base models for QuantNest Algo Trading Platform.
 """
 from django.db import models
 
+from common.enums import Timezone
+
 
 class BaseTimestampModel(models.Model):
     """Abstract base model with timestamp fields."""
@@ -36,6 +38,12 @@ class ExchangeConfig(BaseTimestampModel):
     )
     market_close = models.TimeField(
         help_text='Regular market close time (e.g., 15:30 for NSE)'
+    )
+    timezone = models.CharField(
+        max_length=64,
+        choices=Timezone.choices,
+        default=Timezone.ASIA_KOLKATA,
+        help_text='IANA timezone used for exchange sessions (e.g., Asia/Kolkata)',
     )
     pre_market_open = models.TimeField(
         null=True,

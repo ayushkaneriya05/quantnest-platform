@@ -74,27 +74,6 @@ class IndicatorRequirementAnalyzer:
             )
 
     @classmethod
-    def get_max_warmup_days(cls, config):
-        """
-        Converts the candle requirements into calendar days needed to fetch the data.
-        Assumes ~375 minutes per trading day for intraday, 1 for daily, 7 for weekly.
-        """
-        requirements = cls.get_warmup_requirements(config)
-        max_days = 0
-        
-        for timeframe, candles in requirements.items():
-            if timeframe in {"1W", "W"}:
-                days = candles * 7
-            elif timeframe in {"1D", "D"}:
-                days = candles * 2  # *2 to account for weekends/holidays
-            else:
-                # Intraday. 1 day = 375 mins. We add *2 for weekends
-                days = max((candles * 2) // 300, 2)
-            max_days = max(max_days, days)
-            
-        return max_days
-
-    @classmethod
     def _calculate_operand_lookback(cls, op_type, params):
         if not op_type:
             return 0

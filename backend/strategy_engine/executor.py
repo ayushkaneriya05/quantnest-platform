@@ -1,7 +1,7 @@
 import logging
-from django.utils import timezone
+from datetime import timezone as utc_timezone
 
-from common.enums import Side, OrderType
+from common.enums import OrderType
 from common.trading_utils import get_any_field
 from rules_engine.evaluator import RuleEvaluator
 
@@ -53,7 +53,7 @@ class StrategyExecutor:
         """Validate config snapshot has required fields."""
         required_fields = [
             'name', 'strategy_type', 'market_type', 'exchange', 'instrument_type',
-            'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments'
+            'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments', 'time_rule', 'special_event_filter', 'auto_disable_rules', 'position_sizing_rule'
         ]
         missing = [field for field in required_fields if field not in config]
         if missing:
@@ -87,54 +87,6 @@ class StrategyExecutor:
         selected.sort(key=lambda group: get_any_field(group, "priority", 1) or 1)
         self._active_groups_cache[rule_type] = selected
         return selected
-
-
-    def evaluate_entry_signals(self, bars_df):
-        """
-        Pre-compute entry signals for ALL bars in ``bars_df``.
-
-        Returns a dict of ``{timestamp: bool}`` where ``True`` means
-        the entry rule groups fired at that bar.
-
-        This is the **vectorised** counterpart of ``evaluate_entry_logic``
-        (which only checks the last bar).  Used exclusively by the backtest
-        engine to avoid per-bar Python loops for indicator computation.
-        """
-        import pandas as pd
-        from rules_engine.evaluator import RuleEvaluator
-
-        completed_df = bars_df
-        completed_mtf_data = {
-            tf: df for tf, df in self.mtf_data.items()
-        } if self.mtf_data else {}
-
-        evaluator = RuleEvaluator(
-            completed_df,
-            mtf_data=completed_mtf_data,
-            indicator_engine=self.indicator_engine,
-            mtf_indicator_engines=self.mtf_indicator_engines,
-        )
-
-        entry_groups = self._active_groups("ENTRY")
-
-        if not entry_groups:
-            return {}
-
-        operator = self.entry_config.get("entry_group_operator", "OR")
-        series_list = [evaluator.evaluate_group(g) for g in entry_groups]
-
-        if not series_list:
-            return {}
-
-        combined = series_list[0]
-        for s in series_list[1:]:
-            if operator == "AND":
-                combined = combined & s
-            else:
-                combined = combined | s
-
-        # Return only True entries to keep the dict compact
-        return {ts: True for ts, val in combined.items() if val}
 
 
     def evaluate_entry_logic(self, bars_df, timestamp, state, risk_stats):
@@ -387,9 +339,7 @@ class StrategyExecutor:
             if timestamp.date().isoformat() in custom_dates:
                 return True
 
-            active_events = special.get("active_events_today", [])
-            if not active_events:
-                active_events = self._resolve_active_events(timestamp, special)
+            active_events = self._resolve_active_events(timestamp, special)
             
             if active_events:
                 return True
@@ -421,10 +371,11 @@ class StrategyExecutor:
             return timestamp
         try:
             import pytz
-            import datetime as dt
+            from django.utils import timezone
+
             target_tz = pytz.timezone(timezone_name)
             if timestamp.tzinfo is None:
-                timestamp = timezone.make_aware(timestamp, dt.timezone.utc)
+                timestamp = timezone.make_aware(timestamp, utc_timezone.utc)
             return timestamp.astimezone(target_tz)
         except Exception as exc:
             logger.warning("Timezone localization failed for '%s': %s", timezone_name, exc)

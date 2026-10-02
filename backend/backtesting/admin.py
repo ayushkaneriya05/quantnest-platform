@@ -40,4 +40,4 @@ class MonteCarloRunAdmin(admin.ModelAdmin):
 
 @admin.register(MonteCarloResult)
 class MonteCarloResultAdmin(admin.ModelAdmin):
-    list_display = ['monte_carlo_run', 'metric_name', 'mean_value', 'median_value', 'percentile_5', 'percentile_95']
+    list_display = ['monte_carlo_run', 'metric_name', 'mean_value', 'median_value', 'lower_outcome_bound', 'upper_outcome_bound']

@@ -42,8 +42,6 @@ class BacktestRun(BaseTimestampModel):
     )
     initial_capital = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
     slippage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.01)
-    brokerage_per_trade = models.DecimalField(max_digits=8, decimal_places=2, default=20)
-    brokerage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.0003)
     charge_profile = models.ForeignKey(
         'brokers.BrokerChargeProfile',
         on_delete=models.SET_NULL,
@@ -63,6 +61,7 @@ class BacktestRun(BaseTimestampModel):
     )
     # Execution settings (JSON for flexibility)
     config_snapshot = models.JSONField(default=dict, blank=True)
+    data_quality = models.JSONField(default=dict, blank=True)
     # Status
     status = models.CharField(
         max_length=20,
@@ -70,6 +69,7 @@ class BacktestRun(BaseTimestampModel):
         default=BacktestStatus.PENDING
     )
     progress_pct = models.IntegerField(default=0)
+    progress_message = models.CharField(max_length=255, blank=True, default="")
     error_message = models.TextField(blank=True)
     
     # Timing
@@ -88,7 +88,7 @@ class BacktestRun(BaseTimestampModel):
 
 class BacktestTrade(BaseTimestampModel):
     """
-    Individual trade executed during a backtest.
+    One position opened by an entry and closed by one or more exit fills.
     """
     run = models.ForeignKey(
         BacktestRun,
@@ -125,11 +125,11 @@ class BacktestTrade(BaseTimestampModel):
     # Risk Metrics
     mae = models.DecimalField(
         max_digits=12, decimal_places=4, default=0,
-        help_text="Maximum Adverse Excursion (Max paper loss during trade)"
+        help_text="Maximum adverse excursion in account currency for the entry quantity."
     )
     mfe = models.DecimalField(
         max_digits=12, decimal_places=4, default=0,
-        help_text="Maximum Favorable Excursion (Max paper profit during trade)"
+        help_text="Maximum favorable excursion in account currency for the entry quantity."
     )
     
     # Duration
@@ -137,8 +137,6 @@ class BacktestTrade(BaseTimestampModel):
     
     # Context
     exit_reason = models.CharField(max_length=50, blank=True)
-    entry_rule = models.CharField(max_length=100, blank=True)
-    exit_rule = models.CharField(max_length=100, blank=True)
     
     class Meta:
         db_table = 'backtest_trade'
@@ -184,20 +182,20 @@ class BacktestMetrics(BaseTimestampModel):
     avg_losing_hold_time = models.PositiveIntegerField(default=0)
     
     # Risk metrics
-    profit_factor = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    profit_factor = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
     expectancy = models.DecimalField(max_digits=12, decimal_places=4, default=0)
-    payoff_ratio = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    payoff_ratio = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
     
     # Risk-adjusted returns
-    sharpe_ratio = models.DecimalField(max_digits=10, decimal_places=4, default=0)
-    sortino_ratio = models.DecimalField(max_digits=10, decimal_places=4, default=0)
-    calmar_ratio = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    sharpe_ratio = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
+    sortino_ratio = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
+    calmar_ratio = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
     
     # Drawdown
     max_drawdown_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     max_drawdown_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     max_drawdown_duration_days = models.PositiveIntegerField(default=0)
-    recovery_factor = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    recovery_factor = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
     
     # Capital
     final_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -213,6 +211,7 @@ class BacktestMetrics(BaseTimestampModel):
     avg_mfe = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     trade_efficiency = models.DecimalField(max_digits=10, decimal_places=4, default=0)
     monthly_returns_json = models.JSONField(default=dict, blank=True)
+    instrument_breakdown_json = models.JSONField(default=dict, blank=True)
     
     class Meta:
         db_table = 'backtest_metrics'
@@ -263,9 +262,10 @@ class MonteCarloRun(BaseTimestampModel):
         choices=BacktestStatus.choices,
         default=BacktestStatus.PENDING
     )
+    error_message = models.TextField(blank=True, default="")
     completed_at = models.DateTimeField(null=True, blank=True)
     equity_distribution_json = models.JSONField(
-        default=list, blank=True,
+        default=dict, blank=True,
         help_text='Percentile-based equity distribution for histogram rendering.'
     )
     
@@ -289,13 +289,14 @@ class MonteCarloResult(models.Model):
     )
     
     metric_name = models.CharField(max_length=50)
-    mean_value = models.DecimalField(max_digits=15, decimal_places=6)
-    median_value = models.DecimalField(max_digits=15, decimal_places=6)
-    std_dev = models.DecimalField(max_digits=15, decimal_places=6)
-    percentile_5 = models.DecimalField(max_digits=15, decimal_places=6)
-    percentile_95 = models.DecimalField(max_digits=15, decimal_places=6)
-    worst_case = models.DecimalField(max_digits=15, decimal_places=6)
-    best_case = models.DecimalField(max_digits=15, decimal_places=6)
+    valid_simulations = models.PositiveIntegerField(null=True, blank=True, default=None)
+    mean_value = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    median_value = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    std_dev = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    lower_outcome_bound = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    upper_outcome_bound = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    worst_case = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    best_case = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
     
     class Meta:
         db_table = 'backtest_monte_carlo_result'

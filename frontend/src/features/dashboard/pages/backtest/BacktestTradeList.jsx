@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
@@ -33,6 +33,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 
 export default function BacktestTradeList() {
   const { id } = useParams();
@@ -45,17 +46,14 @@ export default function BacktestTradeList() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [instrumentFilter, setInstrumentFilter] = useState("all");
+  const [instrumentOptions, setInstrumentOptions] = useState([]);
   const [page, setPage] = useState(1);
   const [selectedTrade, setSelectedTrade] = useState(null);
   const PAGE_SIZE = 50;
 
   const [totalCount, setTotalCount] = useState(0);
 
-  useEffect(() => {
-    fetchData();
-  }, [id, page, filter, search, instrumentFilter]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [runData, tradesData] = await Promise.all([
@@ -66,40 +64,29 @@ export default function BacktestTradeList() {
       if (tradesData.data.results) {
         setTrades(tradesData.data.results);
         setTotalCount(tradesData.data.count);
+        setInstrumentOptions(tradesData.data.instrument_options || []);
       } else {
         setTrades(tradesData.data);
         setTotalCount(tradesData.data.length);
+        setInstrumentOptions([...new Set(tradesData.data.map((trade) => trade.instrument_symbol).filter(Boolean))].sort());
       }
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load backtest trades"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, page, filter, search, instrumentFilter, notify]);
 
-  const formatCurrency = (val) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(val || 0);
-  };
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-  const formatTime = (dateString) => {
-    if (!dateString) return "-";
-    return new Date(dateString).toLocaleString("en-IN", {
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
 
   const stats = {
     total: run?.metrics?.total_trades || 0,
     winners: run?.metrics?.winning_trades || 0,
     losers: run?.metrics?.losing_trades || 0,
-    totalPnl: parseFloat(run?.metrics?.total_return_pct || 0),
+    totalPnl: Number(run?.metrics?.final_capital || 0) - Number(run?.initial_capital || 0),
   };
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -109,8 +96,6 @@ export default function BacktestTradeList() {
   useEffect(() => {
     setPage(1);
   }, [filter, search, instrumentFilter]);
-
-  const instrumentOptions = ["all"]; // Dynamic instruments require a separate backend call
 
   const pageActions = React.useMemo(() => (
     <Button
@@ -204,7 +189,7 @@ export default function BacktestTradeList() {
               <SelectValue placeholder="All Instruments" />
             </SelectTrigger>
             <SelectContent className="bg-gray-900 border-gray-800 text-white">
-              {instrumentOptions.map((option) => (
+              {["all", ...instrumentOptions].map((option) => (
                 <SelectItem key={option} value={option} className="focus:bg-gray-800 focus:text-white">
                   {option === "all" ? "All Instruments" : option}
                 </SelectItem>
@@ -289,10 +274,10 @@ export default function BacktestTradeList() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-[11px] text-gray-300">
-                        IN: {formatTime(trade.entry_time)}
+                        IN: {formatDateTime(trade.entry_time)}
                       </div>
                       <div className="text-[11px] text-gray-500">
-                        OUT: {formatTime(trade.exit_time)}
+                        OUT: {formatDateTime(trade.exit_time)}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -302,10 +287,10 @@ export default function BacktestTradeList() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="text-sm text-white">
-                        ₹{parseFloat(trade.entry_price).toFixed(2)}
+                        {formatCurrency(trade.entry_price)}
                       </div>
                       <div className="text-xs text-gray-500">
-                        ₹{parseFloat(trade.exit_price || 0).toFixed(2)}
+                        {formatCurrency(trade.exit_price || 0)}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -325,7 +310,7 @@ export default function BacktestTradeList() {
                       <div
                         className={`text-[10px] opacity-70 ${parseFloat(trade.net_pnl) >= 0 ? "text-green-400" : "text-red-400"}`}
                       >
-                        {parseFloat(trade.pnl_pct).toFixed(2)}%
+                        {formatNumber(trade.pnl_pct)}%
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -428,7 +413,7 @@ export default function BacktestTradeList() {
                     Entry Price
                   </div>
                   <div className="text-sm font-bold text-white">
-                    ₹{parseFloat(selectedTrade.entry_price).toFixed(2)}
+                    {formatCurrency(selectedTrade.entry_price)}
                   </div>
                 </div>
                 <div className="bg-gray-800/50 rounded-xl p-2.5 border border-gray-700/50">
@@ -436,7 +421,7 @@ export default function BacktestTradeList() {
                     Exit Price
                   </div>
                   <div className="text-sm font-bold text-white">
-                    ₹{parseFloat(selectedTrade.exit_price || 0).toFixed(2)}
+                    {formatCurrency(selectedTrade.exit_price || 0)}
                   </div>
                 </div>
                 <div className="bg-gray-800/50 rounded-xl p-2.5 border border-gray-700/50">
@@ -548,11 +533,11 @@ export default function BacktestTradeList() {
               <div className="flex flex-col sm:flex-row justify-between bg-gray-800/40 rounded-xl p-3 border border-gray-700/30 text-xs text-gray-400 mt-2">
                 <div className="flex flex-col mb-1 sm:mb-0">
                    <span className="font-semibold uppercase tracking-wider mb-0.5 opacity-70">Entry Time</span>
-                   <span className="font-medium text-gray-300">{formatTime(selectedTrade.entry_time)}</span>
+                   <span className="font-medium text-gray-300">{formatDateTime(selectedTrade.entry_time)}</span>
                 </div>
                 <div className="flex flex-col sm:text-right">
                    <span className="font-semibold uppercase tracking-wider mb-0.5 opacity-70">Exit Time</span>
-                   <span className="font-medium text-gray-300">{formatTime(selectedTrade.exit_time)}</span>
+                   <span className="font-medium text-gray-300">{formatDateTime(selectedTrade.exit_time)}</span>
                 </div>
               </div>
 

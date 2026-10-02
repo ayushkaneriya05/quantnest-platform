@@ -73,11 +73,11 @@ class InstrumentResolver:
             if isinstance(route, dict):
                 route_type = route.get('route_type')
                 sizing = route
-                target_instrument_id = route.get('target_instrument_id')
+                # target_instrument_id = route.get('target_instrument_id')
             else:
                 route_type = route.route_type
                 sizing = route.get_sizing_dict()
-                target_instrument_id = route.target_instrument_id
+                # target_instrument_id = route.target_instrument_id
 
             if route_type != "DIRECT":
                 raise ValueError(

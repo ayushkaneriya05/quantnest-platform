@@ -31,7 +31,8 @@ class TimeRule(BaseTimestampModel):
     market_session = models.CharField(
         max_length=20,
         choices=MarketSession.choices,
-        default=MarketSession.ALL
+        default=MarketSession.MARKET_OPEN,
+        help_text="Market session to trade in"
     )
     
     # Time window

@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from common.cache_keys import CacheKeys
+from .calendar import MarketSessionCalendar
 
 from instruments.models import Instrument
 
@@ -89,11 +90,14 @@ class MarketDataService:
     }
 
     @classmethod
-    def required_1m_candles(cls, config):
+    def required_1m_candles(cls, config, session_minutes=375):
         from rules_engine.metadata import IndicatorRequirementAnalyzer
 
         requirements = IndicatorRequirementAnalyzer.get_warmup_requirements(config or {})
-        timeframe_minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1H": 60, "4H": 240, "1D": 375, "1W": 1875}
+        timeframe_minutes = {
+            "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30,
+            "1H": 60, "4H": 240, "1D": session_minutes, "1W": session_minutes * 5,
+        }
         normalized_requirements = {
             cls.normalize_timeframe(timeframe): count for timeframe, count in requirements.items()
         }
@@ -179,7 +183,7 @@ class MarketDataService:
         return mapping.get(timeframe, "1 minute")
 
     @classmethod
-    def list_candles(cls, symbol, timeframe="1m", limit=200, start_dt=None, end_dt=None):
+    def list_candles(cls, symbol, timeframe="1m", limit=200, start_dt=None, end_dt=None, calendar=None):
         normalized = cls.normalize_symbol(symbol)
         timeframe = cls.normalize_timeframe(timeframe)
 
@@ -197,10 +201,13 @@ class MarketDataService:
         from django.db import connection
         db_timeframe = "1D" if timeframe == "1W" else "1m"
         bucket_interval = cls.get_timescale_interval(timeframe)
+        # Anchor intraday buckets to session open and weekly buckets to Monday midnight.
+        calendar = calendar or MarketSessionCalendar.for_symbol(normalized)
+        session_origin = calendar.bucket_origin(timeframe)
 
         query = """
             SELECT 
-                time_bucket(%s, "time") AS bucket_time,
+                time_bucket(%s, "time", %s) AS bucket_time,
                 FIRST(open, "time") AS open,
                 MAX(high) AS high,
                 MIN(low) AS low,
@@ -209,7 +216,7 @@ class MarketDataService:
             FROM marketdata_candle
             WHERE symbol = %s AND timeframe = %s
         """
-        params = [bucket_interval, normalized, db_timeframe]
+        params = [bucket_interval, session_origin, normalized, db_timeframe]
 
         if start_dt is not None:
             query += ' AND "time" >= %s'
@@ -366,6 +373,7 @@ class MarketDataService:
             )
             
         rows = list(unique_rows.values())
+        print("rows----------->", len(rows))
 
         with transaction.atomic():
             Candle.objects.bulk_create(
@@ -413,7 +421,7 @@ class MarketDataService:
         resolution = MarketDataService.normalize_timeframe(timeframe)
         api_resolution = MarketDataService.RESOLUTION_TO_FYERS.get(resolution, resolution)
 
-        def _to_fyers_epoch(val):
+        def _to_fyers_epoch(val, *, end_of_day=False):
             if isinstance(val, (int, float)):
                 return int(val)
             val_str = str(val)
@@ -422,8 +430,8 @@ class MarketDataService:
                 return int(dt.timestamp())
             if "-" in val_str:
                 dt = datetime.fromisoformat(val_str[:10]).replace(tzinfo=py_timezone.utc)
-                if len(val_str) <= 10:
-                     dt = dt.replace(hour=23, minute=59, second=59)
+                if len(val_str) <= 10 and end_of_day:
+                    dt = dt.replace(hour=23, minute=59, second=59)
                 return int(dt.timestamp())
             return int(val_str)
         params = {
@@ -431,7 +439,7 @@ class MarketDataService:
             "resolution": api_resolution,
             "date_format": "0",
             "range_from": str(_to_fyers_epoch(date_from)),
-            "range_to": str(_to_fyers_epoch(date_to)),
+            "range_to": str(_to_fyers_epoch(date_to, end_of_day=True)),
             "cont_flag": "1",
         }
 
@@ -470,44 +478,6 @@ class MarketDataService:
         if candles:
             cls.upsert_candles(symbol, timeframe, candles)
         return candles
-
-    @classmethod
-    def _expected_1m_timestamps(cls, required_count, exchange="NSE"):
-        """Return the most recent completed market-minute timestamps."""
-        from zoneinfo import ZoneInfo
-        from common.models import ExchangeConfig, MarketHoliday
-
-        local_zone = ZoneInfo("Asia/Kolkata")
-        config = ExchangeConfig.objects.filter(exchange=exchange, is_active=True).first()
-        market_open = config.market_open if config else time(9, 15)
-        market_close = config.market_close if config else time(15, 30)
-        holiday_rows = {
-            row["date"]: row for row in MarketHoliday.objects.filter(exchange__exchange=exchange).values("date", "is_partial", "partial_close")
-        }
-        now_local = datetime.now(local_zone).replace(second=0, microsecond=0)
-        latest_local = now_local - timedelta(minutes=1)
-        timestamps = []
-        cursor_date = latest_local.date()
-        while len(timestamps) < required_count:
-            holiday = holiday_rows.get(cursor_date)
-            if cursor_date.weekday() < 5 and (
-                not holiday or holiday.get("is_partial")
-            ):
-                day_open = datetime.combine(cursor_date, market_open, tzinfo=local_zone)
-                close_time = (
-                    holiday["partial_close"] if holiday and holiday.get("is_partial") and holiday.get("partial_close") else market_close
-                )
-                day_close = datetime.combine(cursor_date, close_time, tzinfo=local_zone)
-                end = min(day_close - timedelta(minutes=1), latest_local)
-                if end >= day_open:
-                    day_minutes = int((end - day_open).total_seconds() // 60) + 1
-                    for offset in range(day_minutes - 1, -1, -1):
-                        timestamps.append(day_open + timedelta(minutes=offset))
-                        if len(timestamps) >= required_count:
-                            break
-            cursor_date -= timedelta(days=1)
-        return list(reversed(timestamps))
-
 
     @classmethod
     def _validate_1m_window(cls, symbol, expected_timestamps):
@@ -556,7 +526,8 @@ class MarketDataService:
         timeframe = cls.normalize_timeframe(timeframe)
         required_count = max(int(required_count or 0), 0)
         normalized = cls.normalize_symbol(symbol)
-        expected = cls._expected_1m_timestamps(required_count) if timeframe == "1m" else []
+        calendar = MarketSessionCalendar.for_symbol(normalized)
+        expected = calendar.latest_1m_timestamps(required_count) if timeframe == "1m" else []
         validation = cls._validate_1m_window(normalized, expected) if expected else None
         available = validation["available"] if validation else len(cls.list_candles(normalized, timeframe=timeframe, limit=None))
         if available >= required_count and (not validation or not validation["missing"]):
@@ -594,7 +565,7 @@ class MarketDataService:
             fetched += len(rows or [])
             chunk_start = chunk_end + timedelta(days=1)
 
-        expected = cls._expected_1m_timestamps(required_count) if timeframe == "1m" else expected
+        expected = calendar.latest_1m_timestamps(required_count) if timeframe == "1m" else expected
         validation = cls._validate_1m_window(normalized, expected) if expected else None
         available = validation["available"] if validation else len(cls.list_candles(normalized, timeframe=timeframe, limit=None))
         missing = len(validation["missing"]) if validation else max(required_count - available, 0)

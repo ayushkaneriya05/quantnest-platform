@@ -48,8 +48,8 @@ class DataPreprocessor:
         
         # --- DYNAMIC MTF RESAMPLING ---
         base_tf = executor.base_timeframe
-        req_tfs = executor.required_timeframes
-        
+        req_tfs = set(executor.required_timeframes)
+
         mtf_data = {"1m": df}
         
         if base_tf != "1m":

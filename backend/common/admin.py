@@ -5,7 +5,7 @@ from .models import ExchangeConfig, MarketHoliday
 
 @admin.register(ExchangeConfig)
 class ExchangeConfigAdmin(admin.ModelAdmin):
-    list_display = ('exchange', 'market_open', 'market_close', 'pre_market_open', 'pre_market_close', 'is_active')
+    list_display = ('exchange', 'timezone', 'market_open', 'market_close', 'pre_market_open', 'pre_market_close', 'is_active')
     list_filter = ('is_active',)
     search_fields = ('exchange',)
 

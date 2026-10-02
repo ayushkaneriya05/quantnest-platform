@@ -515,15 +515,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=True, methods=['get'], url_path='tunable-parameters')
-    def tunable_parameters(self, request, pk=None):
-        """Get a flat list of all optimizable parameter paths for this strategy."""
-        strategy = self.get_object()
-        # Serialize snapshot
-        snapshot = StrategySnapshotService._serialize_strategy(strategy)
-        params = StrategySnapshotService.extract_tunable_parameters(snapshot)
-        return Response(params)
-
 
 class EntryOrderConfigViewSet(viewsets.ModelViewSet):
     """ViewSet for entry order configuration."""
