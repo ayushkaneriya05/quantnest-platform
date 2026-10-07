@@ -9,6 +9,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
+import StrategyVersionSelect from "@/features/dashboard/pages/strategy/components/StrategyVersionSelect";
 import {
   Select,
   SelectContent,
@@ -29,7 +30,7 @@ import { portfolioApi } from "@/shared/services/portfolioApi";
 import { strategyApi } from "@/shared/services/strategyApi";
 import PaperHotSwapModal from "./components/PaperHotSwapModal";
 import { RefreshCw as RefreshIcon } from "lucide-react";
-import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
+import { formatCurrency } from "@/shared/utils/formatters";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const INITIAL_FORM = {
@@ -46,7 +47,6 @@ export default function PaperAllocations() {
   const { notify } = useNotifications();
   const [portfolio, setPortfolio] = useState(null);
   const [allocations, setAllocations] = useState([]);
-  const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -74,10 +74,9 @@ export default function PaperAllocations() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [portfolioData, allocData, stratData] = await Promise.all([
+      const [portfolioData, allocData] = await Promise.all([
         portfolioApi.getMyPortfolio(),
         portfolioApi.getAllocations(),
-        strategyApi.getAll(),
       ]);
       setPortfolio(portfolioData.data);
       
@@ -88,10 +87,6 @@ export default function PaperAllocations() {
       // But typically allocations are global to the vault.
       setAllocations(allAllocations);
       
-      const stratArr = Array.isArray(stratData)
-        ? stratData
-        : stratData?.results || [];
-      setStrategies(stratArr);
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load allocation data"));
     } finally {
@@ -315,28 +310,24 @@ export default function PaperAllocations() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Select Strategy</Label>
-              <Select disabled={!!editingId} value={form.strategy} onValueChange={(v) => setForm({...form, strategy: v})}>
+              <Select resource="strategies" filters={editingId ? {} : { status: "ACTIVE", paper_trading_enabled: true }} disabled={!!editingId} value={form.strategy} onValueChange={(v) => setForm({...form, strategy: v})}>
                 <SelectTrigger className="bg-gray-800 border-gray-700"><SelectValue placeholder="Choose strategy" /></SelectTrigger>
-                <SelectContent>
-                  {strategies
-                    .filter((strategy) => editingId || (strategy.status === 'ACTIVE' && strategy.paper_trading_enabled))
-                    .map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
-                </SelectContent>
+                <SelectContent />
               </Select>
             </div>
             {form.strategy && !editingId && (
               <div className="space-y-2">
                 <Label>Strategy Version</Label>
-                <Select disabled={strategyVersions.length === 0} value={form.deployed_version_id} onValueChange={(v) => setForm({...form, deployed_version_id: v})}>
+                <StrategyVersionSelect filters={{ strategy_id: form.strategy }} disabled={strategyVersions.length === 0} value={form.deployed_version_id} onValueChange={(v) => setForm({...form, deployed_version_id: v})}>
                   <SelectTrigger className="bg-gray-800 border-gray-700">
                     <SelectValue placeholder={strategyVersions.length === 0 ? "No versions available" : "Select Version"} />
                   </SelectTrigger>
                   <SelectContent>
                     {strategyVersions.map(v => (
-                      <SelectItem key={v.id} value={String(v.id)}>v{v.version_number} {v.created_at ? `(${formatDateTime(v.created_at)})` : ''}</SelectItem>
+                      <SelectItem key={v.id} value={String(v.id)} data={v}>Version {v.version_number}</SelectItem>
                     ))}
                   </SelectContent>
-                </Select>
+                </StrategyVersionSelect>
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">

@@ -1,5 +1,9 @@
 # QuantNest Landing Page And Platform Website Improvement Plan
 
+> The AI Engine and Alternative Data recommendations in this earlier plan have
+> been superseded by the implemented research assistant, screener, reviewed drafts
+> and backtest review. See [current research setup](../research_service/README.md).
+
 ## Purpose
 
 This document consolidates the full improvement direction for the QuantNest public website and landing experience. It combines the landing page redesign plan, professional software website requirements, and advanced platform-support features needed to make QuantNest feel like a serious trading software company, not only a polished application.

@@ -80,10 +80,6 @@ class Strategy(BaseTimestampModel):
     paper_trading_enabled = models.BooleanField(default=True)
     live_trading_enabled = models.BooleanField(default=False)
 
-    # Sharing permissions
-    allow_clone = models.BooleanField(default=False, help_text="Allow other users to clone this strategy")
-    allow_backtest = models.BooleanField(default=False, help_text="Allow other users to backtest this strategy")
-
     # Tags
     tags = models.ManyToManyField(StrategyTag, blank=True, related_name='strategies')
 
@@ -115,7 +111,6 @@ class Strategy(BaseTimestampModel):
                 "visibility": self.visibility,
                 "paper_trading_enabled": self.paper_trading_enabled,
                 "live_trading_enabled": self.live_trading_enabled,
-                "allow_backtest": self.allow_backtest,
             }
         )
 

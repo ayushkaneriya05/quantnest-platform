@@ -1,3 +1,4 @@
+from users.websocket import AuthSessionConsumerMixin
 import json
 import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -5,7 +6,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 logger = logging.getLogger(__name__)
 
 
-class BacktestProgressConsumer(AsyncWebsocketConsumer):
+class BacktestProgressConsumer(AuthSessionConsumerMixin, AsyncWebsocketConsumer):
     """
     WebSocket consumer for real-time backtest progress updates.
     Clients can subscribe to receive progress updates as they happen.

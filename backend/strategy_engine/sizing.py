@@ -11,22 +11,17 @@ def compute_position_size(
     risk_evaluator: Any,
     sizing_config: Optional[Dict[str, Any]],
     price: float,
-    sl_distance: Optional[float] = None,
     lot_size: int = 1,
     strategy_config: Optional[Dict[str, Any]] = None,
 ) -> int:
     """
-    Compute order quantity while preserving risk/sizing rejection.
-
-    A return value of 0 means "do not place an order". We only fall back to
-    fixed quantity when the sizing config explicitly asks for a valid fixed
-    quantity and the evaluator itself errors.
+    Compute order quantity using a route override or the strategy configuration.
+    A quantity of zero rejects the entry.
 
     Args:
         risk_evaluator: RiskEvaluator instance
         sizing_config: Route-level sizing override (flat dict with sizing_method) or None
         price: Entry price
-        sl_distance: Stop loss distance
         lot_size: Lot size for derivatives
         strategy_config: Full strategy config (used when sizing_config is None)
     """
@@ -37,9 +32,7 @@ def compute_position_size(
         qty = risk_evaluator.calculate_quantity(
             config_to_use,
             price,
-            sl_distance=sl_distance,
             lot_size=lot_size,
-            strategy_config=strategy_config
         )
     except Exception as exc:
         logger.error("Sizing calculation error: %s", exc)

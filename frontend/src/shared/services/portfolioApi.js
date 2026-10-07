@@ -73,7 +73,7 @@ export const riskApi = {
     axiosInstance.patch(`/risk/sizing/${id}/`, data),
 
   // Auto-disable
-  getAutoDisableRules: () => axiosInstance.get("/risk/auto-disable/"),
+  getAutoDisableRules: (params) => axiosInstance.get("/risk/auto-disable/", { params }),
   createAutoDisableRule: (data) =>
     axiosInstance.post("/risk/auto-disable/", data),
   updateAutoDisableRule: (id, data) =>

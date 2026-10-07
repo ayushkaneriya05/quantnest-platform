@@ -72,7 +72,9 @@ class InstrumentViewSet(viewsets.ReadOnlyModelViewSet):
         else:
             if query:
                 qs = qs.order_by('match_score', 'symbol')
-            serializer = self.get_serializer(qs[:50], many=True)
+            else:
+                qs = qs.order_by('-id')
+            serializer = self.get_serializer(qs[:20], many=True)
             
         return Response(serializer.data)
 

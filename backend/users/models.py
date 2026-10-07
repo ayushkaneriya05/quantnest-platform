@@ -37,35 +37,6 @@ class User(AbstractUser):
         return self.username or self.email
 
 
-class APIKey(models.Model):
-    """API keys for programmatic access (stub for now)."""
-
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="api_keys")
-    prefix = models.CharField(max_length=8, help_text="First 8 chars for identification")
-    key_hash = models.CharField(max_length=128, help_text="SHA-256 hash of the full key")
-    name = models.CharField(max_length=100, blank=True, default="")
-    created_at = models.DateTimeField(auto_now_add=True)
-    last_used = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"{self.prefix}... ({self.user.username})"
-
-    @staticmethod
-    def generate_key():
-        """Generate a new API key and return (raw_key, prefix, key_hash)."""
-        raw_key = "qn_" + secrets.token_hex(24)  # e.g. qn_a1b2c3d4...
-        prefix = raw_key[:8]
-        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-        return raw_key, prefix, key_hash
-
-    @property
-    def masked_key(self):
-        return f"{self.prefix}{'*' * 20}"
-
-
 class BackupCode(models.Model):
     """One-time-use backup codes for 2FA recovery."""
 
@@ -99,16 +70,15 @@ class BackupCode(models.Model):
         """Verify a backup code. Returns True if valid and marks it as used."""
         from django.utils import timezone
 
-        code_hash = hashlib.sha256(raw_code.strip().encode()).hexdigest()
-        code_obj = BackupCode.objects.filter(
+        digits = raw_code.replace("-", "").replace(" ", "").strip()
+        if len(digits) != 8 or not digits.isdigit():
+            return False
+        formatted = f"{digits[:4]}-{digits[4:]}"
+        code_hash = hashlib.sha256(formatted.encode()).hexdigest()
+        updated = BackupCode.objects.filter(
             user=user, code_hash=code_hash, is_used=False
-        ).first()
-        if code_obj:
-            code_obj.is_used = True
-            code_obj.used_at = timezone.now()
-            code_obj.save()
-            return True
-        return False
+        ).update(is_used=True, used_at=timezone.now())
+        return bool(updated)
 
 
 class UserSession(models.Model):
@@ -116,6 +86,8 @@ class UserSession(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sessions")
     session_id = models.UUIDField(unique=True, help_text="Constant Session Identifier", default=uuid.uuid4)
+    device_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    refresh_jti = models.CharField(max_length=255, editable=False)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(null=True, blank=True)
     device_type = models.CharField(max_length=50, default="Unknown")
@@ -127,6 +99,9 @@ class UserSession(models.Model):
 
     class Meta:
         ordering = ["-last_activity"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "device_id"], name="unique_user_browser_session"),
+        ]
 
     def __str__(self):
         return f"Session({self.user.username}, {self.ip_address})"

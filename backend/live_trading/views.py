@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db.models import Count, DecimalField, Exists, ExpressionWrapper, F, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, Value, When, Case
+from django.db import transaction
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
@@ -315,9 +316,11 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(LiveStrategyAllocationSerializer(allocation).data)
 
     @action(detail=True, methods=['post'], url_path='deploy-version')
+    @transaction.atomic
     def deploy_version(self, request, pk=None):
         """Hot-swap the deployed strategy version on a live allocation."""
         allocation = self.get_object()
+        allocation = LiveStrategyAllocation.objects.select_for_update(of=("self",)).get(pk=allocation.pk)
         version_id = request.data.get('version_id')
 
         if not version_id:
@@ -338,12 +341,17 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        if allocation.deployed_version_id == version.pk:
+            return Response(self.get_serializer(allocation).data)
         allocation.deployed_version = version
         allocation.save(update_fields=['deployed_version', 'updated_at'])
 
         session = getattr(allocation, "session", None)
-        if session and session.status == "RUNNING":
-            LiveExecutionService._publish_execution_event("VERSION_CHANGE", session, "live")
+        if session:
+            from risk_management.auto_disable import AutoDisableGate
+            AutoDisableGate.version_changed(session)
+            if session.status == "RUNNING":
+                transaction.on_commit(lambda: LiveExecutionService._publish_execution_event("VERSION_CHANGE", session, "live"))
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)

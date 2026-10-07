@@ -19,6 +19,8 @@ CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CHANNEL_REDIS_URL = config("CHANNEL_REDIS_URL", default=REDIS_URL)
 USE_IN_MEMORY_CHANNEL_LAYER = config("USE_IN_MEMORY_CHANNEL_LAYER", default=DEBUG, cast=bool)
+RESEARCH_SERVICE_URL = config("RESEARCH_SERVICE_URL", default="http://127.0.0.1:8001")
+RESEARCH_SERVICE_TOKEN = config("RESEARCH_SERVICE_TOKEN", default="")
 
 
 INSTALLED_APPS = [
@@ -59,18 +61,13 @@ INSTALLED_APPS = [
     "analytics",
     "trade_journal",
     "notifications",
-    "ai_engine",
-    "marketplace",
+    "research",
     "audit",
-    "platform_events",
-    "community",
-    "gamification",
-    "learning",
-    "reputation",
     "strategy_engine"
 ]
 
 MIDDLEWARE = [
+    "audit.middleware.AuditContextMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -131,7 +128,6 @@ SOCIALACCOUNT_PROVIDERS = {
         "AUTH_PARAMS": {
             "access_type": "online",
         },
-        "VERIFIED_EMAIL": True,
     }
 }
 
@@ -154,6 +150,8 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
 REST_FRAMEWORK = {
+    # The server provides the client IP; untrusted forwarded headers cannot bypass throttling.
+    "NUM_PROXIES": 0,
     "DEFAULT_RENDERER_CLASSES": (
         "backend.middleware.api_responses.APIJSONRenderer",
         "backend.middleware.api_responses.APIBrowsableRenderer",
@@ -180,8 +178,13 @@ REST_AUTH = {
     "USE_JWT": True,
     "JWT_AUTH_HTTPONLY": True,
     "JWT_AUTH_COOKIE": "quantnest-auth",
-    "JWT_AUTH_REFRESH_COOKIE": "quantnest-refresh",
-    "JWT_AUTH_COOKIE_SAMESITE": "Lax",
+    "JWT_AUTH_REFRESH_COOKIE": "quantnest-refresh-session",
+    "JWT_AUTH_SAMESITE": "Lax",
+    "JWT_AUTH_SECURE": not DEBUG,
+    "JWT_AUTH_REFRESH_COOKIE_PATH": "/api/v1/users/",
+    "JWT_AUTH_COOKIE_USE_CSRF": True,
+    "JWT_TOKEN_CLAIMS_SERIALIZER": "users.serializers.CustomTokenObtainPairSerializer",
+    "OLD_PASSWORD_FIELD_ENABLED": True,
     "OTP_AUTH_ENABLED": True,
     "PASSWORD_RESET_CONFIRM_URL": "password/confirm/{uid}/{token}",
     "LOGIN_SERIALIZER": "dj_rest_auth.serializers.LoginSerializer",
@@ -225,11 +228,12 @@ ACCOUNT_ADAPTER = "users.adapters.CustomAccountAdapter"
 SOCIALACCOUNT_ADAPTER = "allauth.socialaccount.adapter.DefaultSocialAccountAdapter"
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "AUTH_HEADER_TYPES": ("Bearer",),
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "CHECK_REVOKE_TOKEN": True,
     "TOKEN_OBTAIN_SERIALIZER": "users.serializers.CustomTokenObtainPairSerializer",
 }
 
@@ -272,7 +276,7 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
 #   celery -A backend worker -Q live      --pool=prefork -c 4 --loglevel=info
 #   celery -A backend worker -Q paper     --pool=prefork -c 4 --loglevel=info
 #   celery -A backend worker -Q backtest  --pool=prefork -c 2 --loglevel=info
-#   celery -A backend worker -Q default,analytics,notifications --pool=prefork -c 2
+#   celery -A backend worker -Q default,notifications --pool=prefork -c 2
 CELERY_WORKER_POOL = "prefork"
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Prevents long tasks monopolising workers
 CELERY_TASK_ACKS_LATE = True           # Re-queue task if worker dies mid-execution
@@ -286,17 +290,20 @@ CELERY_TASK_ROUTES = {
     "marketdata.*": {"queue": "marketdata"},
     "instruments.*": {"queue": "marketdata"},
     "live_trading.*": {"queue": "live"},
-    "analytics.*": {"queue": "analytics"},
     "notifications.*": {"queue": "notifications"},
-    "ai_engine.*": {"queue": "ai"},
-    "platform_events.*": {"queue": "analytics"},
-    "community.*": {"queue": "notifications"},
-    "gamification.*": {"queue": "analytics"},
-    "learning.*": {"queue": "analytics"},
-    "reputation.*": {"queue": "analytics"},
+    "research.*": {"queue": "research"},
     "common.*": {"queue": "default"},
+    "users.*": {"queue": "default"},
 }
 CELERY_BEAT_SCHEDULE = {
+    "users-cleanup-expired-sessions": {
+        "task": "users.cleanup_expired_sessions",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    "research-expire-abandoned-runs": {
+        "task": "research.expire_runs",
+        "schedule": 60.0,
+    },
     "portfolio-daily-performance-nightly": {
         "task": "paper_trading.daily_performance_snapshot",
         "schedule": crontab(hour=0, minute=5),
@@ -312,10 +319,6 @@ CELERY_BEAT_SCHEDULE = {
     "live-trading-reconcile-oms": {
         "task": "live_trading.reconcile_all_active_accounts",
         "schedule": 60, # Every 1 minute
-    },
-    "analytics-refresh-daily-reports": {
-        "task": "analytics.refresh_daily_reports",
-        "schedule": 15 * 60,
     },
     "portfolio-rebalance-allocations-nightly": {
         "task": "paper_trading.rebalance_all_portfolios",

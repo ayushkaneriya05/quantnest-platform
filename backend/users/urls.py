@@ -1,45 +1,42 @@
 from django.urls import include, path
 
+from .auth_views import (
+    ActiveSessionsView, BackupCodeVerifyView, CSRFTokenView,
+    CustomLogoutView, CustomPasswordChangeView, CustomPasswordResetConfirmView,
+    CustomPasswordResetView, CustomRegisterView, CustomTokenRefreshView,
+    LogoutAllView, RevokeSessionView, TwoFactorVerifyView, TwoStepLoginView,
+)
+from .google_auth import GoogleCallbackView, GoogleCompleteView, GoogleStartView
 from .views import (
     AccountPreflightView,
     AccountDeactivateView,
     AccountDeleteView,
-    ActiveSessionsView,
-    APIKeyDeleteView,
-    APIKeyListCreateView,
-    BackupCodeVerifyView,
     BackupCodesListView,
     BackupCodesRegenerateView,
-    CustomLogoutView,
-    CustomPasswordResetConfirmView,
-    CustomPasswordResetView,
-    CustomRegisterView,
-    CustomTokenRefreshView,
     DeleteAvatarView,
     Get2FAStatusView,
-    GoogleLoginView,
-    LogoutAllView,
     ResendVerificationEmailView,
-    RevokeSessionView,
     SubscriptionStatusView,
     TOTPCreateView,
     TOTPDisableView,
     TOTPVerifyView,
-    TwoFactorVerifyView,
-    TwoStepLoginView,
     UserProfileView,
 )
 
 urlpatterns = [
     # Auth
+    path("auth/csrf/", CSRFTokenView.as_view(), name="auth-csrf"),
     path("auth/login/", TwoStepLoginView.as_view(), name="login"),
     path("auth/verify-2fa/", TwoFactorVerifyView.as_view(), name="otp-verify"),
     path("auth/registration/", CustomRegisterView.as_view(), name="custom_register"),
     path("auth/registration/resend-email/", ResendVerificationEmailView.as_view(), name="resend-email"),
     path("auth/password/reset/", CustomPasswordResetView.as_view(), name="rest_password_reset"),
     path("auth/password/reset/confirm/", CustomPasswordResetConfirmView.as_view(), name="rest_password_reset_confirm"),
+    path("auth/password/change/", CustomPasswordChangeView.as_view(), name="rest_password_change"),
     path("auth/logout/", CustomLogoutView.as_view(), name="rest_logout"),
-    path("auth/google/", GoogleLoginView.as_view(), name="google_login"),
+    path("auth/google/start/", GoogleStartView.as_view(), name="google_oauth_start"),
+    path("auth/google/callback/", GoogleCallbackView.as_view(), name="google_oauth_callback"),
+    path("auth/google/complete/", GoogleCompleteView.as_view(), name="google_oauth_complete"),
     path("auth/2fa/status/", Get2FAStatusView.as_view(), name="get-2fa-status"),
     path("auth/sessions/", ActiveSessionsView.as_view(), name="active-sessions"),
     path("auth/sessions/<int:pk>/", RevokeSessionView.as_view(), name="revoke-session"),
@@ -56,8 +53,6 @@ urlpatterns = [
     path("avatar/delete/", DeleteAvatarView.as_view(), name="avatar-delete"),
     # Account management
     path("subscription/", SubscriptionStatusView.as_view(), name="subscription-status"),
-    path("api-keys/", APIKeyListCreateView.as_view(), name="api-keys"),
-    path("api-keys/<int:pk>/", APIKeyDeleteView.as_view(), name="api-key-delete"),
     path("account/preflight/", AccountPreflightView.as_view(), name="account-preflight"),
     path("account/deactivate/", AccountDeactivateView.as_view(), name="account-deactivate"),
     path("account/", AccountDeleteView.as_view(), name="account-delete"),
@@ -77,9 +72,5 @@ def dummy_reset_confirm(request, uidb64=None, token=None):
 
 
 urlpatterns += [
-    path(
-        "password/reset/confirm/<uidb64>/<token>/",
-        dummy_reset_confirm,
-        name="password_reset_confirm",
-    ),
+    path("password/reset/confirm/<uidb64>/<token>/", dummy_reset_confirm, name="password_reset_confirm"),
 ]

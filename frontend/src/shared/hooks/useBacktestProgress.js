@@ -1,112 +1,62 @@
-/**
- * useBacktestProgress — WebSocket hook for real-time backtest progress updates
- * Replaces polling with real-time WebSocket updates for better UX
- */
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
+import { ensureFreshAccessToken, getWebSocketUrl } from "../services/api";
 
-const getWsUrl = () => {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const host =
-    window.location.hostname === "localhost"
-      ? "localhost:8000"
-      : window.location.host;
-  return `${protocol}://${host}/ws/backtest/progress/`;
-};
-
-export const useBacktestProgress = (
-  backtestId,
-  onProgress,
-  onComplete,
-  onError,
-) => {
-  const wsRef = useRef(null);
-  const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttemptsRef = useRef(5);
-  const reconnectTimeoutRef = useRef(null);
-  const isIntentionalCloseRef = useRef(false);
-
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    isIntentionalCloseRef.current = false;
-
-    try {
-      const token = localStorage.getItem("accessToken");
-      const wsUrlWithToken = `${getWsUrl()}?token=${encodeURIComponent(token)}`;
-
-      wsRef.current = new WebSocket(wsUrlWithToken);
-
-      wsRef.current.onopen = () => {
-        console.log("✅ Connected to backtest progress stream");
-        reconnectAttemptsRef.current = 0;
-      };
-
-      wsRef.current.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (!backtestId || data.run_id === backtestId) {
-            if (data.status === "COMPLETED") {
-              onComplete?.(data);
-            } else if (data.status === "FAILED") {
-              onError?.(data);
-            } else {
-              onProgress?.(data);
-            }
-          }
-        } catch (err) {
-          console.error("Failed to parse WebSocket message:", err);
-        }
-      };
-
-      wsRef.current.onerror = (error) => {
-        console.error("❌ WebSocket error:", error);
-        onError?.({ error: "Connection error" });
-      };
-
-      wsRef.current.onclose = () => {
-        console.log("🔌 Disconnected from backtest progress stream");
-        if (!isIntentionalCloseRef.current) {
-          attemptReconnect();
-        }
-      };
-    } catch (err) {
-      console.error("Failed to create WebSocket:", err);
-      attemptReconnect();
-    }
-  }, [backtestId, onProgress, onComplete, onError]);
-
-  const attemptReconnect = useCallback(() => {
-    if (reconnectAttemptsRef.current >= maxReconnectAttemptsRef.current) {
-      console.warn("Max reconnection attempts reached");
-      return;
-    }
-
-    const delay = Math.min(
-      1000 * Math.pow(2, reconnectAttemptsRef.current),
-      10000,
-    );
-    reconnectAttemptsRef.current += 1;
-
-    console.log(
-      `Attempting reconnect in ${delay}ms... (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttemptsRef.current})`,
-    );
-
-    reconnectTimeoutRef.current = setTimeout(connect, delay);
-  }, [connect]);
+export function useBacktestProgress(backtestId, onProgress, onComplete, onError, onReconnect) {
+  const socketRef = useRef(null);
+  const callbacks = useRef({});
+  callbacks.current = { onProgress, onComplete, onError, onReconnect };
 
   useEffect(() => {
-    connect();
+    let disposed = false;
+    let timer;
+    let attempts = 0;
+    let hasConnected = false;
 
-    return () => {
-      isIntentionalCloseRef.current = true;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+    const retry = () => {
+      if (!disposed) timer = setTimeout(connect, Math.min(1000 * 2 ** Math.min(attempts++, 5), 30000));
     };
-  }, [connect]);
+    async function connect() {
+      try {
+        await ensureFreshAccessToken();
+        if (disposed) return;
+        const socket = new WebSocket(getWebSocketUrl("/ws/backtest/progress/"));
+        socketRef.current = socket;
+        socket.onopen = () => {
+          attempts = 0;
+          if (hasConnected) callbacks.current.onReconnect?.();
+          hasConnected = true;
+        };
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.run_id == null || (backtestId && String(data.run_id) !== String(backtestId))) return;
+            if (["COMPLETED", "CANCELLED"].includes(data.status)) callbacks.current.onComplete?.(data);
+            else if (data.status === "FAILED") callbacks.current.onError?.(data);
+            else callbacks.current.onProgress?.(data);
+          } catch (error) {
+            console.error("Could not process backtest progress", error);
+          }
+        };
+        socket.onclose = (event) => {
+          if (event.code !== 4401) retry();
+        };
+      } catch {
+        retry();
+      }
+    }
+    connect();
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      if (socketRef.current) {
+        socketRef.current.onmessage = null;
+        socketRef.current.onclose = null;
+        socketRef.current.onopen = null;
+        socketRef.current.close();
+      }
+      socketRef.current = null;
+    };
+  }, [backtestId]);
 
-  return wsRef.current;
-};
+  return socketRef.current;
+}

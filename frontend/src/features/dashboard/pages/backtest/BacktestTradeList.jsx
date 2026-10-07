@@ -217,7 +217,7 @@ export default function BacktestTradeList() {
       {/* Trade Table */}
       <Card className="bg-gray-900/50 border-gray-800 overflow-hidden">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scrollbar-thin-theme">
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-gray-800/50 border-b border-gray-700 text-xs text-gray-400 uppercase tracking-wider">
@@ -375,7 +375,7 @@ export default function BacktestTradeList() {
 
       {/* Trade Details Modal */}
       <Dialog open={!!selectedTrade} onOpenChange={(open) => !open && setSelectedTrade(null)}>
-        <DialogContent className="bg-gray-900 border-gray-800 text-white max-w-2xl max-h-[95vh] overflow-y-auto custom-scrollbar w-[90vw] [&>button]:text-gray-400 [&>button]:hover:text-white sm:p-5 p-4">
+        <DialogContent className="bg-gray-900 border-gray-800 text-white max-w-2xl max-h-[95vh] overflow-y-auto scrollbar-theme w-[90vw] [&>button]:text-gray-400 [&>button]:hover:text-white sm:p-5 p-4">
           <DialogHeader className="mb-2">
             <div className="flex items-center gap-3">
               <div

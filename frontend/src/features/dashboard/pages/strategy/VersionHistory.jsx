@@ -1,7 +1,7 @@
 /**
  * Version History - strategy version management and rollback
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
@@ -12,7 +12,7 @@ import { History, RotateCcw, Eye, GitBranch } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
-import { usePageActions } from '@/shared/context/PageActionsContext';
+import { usePageActions } from '@/shared/context/pageActions';
 import StrategySnapshotViewer from './components/StrategySnapshotViewer';
 import { customConfirm, customPrompt } from '@/shared/components/ui/custom-dialog';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
@@ -30,9 +30,6 @@ export default function VersionHistory() {
   const [selectedVersion, setSelectedVersion] = useState(null);
   
 
-  useEffect(() => {
-    if (id) fetchData();
-  }, [id]);
 
   // Set Navigation in Header
   useEffect(() => {
@@ -40,7 +37,7 @@ export default function VersionHistory() {
     return () => setPageHeader(null);
   }, [strategy, setPageHeader]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [strategyData, versionsData] = await Promise.all([
@@ -54,7 +51,9 @@ export default function VersionHistory() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, notify]);
+
+  useEffect(() => { if (id) fetchData(); }, [id, fetchData]);
 
   const handleRollback = async (versionId) => {
     const confirmed = await customConfirm('Rollback to this version? This will override current settings.');
@@ -226,7 +225,7 @@ export default function VersionHistory() {
                             </h4>
                             {isCurrent && (
                               <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
-                                Current
+                                Latest snapshot
                               </Badge>
                             )}
                           </div>
@@ -288,7 +287,7 @@ export default function VersionHistory() {
 
       {/* Version Details Modal */}
       <Dialog open={!!selectedVersion} onOpenChange={(open) => !open && setSelectedVersion(null)}>
-        <DialogContent className="max-w-4xl bg-gray-900 border-gray-800 text-white max-h-[85vh] overflow-y-auto">
+        <DialogContent className="flex max-w-5xl max-h-[90dvh] flex-col overflow-hidden border-slate-800 bg-slate-950 text-slate-100">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-purple-500/10">
@@ -299,17 +298,11 @@ export default function VersionHistory() {
           </DialogHeader>
           
           {selectedVersion && (
-            <div className="mt-4">
+            <div className="scrollbar-theme min-h-0 flex-1 overflow-y-auto pr-2">
                <StrategySnapshotViewer 
                  snapshot={selectedVersion.config_snapshot} 
-                 previousSnapshot={(() => {
-                    const idx = versions.findIndex(v => v.id === selectedVersion.id);
-                    // Versions are usually sorted desc, so idx + 1 ist the older one
-                    if (idx !== -1 && idx < versions.length - 1) {
-                      return versions[idx + 1].config_snapshot;
-                    }
-                    return null;
-                 })()}
+                 changes={selectedVersion.changes}
+                 previousVersionNumber={selectedVersion.previous_version_number}
                />
             </div>
           )}

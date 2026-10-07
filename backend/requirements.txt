@@ -42,3 +42,4 @@ numba
 pyzmq
 
 pandas_market_calendars
+httpx

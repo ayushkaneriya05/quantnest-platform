@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { usePageActions } from '@/shared/context/PageActionsContext';
+import { usePageActions } from '@/shared/context/pageActions';
 
 /**
  * Hook to set page actions in the header

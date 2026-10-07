@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Briefcase, TrendingUp, User, Clock } from "lucide-react";
 
-import { usePageActions } from "@/shared/context/PageActionsContext";
+import { usePageActions } from "@/shared/context/pageActions";
 import AccountSummary from "./components/AccountSummary";
 import PortfolioDisplay from "./components/PortfolioDisplay";
 import ChartView from "./components/ChartView";

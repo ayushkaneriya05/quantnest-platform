@@ -1,16 +1,17 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { useSidebar } from "@/shared/hooks/useSidebar";
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
-import { PageActionsProvider, usePageActions } from "@/shared/context/PageActionsContext";
+import { PageActionsProvider } from "@/shared/context/PageActionsContext";
+import { usePageActionState } from "@/shared/context/pageActions";
 import Sidebar from "@/features/dashboard/components/layout/sidebar";
 import MainContentHeader from "@/features/dashboard/components/layout/main-content-header";
 
 function DashboardContent() {
   const { isOpen, initialize } = useSidebar();
   const { title, subtitle } = usePageTitle();
-  const { actions, headerContent } = usePageActions();
+  const { actions, headerContent } = usePageActionState();
 
   // Initialize WebSocket connection - this should be stable
   useWebSocket();
@@ -42,7 +43,7 @@ function DashboardContent() {
           actions={actions}
           customContent={headerContent} 
         />
-        <main className="flex-1 overflow-auto scrollbar-theme flex flex-col">
+        <main className="min-h-0 flex-1 overflow-auto scrollbar-theme flex flex-col">
           <Outlet />
         </main>
       </div>

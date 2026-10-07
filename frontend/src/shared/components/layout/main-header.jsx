@@ -1,11 +1,12 @@
 /* eslint-disable react/prop-types */
-import React, { useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { ArrowUpRight, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
-import { logout, logoutUser } from "@/shared/store/authSlice";
+import { logoutUser } from "@/shared/store/authSlice";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const navItems = [
   { label: "Workflow", target: "workflow" },
@@ -23,6 +24,7 @@ export default function MainHeader({
   const { accessToken } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const { notify } = useNotifications();
   const isLight = theme === "light";
 
   const headerClass = isLight
@@ -47,12 +49,10 @@ export default function MainHeader({
 
   const handleLogout = async () => {
     try {
-      await dispatch(logoutUser());
-    } catch (error) {
-      console.error("Logout failed", error);
-    } finally {
-      dispatch(logout());
+      await dispatch(logoutUser()).unwrap();
       navigate("/");
+    } catch (error) {
+      notify.error(typeof error === "string" ? error : "Could not sign out. Please retry.");
     }
   };
 

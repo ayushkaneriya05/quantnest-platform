@@ -6,6 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
+import { TooltipHint } from "@/shared/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -20,7 +21,7 @@ import { ruleGroupApi, ruleApi } from "@/shared/services/rulesApi";
 import { entryConfigApi, strategyApi } from "@/shared/services/strategyApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
-import { usePageActions } from "@/shared/context/PageActionsContext";
+import { usePageActions } from "@/shared/context/pageActions";
 import { useEnums } from "@/shared/context/EnumsContext";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { getDefaultParams } from "./components/operandUtils";
@@ -377,17 +378,16 @@ export default function EntryRulesBuilder() {
                   {groupIndex > 0 && (
                     <div className="flex items-center justify-center py-2">
                       <div className="h-px w-12 bg-gray-700" />
-                      <button
+                      <TooltipHint content="Click to toggle between AND / OR logic between groups"><button
                         onClick={handleUpdateInterGroupOperator}
                         className={`mx-3 px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 cursor-pointer hover:scale-105 ${
                           interGroupOperator === "AND"
                             ? "bg-amber-600/20 text-amber-400 border-amber-500/30 hover:bg-amber-600/30"
                             : "bg-indigo-600/20 text-indigo-400 border-indigo-500/30 hover:bg-indigo-600/30"
                         }`}
-                        title="Click to toggle between AND / OR logic between groups"
                       >
                         {interGroupOperator}
-                      </button>
+                      </button></TooltipHint>
                       <div className="h-px w-12 bg-gray-700" />
                     </div>
                   )}

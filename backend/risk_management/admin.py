@@ -4,7 +4,7 @@ from .models import PositionSizingRule, StrategyAutoDisable
 
 @admin.register(PositionSizingRule)
 class PositionSizingRuleAdmin(admin.ModelAdmin):
-    list_display = ['strategy', 'sizing_method', 'capital_percentage', 'risk_per_trade_percentage']
+    list_display = ['strategy', 'sizing_method', 'capital_percentage']
     list_filter = ['sizing_method']
 
 

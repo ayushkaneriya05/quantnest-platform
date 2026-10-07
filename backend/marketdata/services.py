@@ -373,7 +373,6 @@ class MarketDataService:
             )
             
         rows = list(unique_rows.values())
-        print("rows----------->", len(rows))
 
         with transaction.atomic():
             Candle.objects.bulk_create(

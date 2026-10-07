@@ -15,6 +15,12 @@ class StrategyTagSerializer(serializers.ModelSerializer):
 
 class EntryOrderConfigSerializer(serializers.ModelSerializer):
     entry_group_operator = serializers.ChoiceField(choices=LogicalOperator.choices, required=False)
+
+    def validate_strategy(self, strategy):
+        request = self.context.get("request")
+        if request and strategy.user_id != request.user.pk:
+            raise serializers.ValidationError("Select one of your own strategies.")
+        return strategy
     
     class Meta:
         model = EntryOrderConfig
@@ -57,7 +63,6 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
             'id', 'name', 'description', 'strategy_type', 'market_type',
             'exchange', 'instrument_type', 'status', 'visibility',
             'paper_trading_enabled', 'live_trading_enabled',
-            'allow_clone', 'allow_backtest',
             'user', 'user_username', 'tags', 'tag_ids',
             'entry_order_config', 'exit_order_config',
             'auto_version_enabled',
@@ -87,11 +92,29 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
 
 class StrategyVersionSerializer(serializers.ModelSerializer):
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
-    
+    changes = serializers.SerializerMethodField()
+    previous_version_number = serializers.SerializerMethodField()
+
+    def previous_version(self, instance):
+        if 'previous_versions' in self.context:
+            return self.context['previous_versions'].get(instance.pk)
+        if not hasattr(instance, '_previous_version'):
+            instance._previous_version = instance.strategy.versions.filter(version_number__lt=instance.version_number).order_by('-version_number').first()
+        return instance._previous_version
+
+    def get_changes(self, instance):
+        from .snapshots import snapshot_changes
+        previous = self.previous_version(instance)
+        return snapshot_changes(previous.config_snapshot if previous else None, instance.config_snapshot)
+
+    def get_previous_version_number(self, instance):
+        previous = self.previous_version(instance)
+        return previous.version_number if previous else None
+
     class Meta:
         model = StrategyVersion
         fields = ['id', 'version_number', 'config_snapshot', 'change_notes', 
-                  'created_by', 'created_by_username', 'created_at']
+                  'created_by', 'created_by_username', 'created_at', 'changes', 'previous_version_number']
         read_only_fields = ['created_at']
 
 
@@ -115,7 +138,6 @@ class StrategyListSerializer(serializers.ModelSerializer):
             'exchange', 'instrument_type', 'status', 'visibility',
             'user', 'user_username', 'tags',
             'paper_trading_enabled', 'live_trading_enabled',
-            'allow_clone', 'allow_backtest',
             'auto_version_enabled',
             'created_at', 'updated_at'
         ]

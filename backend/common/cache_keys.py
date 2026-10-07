@@ -25,8 +25,6 @@ class CacheKeys:
     NOTIF_RISK_ALERT_PAPER = "risk_alert_paper_{account_id}"                    # TTL: 86400s
     BROKER_SESSION_EXPIRED = "broker_session_expired_notification_{credential_id}"  # TTL: 3600s
     
-    # Auth
-    AUTH_SESSION = "auth_session_valid_{session_id}"                            # TTL: 60s
     
     # Market Data
     QUOTE_CACHE = "marketdata:quote:{symbol}"                                   # TTL: 60s

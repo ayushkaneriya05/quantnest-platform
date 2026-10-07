@@ -1,6 +1,6 @@
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
-import { useSelector, useDispatch } from "react-redux";
+import { useDispatch } from "react-redux";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
@@ -13,17 +13,13 @@ import {
   DialogTrigger,
 } from "@/shared/components/ui/dialog";
 import {
-  Copy,
-  KeyRound,
   CreditCard,
   AlertTriangle,
   CheckCircle,
   Loader2,
-  Trash2,
-  Plus,
 } from "lucide-react";
 import api from "@/shared/services/api";
-import { logout, logoutUser } from "@/shared/store/authSlice";
+import { logout } from "@/shared/store/authSlice";
 import { useNavigate } from "react-router-dom";
 import {
   Card,
@@ -34,15 +30,11 @@ import {
 } from "@/shared/components/ui/card";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 export default function AccountTab() {
-  const { user } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
   const [subscription, setSubscription] = useState(null);
-  const [apiKeys, setApiKeys] = useState([]);
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
-  const [isLoadingApiKeys, setIsLoadingApiKeys] = useState(true);
-  const [isGeneratingKey, setIsGeneratingKey] = useState(false);
   const [message, setMessage] = useState(null);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -63,12 +55,6 @@ export default function AccountTab() {
       // Load subscription data
       const subResponse = await api.get("/users/subscription/");
       setSubscription(subResponse.data);
-
-      // Load API keys if user has pro plan
-      if (subResponse.data.is_pro) {
-        const keysResponse = await api.get("/users/api-keys/");
-        setApiKeys(keysResponse.data.keys || []);
-      }
     } catch (err) {
       console.error("Failed to load account data:", err);
       setMessage({
@@ -77,61 +63,6 @@ export default function AccountTab() {
       });
     } finally {
       setIsLoadingSubscription(false);
-      setIsLoadingApiKeys(false);
-    }
-  };
-
-  const handleCopy = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setMessage({
-        type: "success",
-        text: "API key copied to clipboard!",
-      });
-      // Clear message after 3 seconds
-      setTimeout(() => setMessage(null), 3000);
-    } catch (err) {
-      setMessage({
-        type: "error",
-        text: "Failed to copy to clipboard",
-      });
-    }
-  };
-
-  const handleGenerateApiKey = async () => {
-    setIsGeneratingKey(true);
-    try {
-      const response = await api.post("/users/api-keys/");
-      setApiKeys((prev) => [...prev, response.data]);
-      setMessage({
-        type: "success",
-        text: "New API key generated successfully!",
-      });
-    } catch (err) {
-      console.error("Failed to generate API key:", err);
-      setMessage({
-        type: "error",
-        text: "Failed to generate API key",
-      });
-    } finally {
-      setIsGeneratingKey(false);
-    }
-  };
-
-  const handleDeleteApiKey = async (keyId) => {
-    try {
-      await api.delete(`/users/api-keys/${keyId}/`);
-      setApiKeys((prev) => prev.filter((key) => key.id !== keyId));
-      setMessage({
-        type: "success",
-        text: "API key deleted successfully",
-      });
-    } catch (err) {
-      console.error("Failed to delete API key:", err);
-      setMessage({
-        type: "error",
-        text: "Failed to delete API key",
-      });
     }
   };
 
@@ -149,7 +80,6 @@ export default function AccountTab() {
     setIsDeactivating(true);
     try {
       await api.post("/users/account/deactivate/");
-      dispatch(logoutUser());
       dispatch(logout());
       navigate("/login", {
         state: { message: "Your account has been deactivated." },
@@ -228,9 +158,9 @@ export default function AccountTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-10">
-        {/* Top Left: Subscription & Billing */}
-        <div className="lg:col-span-12 xl:col-span-7">
+      <div className="space-y-6 pb-10">
+        {/* Subscription & Billing */}
+        <div>
           <Card className="bg-gray-900/50 border-gray-800/50 h-full">
             <CardHeader className="border-b border-gray-800/50">
               <div className="flex items-center gap-2">
@@ -260,7 +190,7 @@ export default function AccountTab() {
                     <p className="text-sm text-slate-400 max-w-md">
                       {subscription?.is_pro
                         ? `Full access to Pro features. ${subscription?.expires_at ? `Valid until ${formatDate(subscription.expires_at)}` : ""}`
-                        : "Upgrade to unlock high-frequency data, advanced strategy builders, and API access."}
+                        : "Upgrade to unlock high-frequency data and advanced strategy builders."}
                     </p>
                     {subscription?.usage && (
                       <div className="pt-2">
@@ -302,92 +232,8 @@ export default function AccountTab() {
           </Card>
         </div>
 
-        {/* Top Right: REST API Access */}
-        <div className="lg:col-span-12 xl:col-span-5">
-          <Card className="bg-gray-900/50 border-gray-800/50 h-full">
-            <CardHeader className="border-b border-gray-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="h-5 w-5 text-purple-400" />
-                  <CardTitle className="text-lg font-semibold text-slate-200">API Access</CardTitle>
-                </div>
-                <CardDescription className="text-slate-400">Generate secure API keys to interact with QuantNest via your own tools.</CardDescription>
-              </div>
-              {subscription?.is_pro && (
-                <Button
-                  onClick={handleGenerateApiKey}
-                  disabled={isGeneratingKey}
-                  size="sm"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white border-0 shadow-lg shadow-indigo-500/10 rounded-lg px-4 h-9"
-                >
-                  {isGeneratingKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4 mr-2" /> New Key</>}
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent className="p-0">
-              {!subscription?.is_pro ? (
-                <div className="p-12 text-center space-y-4">
-                  <div className="mx-auto w-10 h-10 bg-gray-800/50 rounded-full flex items-center justify-center mb-2">
-                    <KeyRound className="h-5 w-5 text-slate-600" />
-                  </div>
-                  <p className="text-slate-400 text-xs font-medium">Pro exclusive feature</p>
-                  <Button onClick={handleUpgradeToPro} variant="link" className="text-indigo-400 hover:text-indigo-300 h-auto p-0 text-xs">View Pro &rarr;</Button>
-                </div>
-              ) : isLoadingApiKeys ? (
-                <GlobalLoader />
-              ) : apiKeys.length === 0 ? (
-                <div className="p-12 text-center text-slate-500 text-sm">No API keys generated yet.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[400px]">
-                    <thead>
-                      <tr className="border-b border-gray-800/50 bg-gray-800/20">
-                        <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Key</th>
-                        <th className="px-4 py-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Name</th>
-                        <th className="px-4 py-3 text-right"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-800/30">
-                      {apiKeys.map((key) => (
-                        <tr key={key.id} className="hover:bg-gray-800/20 transition-colors group">
-                          <td className="px-4 py-3">
-                            <code className="text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded text-xs font-mono">{key.masked_key}</code>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="text-slate-300 text-xs truncate max-w-[100px] block">{key.name || "Default Key"}</span>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleCopy(key.key)}
-                                className="h-7 w-7 text-slate-400 hover:text-slate-100 hover:bg-gray-700"
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDeleteApiKey(key.id)}
-                                className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-900/20"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Bottom Full Row: Danger Zone */}
-        <div className="lg:col-span-12">
+        {/* Danger Zone */}
+        <div>
           <div className="bg-red-950/10 border border-red-500/20 rounded-2xl p-6 sm:p-8 shadow-inner shadow-red-950/20">
             <div className="flex items-center gap-3 mb-8">
               <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center border border-red-500/20">

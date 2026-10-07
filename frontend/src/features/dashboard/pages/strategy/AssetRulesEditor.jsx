@@ -2,7 +2,7 @@
  * Asset Rules Editor - instrument selection for algo trading
  * Features: dropdown search, filter tabs, enriched watchlist, instrument detail dialog
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -17,11 +17,12 @@ import {
 } from 'lucide-react';
 import StrategyConfigNav from './StrategyConfigNav';
 import UniversalRoutingModal from './UniversalRoutingModal';
+import { useInstrumentSearch } from '@/shared/hooks/useInstrumentSearch';
 import { instrumentsApi, watchlistApi } from '@/shared/services/instrumentsApi';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
-import { usePageActions } from '@/shared/context/PageActionsContext';
+import { usePageActions } from '@/shared/context/pageActions';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEnums } from '@/shared/context/EnumsContext';
 
@@ -224,7 +225,7 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
         ) : (
           <div className="flex-1 flex flex-col min-h-[400px]">
             {/* Expiry Tabs */}
-            <div className="shrink-0 flex gap-2 p-3 overflow-x-auto scrollbar-none border-b border-gray-800/60 bg-gray-900/30">
+            <div className="shrink-0 flex gap-2 p-3 overflow-x-auto scrollbar-thin-theme border-b border-gray-800/60 bg-gray-900/30">
               {expiries.map(exp => (
                 <button
                   key={exp}
@@ -524,9 +525,7 @@ export default function AssetRulesEditor() {
   const [strategy, setStrategy] = useState(null);
   const [watchlist, setWatchlist] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [typeFilter, setTypeFilter] = useState('');
   const [exchangeFilter, setExchangeFilter] = useState('');
@@ -534,7 +533,8 @@ export default function AssetRulesEditor() {
   const [optionChainUnderlying, setOptionChainUnderlying] = useState(null);
   const [routingInstrument, setRoutingInstrument] = useState(null);
 
-  const debounceRef = useRef(null);
+  const { results: searchResults, loading: searching, error: searchError } = useInstrumentSearch(
+    searchQuery, { type: typeFilter, exchange: exchangeFilter }, showDropdown);
   const dropdownRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -596,42 +596,7 @@ export default function AssetRulesEditor() {
     finally { setLoading(false); }
   };
 
-  const doSearch = useCallback(async (query, type, exchange) => {
-    if (!query || query.trim().length < 2) {
-      setSearchResults([]);
-      setShowDropdown(false);
-      return;
-    }
-    try {
-      setSearching(true);
-      const params = { q: query };
-      if (type) params.type = type;
-      if (exchange) params.exchange = exchange;
-      const results = await instrumentsApi.search(params);
-      setSearchResults(Array.isArray(results) ? results : []);
-      setShowDropdown(true);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
-  }, []);
-
-  const handleQueryChange = useCallback((value) => {
-    setSearchQuery(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (value.trim().length < 2) {
-      setSearchResults([]);
-      setShowDropdown(false);
-      return;
-    }
-    debounceRef.current = setTimeout(() => doSearch(value, typeFilter, exchangeFilter), 300);
-  }, [doSearch, typeFilter, exchangeFilter]);
-
-  // Re-search on filter change
-  useEffect(() => {
-    if (searchQuery.trim().length >= 2) doSearch(searchQuery, typeFilter, exchangeFilter);
-  }, [typeFilter, exchangeFilter]);
+  const handleQueryChange = (value) => { setSearchQuery(value); setShowDropdown(true); };
 
   const handleAdd = async (instrument) => {
     try {
@@ -719,14 +684,14 @@ export default function AssetRulesEditor() {
                   ref={inputRef}
                   value={searchQuery}
                   onChange={(e) => handleQueryChange(e.target.value)}
-                  onFocus={() => searchResults.length > 0 && setShowDropdown(true)}
+                  onFocus={() => setShowDropdown(true)}
                   onKeyDown={(e) => e.key === 'Escape' && setShowDropdown(false)}
                   placeholder="Search by symbol or name..."
                   className="bg-gray-900/60 border-gray-800/80 text-white pl-10 pr-8 h-10 placeholder:text-gray-600 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 rounded-xl"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => { setSearchQuery(''); setSearchResults([]); setShowDropdown(false); }}
+                    onClick={() => { setSearchQuery(''); setShowDropdown(false); }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400 transition-colors"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -735,6 +700,7 @@ export default function AssetRulesEditor() {
               </div>
 
               {/* ── Floating Dropdown Results ── */}
+              {searchError && <p role="alert" className="text-sm text-rose-300">{searchError}</p>}
               {showDropdown && (
                 <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-950 border border-gray-800/80 rounded-xl shadow-2xl shadow-black/40 max-h-80 overflow-y-auto scrollbar-theme">
                   {searchResults.length > 0 ? (
@@ -856,7 +822,6 @@ export default function AssetRulesEditor() {
         open={!!routingInstrument}
         onClose={() => setRoutingInstrument(null)}
         watchlistInstrument={routingInstrument}
-        strategyConfig={strategy?.config || {}}
       />
     </div>
   );

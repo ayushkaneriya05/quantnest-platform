@@ -30,10 +30,10 @@ class BacktestRunSerializer(serializers.ModelSerializer):
             'id', 'name', 'strategy', 'strategy_name', 'strategy_version', 'start_date', 'end_date',
             'initial_capital', 'slippage_pct',
             'charge_profile', 'charge_profile_detail', 'include_charges',
-            'parameters', 'config_snapshot', 'data_quality',
+            'parameters', 'config_snapshot', 'data_quality', 'diagnostics',
             'status', 'progress_pct', 'progress_message', 'error_message', 'started_at', 'completed_at', 'created_at'
         ]
-        read_only_fields = ['user', 'status', 'progress_pct', 'progress_message', 'data_quality', 'started_at', 'completed_at']
+        read_only_fields = ['user', 'status', 'progress_pct', 'progress_message', 'data_quality', 'diagnostics', 'config_snapshot', 'strategy_version', 'started_at', 'completed_at']
 
     def get_charge_profile_detail(self, obj):
         if obj.charge_profile:
@@ -162,7 +162,7 @@ class BacktestRunDetailSerializer(serializers.ModelSerializer):
             'id', 'name', 'strategy', 'strategy_name', 'start_date', 'end_date',
             'initial_capital', 'slippage_pct',
             'charge_profile', 'charge_profile_detail', 'include_charges',
-            'config_snapshot', 'data_quality', 'status', 'progress_pct', 'progress_message',
+            'config_snapshot', 'data_quality', 'diagnostics', 'status', 'progress_pct', 'progress_message',
             'error_message', 'started_at', 'completed_at', 'created_at',
             'metrics', 'trades_count'
         ]

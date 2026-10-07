@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-
-const PageActionsContext = createContext();
+import { useState, useCallback, useMemo } from 'react';
+import PropTypes from 'prop-types';
+import { PageActionsContext, PageActionStateContext } from './pageActions';
 
 export function PageActionsProvider({ children }) {
   const [actions, setActions] = useState(null);
@@ -22,24 +22,22 @@ export function PageActionsProvider({ children }) {
     setHeaderContent(null);
   }, []);
 
-  return (
-    <PageActionsContext.Provider value={{ 
-      actions, 
+  // Publishing a new header must not rerender its publisher.
+  const commands = useMemo(() => ({
       setPageActions, 
       clearPageActions,
-      headerContent,
       setPageHeader,
       clearPageHeader
-    }}>
-      {children}
+  }), [setPageActions, clearPageActions, setPageHeader, clearPageHeader]);
+  const state = useMemo(() => ({ actions, headerContent }), [actions, headerContent]);
+
+  return (
+    <PageActionsContext.Provider value={commands}>
+      <PageActionStateContext.Provider value={state}>
+        {children}
+      </PageActionStateContext.Provider>
     </PageActionsContext.Provider>
   );
 }
 
-export function usePageActions() {
-  const context = useContext(PageActionsContext);
-  if (!context) {
-    throw new Error('usePageActions must be used within a PageActionsProvider');
-  }
-  return context;
-}
+PageActionsProvider.propTypes = { children: PropTypes.node.isRequired };

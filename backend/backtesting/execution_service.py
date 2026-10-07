@@ -109,6 +109,7 @@ class BacktestExecutionService:
 
         # Update context capital
         context.current_capital += float(net_pnl)
+        context.record_risk_close(net_pnl, timestamp)
 
         position['realized_quantity'] = position.get('realized_quantity', 0) + fill_quantity
         position['realized_gross_pnl'] = position.get('realized_gross_pnl', 0.0) + float(gross_pnl)
@@ -192,6 +193,10 @@ class BacktestExecutionService:
             strategy_config = order['strategy_config']
             exit_reason = order['exit_reason']
 
+            if exit_reason == "strategy_entry" and not context.can_enter(timestamp):
+                context.diagnostics["auto_disable_restrictions"] += 1
+                continue
+
             execution_candle = candles_by_instrument.get(instrument.id)
             if execution_candle is None:
                 remaining_orders.append(order)
@@ -204,6 +209,7 @@ class BacktestExecutionService:
                     "Backtest entry rejected at fill: instrument=%s required=%.2f available=%.2f",
                     instrument.id, execution_price * quantity, context.current_capital - committed_capital,
                 )
+                context.diagnostics["capital_rejections"] += 1
                 continue
             BacktestExecutionService.execute_market_order(
                 context,
@@ -219,6 +225,7 @@ class BacktestExecutionService:
             )
             if exit_reason == "strategy_entry":
                 committed_capital += execution_price * quantity
+                context.diagnostics["entry_fills"] += 1
 
         context.pending_orders = remaining_orders
 

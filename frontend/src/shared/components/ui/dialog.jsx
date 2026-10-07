@@ -1,4 +1,5 @@
 import * as React from "react"
+import PropTypes from "prop-types"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 
@@ -23,6 +24,7 @@ const DialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
   />
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
+DialogOverlay.propTypes = { className: PropTypes.string }
 
 const DialogContent = React.forwardRef(({ className, children, ...props }, ref) => (
   <DialogPortal>
@@ -30,7 +32,7 @@ const DialogContent = React.forwardRef(({ className, children, ...props }, ref) 
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        "scrollbar-theme fixed left-[50%] top-[50%] z-50 grid min-w-0 grid-cols-1 w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 [&>*]:min-w-0 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         className
       )}
       {...props}
@@ -44,17 +46,19 @@ const DialogContent = React.forwardRef(({ className, children, ...props }, ref) 
   </DialogPortal>
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName
+DialogContent.propTypes = { className: PropTypes.string, children: PropTypes.node }
 
 const DialogHeader = ({ className, ...props }) => (
   <div
     className={cn(
-      "flex flex-col space-y-1.5 text-center sm:text-left",
+      "flex min-w-0 flex-col space-y-1.5 break-words text-center sm:text-left",
       className
     )}
     {...props}
   />
 )
 DialogHeader.displayName = "DialogHeader"
+DialogHeader.propTypes = { className: PropTypes.string }
 
 const DialogFooter = ({ className, ...props }) => (
   <div
@@ -66,6 +70,7 @@ const DialogFooter = ({ className, ...props }) => (
   />
 )
 DialogFooter.displayName = "DialogFooter"
+DialogFooter.propTypes = { className: PropTypes.string }
 
 const DialogTitle = React.forwardRef(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
@@ -78,6 +83,7 @@ const DialogTitle = React.forwardRef(({ className, ...props }, ref) => (
   />
 ))
 DialogTitle.displayName = DialogPrimitive.Title.displayName
+DialogTitle.propTypes = { className: PropTypes.string }
 
 const DialogDescription = React.forwardRef(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
@@ -87,6 +93,7 @@ const DialogDescription = React.forwardRef(({ className, ...props }, ref) => (
   />
 ))
 DialogDescription.displayName = DialogPrimitive.Description.displayName
+DialogDescription.propTypes = { className: PropTypes.string }
 
 export {
   Dialog,

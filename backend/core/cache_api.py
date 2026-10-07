@@ -142,6 +142,10 @@ class CacheApi:
             logger.exception(f"Error updating risk metrics for {scope}:{session_id}: {e}")
             return False
     
+    def mutate_risk_metrics(self, scope: str, session_id: str, transform) -> Dict[str, Any]:
+        """Atomically calculate risk counters; let failures stop risk validation."""
+        return self._cache.mutate_risk_metrics(scope, session_id, transform)
+
     def update_market_quote(self, symbol: str, quote: Dict[str, Any]) -> bool:
         """
         Update market quote (delegates to existing QuoteStore).

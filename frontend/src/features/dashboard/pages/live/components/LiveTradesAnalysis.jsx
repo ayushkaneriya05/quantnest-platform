@@ -9,7 +9,7 @@ function Metric({ title, value, detail, color = "text-white" }) {
   return <Card className="border-slate-800 bg-slate-900/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 text-2xl font-semibold ${color}`}>{value}</p>{detail && <p className="mt-1 text-xs text-slate-500">{detail}</p>}</CardContent></Card>;
 }
 
-export default function LiveTradesAnalysis({ trades = [], pagination, summary = {}, onPageChange, sessions = [], allocationFilter = "", onAllocationChange }) {
+export default function LiveTradesAnalysis({ trades = [], pagination, summary = {}, onPageChange, allocationFilter = "", onAllocationChange }) {
   const total = Number(summary.count ?? pagination?.count ?? trades.length);
   const winners = Number(summary.winning || 0);
   const losers = Number(summary.losing || 0);
@@ -24,13 +24,13 @@ export default function LiveTradesAnalysis({ trades = [], pagination, summary = 
         <Metric title="Win rate" value={winRate == null ? "—" : `${winRate.toFixed(2)}%`} detail="Across all closed trades" />
       </div>
       <Card className="overflow-hidden border-slate-800 bg-slate-900/50">
-      <CardHeader className="flex flex-col gap-2 space-y-0 border-b border-slate-800 px-4 py-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-xl text-slate-300 font-semibold">Live Trades</p><Select value={allocationFilter || "ALL"} onValueChange={(value) => onAllocationChange(value === "ALL" ? "" : value)}><SelectTrigger className="h-9 w-full border-slate-700 bg-slate-950 text-slate-200 sm:w-64" aria-label="Filter trades by allocation"><SelectValue placeholder="All allocations" /></SelectTrigger><SelectContent><SelectItem value="ALL">All allocations</SelectItem>{sessions.filter((session) => session.allocation?.id).map((session) => <SelectItem key={session.allocation.id} value={String(session.allocation.id)}>{session.strategy_name} · {formatBrokerAccount(session.broker_name, session.broker_label)}</SelectItem>)}</SelectContent></Select></CardHeader>
+      <CardHeader className="flex flex-col gap-2 space-y-0 border-b border-slate-800 px-4 py-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-xl text-slate-300 font-semibold">Live Trades</p><Select resource="live-allocations" value={allocationFilter || "ALL"} onValueChange={(value) => onAllocationChange(value === "ALL" ? "" : value)}><SelectTrigger className="h-9 w-full border-slate-700 bg-slate-950 text-slate-200 sm:w-64" aria-label="Filter trades by allocation"><SelectValue placeholder="All allocations" /></SelectTrigger><SelectContent><SelectItem persistent value="ALL">All allocations</SelectItem></SelectContent></Select></CardHeader>
       {trades.length === 0 ? (
         <CardContent className="py-14 text-center text-slate-400">No closed live trades yet.</CardContent>
       ) : (
         <>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scrollbar-thin-theme">
               <Table>
                 <TableHeader className="bg-slate-800/50"><TableRow className="border-slate-700 hover:bg-transparent">
                   <TableHead className="text-slate-300">Instrument</TableHead><TableHead className="text-slate-300">Strategy · broker account</TableHead><TableHead className="text-slate-300">Side</TableHead><TableHead className="text-right text-slate-300">Qty</TableHead><TableHead className="text-right text-slate-300">Entry</TableHead><TableHead className="text-right text-slate-300">Exit</TableHead><TableHead className="text-right text-slate-300">Realized P&amp;L</TableHead><TableHead className="text-slate-300">Entry time</TableHead><TableHead className="text-slate-300">Exit time</TableHead>

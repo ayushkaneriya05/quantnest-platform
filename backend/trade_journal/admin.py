@@ -1,20 +1,10 @@
 from django.contrib import admin
-
-from .models import JournalEntry, MistakeTag, TradingInsight
-
-
-@admin.register(MistakeTag)
-class MistakeTagAdmin(admin.ModelAdmin):
-    list_display = ["id", "name", "category"]
-    list_filter = ["category"]
+from .models import JournalEntry
 
 
 @admin.register(JournalEntry)
 class JournalEntryAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "strategy", "title", "rule_followed", "setup_quality", "execution_quality", "created_at"]
-    list_filter = ["rule_followed"]
-
-
-@admin.register(TradingInsight)
-class TradingInsightAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "insight_type", "title", "generated_at"]
+    list_display = ["title", "user", "source", "execution_quality", "updated_at"]
+    list_filter = ["source"]
+    search_fields = ["title", "user__username"]
+    readonly_fields = ["user", "source", "terminal_trade", "paper_trade", "live_trade", "created_at", "updated_at"]

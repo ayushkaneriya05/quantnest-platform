@@ -1,6 +1,6 @@
 import { getApiErrorDetails, getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
-import { useSelector, useDispatch } from "react-redux";
+import { useDispatch } from "react-redux";
 import { Button } from "@/shared/components/ui/button";
 
 import { Input } from "@/shared/components/ui/input";
@@ -27,7 +27,8 @@ import {
 } from "@/shared/components/ui/dialog";
 import TwoFASetupModal from "./two-fa-setup-modal";
 import api from "@/shared/services/api";
-import { logout, logoutUser, fetchUserProfile } from "@/shared/store/authSlice";
+import { loginSuccess, fetchUserProfile } from "@/shared/store/authSlice";
+import { formatDateTime } from "@/shared/utils/formatters";
 import {
   Card,
   CardHeader,
@@ -35,14 +36,10 @@ import {
   CardDescription,
   CardContent,
 } from "@/shared/components/ui/card";
-import React from "react";
-import { useNavigate } from "react-router-dom";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function SecurityTab() {
-  const { user } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
-  const navigate = useNavigate();
 
   const [passwordData, setPasswordData] = useState({
     current_password: "",
@@ -91,7 +88,7 @@ export default function SecurityTab() {
       console.error("Failed to load security data:", err);
       setMessage({
         type: "error",
-        text: "Failed to load security information",
+        text: getApiErrorMessage(err, "Failed to load security information"),
       });
     } finally {
       setIsLoadingSessions(false);
@@ -138,15 +135,16 @@ export default function SecurityTab() {
     }
 
     try {
-      await api.post("/users/auth/password/change", {
+      const { data } = await api.post("/users/auth/password/change/", {
         old_password: passwordData.current_password,
         new_password1: passwordData.new_password,
         new_password2: passwordData.confirm_password,
       });
-      await dispatch(fetchUserProfile());
+      dispatch(loginSuccess(data));
+      await loadSecurityData();
       setMessage({
         type: "success",
-        text: "Password changed successfully!",
+        text: data.message,
       });
 
       // Clear form
@@ -161,7 +159,12 @@ export default function SecurityTab() {
       if (err.response?.data) {
         const serverErrors = getApiErrorDetails(err);
         if (Object.keys(serverErrors).length) {
-          setPasswordErrors(serverErrors);
+          setPasswordErrors({
+            current_password: serverErrors.old_password,
+            new_password: serverErrors.new_password1,
+            confirm_password: serverErrors.new_password2,
+          });
+          setMessage({ type: "error", text: getApiErrorMessage(err, "Failed to change password") });
         } else {
           setMessage({ type: "error", text: getApiErrorMessage(err, "Failed to change password") });
         }
@@ -234,7 +237,7 @@ export default function SecurityTab() {
       console.error("Failed to revoke session:", err);
       setMessage({
         type: "error",
-        text: "Failed to revoke session",
+        text: getApiErrorMessage(err, "Failed to revoke session"),
       });
     }
   };
@@ -251,7 +254,7 @@ export default function SecurityTab() {
       console.error("Failed to logout everywhere:", err);
       setMessage({
         type: "error",
-        text: "Failed to logout from other devices.",
+        text: getApiErrorMessage(err, "Failed to end other sessions."),
       });
     }
   };
@@ -434,7 +437,7 @@ export default function SecurityTab() {
 
                 <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl">
                   <p className="text-xs text-indigo-300/80 leading-relaxed italic">
-                    "We recommend using an app like Google Authenticator or Authy. This ensures that even if someone learns your password, they cannot access your account."
+                    Use an authenticator app to protect your account if your password is compromised.
                   </p>
                 </div>
               </div>
@@ -451,10 +454,11 @@ export default function SecurityTab() {
                   <Wifi className="h-5 w-5 text-cyan-400" />
                   <CardTitle className="text-lg font-semibold text-slate-200">Authorized Sessions</CardTitle>
                 </div>
-                <CardDescription className="text-slate-400">A list of devices and locations where you are currently signed in.</CardDescription>
+                <CardDescription className="text-slate-400">Active browser sessions. Tabs in the same browser profile share one session.</CardDescription>
               </div>
               <Button
                 onClick={handleLogoutEverywhere}
+                disabled={!activeSessions.some((session) => !session.is_current)}
                 variant="outline"
                 className="bg-red-950/20 border-red-500/20 text-red-400 hover:bg-red-900/40 hover:text-red-300 rounded-xl"
               >
@@ -466,9 +470,9 @@ export default function SecurityTab() {
               {isLoadingSessions ? (
                 <GlobalLoader />
               ) : activeSessions.length === 0 ? (
-                <div className="p-12 text-center text-slate-500">No active sessions found. How are you even here?</div>
+                <div className="p-12 text-center text-slate-500">No active sessions to display.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scrollbar-thin-theme">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-gray-800/50 bg-gray-800/20">
@@ -499,12 +503,7 @@ export default function SecurityTab() {
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <span className="text-slate-400 text-xs">{new Date(session.last_activity).toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}</span>
+                            <span className="text-slate-400 text-xs">{formatDateTime(session.last_activity)}</span>
                           </td>
                           <td className="px-6 py-4 text-right">
                             {session.is_current ? (

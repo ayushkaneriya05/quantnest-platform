@@ -1,79 +1,63 @@
-from rest_framework import permissions, viewsets
+import csv
+
+from django.http import HttpResponse
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.viewsets import ViewSet
 
-from strategies.models import Strategy
-
-from .models import DailyReport, PerformanceSnapshot, StrategyComparison
-from .serializers import DailyReportSerializer, PerformanceSnapshotSerializer, StrategyComparisonSerializer
-from .services import AnalyticsService
+from .services import SOURCES, TradeFiltersSerializer, execution_report, execution_review_context, trade_queryset, trade_rows
 
 
-class PerformanceSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = PerformanceSnapshotSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return PerformanceSnapshot.objects.filter(user=self.request.user).select_related("strategy")
-
-    @action(detail=False, methods=["post"])
-    def refresh(self, request):
-        strategy_id = request.data.get("strategy")
-        if strategy_id:
-            strategy = Strategy.objects.get(id=strategy_id, user=request.user)
-            snapshot = AnalyticsService.refresh_strategy_snapshot(request.user, strategy)
-            return Response(self.get_serializer(snapshot).data)
-        report = AnalyticsService.refresh_phase7_suite(request.user)
-        return Response(DailyReportSerializer(report).data)
+class TradePagination(PageNumberPagination):
+    page_size = 25
 
 
-class DailyReportViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = DailyReportSerializer
-    permission_classes = [permissions.IsAuthenticated]
+def request_filters(request):
+    serializer = TradeFiltersSerializer(data=request.query_params.dict())
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
 
-    def get_queryset(self):
-        return DailyReport.objects.filter(user=self.request.user).select_related("best_strategy", "worst_strategy")
+
+class ExecutionReportViewSet(ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        return Response(execution_report(request.user, request_filters(request)))
+
+    @action(detail=False, methods=["post"], url_path="research-context")
+    def research_context(self, request):
+        from research.context import resolve_context
+        from research.models import ResearchSession
+        from research.serializers import ResearchSessionSerializer
+        settings, evidence = execution_review_context(request.user, request.data)
+        context = resolve_context(request.user, {}, {"execution_review": settings, "execution_evidence": evidence})
+        session = ResearchSession.objects.create(user=request.user, title=f"{settings['filters']['source'].title()} execution review", context=context)
+        return Response(ResearchSessionSerializer(session).data, status=201)
 
     @action(detail=False, methods=["get"])
-    def dashboard(self, request):
-        payload = AnalyticsService.dashboard_payload(request.user)
-        return Response(
-            {
-                "latest_report": DailyReportSerializer(payload["latest_report"]).data if payload["latest_report"] else None,
-                "snapshots": PerformanceSnapshotSerializer(payload["snapshots"], many=True).data,
-                "comparisons": StrategyComparisonSerializer(payload["comparisons"], many=True).data,
-                "insights": [
-                    {
-                        "id": item.id,
-                        "insight_type": item.insight_type,
-                        "title": item.title,
-                        "description": item.description,
-                        "related_trades": item.related_trades,
-                        "generated_at": item.generated_at,
-                    }
-                    for item in payload["insights"]
-                ],
-                "notification_summary": payload["notification_summary"],
-                "journal_summary": payload["journal_summary"],
-            }
-        )
+    def trades(self, request):
+        filters = request_filters(request)
+        qs = trade_queryset(request.user, filters).order_by("-exit_time", "-id")
+        paginator = TradePagination()
+        page = paginator.paginate_queryset(qs.values_list("id", flat=True), request)
+        return paginator.get_paginated_response(trade_rows(qs.filter(pk__in=page), filters["source"], request.user))
 
-
-class StrategyComparisonViewSet(viewsets.ModelViewSet):
-    serializer_class = StrategyComparisonSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return StrategyComparison.objects.filter(user=self.request.user).prefetch_related("strategies")
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        strategies = serializer.validated_data.get("strategies") or []
-        comparison = AnalyticsService.compare_strategies(
-            self.request.user,
-            [strategy for strategy in strategies if strategy.user_id == self.request.user.id],
-            serializer.validated_data["start_date"],
-            serializer.validated_data["end_date"],
-        )
-        return Response(self.get_serializer(comparison).data)
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        filters = request_filters(request)
+        qs = trade_queryset(request.user, filters).order_by("-exit_time", "-id")
+        if qs.count() > 50000:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("Export up to 50,000 closes at once; narrow the date range.")
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{filters["source"].lower()}-closes.csv"'
+        writer = csv.writer(response)
+        writer.writerow(["Source", "P&L basis", "Symbol", "Strategy", "Account", "Side", "Quantity", "Entry price", "Exit price", "Entry time", "Exit time", "Realized P&L", "Recorded charges"])
+        fields = ("symbol", "strategy_name", "account_name", "side", "quantity", "entry_price", "exit_price", "entry_time", "exit_time", "pnl", "charges")
+        for row in qs.values_list(*fields).iterator(chunk_size=1000):
+            values = [value.isoformat() if hasattr(value, "isoformat") else value for value in row]
+            values = ["'" + value if isinstance(value, str) and value[:1] in {"=", "+", "-", "@"} else value for value in values]
+            writer.writerow([filters["source"], SOURCES[filters["source"]]["basis"], *values])
+        return response

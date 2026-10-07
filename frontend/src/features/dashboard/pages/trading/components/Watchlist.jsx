@@ -89,7 +89,7 @@ function Watchlist({
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 custom-scrollbar">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 scrollbar-thin-theme">
         {loading ? (
           <GlobalLoader fullHeight={false} />
         ) : items.length ? (

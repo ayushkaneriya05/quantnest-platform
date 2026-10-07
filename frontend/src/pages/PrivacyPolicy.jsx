@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import MainHeader from '@/shared/components/layout/main-header';
 
@@ -39,7 +38,7 @@ export default function PrivacyPolicy() {
               <ul className="list-disc pl-5 space-y-1">
                 <li>Provide, maintain, and improve our platform.</li>
                 <li>Execute algorithmic trades on your behalf via connected brokerages.</li>
-                <li>Process payments for subscription plans and marketplace purchases.</li>
+                <li>Manage your subscription plan.</li>
                 <li>Enhance system security and prevent abuse or unauthorized access.</li>
               </ul>
             </section>

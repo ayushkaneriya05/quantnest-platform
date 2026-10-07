@@ -1,203 +1,119 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import api from "../services/api";
+import api, { isAuthFailure, refreshAccessToken } from "../services/api";
+import { getApiErrorMessage } from "../utils/apiErrors";
+import { AuthChangedError, getAuthGeneration } from "../services/authSession";
+
+// Remove tokens persisted by the previous implementation; do not reuse them.
+["accessToken", "refreshToken", "isAuthenticated"].forEach((key) => localStorage.removeItem(key));
 
 export const fetchUserProfile = createAsyncThunk(
   "auth/fetchUserProfile",
   async (_, { rejectWithValue }) => {
+    const generation = getAuthGeneration();
     try {
-      const response = await api.get("/users/profile/");
-      console.log("fetch user profile : ", response);
-      return response.data;
-    } catch (err) {
-      return rejectWithValue(err.response?.data || err.message);
+      const { data } = await api.get("/users/profile/");
+      return generation === getAuthGeneration() ? data : null;
+    } catch (error) {
+      return rejectWithValue(getApiErrorMessage(error, "Could not load your profile."));
     }
-  }
+  },
+);
+
+export const initializeAuth = createAsyncThunk(
+  "auth/initialize",
+  async (_, { getState, rejectWithValue }) => {
+    const generation = getAuthGeneration();
+    try {
+      const access = await refreshAccessToken();
+      const { data: user } = await api.get("/users/profile/");
+      return generation === getAuthGeneration() ? { access: getState().auth.accessToken || access, user } : null;
+    } catch (error) {
+      if (isAuthFailure(error) || error instanceof AuthChangedError) return null;
+      return rejectWithValue(getApiErrorMessage(error, "Could not verify your session. Please retry."));
+    }
+  },
+  { condition: (options, { getState }) => options?.force || !getState().auth.isInitializing },
 );
 
 export const logoutUser = createAsyncThunk(
-  "auth/logout",
-  async (_, { getState }) => {
-    const { refreshToken } = getState().auth;
+  "auth/signOut",
+  async (_, { dispatch, rejectWithValue }) => {
     try {
-      console.log("Logging out with refresh token:", refreshToken);
-      await api.post("/users/auth/logout/", { refresh: refreshToken });
+      await api.post("/users/auth/logout/", {});
+      dispatch(logout());
     } catch (error) {
-      console.error(
-        "Server-side logout failed, proceeding with client-side logout.",
-        error
-      );
+      return rejectWithValue(getApiErrorMessage(error, "Could not end the server session."));
     }
-    return;
-  }
-);
-
-export const refreshAccessToken = createAsyncThunk(
-  "auth/refreshToken",
-  async (_, { getState, rejectWithValue }) => {
-    const { refreshToken } = getState().auth;
-    try {
-      const response = await api.post("/users/auth/token/refresh/", {
-        refresh: refreshToken,
-      });
-      return response.data;
-    } catch (err) {
-      return rejectWithValue(err.response?.data || err.message);
-    }
-  }
+  },
 );
 
 const initialState = {
-  accessToken: localStorage.getItem("accessToken") || null,
-  refreshToken: localStorage.getItem("refreshToken") || null,
-  user: null,
-  isLoading: false,
-  error: null,
-  is2FARequired: false,
-  isAuthenticated: false,
+  accessToken: null, user: null,
+  isLoading: false, isInitializing: false, initialized: false,
+  error: null, isAuthenticated: false,
+  initializationRequestId: null,
 };
 
 const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    setLoading: (state, action) => {
-      state.isLoading = action.payload;
-    },
-    setError: (state, action) => {
-      state.error = action.payload;
-    },
-    clearError: (state) => {
-      state.error = null;
-    },
-    loginSuccess: (state, action) => {
-      console.log("Login successful :", action.payload);
-      if (action.payload.access) {
-        state.accessToken = action.payload.access;
-        localStorage.setItem("accessToken", action.payload.access);
-      }
-      if (action.payload.refresh) {
-        state.refreshToken = action.payload.refresh;
-        localStorage.setItem("refreshToken", action.payload.refresh);
-      }
-      localStorage.setItem("isAuthenticated", "true");
-      
-      state.user = action.payload.user || null;
-      state.isLoading = false;
-      state.error = null;
-      state.is2FARequired = false;
+    setLoading: (state, action) => { state.isLoading = action.payload; },
+    setError: (state, action) => { state.error = action.payload; },
+    clearError: (state) => { state.error = null; },
+    loginSuccess: (state, { payload }) => {
+      if (!payload.access || !payload.user) return;
+      state.accessToken = payload.access;
+      state.user = payload.user;
       state.isAuthenticated = true;
+      state.initialized = true;
+      state.isLoading = false;
+      state.isInitializing = false;
+      state.initializationRequestId = null;
+      state.error = null;
     },
-    tokenRefreshed: (state, action) => {
-      state.accessToken = action.payload.access;
-      localStorage.setItem("accessToken", action.payload.access);
-      if (action.payload.refresh) {
-        state.refreshToken = action.payload.refresh;
-        localStorage.setItem("refreshToken", action.payload.refresh);
-      }
-    },
-    set2FARequired: (state, action) => {
-      state.is2FARequired = action.payload;
+    tokenRefreshed: (state, { payload }) => {
+      state.accessToken = payload.access;
     },
     logout: (state) => {
-      console.log("Logging out user");
-      state.accessToken = null;
-      state.refreshToken = null;
-      state.user = null;
-      state.isAuthenticated = false;
-      state.is2FARequired = false;
-      state.error = null;
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-      localStorage.removeItem("isAuthenticated");
+      Object.assign(state, initialState, { initialized: true });
     },
-    updateUser: (state, action) => {
-      state.user = { ...state.user, ...action.payload };
-    },
-    initializeAuth: (state) => {
-      const isAuth = localStorage.getItem("isAuthenticated");
-      const token = localStorage.getItem("accessToken");
-      if (isAuth === "true" || token) {
-        state.isAuthenticated = true;
-      }
-    },
+    updateUser: (state, action) => { state.user = { ...state.user, ...action.payload }; },
   },
   extraReducers: (builder) => {
     builder
-      // Fetch User Profile
-      .addCase(fetchUserProfile.pending, (state) => {
-        state.isLoading = true;
+      .addCase(initializeAuth.pending, (state, action) => {
+        state.isInitializing = true;
         state.error = null;
+        state.initializationRequestId = action.meta.requestId;
       })
-      .addCase(fetchUserProfile.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.user = action.payload;
-        state.isAuthenticated = true;
+      .addCase(initializeAuth.fulfilled, (state, { payload, meta }) => {
+        if (meta.requestId !== state.initializationRequestId) return;
+        state.initializationRequestId = null;
+        state.isInitializing = false;
+        state.initialized = true;
+        if (payload) {
+          state.accessToken = payload.access;
+          state.user = payload.user;
+          state.isAuthenticated = true;
+        }
       })
-      .addCase(fetchUserProfile.rejected, (state, action) => {
-        state.isLoading = false;
-        state.error = action.payload?.message || action.payload?.detail || action.payload || "Failed to fetch user profile";
+      .addCase(initializeAuth.rejected, (state, { payload, meta }) => {
+        if (meta.requestId !== state.initializationRequestId) return;
+        state.initializationRequestId = null;
+        state.isInitializing = false;
+        state.initialized = true;
+        state.error = payload;
       })
-      // Logout User
-      .addCase(logoutUser.pending, (state) => {
-        state.isLoading = true;
+      .addCase(fetchUserProfile.fulfilled, (state, { payload }) => {
+        if (payload && state.accessToken) state.user = payload;
       })
-      .addCase(logoutUser.fulfilled, (state) => {
-        state.isLoading = false;
-        state.accessToken = null;
-        state.refreshToken = null;
-        state.user = null;
-        state.isAuthenticated = false;
-        state.is2FARequired = false;
-        state.error = null;
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        localStorage.removeItem("isAuthenticated");
-      })
-      .addCase(logoutUser.rejected, (state) => {
-        state.isLoading = false;
-        // Even if server logout fails, we clear local state
-        state.accessToken = null;
-        state.refreshToken = null;
-        state.user = null;
-        state.isAuthenticated = false;
-        state.is2FARequired = false;
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        localStorage.removeItem("isAuthenticated");
-      })
-      // Refresh Access Token
-      .addCase(refreshAccessToken.pending, (state) => {
-        state.isLoading = true;
-      })
-      .addCase(refreshAccessToken.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.accessToken = action.payload.access;
-        localStorage.setItem("accessToken", action.payload.access);
-      })
-      .addCase(refreshAccessToken.rejected, (state) => {
-        state.isLoading = false;
-        // Token refresh failed, user needs to login again
-        state.accessToken = null;
-        state.refreshToken = null;
-        state.user = null;
-        state.isAuthenticated = false;
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        localStorage.removeItem("isAuthenticated");
-      });
+      .addCase(fetchUserProfile.rejected, (state, { payload }) => { state.error = payload; });
   },
 });
 
 export const {
-  setLoading,
-  setError,
-  clearError,
-  loginSuccess,
-  tokenRefreshed,
-  set2FARequired,
-  logout,
-  updateUser,
-  initializeAuth,
+  setLoading, setError, clearError, loginSuccess, tokenRefreshed,
+  logout, updateUser,
 } = authSlice.actions;
-
 export default authSlice.reducer;

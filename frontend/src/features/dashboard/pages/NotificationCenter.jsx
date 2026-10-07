@@ -131,6 +131,7 @@ export default function NotificationCenter() {
       marketdata: "/dashboard/live/strategies",
       backtest: data.backtest_run_id ? `/dashboard/backtest/results/${data.backtest_run_id}` : "/dashboard/backtest",
       strategy: data.strategy_id ? `/dashboard/strategy/${data.strategy_id}/edit` : "/dashboard/strategy/list",
+      research: data.research_session_id ? `/dashboard/analysis/ai-research-assistant?session=${data.research_session_id}` : "/dashboard/analysis/ai-research-assistant",
     };
     if (routes[data.module]) navigate(routes[data.module]);
     if (!item.is_read) markRead(item.id);

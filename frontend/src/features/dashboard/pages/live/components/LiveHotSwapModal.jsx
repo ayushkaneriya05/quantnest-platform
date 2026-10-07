@@ -11,8 +11,8 @@ import {
 import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { Button } from "@/shared/components/ui/button";
 import { Label } from "@/shared/components/ui/label";
+import StrategyVersionSelect from "@/features/dashboard/pages/strategy/components/StrategyVersionSelect";
 import {
-  Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -22,7 +22,6 @@ import { liveTradingApi } from "@/shared/services/liveTradingApi";
 import { strategyApi } from "@/shared/services/strategyApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { formatDateTime as formatLiveDateTime } from "@/shared/utils/formatters";
 
 export default function LiveHotSwapModal({
   session,
@@ -109,7 +108,7 @@ export default function LiveHotSwapModal({
                 Loading versions...
               </div>
             ) : (
-              <Select
+              <StrategyVersionSelect filters={{ strategy_id: session?.strategy }}
                 value={selectedVersion}
                 onValueChange={setSelectedVersion}
               >
@@ -121,12 +120,12 @@ export default function LiveHotSwapModal({
                     <div className="p-2 text-sm text-gray-500">No versions available</div>
                   )}
                   {versions.map((v) => (
-                    <SelectItem key={v.id} value={v.id.toString()}>
-                      v{v.version_number} {v.created_at ? `(${formatLiveDateTime(v.created_at)})` : ''} {session?.allocation?.version_id === v.id ? '(Deployed)' : ''}
+                    <SelectItem key={v.id} value={v.id.toString()} data={v}>
+                      Version {v.version_number}
                     </SelectItem>
                   ))}
                 </SelectContent>
-              </Select>
+              </StrategyVersionSelect>
             )}
           </div>
 

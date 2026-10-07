@@ -1,230 +1,144 @@
-import { getApiErrorMessage } from "@/shared/utils/apiErrors";
-import { useEffect, useState } from "react";
-import { BarChart3, GitCompareArrows, RefreshCw, Sparkles } from "lucide-react";
-
-import { Badge } from "@/shared/components/ui/badge";
+import { useCallback, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Download, RefreshCw, Sparkles, BookOpen, Loader2 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { Button } from "@/shared/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
-import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
+import { Checkbox } from "@/shared/components/ui/checkbox";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/shared/components/ui/dialog";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
-import { DatePicker } from "@/shared/components/ui/date-picker";
-import { format } from "date-fns";
-import { analyticsSuiteApi } from "@/shared/services/analyticsSuiteApi";
-import { strategyApi } from "@/shared/services/strategyApi";
-
-function formatNumber(value) {
-  return Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+import { executionReportsApi } from "@/shared/services/executionReportsApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import { formatDateTime } from "@/shared/utils/formatters";
+import { SourceTabs, ReviewFilters, MetricCard } from "./components/ReviewWorkspace";
+import { useReviewWorkspace, displayMoney, displayNumber, pnlTone, modes } from "./components/useReviewWorkspace";
 
 export default function PerformanceReports() {
+  const { filters, details: report, loading, error, update, reload } = useReviewWorkspace("report");
+  const [researchOpen, setResearchOpen] = useState(false);
+  const [includeNotes, setIncludeNotes] = useState(false);
+  const [busy, setBusy] = useState(false);
   const { notify } = useNotifications();
-  const [dashboard, setDashboard] = useState(null);
-  const [reports, setReports] = useState([]);
-  const [strategies, setStrategies] = useState([]);
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [compareForm, setCompareForm] = useState({ strategies: [], start_date: "", end_date: "" });
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const summary = report?.summary;
+  const positions = report?.current_positions;
+  const source = modes.find((mode) => mode.value === filters.source);
+  const journalUrl = `/dashboard/journal?${new URLSearchParams(filters)}`;
 
-  const loadData = async () => {
+  const exportCsv = useCallback(async () => {
+    setBusy(true);
     try {
-      setLoading(true);
-      const [dashboardRes, reportsRes, strategiesRes] = await Promise.all([
-        analyticsSuiteApi.getAnalyticsDashboard(),
-        analyticsSuiteApi.getDailyReports(),
-        strategyApi.getAll(),
-      ]);
-      setDashboard(dashboardRes.data || {});
-      setReports(Array.isArray(reportsRes.data?.results) ? reportsRes.data.results : reportsRes.data || []);
-      setStrategies(Array.isArray(strategiesRes?.results) ? strategiesRes.results : strategiesRes || []);
+      const { data } = await executionReportsApi.export(filters);
+      const url = URL.createObjectURL(new Blob([data], { type: "text/csv;charset=utf-8" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filters.source.toLowerCase() + "-closes.csv";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      notify.success("Execution report exported");
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load performance reports"));
-    } finally {
-      setLoading(false);
-    }
-  };
+      notify.error(getApiErrorMessage(error, "Could not export the report"));
+    } finally { setBusy(false); }
+  }, [filters, notify]);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  useSetPageActions(
-    <>
-      <Button
-        variant="outline"
-        onClick={async () => {
-          try {
-            await analyticsSuiteApi.refreshSnapshots({});
-            notify.success("Analytics refreshed");
-            await loadData();
-          } catch (error) {
-            notify.error(getApiErrorMessage(error, "Failed to refresh analytics"));
-          }
-        }}
-        className="border-gray-700 text-gray-100"
-      >
-        <RefreshCw className="mr-2 h-4 w-4" />
-        Refresh Reports
-      </Button>
-      <Button className="bg-cyan-600 hover:bg-cyan-500" onClick={() => setCompareOpen(true)}>
-        <GitCompareArrows className="mr-2 h-4 w-4" />
-        Compare Strategies
-      </Button>
-    </>,
-  );
-
-  const latestReport = dashboard?.latest_report;
-  const snapshots = dashboard?.snapshots || [];
-  const comparisons = dashboard?.comparisons || [];
-  const insights = dashboard?.insights || [];
-
-  const saveComparison = async () => {
+  async function research() {
+    setBusy(true);
     try {
-      await analyticsSuiteApi.createComparison(compareForm);
-      notify.success("Strategy comparison generated");
-      setCompareOpen(false);
-      await loadData();
+      const { data } = await executionReportsApi.researchContext({ filters, include_notes: includeNotes });
+      navigate(`/dashboard/analysis/ai-research-assistant?session=${data.id}&review=1`);
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to generate strategy comparison"));
-    }
-  };
+      notify.error(getApiErrorMessage(error, "Could not attach this report"));
+    } finally { setBusy(false); }
+  }
 
-  const summaryCards = [
-    { label: "Total P&L", value: `Rs ${formatNumber(latestReport?.total_pnl)}`, tone: Number(latestReport?.total_pnl || 0) >= 0 ? "text-emerald-300" : "text-red-300" },
-    { label: "Trades", value: latestReport?.total_trades || 0, tone: "text-white" },
-    { label: "Best Strategy", value: latestReport?.best_strategy_name || "N/A", tone: "text-cyan-300" },
-    { label: "Unread Notifications", value: dashboard?.notification_summary?.unread || 0, tone: "text-amber-300" },
-  ];
+  const actions = useMemo(() => <>
+    <div className="hidden xl:block"><SourceTabs source={filters.source} onChange={(source) => update({ source })} /></div>
+    <Button size="sm" disabled={busy || loading || !!error || !summary?.closes} onClick={() => { setIncludeNotes(false); setResearchOpen(true); }} aria-label="Ask AI about these results">
+      <Sparkles size={15} /><span className="ml-2 hidden sm:inline">Ask AI</span>
+    </Button>
+    <Button variant="outline" size="sm" disabled={busy || loading || !!error} onClick={exportCsv} aria-label="Export report CSV"><Download size={15} /><span className="ml-2 hidden 2xl:inline">Export CSV</span></Button>
+    <Button variant="outline" size="sm" disabled={loading} onClick={reload} aria-label="Refresh report"><RefreshCw size={15} /><span className="ml-2 hidden 2xl:inline">Refresh</span></Button>
+  </>, [filters, update, busy, loading, error, summary?.closes, exportCsv, reload]);
+  useSetPageActions(actions);
 
-  return (
-    <div className="container-padding space-y-6 py-6 lg:py-8">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map((item) => (
-          <Card key={item.label} className="border-gray-800 bg-gray-900/60">
-            <CardContent className="p-5">
-              <p className="text-xs uppercase tracking-[0.16em] text-gray-500">{item.label}</p>
-              <p className={`mt-2 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="border-gray-800 bg-gray-900/60">
-          <CardHeader><CardTitle className="flex items-center gap-2 text-white"><BarChart3 className="h-4 w-4 text-cyan-300" /> Daily Reports</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {loading ? (
-              <div className="py-8 text-center text-gray-400">Loading reports...</div>
-            ) : reports.length === 0 ? (
-              <div className="py-8 text-center text-gray-400">No reports yet. Run refresh to generate one.</div>
-            ) : (
-              reports.slice(0, 10).map((row) => (
-                <div key={row.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">{row.date}</p>
-                      <p className="mt-1 text-sm text-gray-400">Realized {row.realized_pnl} • Unrealized {row.unrealized_pnl}</p>
-                    </div>
-                    <Badge className={Number(row.total_pnl || 0) >= 0 ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20" : "bg-red-500/10 text-red-300 border-red-500/20"}>
-                      Rs {formatNumber(row.total_pnl)}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3 text-sm">
-                    <div className="rounded-xl bg-gray-950/60 p-3"><p className="text-gray-500">Trades</p><p className="mt-1 text-white">{row.total_trades}</p></div>
-                    <div className="rounded-xl bg-gray-950/60 p-3"><p className="text-gray-500">Wins / Losses</p><p className="mt-1 text-white">{row.winning_trades} / {row.losing_trades}</p></div>
-                    <div className="rounded-xl bg-gray-950/60 p-3"><p className="text-gray-500">Best Strategy</p><p className="mt-1 text-white">{row.best_strategy_name || "N/A"}</p></div>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          <Card className="border-gray-800 bg-gray-900/60">
-            <CardHeader><CardTitle className="text-white">Strategy Snapshots</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {snapshots.map((snapshot) => (
-                <div key={snapshot.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">{snapshot.strategy_name}</p>
-                      <p className="mt-1 text-sm text-gray-400">Win rate {snapshot.win_rate}% • Trades {snapshot.trades_count}</p>
-                    </div>
-                    <Badge className="bg-cyan-500/10 text-cyan-300 border-cyan-500/20">Rs {formatNumber(snapshot.daily_pnl)}</Badge>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card className="border-gray-800 bg-gray-900/60">
-            <CardHeader><CardTitle className="text-white">Comparisons & Insights</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {comparisons.slice(0, 3).map((comparison) => (
-                <div key={comparison.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
-                  <p className="font-semibold text-white">{comparison.strategy_names?.join(", ") || "Strategy comparison"}</p>
-                  <p className="mt-1 text-sm text-gray-400">{comparison.start_date} to {comparison.end_date}</p>
-                </div>
-              ))}
-              {insights.slice(0, 2).map((insight) => (
-                <div key={insight.id} className="rounded-2xl border border-gray-800 bg-black/20 p-4">
-                  <p className="flex items-center gap-2 font-semibold text-white"><Sparkles className="h-4 w-4 text-amber-300" /> {insight.title}</p>
-                  <p className="mt-2 text-sm text-gray-300">{insight.description}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
-        <DialogContent className="border-gray-800 bg-gray-950 text-white">
-          <DialogHeader><DialogTitle>Compare Strategies</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>Strategy IDs (comma separated)</Label>
-              <Input
-                value={compareForm.strategies.join(",")}
-                onChange={(event) =>
-                  setCompareForm((current) => ({
-                    ...current,
-                    strategies: event.target.value.split(",").map((item) => Number(item.trim())).filter(Boolean),
-                  }))
-                }
-                placeholder={strategies.slice(0, 5).map((strategy) => `${strategy.id}:${strategy.name}`).join(" | ")}
-                className="border-gray-700 bg-black/20 text-white"
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Start Date</Label>
-                <DatePicker 
-                  date={compareForm.start_date ? new Date(compareForm.start_date + "T00:00:00") : null} 
-                  setDate={(date) => setCompareForm((current) => ({ ...current, start_date: date ? format(date, "yyyy-MM-dd") : "" }))} 
-                  placeholder="Select Date"
-                  className="border-gray-700 bg-black/20 text-white" 
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>End Date</Label>
-                <DatePicker 
-                  date={compareForm.end_date ? new Date(compareForm.end_date + "T00:00:00") : null} 
-                  setDate={(date) => setCompareForm((current) => ({ ...current, end_date: date ? format(date, "yyyy-MM-dd") : "" }))} 
-                  placeholder="Select Date"
-                  className="border-gray-700 bg-black/20 text-white" 
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" className="border-gray-700 text-gray-100" onClick={() => setCompareOpen(false)}>Cancel</Button>
-            <Button className="bg-cyan-600 hover:bg-cyan-500" onClick={saveComparison}>Generate</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+  const chart = (report?.daily || []).map((row) => ({ ...row, realized_pnl: Number(row.realized_pnl) }));
+  return <div className="container-padding space-y-4 py-4">
+    <div className="xl:hidden"><SourceTabs source={filters.source} onChange={(source) => update({ source })} /></div>
+    <ReviewFilters filters={filters} onChange={update} />
+    {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">
+      {error}<Button variant="ghost" size="sm" onClick={reload}>Retry</Button>
+    </div>}
+    <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+      <MetricCard label="Realized P&L" value={loading ? "—" : displayMoney(summary?.realized_pnl)} tone={pnlTone(summary?.realized_pnl)} hint={report?.pnl_basis} />
+      <MetricCard label="Recorded closes" value={summary?.closes ?? "—"} hint={summary ? `${summary.wins} winning · ${summary.losses} losing · ${summary.breakeven} flat` : ""} />
+      <MetricCard label="Win rate" value={loading ? "—" : summary?.win_rate == null ? "N/A" : displayNumber(summary.win_rate) + "%"} hint="Winning closes / all closes" />
+      <MetricCard label="Profit factor" value={loading ? "—" : displayNumber(summary?.profit_factor)} hint="Winning P&L / absolute losing P&L" />
     </div>
-  );
+    <section aria-label="Additional report metrics" className="grid gap-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4 sm:grid-cols-3">
+      <div><p className="text-xs text-slate-400">Average P&L per close</p><p className="mt-1 font-semibold tabular-nums">{loading ? "—" : displayMoney(summary?.average_pnl)}</p></div>
+      <div><p className="text-xs text-slate-400">Recorded charges</p><p className="mt-1 font-semibold tabular-nums">{loading ? "—" : displayMoney(summary?.recorded_charges)}</p><p className="mt-1 text-[11px] text-slate-500">{filters.source === "PAPER" ? "Simulated brokerage and taxes" : "Unavailable for this execution source"}</p></div>
+      <div><p className="text-xs text-slate-400">Current unrealized P&L</p><p className={`mt-1 font-semibold tabular-nums ${pnlTone(positions?.unrealized_pnl)}`}>{loading ? "—" : displayMoney(positions?.unrealized_pnl)}</p>
+        {positions && <p className="mt-1 text-[11px] leading-4 text-slate-500">{positions.positions} open positions · before exit costs · {positions.unpriced_positions ? `${positions.unpriced_positions} awaiting fresh quotes` : positions.oldest_quote_at ? `oldest quote ${formatDateTime(positions.oldest_quote_at)}` : "no open exposure"}. Separate from the selected close-date period.</p>}
+      </div>
+    </section>
+    <section className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div><h2 className="font-semibold">Daily realized P&L</h2><p className="mt-1 text-xs text-slate-500">Grouped by close date · excludes open positions and cash transfers</p></div>
+        <Link to={journalUrl} className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white"><BookOpen size={14} />Review closes in journal</Link>
+      </div>
+      <div className="mt-4 h-64">{chart.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={chart}>
+        <CartesianGrid vertical={false} stroke="#1e293b" strokeDasharray="3 3" />
+        <XAxis dataKey="date" stroke="#64748b" fontSize={11} minTickGap={40} />
+        <YAxis stroke="#64748b" fontSize={11} tickFormatter={displayNumber} />
+        <Tooltip formatter={(value) => [displayMoney(value), "Realized P&L"]} contentStyle={{ background: "#020617", border: "1px solid #334155", borderRadius: 12 }} />
+        <Bar dataKey="realized_pnl" radius={[3, 3, 0, 0]}>{chart.map((row) => <Cell key={row.date} fill={row.realized_pnl < 0 ? "#fb7185" : "#34d399"} />)}</Bar>
+      </BarChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-slate-500">{loading ? "Calculating report…" : "No closes in this period."}</div>}</div>
+    </section>
+    <div className={`grid gap-4 ${filters.source !== "TERMINAL" ? "lg:grid-cols-2" : ""}`}>
+      {[
+        ["Instrument breakdown", report?.instruments, "symbol"],
+        ...(filters.source !== "TERMINAL" ? [["Strategy comparison", report?.strategies, "strategy_name"]] : []),
+      ].map(([title, rows, name]) => <section key={title} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+        <h2 className="mb-3 font-semibold">{title}</h2>
+        <div className="scrollbar-theme max-h-80 space-y-2 overflow-y-auto">
+          {!rows?.length && <p className="text-sm text-slate-500">No results for these filters.</p>}
+          {rows?.map((row) => <div key={row.instrument_id ?? row.strategy_key ?? "unavailable"} className="flex items-center justify-between gap-3 rounded-lg bg-slate-900/50 p-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{row[name] || "Strategy unavailable"}</p>
+              <p className="mt-1 text-xs text-slate-500">{row.closes} closes · {displayNumber(row.win_rate)}% wins</p>
+            </div>
+            <span className={`whitespace-nowrap text-sm font-semibold ${pnlTone(row.realized_pnl)}`}>{displayMoney(row.realized_pnl)}</span>
+          </div>)}
+        </div>
+      </section>)}
+    </div>
+    <div className="flex flex-wrap justify-between gap-2 text-xs leading-5 text-slate-500">
+      <p>Historical equity returns, Sharpe, and account drawdown are unavailable without a verified equity series.</p>
+      {report && <span>{source.description} · Observed {formatDateTime(report.observed_at)}</span>}
+    </div>
+    <Dialog open={researchOpen} onOpenChange={(open) => { if (!busy) setResearchOpen(open); }}>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-xl p-0">
+        <div className="shrink-0 border-b border-slate-800 p-5 pr-12">
+          <DialogTitle className="flex items-center gap-2"><Sparkles size={18} />Investigate these results</DialogTitle>
+          <DialogDescription className="mt-2">Open a conversation with the recorded evidence from this report.</DialogDescription>
+        </div>
+        <div className="scrollbar-theme min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+          <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-sm">
+            <p className="font-medium">{source.label} · {filters.date_from} to {filters.date_to}</p>
+            <p className="mt-1 text-slate-400">{summary?.closes} recorded closes · {displayMoney(summary?.realized_pnl)} realized P&L</p>
+            <p className="mt-2 text-xs text-slate-500">{report?.pnl_basis}. Account, strategy, and instrument filters are retained.</p>
+          </div>
+          <label className="flex items-start gap-3 text-sm text-slate-300">
+            <Checkbox className="mt-0.5" checked={includeNotes} onCheckedChange={(value) => setIncludeNotes(Boolean(value))} disabled={busy} />
+            <span>Include saved journal notes<span className="mt-1 block text-xs text-slate-500">Optional. Notes and ratings are your own assessments.</span></span>
+          </label>
+          <p className="text-xs leading-5 text-slate-400">You can edit the question before sending. Sending starts AI research.</p>
+        </div>
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-800 p-4">
+          <Button variant="outline" disabled={busy} onClick={() => setResearchOpen(false)}>Cancel</Button>
+          <Button disabled={busy || loading || !!error || !summary?.closes} onClick={research}>{busy && <Loader2 size={15} className="mr-2 animate-spin" />}Open research</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </div>;
 }

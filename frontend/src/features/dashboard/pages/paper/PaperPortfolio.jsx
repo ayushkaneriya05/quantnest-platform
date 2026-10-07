@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { usePageActions } from "@/shared/context/PageActionsContext";
+import { usePageActions } from "@/shared/context/pageActions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { paperApi } from "@/shared/services/paperApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -90,7 +90,7 @@ export default function PaperPortfolio() {
   useEffect(() => {
     const HeaderContent = () => (
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full">
-        <div className="flex items-center gap-1 bg-gray-900/50 p-1 rounded-xl border border-gray-800 backdrop-blur-md overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1 bg-gray-900/50 p-1 rounded-xl border border-gray-800 backdrop-blur-md overflow-x-auto scrollbar-thin-theme">
           <button
             onClick={() => setActiveTab("overview")}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
@@ -145,7 +145,7 @@ export default function PaperPortfolio() {
                   <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
                   <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Account</span>
                 </div>
-                <Select
+                <Select resource="paper-accounts"
                   value={selectedAccount?.toString()}
                   onValueChange={(val) => handleAccountChange(val)}
                   disabled={loading}

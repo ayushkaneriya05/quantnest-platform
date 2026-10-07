@@ -5,7 +5,7 @@ import PaperTransactions from "./PaperTransactions";
 import PaperWallet from "./PaperWallet";
 import { Button } from "@/shared/components/ui/button";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
-import { usePageActions } from "@/shared/context/PageActionsContext";
+import { usePageActions } from "@/shared/context/pageActions";
 
 export default function PaperCapital() {
   const [activeTab, setActiveTab] = useState("allocations");
@@ -19,7 +19,7 @@ export default function PaperCapital() {
   useEffect(() => {
     const HeaderContent = () => (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full">
-        <div className="flex items-center gap-1 bg-gray-900/50 p-1 rounded-xl border border-gray-800 backdrop-blur-md overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1 bg-gray-900/50 p-1 rounded-xl border border-gray-800 backdrop-blur-md overflow-x-auto scrollbar-thin-theme">
           <button
             onClick={() => setActiveTab("allocations")}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${

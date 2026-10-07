@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/shared/lib/utils";
 import { Search, PlusCircle, Loader2 } from "lucide-react";
 import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
-import api from "@/shared/services/api";
+import { useInstrumentSearch } from "@/shared/hooks/useInstrumentSearch";
+import { searchTerminalInstruments } from "@/shared/services/instrumentsApi";
 
 export default function InstrumentSearch({
   onAddToWatchlist,
   existingWatchlistSymbols = [],
 }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const { results, loading: isLoading, error } = useInstrumentSearch(query, {}, isOpen, searchTerminalInstruments);
   const searchRef = useRef(null);
 
   useEffect(() => {
@@ -26,40 +26,9 @@ export default function InstrumentSearch({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleSearch = useCallback(
-    async (searchQuery) => {
-      if (searchQuery.length < 2) {
-        setResults([]);
-        setIsOpen(false);
-        return;
-      }
-      setIsLoading(true);
-      try {
-        const response = await api.get(
-          `/trading/instruments/search/?q=${encodeURIComponent(searchQuery)}`
-        );
-        setResults(response.data);
-        setIsOpen(true);
-      } catch (err) {
-        console.error("Search failed:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    const delayDebounce = setTimeout(() => {
-      handleSearch(query);
-    }, 300);
-    return () => clearTimeout(delayDebounce);
-  }, [query, handleSearch]);
-
   const handleSelect = (instrument) => {
     onAddToWatchlist(instrument);
     setQuery("");
-    setResults([]);
     setIsOpen(false);
   };
 
@@ -74,8 +43,9 @@ export default function InstrumentSearch({
           type="text"
           placeholder="Search for stocks (e.g. RELIANCE)..."
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => query.length > 1 && setIsOpen(true)}
+          onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(event) => { if (event.key === "Escape") setIsOpen(false); }}
           className="pl-11 h-12 bg-slate-900/60 border-slate-800/80 text-white rounded-2xl focus-visible:ring-sky-500/20 focus-visible:border-sky-500/40 transition-all duration-300 placeholder:text-slate-600"
         />
         {isLoading && (
@@ -85,12 +55,12 @@ export default function InstrumentSearch({
         )}
       </div>
 
-      {isOpen && results.length > 0 && (
+      {isOpen && (
         <div className="absolute z-50 w-full mt-2 bg-slate-950/95 border border-slate-800/80 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
           <div className="px-4 py-2 bg-slate-900/40 border-b border-slate-800/50">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Instruments Found</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{query ? "Matching instruments" : "Latest 20 instruments"}</span>
           </div>
-          <ul className="py-1 max-h-[300px] overflow-y-auto custom-scrollbar">
+          <ul className="py-1 max-h-[300px] overflow-y-auto scrollbar-thin-theme">
             {results.map((instrument) => {
               const isInWatchlist = existingWatchlistSymbols.includes(instrument.sym_ticker);
               return (
@@ -133,6 +103,9 @@ export default function InstrumentSearch({
               );
             })}
           </ul>
+          {isLoading && <p role="status" className="px-4 py-3 text-sm text-slate-400">Loading instruments…</p>}
+          {error && <p role="alert" className="px-4 py-3 text-sm text-rose-300">{error}</p>}
+          {!isLoading && !error && !results.length && <p className="px-4 py-3 text-sm text-slate-400">No instruments found.</p>}
         </div>
       )}
     </div>

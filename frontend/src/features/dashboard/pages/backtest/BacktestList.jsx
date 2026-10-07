@@ -72,8 +72,8 @@ export default function BacktestList() {
     try {
       const response = await backtestApi.getRuns();
       setRuns(Array.isArray(response.data) ? response.data : response.data?.results || []);
-    } catch {
-      notifyRef.current.error("Failed to load backtests");
+    } catch (error) {
+      notifyRef.current.error(getApiErrorMessage(error, "Failed to load backtests"));
     } finally {
       setLoading(false);
     }
@@ -111,7 +111,8 @@ export default function BacktestList() {
     null,
     handleProgress,
     handleCompleteOrError,
-    handleCompleteOrError
+    handleCompleteOrError,
+    fetchRuns
   );
 
   // Move actions to header
@@ -303,7 +304,7 @@ export default function BacktestList() {
       ) : (
         <Card className="bg-gray-900/40 border-gray-800 overflow-hidden">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scrollbar-thin-theme">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-gray-800/40 border-b border-gray-800">

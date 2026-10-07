@@ -19,7 +19,7 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
-import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
+import { usePageActions } from '@/shared/context/pageActions'; // Added import
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function TimeRulesEditor() {

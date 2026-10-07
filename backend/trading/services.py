@@ -146,11 +146,14 @@ class TerminalOrderCache:
 
 class TradingInstrumentService:
     @staticmethod
-    def search(query):
-        if len(query or "") < 2:
-            return Instrument.objects.none()
+    def search(query, *, exchange=None, instrument_type=None):
+        query = (query or "").strip()
         
         qs = Instrument.objects.filter(is_active=True)
+        if exchange:
+            qs = qs.filter(exchange=exchange)
+        if instrument_type:
+            qs = qs.filter(instrument_type=instrument_type)
         
         # Strict filter for NSE Equities and Indexes
         qs = qs.filter(exchange__in=[Exchange.NSE, Exchange.MCX], instrument_type__in=[InstrumentType.STOCK, InstrumentType.INDEX, InstrumentType.FUTURE, InstrumentType.OPTION, InstrumentType.CURRENCY, InstrumentType.COMMODITY])
@@ -160,6 +163,9 @@ class TradingInstrumentService:
         
         # Filter out expired contracts
         qs = qs.filter(Q(expiry_date__isnull=True) | Q(expiry_date__gte=date.today()))
+
+        if not query:
+            return qs.order_by('-id')[:20]
 
         qs = qs.filter(
             Q(symbol__icontains=query)

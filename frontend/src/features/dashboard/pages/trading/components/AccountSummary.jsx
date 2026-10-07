@@ -98,7 +98,7 @@ export default function AccountSummary({ account, trades = [], positions = [], m
               Recent Activity
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0 max-h-[500px] overflow-y-auto custom-scrollbar">
+          <CardContent className="p-0 max-h-[500px] overflow-y-auto scrollbar-theme">
             {trades.length > 0 ? (
               <div className="divide-y divide-slate-800">
                 {trades.map((trade) => {

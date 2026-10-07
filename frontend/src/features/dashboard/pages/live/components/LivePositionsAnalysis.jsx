@@ -12,7 +12,7 @@ function Metric({ title, value, note, color = "text-white" }) {
   return <Card className="border-slate-800 bg-slate-900/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</p><p className={`mt-2 text-2xl font-semibold ${color}`}>{value}</p>{note && <p className="mt-1 text-xs text-slate-500">{note}</p>}</CardContent></Card>;
 }
 
-export default function LivePositionsAnalysis({ positions = [], positionsForPnL, pagination, summary = {}, onPageChange, sessions = [], allocationFilter = "", onAllocationChange }) {
+export default function LivePositionsAnalysis({ positions = [], positionsForPnL, pagination, summary = {}, onPageChange, allocationFilter = "", onAllocationChange }) {
   const pnlPositions = useMemo(() => {
     if (!Array.isArray(positionsForPnL)) return positions;
     return allocationFilter
@@ -43,9 +43,8 @@ export default function LivePositionsAnalysis({ positions = [], positionsForPnL,
       <Card className="overflow-hidden border-slate-800 bg-slate-900/50">
         <CardHeader className="flex flex-col gap-2 space-y-0 border-b border-slate-800 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xl text-slate-300 font-semibold">Live positions</p>
-          <Select value={allocationFilter || "ALL"} onValueChange={(value) => onAllocationChange(value === "ALL" ? "" : value)}><SelectTrigger className="h-9 w-full border-slate-700 bg-slate-950 text-slate-200 sm:w-64" aria-label="Filter positions by allocation"><SelectValue placeholder="All allocations" /></SelectTrigger><SelectContent>
-            <SelectItem value="ALL">All allocations</SelectItem>
-            {sessions.filter((session) => session.allocation?.id).map((session) => <SelectItem key={session.allocation.id} value={String(session.allocation.id)}>{session.strategy_name} · {formatBrokerAccount(session.broker_name, session.broker_label)}</SelectItem>)}
+          <Select resource="live-allocations" value={allocationFilter || "ALL"} onValueChange={(value) => onAllocationChange(value === "ALL" ? "" : value)}><SelectTrigger className="h-9 w-full border-slate-700 bg-slate-950 text-slate-200 sm:w-64" aria-label="Filter positions by allocation"><SelectValue placeholder="All allocations" /></SelectTrigger><SelectContent>
+            <SelectItem persistent value="ALL">All allocations</SelectItem>
           </SelectContent></Select>
         </CardHeader>
         {positions.length === 0 ? (
@@ -57,7 +56,7 @@ export default function LivePositionsAnalysis({ positions = [], positionsForPnL,
         ) : (
           <>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto scrollbar-thin-theme">
                 <Table>
                   <TableHeader className="bg-slate-800/50"><TableRow className="border-slate-700 hover:bg-transparent">
                     <TableHead className="text-slate-300">Instrument</TableHead><TableHead className="text-slate-300">Strategy / Account</TableHead><TableHead className="text-slate-300">Side</TableHead><TableHead className="text-right text-slate-300">Qty</TableHead><TableHead className="text-right text-slate-300">Avg price</TableHead><TableHead className="text-right text-slate-300">Last price</TableHead><TableHead className="text-right text-slate-300">Unrealized P&amp;L</TableHead><TableHead className="text-right text-slate-300">Return</TableHead><TableHead className="text-slate-300">Opened</TableHead>

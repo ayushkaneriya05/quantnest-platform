@@ -27,12 +27,13 @@ class RuleEvaluator:
     Supports both Django model instances and dict snapshots from backtests.
     """
 
-    def __init__(self, bars_df, mtf_data=None, indicator_engine=None, mtf_indicator_engines=None, instrument=None):
+    def __init__(self, bars_df, mtf_data=None, indicator_engine=None, mtf_indicator_engines=None, instrument=None, strict=False):
         # Evaluation only reads candle data. Custom expressions make their own
         # copy before injecting variables, so copying the whole frame here is
         # redundant work on every live/paper candle.
         self.df = bars_df
         self.instrument = instrument
+        self.strict = strict
         self.mtf_data = mtf_data or {} # Dict of {timeframe: df}
         self.indicator_engine = indicator_engine if indicator_engine is not None else IndicatorEngine(self.df)
         self.mtf_indicator_engines = mtf_indicator_engines if mtf_indicator_engines is not None else {}
@@ -109,10 +110,14 @@ class RuleEvaluator:
 
             return self._compare(val_a, comparison, val_b)
         except (ValueError, TypeError) as e:
+            if self.strict:
+                raise
             # Parameter or validation errors - critical
             logger.error("Validation error evaluating rule %s: %s", getattr(rule, "id", "Unknown"), str(e))
             return self._false_series()
         except Exception as e:
+            if self.strict:
+                raise
             # Other errors - log but continue
             logger.error("Error evaluating rule %s: %s", getattr(rule, "id", "Unknown"), str(e))
             return self._false_series()

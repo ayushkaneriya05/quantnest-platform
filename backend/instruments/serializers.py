@@ -24,6 +24,26 @@ class InstrumentSerializer(serializers.ModelSerializer):
 
 
 class ExecutionRouteSerializer(serializers.ModelSerializer):
+    def validate_watchlist_instrument(self, watch):
+        request = self.context.get("request")
+        if request and watch.strategy.user_id != request.user.pk:
+            raise serializers.ValidationError("Select an instrument from your own strategy.")
+        return watch
+
+    def validate(self, attrs):
+        override = attrs.get("override_sizing", getattr(self.instance, "override_sizing", False))
+        method = attrs.get("sizing_method", getattr(self.instance, "sizing_method", None))
+        quantity = attrs.get("fixed_quantity", getattr(self.instance, "fixed_quantity", None))
+        percentage = attrs.get("capital_percentage", getattr(self.instance, "capital_percentage", None))
+        if override:
+            if method not in ("FIXED", "CAPITAL_BASED"):
+                raise serializers.ValidationError({"sizing_method": "Choose fixed quantity or capital-based sizing."})
+            if method == "FIXED" and (quantity is None or quantity < 1):
+                raise serializers.ValidationError({"fixed_quantity": "Quantity must be at least 1."})
+            if method == "CAPITAL_BASED" and (percentage is None or not 0 < percentage <= 100):
+                raise serializers.ValidationError({"capital_percentage": "Capital percentage must be greater than 0 and at most 100."})
+        return attrs
+
     class Meta:
         model = ExecutionRoute
         fields = [
@@ -31,13 +51,19 @@ class ExecutionRouteSerializer(serializers.ModelSerializer):
             'target_underlying_instrument', 'expiry_preference', 'avoid_same_day_expiry',
             'buy_signal_option_type', 'sell_signal_option_type', 'strike_selection',
             'override_sizing', 'sizing_method', 'fixed_quantity', 
-            'capital_percentage', 'risk_per_trade_percentage',
+            'capital_percentage',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class WatchlistInstrumentSerializer(serializers.ModelSerializer):
+    def validate_strategy(self, strategy):
+        request = self.context.get("request")
+        if request and strategy.user_id != request.user.pk:
+            raise serializers.ValidationError("Select one of your own strategies.")
+        return strategy
+
     instrument_details = InstrumentSerializer(source='instrument', read_only=True)
     execution_routes = ExecutionRouteSerializer(many=True, read_only=True)
 

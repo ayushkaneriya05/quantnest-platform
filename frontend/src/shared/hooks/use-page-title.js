@@ -22,11 +22,7 @@ const routeTitles = {
   // Analysis routes
   "/dashboard/analysis/ai-research-assistant": {
     title: "AI Research Assistant",
-    subtitle: "Get AI-powered market insights and analysis",
-  },
-  "/dashboard/analysis/alternative-data-hub": {
-    title: "Alternative Data Hub",
-    subtitle: "Access unique market data sources",
+    subtitle: "Research hypotheses, review evidence, and build testable strategy drafts",
   },
   "/dashboard/analysis/market-screener": {
     title: "Market Screener",
@@ -34,18 +30,6 @@ const routeTitles = {
   },
 
   // Community routes
-  "/dashboard/community/leaderboards": {
-    title: "Leaderboards",
-    subtitle: "Top performers and community rankings",
-  },
-  "/dashboard/community/learning-center": {
-    title: "Learning Center",
-    subtitle: "Educational resources and tutorials",
-  },
-  "/dashboard/community/social-hub": {
-    title: "Social Hub",
-    subtitle: "Connect with other traders",
-  },
   "/dashboard/strategy/list": {
     title: "My Strategies",
     subtitle: "Create and manage algorithmic trading strategies",
@@ -65,10 +49,6 @@ const routeTitles = {
   "/dashboard/strategy/strategy-builder": {
     title: "Strategy Builder",
     subtitle: "Create and customize trading strategies",
-  },
-  "/dashboard/strategy/strategy-marketplace": {
-    title: "Strategy Marketplace",
-    subtitle: "Discover and share trading strategies",
   },
 
   // Backtesting routes
@@ -148,48 +128,11 @@ const routeTitles = {
   },
   "/dashboard/journal/reports": {
     title: "Performance Reports",
-    subtitle: "Daily strategy and portfolio reports across paper and live flow",
-  },
-  "/dashboard/ai/advisor": {
-    title: "AI Advisor",
-    subtitle: "Strategy recommendations, overfit warnings, and tuning ideas",
-  },
-  "/dashboard/ai/scores": {
-    title: "Strategy Health Scores",
-    subtitle: "Track performance, risk, consistency, and execution quality",
-  },
-  "/dashboard/ai/regime": {
-    title: "Market Regime Detector",
-    subtitle: "Instrument-level regime and directional confidence snapshots",
-  },
-  "/dashboard/marketplace": {
-    title: "Strategy Marketplace",
-    subtitle: "Discover and subscribe to listed strategies",
-  },
-  "/dashboard/marketplace/creator": {
-    title: "Creator Dashboard",
-    subtitle: "Review strategy earnings and listing performance",
-  },
-  "/dashboard/marketplace/subscriptions": {
-    title: "Subscriptions",
-    subtitle: "Manage active marketplace subscriptions",
+    subtitle: "Review Terminal, Paper, and Live execution separately",
   },
   "/dashboard/settings/audit": {
-    title: "Audit Logs",
+    title: "Activity History",
     subtitle: "Track critical entity changes and operational actions",
-  },
-  "/dashboard/settings/governance": {
-    title: "Strategy Approvals",
-    subtitle: "Run compliance checks and approve marketplace submissions",
-  },
-  "/dashboard/settings/compliance": {
-    title: "Compliance Center",
-    subtitle: "Review strategy compliance scores and check results",
-  },
-  "/dashboard/settings/system": {
-    title: "System Settings",
-    subtitle:
-      "Configure audit policies, governance rules, and platform settings",
   },
 
   // Manual Trading routes
@@ -221,27 +164,6 @@ export function usePageTitle() {
       title: "Advanced Charts",
       subtitle: "Equity curve and drawdown visualization",
     };
-  }
-  if (path.startsWith("/dashboard/marketplace/")) {
-    if (path === "/dashboard/marketplace/creator") {
-      return {
-        title: "Creator Dashboard",
-        subtitle: "Review strategy earnings and listing performance",
-      };
-    }
-    if (path === "/dashboard/marketplace/subscriptions") {
-      return {
-        title: "Subscriptions",
-        subtitle: "Manage active marketplace subscriptions",
-      };
-    }
-    const parts = path.split("/");
-    if (parts.length === 4 && parts[3]) {
-      return {
-        title: "Marketplace Listing",
-        subtitle: "Review pricing, performance, and verified user feedback",
-      };
-    }
   }
 
   // Get the title and subtitle for the current route from static mapping

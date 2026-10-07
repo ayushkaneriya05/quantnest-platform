@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
-import { useDispatch, useSelector } from "react-redux";
-import { fetchUserProfile, initializeAuth } from "@/shared/store/authSlice";
+import { useAuthSession } from "@/shared/hooks/useAuthSession";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { EnumsProvider } from "@/shared/context/EnumsContext";
 
@@ -10,7 +9,9 @@ import ProtectedRoute from "@/shared/components/ProtectedRoute";
 
 // Pages
 import LandingPage from "@/pages/LandingPage";
+import SharedStrategyPage from "@/pages/SharedStrategyPage";
 import LoginPage from "@/features/auth/pages/LoginPage";
+import GoogleCallbackPage from "@/features/auth/pages/GoogleCallbackPage";
 import RegisterPage from "@/features/auth/pages/RegisterPage";
 import DashboardLayout from "@/shared/components/layout/DashboardLayout";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
@@ -32,17 +33,7 @@ import LiveStrategies from "@/features/dashboard/pages/live/LiveStrategies";
 import ExecutionLogs from "@/features/dashboard/pages/live/ExecutionLogs";
 import TradeJournal from "@/features/dashboard/pages/journal/TradeJournal";
 import PerformanceReports from "@/features/dashboard/pages/journal/PerformanceReports";
-import AIAdvisor from "@/features/dashboard/pages/ai/AIAdvisor";
-import StrategyHealth from "@/features/dashboard/pages/ai/StrategyHealth";
-import MarketRegime from "@/features/dashboard/pages/ai/MarketRegime";
-import MarketplaceHome from "@/features/dashboard/pages/marketplace/MarketplaceHome";
-import CreatorDashboard from "@/features/dashboard/pages/marketplace/CreatorDashboard";
-import SubscriptionManager from "@/features/dashboard/pages/marketplace/SubscriptionManager";
-import StrategyDetail from "@/features/dashboard/pages/marketplace/StrategyDetail";
-import AuditLogs from "@/features/dashboard/pages/governance/AuditLogs";
-import StrategyApprovals from "@/features/dashboard/pages/governance/StrategyApprovals";
-import ComplianceCenter from "@/features/dashboard/pages/governance/ComplianceCenter";
-import SystemSettings from "@/features/dashboard/pages/governance/SystemSettings";
+import ActivityHistory from "@/features/dashboard/pages/settings/ActivityHistory";
 
 // Authentication pages
 import PasswordResetRequestPage from "@/features/auth/pages/PasswordResetRequestPage";
@@ -50,23 +41,12 @@ import PasswordResetConfirmPage from "@/features/auth/pages/PasswordResetConfirm
 
 // Dashboard pages
 import AIResearchAssistant from "@/features/dashboard/pages/analysis/AIResearchAssistant";
-import AlternativeDataHub from "@/features/dashboard/pages/analysis/AlternativeDataHub";
 import MarketScreener from "@/features/dashboard/pages/analysis/MarketScreener";
-import Leaderboards from "@/features/dashboard/pages/community/Leaderboards";
-import LearningCenter from "@/features/dashboard/pages/community/LearningCenter";
-import SocialHub from "@/features/dashboard/pages/community/SocialHub";
-import TraderProfile from "@/features/dashboard/pages/community/TraderProfile";
-import StrategyRoom from "@/features/dashboard/pages/community/StrategyRoom";
-import TradeReplayView from "@/features/dashboard/pages/community/TradeReplayView";
-import ChallengeDetail from "@/features/dashboard/pages/community/ChallengeDetail";
-import CourseDetail from "@/features/dashboard/pages/community/CourseDetail";
-import LessonDetail from "@/features/dashboard/pages/community/LessonDetail";
 import ProfileSettings from "@/features/dashboard/pages/ProfileSettings";
 import NotificationCenter from "@/features/dashboard/pages/NotificationCenter";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsOfService";
 
-import StrategyMarketplace from "@/features/dashboard/pages/strategy/StrategyMarketplace";
 import StrategyList from "@/features/dashboard/pages/strategy/StrategyList";
 import StrategyWizard from "@/features/dashboard/pages/strategy/StrategyWizard";
 import EntryRulesBuilder from "@/features/dashboard/pages/strategy/EntryRulesBuilder";
@@ -84,24 +64,8 @@ import PaperTrading from "@/features/dashboard/pages/trading/PaperTrading";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 
 function AppContent() {
-  const dispatch = useDispatch();
-  const { accessToken, user } = useSelector((state) => state.auth);
+  useAuthSession();
   const notifications = useNotifications();
-
-  useEffect(() => {
-    // Initialize authentication state from localStorage
-    dispatch(initializeAuth());
-  }, [dispatch]);
-
-  useEffect(() => {
-    // Only fetch profile if we have a token and user is not loaded
-    if (accessToken && !user) {
-      dispatch(fetchUserProfile()).catch((error) => {
-        console.error("Failed to fetch user profile:", error);
-        notifications.notify.error("Failed to load user profile");
-      });
-    }
-  }, [accessToken, user, dispatch, notifications.notify]);
 
   // Global error handler for unhandled promise rejections
   useEffect(() => {
@@ -126,6 +90,8 @@ function AppContent() {
         {/* Public routes */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/strategy/view/:id" element={<SharedStrategyPage />} />
+        <Route path="/google-callback" element={<GoogleCallbackPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/password-reset" element={<PasswordResetRequestPage />} />
         <Route
@@ -167,23 +133,10 @@ function AppContent() {
             <Route path="live/strategies" element={<LiveStrategies />} />
             <Route path="live/logs" element={<ExecutionLogs />} />
 
-            {/* Analytics, Journal, AI, Marketplace, Governance */}
+            {/* Journal and performance reports */}
             <Route path="journal" element={<TradeJournal />} />
             <Route path="journal/reports" element={<PerformanceReports />} />
-            <Route path="ai/advisor" element={<AIAdvisor />} />
-            <Route path="ai/scores" element={<StrategyHealth />} />
-            <Route path="ai/regime" element={<MarketRegime />} />
-            <Route path="marketplace" element={<MarketplaceHome />} />
-            <Route path="marketplace/:id" element={<StrategyDetail />} />
-            <Route path="marketplace/creator" element={<CreatorDashboard />} />
-            <Route
-              path="marketplace/subscriptions"
-              element={<SubscriptionManager />}
-            />
-            <Route path="settings/audit" element={<AuditLogs />} />
-            <Route path="settings/governance" element={<StrategyApprovals />} />
-            <Route path="settings/compliance" element={<ComplianceCenter />} />
-            <Route path="settings/system" element={<SystemSettings />} />
+            <Route path="settings/audit" element={<ActivityHistory />} />
 
             {/* Analysis routes */}
             <Route
@@ -191,41 +144,8 @@ function AppContent() {
               element={<AIResearchAssistant />}
             />
             <Route
-              path="analysis/alternative-data-hub"
-              element={<AlternativeDataHub />}
-            />
-            <Route
               path="analysis/market-screener"
               element={<MarketScreener />}
-            />
-
-            {/* Community routes */}
-            <Route path="community/leaderboards" element={<Leaderboards />} />
-            <Route
-              path="community/learning-center"
-              element={<LearningCenter />}
-            />
-            <Route path="community/social-hub" element={<SocialHub />} />
-            <Route
-              path="community/profile/:username"
-              element={<TraderProfile />}
-            />
-            <Route
-              path="community/strategies/:id/discussions"
-              element={<StrategyRoom />}
-            />
-            <Route path="community/replays/:id" element={<TradeReplayView />} />
-            <Route
-              path="community/challenges/:id"
-              element={<ChallengeDetail />}
-            />
-            <Route
-              path="community/learning/courses/:id"
-              element={<CourseDetail />}
-            />
-            <Route
-              path="community/learning/lessons/:id"
-              element={<LessonDetail />}
             />
 
             {/* Strategy routes */}
@@ -246,11 +166,6 @@ function AppContent() {
             <Route
               path="strategy/:id/permissions"
               element={<StrategyPermissions />}
-            />
-
-            <Route
-              path="strategy/strategy-marketplace"
-              element={<StrategyMarketplace />}
             />
 
             {/* Trading routes */}

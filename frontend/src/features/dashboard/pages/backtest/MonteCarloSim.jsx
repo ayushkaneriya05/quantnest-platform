@@ -86,12 +86,10 @@ export default function MonteCarloSim() {
   const fetchData = useCallback(async () => {
     try {
       const [runsData, mcData] = await Promise.all([
-        backtestApi.getRuns(),
+        backtestApi.getRuns({ status: "COMPLETED" }),
         backtestApi.getMonteCarloRuns(),
       ]);
-      setBacktestRuns(
-        (runsData.data || []).filter((run) => run.status === "COMPLETED"),
-      );
+      setBacktestRuns(runsData.data || []);
       const runs = mcData.data || [];
       setMonteCarloRuns(runs);
       setSelectedRun((current) => current ? runs.find((run) => run.id === current.id) || current : current);
@@ -297,7 +295,7 @@ export default function MonteCarloSim() {
                     {backtestRuns.find((run) => String(run.id) === backtestFilterId)?.name || `Backtest Run #${backtestFilterId}`}
                   </div>
                 ) : (
-                  <Select
+                  <Select resource="backtests" filters={{ status: "COMPLETED" }}
                     value={formData.backtest_run}
                     onValueChange={(value) =>
                       setFormData({ ...formData, backtest_run: value })

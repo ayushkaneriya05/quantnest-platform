@@ -46,19 +46,8 @@ urlpatterns = [
     path("api/v1/analytics/", include("analytics.urls")),
     path("api/v1/journal/", include("trade_journal.urls")),
     path("api/v1/notifications/", include("notifications.urls")),
-    path("api/v1/ai/", include("ai_engine.urls")),
-    path("api/v1/marketplace/", include("marketplace.urls")),
+    path("api/v1/research/", include("research.urls")),
     path("api/v1/audit/", include("audit.urls")),
-    path("api/v1/events/", include("platform_events.events_urls")),
-    path("api/v1/activity/", include("platform_events.activity_urls")),
-    path("api/v1/community/", include("community.urls")),
-    path("api/v1/gamification/", include("gamification.urls")),
-    path("api/v1/challenges/", include("gamification.challenges_urls")),
-    path("api/v1/learning/", include("learning.urls")),
-    path("api/v1/reputation/", include("reputation.urls")),
-    path("api/v1/proofs/", include("reputation.proofs_urls")),
-    path("api/v1/replays/", include("reputation.replays_urls")),
-    path("api/v1/moderation/", include("reputation.moderation_urls")),
 ]
 
 from django.conf import settings

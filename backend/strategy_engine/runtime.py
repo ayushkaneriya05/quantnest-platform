@@ -9,7 +9,6 @@ Key design decisions:
 - Avoids hot DB writes during tick evaluation
 """
 import logging
-from datetime import timedelta
 from django.utils import timezone
 
 from common.enums import TradePhase
@@ -291,14 +290,14 @@ class StrategyRuntimeState:
         try:
             if scope == "live":
                 from live_trading.models import LivePosition, TradingSession
-                session = TradingSession.objects.get(id=session_id)
+                session = TradingSession.objects.select_related("allocation__deployed_version").get(id=session_id)
                 positions = LivePosition.objects.filter(
                     allocation=session.allocation,
                     quantity__gt=0
                 ).select_related('instrument', 'allocation__deployed_version')
             else:
                 from paper_trading.models import PaperPosition, PaperTradingSession
-                session = PaperTradingSession.objects.get(id=session_id)
+                session = PaperTradingSession.objects.select_related("account", "allocation__deployed_version").get(id=session_id)
                 positions = PaperPosition.objects.filter(
                     account=session.account,
                     strategy=session.strategy,
@@ -358,76 +357,94 @@ class StrategyRuntimeState:
         return recovered
 
     @classmethod
-    def ensure_risk_metrics(cls, scope, session_id):
-        """Restore risk metrics from durable completed trades when Redis is empty."""
-        from core.cache_view import cache_view
+    def _rebuild_risk_metrics(cls, scope, session_id, current=None):
+        """Recovery only: replay recorded closes in order using the deployed timezone."""
+        from risk_management.metrics import empty_metrics, record_close, normalize_periods, RECENT_TRADE_LIMIT
 
-        session_id = str(session_id)
-        existing_metrics = cache_view.get_risk_metrics(scope, session_id)
-        if existing_metrics and "total_closed_trades" in existing_metrics:
-            return False
-
-        now = timezone.now()
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = day_start - timedelta(days=day_start.weekday())
-        month_start = day_start.replace(day=1)
         if scope == "live":
             from live_trading.models import LiveTrade, TradingSession
-
-            session = TradingSession.objects.get(id=session_id)
+            session = TradingSession.objects.select_related("allocation__deployed_version").get(pk=session_id)
             trades = LiveTrade.objects.filter(allocation=session.allocation)
             pnl_field = "realized_pnl"
+            capital = float(session.allocation.allocated_capital)
         else:
             from paper_trading.models import PaperTrade, PaperTradingSession
-
-            session = PaperTradingSession.objects.get(id=session_id)
+            session = PaperTradingSession.objects.select_related("account", "allocation__deployed_version").get(pk=session_id)
             trades = PaperTrade.objects.filter(account=session.account, strategy=session.strategy)
             pnl_field = "net_pnl"
+            capital = float(session.account.initial_balance)
 
-        trade_rows = list(trades.values("%s" % pnl_field, "entry_time", "exit_time"))
-        daily_rows = [row for row in trade_rows if row["exit_time"] and row["exit_time"] >= day_start]
-        daily_pnl = sum(float(row[pnl_field] or 0) for row in daily_rows)
-        weekly_pnl = sum(
-            float(row[pnl_field] or 0)
-            for row in trade_rows
-            if row["exit_time"] and row["exit_time"] >= week_start
-        )
-        monthly_pnl = sum(
-            float(row[pnl_field] or 0)
-            for row in trade_rows
-            if row["exit_time"] and row["exit_time"] >= month_start
-        )
-        wins = sum(1 for row in trade_rows if float(row[pnl_field] or 0) > 0)
-        losses = sum(1 for row in trade_rows if float(row[pnl_field] or 0) < 0)
-        ordered = sorted((row for row in trade_rows if row["exit_time"]), key=lambda row: row["exit_time"])
-        consecutive_wins = 0
-        consecutive_losses = 0
-        for row in reversed(ordered):
-            pnl = float(row[pnl_field] or 0)
-            if pnl > 0 and consecutive_losses == 0:
-                consecutive_wins += 1
-            elif pnl < 0 and consecutive_wins == 0:
-                consecutive_losses += 1
-            else:
-                break
+        from risk_management.auto_disable import AutoDisableGate
+        config = AutoDisableGate.configuration(session)
+        timezone_name = config["time_rule"].get("timezone", "Asia/Kolkata")
+        now = timezone.now()
+        rows = list(trades.filter(exit_time__isnull=False).order_by("exit_time", "pk").values(
+            "id", pnl_field, "entry_time", "exit_time"))
+        metrics = empty_metrics(capital, now, timezone_name)
+        for row in rows:
+            metrics = record_close(metrics, row[pnl_field] or 0, row["exit_time"], capital, timezone_name)
+        metrics = normalize_periods(metrics, now, timezone_name)
+        entry_times = [row["entry_time"] for row in rows if row["entry_time"]]
+        previous_entry = (current or {}).get("last_entry_time")
+        if isinstance(previous_entry, str):
+            from datetime import datetime
+            previous_entry = datetime.fromisoformat(previous_entry)
+        if previous_entry:
+            entry_times.append(previous_entry)
+        metrics["last_entry_time"] = max(entry_times).isoformat() if entry_times else None
+        metrics["recent_trade_ids"] = sorted(row["id"] for row in rows)[-RECENT_TRADE_LIMIT:]
+        metrics["last_close_trade_id"] = rows[-1]["id"] if rows else None
+        state = session.auto_disable_state
+        metrics["auto_disable_release"] = state.get("release", {}) if state.get("version_id") == session.allocation.deployed_version_id else {}
+        return metrics
 
-        metrics = {
-            "daily_trades": len(daily_rows),
-            "daily_pnl": daily_pnl,
-            "weekly_pnl": weekly_pnl,
-            "monthly_pnl": monthly_pnl,
-            "total_closed_trades": len(trade_rows),
-            "closed_trades": len(trade_rows),
-            "winning_trades": wins,
-            "losing_trades": losses,
-            "win_rate": (wins / len(trade_rows)) * 100 if trade_rows else 0.0,
-            "consecutive_wins": consecutive_wins,
-            "consecutive_losses": consecutive_losses,
-            "last_entry_time": max((row["entry_time"] for row in trade_rows if row["entry_time"]), default=None),
-            "last_exit_time": max((row["exit_time"] for row in trade_rows if row["exit_time"]), default=None),
-        }
-        cache_api.update_risk_metrics(scope, session_id, metrics)
-        return True
+    @classmethod
+    def ensure_risk_metrics(cls, scope, session_id):
+        """Initialize missing/incomplete projections outside tick evaluation."""
+        from core.cache_view import cache_view
+        from risk_management.metrics import metrics_complete
+
+        session_id = str(session_id)
+        if metrics_complete(cache_view.get_risk_metrics(scope, session_id)):
+            return False
+        rebuilt = False
+
+        def restore(current):
+            nonlocal rebuilt
+            if metrics_complete(current):
+                return None
+            rebuilt = True
+            return cls._rebuild_risk_metrics(scope, session_id, current)
+
+        cache_api.mutate_risk_metrics(scope, session_id, restore)
+        return rebuilt
+
+    @classmethod
+    def record_risk_close(cls, scope, session_id, trade_id, pnl, timestamp, capital, config):
+        """After commit: update fresh counters once, serialized per execution session."""
+        from datetime import datetime
+        from risk_management.metrics import metrics_complete, record_close, RECENT_TRADE_LIMIT
+
+        def update(current):
+            # Recovery includes the newly committed trade. Do not increment it again.
+            if not metrics_complete(current):
+                return cls._rebuild_risk_metrics(scope, session_id, current)
+            if trade_id in current.get("recent_trade_ids", []):
+                return None
+            previous_exit = current.get("last_exit_time")
+            if isinstance(previous_exit, str):
+                previous_exit = datetime.fromisoformat(previous_exit)
+            previous_id = current.get("last_close_trade_id") or 0
+            if previous_exit and (timestamp, trade_id) < (previous_exit, previous_id):
+                # Reconciliation can deliver old closes after newer ones; replay
+                # makes streaks and the realized-equity peak follow recorded time.
+                return cls._rebuild_risk_metrics(scope, session_id, current)
+            metrics = record_close(current, pnl, timestamp, capital, config["time_rule"].get("timezone", "Asia/Kolkata"))
+            metrics["recent_trade_ids"] = (current.get("recent_trade_ids", []) + [trade_id])[-RECENT_TRADE_LIMIT:]
+            metrics["last_close_trade_id"] = trade_id
+            return metrics
+
+        return cache_api.mutate_risk_metrics(scope, str(session_id), update)
 
     # ------------------------------------------------------------------
     # User cleanup

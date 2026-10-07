@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useNotifications } from "./useNotifications";
 import { notificationApi } from "../services/notificationApi";
+import { ensureFreshAccessToken, getWebSocketUrl } from "../services/api";
+import { readAccessToken } from "../services/authSession";
+import { logout } from "../store/authSlice";
 
 export function useSystemNotifications() {
   const { notify } = useNotifications();
+  const dispatch = useDispatch();
   const accessToken = useSelector((state) => state.auth.accessToken);
+  const userId = useSelector((state) => state.auth.user?.id);
   const [unreadCount, setUnreadCount] = useState(0);
   const [connected, setConnected] = useState(false);
   const socketRef = useRef(null);
@@ -13,6 +18,11 @@ export function useSystemNotifications() {
   const reconnectTimeoutRef = useRef(null);
   const stableConnectionTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+
+  useEffect(() => {
+    seenNotificationIdsRef.current.clear();
+    setUnreadCount(0);
+  }, [userId]);
 
   const connect = useCallback(() => {
     if (!accessToken) return;
@@ -22,11 +32,7 @@ export function useSystemNotifications() {
       socketRef.current?.readyState === WebSocket.CONNECTING
     ) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.hostname === "localhost" ? "localhost:8000" : window.location.host;
-    const wsUrl = `${protocol}//${host}/ws/notifications/?token=${encodeURIComponent(accessToken)}`;
-
-    const socket = new WebSocket(wsUrl);
+    const socket = new WebSocket(getWebSocketUrl("/ws/notifications/"));
 
     socket.onopen = () => {
       setConnected(true);
@@ -54,6 +60,10 @@ export function useSystemNotifications() {
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
+        if (payload.type === "auth.revoked" && payload.session_id === readAccessToken(accessToken)?.session_id) {
+          dispatch(logout());
+          return;
+        }
         if (payload.type === "notification" && payload.data) {
           const { id, title, message, type } = payload.data;
           if (id != null) {
@@ -83,9 +93,13 @@ export function useSystemNotifications() {
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (socketRef.current !== socket) return;
       setConnected(false);
+      if (event.code === 4401) return;
+      if (event.code === 4001) {
+        ensureFreshAccessToken().catch(() => {});
+      }
       if (stableConnectionTimeoutRef.current) {
         clearTimeout(stableConnectionTimeoutRef.current);
         stableConnectionTimeoutRef.current = null;
@@ -104,7 +118,7 @@ export function useSystemNotifications() {
     };
 
     socketRef.current = socket;
-  }, [accessToken, notify]);
+  }, [accessToken, dispatch, notify]);
 
   useEffect(() => {
     connect();
@@ -117,6 +131,7 @@ export function useSystemNotifications() {
       }
       if (socketRef.current) {
         socketRef.current.onclose = null;
+        socketRef.current.onmessage = null;
         socketRef.current.close();
         socketRef.current = null;
       }

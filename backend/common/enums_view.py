@@ -96,9 +96,7 @@ _ENUM_SOURCES = {
 }
 
 
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def enum_choices(request):
+def get_enum_metadata():
     """Return all enum choices as {EnumName: [{value, label}, ...]}."""
     data = {}
     for name, source in _ENUM_SOURCES.items():
@@ -132,7 +130,7 @@ def enum_choices(request):
         },
         'position_sizing_rule': {
             'sizing_method': 'CAPITAL_BASED', 'fixed_quantity': 1,
-            'capital_percentage': 10, 'risk_per_trade_percentage': 1,
+            'capital_percentage': 10,
         },
         'auto_disable_rule': {
             'trigger_type': 'CONSECUTIVE_LOSSES', 'threshold_value': 0,
@@ -141,4 +139,10 @@ def enum_choices(request):
         },
     }
         
-    return Response(data)
+    return data
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def enum_choices(request):
+    return Response(get_enum_metadata())

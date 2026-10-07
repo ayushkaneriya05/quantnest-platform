@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
@@ -12,7 +12,7 @@ import { riskApi } from '@/shared/services/portfolioApi';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import StrategyConfigNav from './StrategyConfigNav';
-import { usePageActions } from '@/shared/context/PageActionsContext';
+import { usePageActions } from '@/shared/context/pageActions';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
@@ -56,11 +56,7 @@ export default function StrategyAutoDisableConfig() {
     return () => setPageHeader(null);
   }, [id, strategy, setPageHeader]);
 
-  useEffect(() => {
-    if (id) fetchData();
-  }, [id]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [res, stratData] = await Promise.all([
@@ -74,7 +70,11 @@ export default function StrategyAutoDisableConfig() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, notify]);
+
+  useEffect(() => {
+    if (id) fetchData();
+  }, [id, fetchData]);
 
   const handleOpenModal = (rule = null) => {
     if (rule) {
@@ -109,7 +109,7 @@ export default function StrategyAutoDisableConfig() {
 
       // Explicitly nullify unused fields based on trigger type
       const type = formData.trigger_type;
-      if (type === 'CONSECUTIVE_LOSSES') {
+      if (['CONSECUTIVE_LOSSES', 'CONSECUTIVE_WINS'].includes(type)) {
           payload.threshold_value = null;
       } else {
           payload.threshold_count = null;
@@ -302,7 +302,7 @@ export default function StrategyAutoDisableConfig() {
               ) : (
                 <div className="space-y-2">
                   <Label>
-                    {formData.trigger_type === 'WIN_RATE_DROP' ? 'Win Rate Threshold (%)' : 'Loss/Drawdown Threshold (₹ or %)'}
+                    {formData.trigger_type === 'WIN_RATE_DROP' ? 'Win Rate Threshold (%)' : 'Loss/Drawdown Threshold (%)'}
                   </Label>
                   <Input 
                     type="number" step="0.01"
@@ -311,6 +311,13 @@ export default function StrategyAutoDisableConfig() {
                     className="bg-gray-800 border-gray-700"
                     placeholder="E.g. 10.0 for 10%"
                   />
+                  <p className="text-xs leading-relaxed text-gray-400">
+                    {formData.trigger_type === 'DRAWDOWN'
+                      ? 'Measured from peak realized equity. Open-position P&L is excluded.'
+                      : formData.trigger_type === 'WIN_RATE_DROP'
+                        ? 'Calculated from recorded closes, including partial exits.'
+                        : 'Realized loss as a percentage of session capital, using the strategy timezone.'}
+                  </p>
                 </div>
               )}
             </div>
@@ -335,7 +342,7 @@ export default function StrategyAutoDisableConfig() {
                   className="bg-gray-800 border-gray-700"
                   placeholder="24"
                 />
-                <p className="text-xs text-gray-500">Wait time before rule expires/resets.</p>
+                <p className="text-xs text-gray-500">Resume after this delay. The next recorded close can trigger the rule again.</p>
               </div>
             )}
 

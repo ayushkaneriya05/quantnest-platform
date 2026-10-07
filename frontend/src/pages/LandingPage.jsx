@@ -11,7 +11,6 @@ import {
   ClipboardCheck,
   FlaskConical,
   Gauge,
-  GraduationCap,
   Layers3,
   LineChart,
   LockKeyhole,
@@ -21,9 +20,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Store,
   Terminal,
-  Users,
 } from "lucide-react";
 
 import MainHeader from "@/shared/components/layout/main-header";
@@ -78,7 +75,7 @@ const platformFeatures = [
     eyebrow: "AI research",
     title: "Find better trading ideas",
     description:
-      "Use AI-assisted research, market screening, live quotes, and alternative data to decide what is worth testing.",
+      "Screen selected stocks, compare calculated evidence, and turn an AI-assisted hypothesis into a strategy draft worth testing.",
     accent: "from-violet-500/20 to-indigo-500/5",
     iconColor: "text-violet-300",
   },
@@ -132,51 +129,41 @@ const platformFeatures = [
 const intelligenceFeatures = [
   {
     icon: BrainCircuit,
-    title: "Strategy advisor",
-    text: "Get AI recommendations tied to a strategy, then choose what to apply or dismiss.",
+    title: "Research assistant",
+    text: "Investigate a trading hypothesis using calculated evidence from your selected instruments and watchlists.",
   },
   {
     icon: Gauge,
-    title: "Health scoring",
-    text: "See whether a strategy looks healthy, weak, or needs attention.",
+    title: "Screen and compare",
+    text: "Compare closed-candle rule values, returns, and volatility using the same evaluator as your strategies.",
   },
   {
     icon: Layers3,
-    title: "Market regime",
-    text: "Understand whether the market environment may suit or hurt a strategy.",
+    title: "Reviewed strategy drafts",
+    text: "Turn research into a validated draft, then review its rules and risk settings before backtesting.",
   },
   {
     icon: ShieldCheck,
-    title: "Overfit checks",
-    text: "Spot when a strategy may be too perfect on history and fragile in real markets.",
+    title: "Backtest review",
+    text: "Explain recorded results, costs, drawdown, and concentration, and choose the next experiments.",
   },
 ];
 
 const ecosystemFeatures = [
   {
-    icon: Store,
-    title: "Marketplace",
-    text: "Explore, publish, subscribe to, review, and monetize strategies.",
-  },
-  {
     icon: BookOpenCheck,
     title: "Journal and reports",
-    text: "Track trades, mistakes, insights, daily reports, and performance snapshots.",
+    text: "Review recorded closes, add private notes, and compare Terminal, Paper, and Live results separately.",
   },
   {
-    icon: Users,
-    title: "Community and proof",
-    text: "Share posts, strategy rooms, trade replays, reputation, and verified work.",
-  },
-  {
-    icon: GraduationCap,
-    title: "Learning center",
-    text: "Follow courses, lessons, quizzes, assignments, certificates, and recommendations.",
+    icon: BrainCircuit,
+    title: "Research your results",
+    text: "Attach actual execution reports to AI research and choose whether to include your saved review notes.",
   },
   {
     icon: ClipboardCheck,
-    title: "Governance",
-    text: "Use approvals, audit logs, compliance checks, notifications, and security tools.",
+    title: "Activity and security",
+    text: "Review configuration changes, session actions, broker connections, and account security.",
   },
 ];
 
@@ -576,7 +563,7 @@ export default function QuantNestLanding() {
                   theme={theme}
                   align="left"
                   eyebrow="Intelligence"
-                  title="AI Engine helps you improve strategies."
+            title="AI research connects ideas to testable strategies."
                   description="This part of QuantNest is strategy-focused. It does not replace your decision, but it helps you review strategy quality, market fit, and risk."
                 />
                 <div className="mt-7 rounded-2xl border border-[#e5c461]/20 bg-[#e5c461]/[0.08] p-5">
@@ -625,11 +612,11 @@ export default function QuantNestLanding() {
             <SectionHeading
               theme={theme}
               eyebrow="Ecosystem"
-              title="A platform for improving the trader, not only the trade."
-              description="These features support learning, sharing, reporting, verification, and governance so the platform can grow with the trader."
+              title="Review execution and improve your process."
+              description="Private journals, source-specific reports, and recorded activity connect your trading results to the next useful investigation."
             />
 
-            <div className={`mt-10 grid gap-px overflow-hidden rounded-3xl border md:grid-cols-2 lg:grid-cols-5 ${theme.border}`}>
+            <div className={`mt-10 grid gap-px overflow-hidden rounded-3xl border md:grid-cols-3 ${theme.border}`}>
               {ecosystemFeatures.map((feature) => {
                 const Icon = feature.icon;
                 return (

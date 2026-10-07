@@ -214,10 +214,12 @@ class LiveExecutionService:
                 "started_at": timezone.now(),
                 "ended_at": None,
                 "error_message": "",
+                "auto_disable_state": {},
             },
         )
 
         # Initialize funds in unified cache for live trading
+        _publish_cache_after_commit("update_risk_metrics", "live", str(session.id), {"auto_disable_release": {}})
         LiveExecutionService.sync_funds(broker_credential)
 
         LiveExecutionService._publish_execution_event("SESSION_START", session, "live")
@@ -237,7 +239,8 @@ class LiveExecutionService:
     def pause_session(session):
         session.status = "PAUSED"
         session.error_message = ""
-        session.save(update_fields=["status", "error_message", "updated_at"])
+        session.auto_disable_state = {}
+        session.save(update_fields=["status", "error_message", "auto_disable_state", "updated_at"])
 
         NotificationService.notify(
             user=session.user,
@@ -298,12 +301,14 @@ class LiveExecutionService:
         BrokerService.ensure_session(session.broker_credential)
         LiveExecutionService.sync_funds(session.broker_credential)
 
+        from risk_management.auto_disable import AutoDisableGate
+        AutoDisableGate.release(session)
         session.status = "RUNNING"
         if was_stopped:
             session.started_at = timezone.now()
         session.ended_at = None
         session.error_message = ""
-        update_fields = ["status", "ended_at", "error_message", "updated_at"]
+        update_fields = ["status", "ended_at", "error_message", "auto_disable_state", "updated_at"]
         if was_stopped:
             update_fields.append("started_at")
         session.save(update_fields=update_fields)
@@ -345,37 +350,17 @@ class LiveExecutionService:
 
 
     @staticmethod
-    def _validate_auto_disable(session, raise_on_trigger=True):
-        """Validate auto-disable rules - matches paper trading naming."""
+    def _validate_auto_disable(session, raise_on_trigger=True, stats=None, config=None):
+        """Use the complete risk projection and the deployed rule configuration."""
         from risk_management.auto_disable import AutoDisableGate
         from core.cache_view import cache_view
-        from django.db.models import Count, Sum
+        if stats is None:
+            StrategyRuntimeState.ensure_risk_metrics("live", session.id)
+            stats = cache_view.get_risk_metrics("live", session.id)
 
-        # Get current risk metrics from unified cache
-        stats = cache_view.get_risk_metrics("live", session.id)
-        if not stats:
-            # If cache miss, initialize with database query
-            from live_trading.models import LiveTrade
-            from django.utils import timezone
-            
-            allocation = session.allocation
-            if allocation:
-                trades = LiveTrade.objects.filter(allocation=allocation).aggregate(
-                    total_trades=Count('id'),
-                    total_pnl=Sum('realized_pnl')
-                )
-                stats = {
-                    "daily_trades": trades['total_trades'] or 0,
-                    "daily_pnl": float(trades['total_pnl'] or 0),
-                    "win_rate": 0.0,
-                    "consecutive_losses": 0,
-                    "consecutive_wins": 0,
-                }
-                cache_api.update_risk_metrics("live", session.id, stats)
-        
         allocation = session.allocation
         capital = allocation.allocated_capital if allocation else Decimal("0")
-        match = AutoDisableGate.evaluate(session, stats, capital)
+        match = AutoDisableGate.evaluate(session, stats, capital, config=config)
         if match and match.get("paused_now"):
             LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
         if match and raise_on_trigger:
@@ -425,7 +410,8 @@ class LiveExecutionService:
         signal_price = BrokerService.to_decimal(price) if price is not None else Decimal("0")
         expected_price = signal_price if signal_price > 0 else LiveExecutionService.resolve_market_price(instrument)
 
-        LiveExecutionService._validate_auto_disable(session)
+        if intent == "ENTRY":
+            LiveExecutionService._validate_auto_disable(session)
 
         order = LiveExecutionService._execute_market_order(
             session,
@@ -605,7 +591,6 @@ class LiveExecutionService:
 
         fill_price = Decimal(str(fill_price or order.avg_fill_price or order.price or 0))
         remaining = int(filled_quantity if filled_quantity is not None else order.filled_quantity or 0)
-        from core.cache_view import cache_view
         if opposite_position:
             closed_qty = min(opposite_position.quantity, remaining)
             pnl = (
@@ -613,7 +598,7 @@ class LiveExecutionService:
                 if opposite_position.side == Side.BUY
                 else (opposite_position.avg_price - fill_price) * closed_qty
             )
-            LiveTrade.objects.create(
+            trade = LiveTrade.objects.create(
                 user=order.user,
                 strategy=opposite_position.strategy,
                 allocation=opposite_position.allocation,
@@ -631,33 +616,11 @@ class LiveExecutionService:
             opposite_position.current_price = fill_price
             opposite_position.unrealized_pnl = Decimal("0")
 
-            # Update unified cache risk metrics with trade result
-
             if order.session_id:
-                current = cache_view.get_risk_metrics("live", order.session_id)
-                pnl = float(pnl)
-                current["daily_trades"] = int(current.get("daily_trades", 0) or 0) + 1
-                current["daily_pnl"] = float(current.get("daily_pnl", 0.0) or 0.0) + pnl
-                current["weekly_pnl"] = float(current.get("weekly_pnl", 0.0) or 0.0) + pnl
-                current["monthly_pnl"] = float(current.get("monthly_pnl", 0.0) or 0.0) + pnl
-                current["total_closed_trades"] = int(current.get("total_closed_trades", 0) or 0) + 1
-                current["closed_trades"] = current["total_closed_trades"]
-                current["last_exit_time"] = order.executed_at or timezone.now()
-                
-                if pnl < 0:
-                    current["consecutive_losses"] = current.get("consecutive_losses", 0) + 1
-                    current["consecutive_wins"] = 0
-                    current["losing_trades"] = int(current.get("losing_trades", 0) or 0) + 1
-                elif pnl > 0:
-                    current["consecutive_wins"] = current.get("consecutive_wins", 0) + 1
-                    current["consecutive_losses"] = 0
-                    current["winning_trades"] = int(current.get("winning_trades", 0) or 0) + 1
-                
-                total_closed = int(current.get("total_closed_trades", 0) or 0)
-                wins = int(current.get("winning_trades", 0) or 0)
-                current["win_rate"] = (wins / total_closed) * 100 if total_closed else 0.0
-                
-                _publish_cache_after_commit("update_risk_metrics", "live", order.session_id, current)
+                from risk_management.auto_disable import AutoDisableGate
+                transaction.on_commit(lambda trade=trade: AutoDisableGate.record_close(
+                    order.session, trade.pk, trade.realized_pnl, trade.exit_time,
+                    order.session.allocation.allocated_capital, strategy_config))
 
             if opposite_position.quantity > 0:
                 opposite_position.save(update_fields=["quantity", "current_price", "unrealized_pnl", "updated_at"])
@@ -783,7 +746,7 @@ class LiveExecutionService:
             existing = LiveOrder.objects.filter(request_id=request_id).first()
             if existing:
                 return
-            session = TradingSession.objects.select_related("broker_credential").get(id=data["session_id"])
+            session = TradingSession.objects.select_related("broker_credential", "allocation__deployed_version").get(id=data["session_id"])
             instrument = Instrument.objects.get(id=data["instrument_id"])
             try:
                 if not entry_is_allowed(session.status, data.get("intent")):

@@ -109,6 +109,8 @@ export default function BacktestSetup() {
   });
 
   const [chargeProfiles, setChargeProfiles] = useState([]);
+  const defaultChargeProfile = chargeProfiles.find((profile) => profile.is_default);
+  const chargeProfileId = formData.charge_profile || (defaultChargeProfile ? String(defaultChargeProfile.id) : "");
 
   const fetchChargeProfiles = useCallback(async () => {
     try {
@@ -118,22 +120,8 @@ export default function BacktestSetup() {
         ? payload
         : Array.isArray(payload?.results)
           ? payload.results
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : Array.isArray(payload?.data?.results)
-              ? payload.data.results
-            : [];
+          : [];
       setChargeProfiles(profiles);
-      const selectedProfile =
-        profiles.find((profile) => profile.is_default) || profiles[0];
-
-      if (selectedProfile) {
-        setFormData((current) => ({
-          ...current,
-          charge_profile:
-            current.charge_profile || selectedProfile.id.toString(),
-        }));
-      }
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load charge profiles"));
     }
@@ -181,14 +169,18 @@ export default function BacktestSetup() {
       notify.error("Please enter a backtest name");
       return;
     }
+    if (formData.include_charges && !chargeProfileId) {
+      notify.error("Please select a charge profile.");
+      return;
+    }
 
     try {
       setLoading(true);
       const payload = {
         ...formData,
         charge_profile:
-          formData.include_charges && formData.charge_profile
-            ? formData.charge_profile
+          formData.include_charges && chargeProfileId
+            ? chargeProfileId
             : null,
       };
       const response = await backtestApi.createRun(payload);
@@ -203,7 +195,7 @@ export default function BacktestSetup() {
   };
 
   const handleChange = (field, value) => {
-    setFormData({ ...formData, [field]: value });
+    setFormData((current) => ({ ...current, [field]: value }));
   };
 
   /* Selected strategy info */
@@ -254,7 +246,7 @@ export default function BacktestSetup() {
                 <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
                   Strategy *
                 </Label>
-                <Select
+                <Select resource="strategies"
                   value={formData.strategy}
                   onValueChange={(value) => handleChange("strategy", value)}
                 >
@@ -436,11 +428,11 @@ export default function BacktestSetup() {
                 <Label className="text-gray-400 text-xs uppercase tracking-wider font-semibold">
                   Charge Profile
                 </Label>
-                <Select
-                  value={formData.charge_profile}
-                  onValueChange={(value) =>
-                    handleChange("charge_profile", value)
-                  }
+                <Select resource="charge-profiles"
+                  value={chargeProfileId}
+                  onValueChange={(value) => {
+                    if (value) handleChange("charge_profile", value);
+                  }}
                   disabled={!formData.include_charges}
                 >
                   <SelectTrigger className="bg-gray-800/80 border-gray-700 h-11">
@@ -454,7 +446,7 @@ export default function BacktestSetup() {
                     ))}
                   </SelectContent>
                 </Select>
-                {formData.include_charges && !formData.charge_profile && (
+                {formData.include_charges && !chargeProfileId && (
                   <p className="text-xs text-amber-400">
                     Choose a charge profile or turn off charges before launching.
                   </p>
@@ -484,7 +476,7 @@ export default function BacktestSetup() {
         <div className="flex flex-col items-center gap-4 pt-2">
           <Button
             type="submit"
-            disabled={loading || !formData.strategy || !formData.name.trim() || (formData.include_charges && !formData.charge_profile)}
+            disabled={loading || !formData.strategy || !formData.name.trim() || (formData.include_charges && !chargeProfileId)}
             className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-12 px-10 shadow-lg shadow-indigo-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? (

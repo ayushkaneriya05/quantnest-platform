@@ -3,6 +3,7 @@ import logging
 import json
 import threading
 import django
+from django.utils import timezone
 from typing import List, Dict
 
 from strategy_engine.context import LiveSessionContext, PaperSessionContext
@@ -469,6 +470,12 @@ class StrategyExecutionEngine:
             
         risk_evaluator = context.get_risk_evaluator()
         risk_stats = context.get_risk_stats()
+        from risk_management.metrics import metrics_complete
+        if not metrics_complete(risk_stats):
+            return None
+        from risk_management.policy import evaluate_configuration
+        if evaluate_configuration(executor.config, risk_stats, risk_stats.get("risk_capital", risk_evaluator.portfolio_capital), timezone.now())["should_disable"]:
+            return None
         should_enter, side, reason = executor.evaluate_entry_logic(base_df, timestamp, state, risk_stats=risk_stats)
         if should_enter:
             logger.info(f"Slow-path entry triggered: {side} - {reason}")

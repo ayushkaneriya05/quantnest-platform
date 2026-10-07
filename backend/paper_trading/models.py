@@ -541,6 +541,7 @@ class PaperTrade(BaseTimestampModel):
         verbose_name = 'Paper Trade'
         verbose_name_plural = 'Paper Trades'
         ordering = ['-exit_time']
+        indexes = [models.Index(fields=['account', '-exit_time'], name='paper_close_time_idx')]
 
     def __str__(self):
         result = 'WIN' if self.net_pnl > 0 else 'LOSS'
@@ -606,6 +607,7 @@ class PaperTradingSession(BaseTimestampModel):
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True)
+    auto_disable_state = models.JSONField(default=dict, blank=True)
 
     @property
     def trades_count(self):

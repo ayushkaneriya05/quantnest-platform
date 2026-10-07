@@ -15,7 +15,7 @@ const normalizeRunPayload = (data) => {
 
 export const backtestApi = {
   // Backtest Runs
-  getRuns: () => axiosInstance.get(`${BASE_URL}/runs/`),
+  getRuns: (params = {}) => axiosInstance.get(`${BASE_URL}/runs/`, { params }),
   getRun: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/`),
   createRun: (data) => axiosInstance.post(`${BASE_URL}/runs/`, normalizeRunPayload(data)),
   deleteRun: (id) => axiosInstance.delete(`${BASE_URL}/runs/${id}/`),

@@ -62,6 +62,7 @@ class BacktestRun(BaseTimestampModel):
     # Execution settings (JSON for flexibility)
     config_snapshot = models.JSONField(default=dict, blank=True)
     data_quality = models.JSONField(default=dict, blank=True)
+    diagnostics = models.JSONField(default=dict, blank=True)
     # Status
     status = models.CharField(
         max_length=20,

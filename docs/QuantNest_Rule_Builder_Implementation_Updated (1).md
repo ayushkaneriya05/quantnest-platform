@@ -704,7 +704,6 @@ ENTRY_TRIGGER_PRICE
 STOP_LOSS
 TARGET
 STOP_DISTANCE
-RISK_PER_SHARE
 POSITION_SIZE
 ```
 
@@ -717,7 +716,7 @@ TARGET = anchor.setup.high + 2 * anchor.setup.range
 
 STOP_DISTANCE = entry_price - anchor.setup.low
 
-RISK_BASED_QUANTITY = risk_amount / STOP_DISTANCE
+CAPITAL_BASED_QUANTITY = allocated_capital / entry_price
 ```
 
 The rule/anchor engine resolves these values. The execution layer remains responsible for placing the resulting order.
@@ -3868,7 +3867,7 @@ The current QuantNest rule builder should focus on rules derived from existing s
 13. Setup → wait → trigger sequences
 14. Setup invalidation and expiry
 15. Dynamic SL/target from captured stock values
-16. Dynamic risk/position sizing from captured values
+16. Fixed or capital-based position sizing
 17. Position-state exits
 ```
 

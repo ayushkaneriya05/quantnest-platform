@@ -10,7 +10,7 @@ import {
   incrementReconnectAttempts,
   resetReconnectAttempts,
 } from "../store/websocketSlice";
-import api from "../services/api";
+import api, { ensureFreshAccessToken, getWebSocketUrl } from "../services/api";
 
 const socketRef = { current: null };
 const reconnectTimerRef = { current: null };
@@ -51,16 +51,6 @@ export function useWebSocket() {
   useEffect(() => {
     tickDataRef.current = tickData;
   }, [tickData]);
-
-  const getWebSocketUrl = () => {
-    const token = localStorage.getItem("accessToken");
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host =
-      window.location.hostname === "localhost"
-        ? "localhost:8000"
-        : window.location.host;
-    return `${protocol}//${host}/ws/marketdata/?token=${token}`;
-  };
 
   const sendMessage = useCallback((message) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -121,10 +111,22 @@ export function useWebSocket() {
       return;
     }
 
+    const retry = () => {
+      if (intentionalCloseRef.current || mountedConsumers === 0) return;
+      const attempts = reconnectAttemptsRef.current;
+      dispatch(incrementReconnectAttempts());
+      const delay = Math.min(1000 * 1.5 ** Math.min(attempts, 10), 30000);
+      reconnectTimerRef.current = setTimeout(async () => {
+        try {
+          await ensureFreshAccessToken();
+          if (!intentionalCloseRef.current && mountedConsumers > 0) connect();
+        } catch { retry(); }
+      }, delay);
+    };
     try {
       intentionalCloseRef.current = false;
       dispatch(setConnectionStatus("connecting"));
-      socketRef.current = new WebSocket(getWebSocketUrl());
+      socketRef.current = new WebSocket(getWebSocketUrl("/ws/marketdata/"));
 
       socketRef.current.onopen = () => {
         dispatch(setConnected(true));
@@ -175,7 +177,7 @@ export function useWebSocket() {
         }
       };
 
-      socketRef.current.onclose = () => {
+      socketRef.current.onclose = (event) => {
         dispatch(setConnected(false));
         dispatch(setConnectionStatus("disconnected"));
 
@@ -188,12 +190,8 @@ export function useWebSocket() {
           pongTimeoutRef.current = null;
         }
 
-        if (!intentionalCloseRef.current && mountedConsumers > 0) {
-          const attempts = reconnectAttemptsRef.current;
-
-          dispatch(incrementReconnectAttempts());
-          const delay = Math.min(1000 * 1.5 ** attempts, 30000);
-          reconnectTimerRef.current = setTimeout(connect, delay);
+        if (event.code !== 4401 && !intentionalCloseRef.current && mountedConsumers > 0) {
+          retry();
         }
       };
 
@@ -204,6 +202,7 @@ export function useWebSocket() {
     } catch (error) {
       console.error("WS setup error:", error);
       dispatch(setConnectionStatus("error"));
+      retry();
     }
   }, [
     dispatch,
@@ -227,6 +226,10 @@ export function useWebSocket() {
       pongTimeoutRef.current = null;
     }
     if (socketRef.current) {
+      socketRef.current.onclose = null;
+      socketRef.current.onmessage = null;
+      socketRef.current.onopen = null;
+      socketRef.current.onerror = null;
       socketRef.current.close(1000, "Manual disconnect");
       socketRef.current = null;
     }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setPaperLastMessage } from "../store/websocketSlice";
+import { ensureFreshAccessToken, getWebSocketUrl } from "../services/api";
 
 export function usePaperTradingUpdate() {
   return useSelector((state) => state.websocket.paperLastMessage);
@@ -16,15 +17,18 @@ export function usePaperTradingWebSocket({ enabled = true } = {}) {
   useEffect(() => {
     if (!enabled) return undefined;
     activeRef.current = true;
+    let disposed = false;
 
-    const connect = () => {
+    const retry = () => {
+      if (!activeRef.current || disposed) return;
+      const attempts = attemptsRef.current++;
+      reconnectTimerRef.current = setTimeout(connect, Math.min(1000 * 2 ** Math.min(attempts, 5), 30000));
+    };
+    const connect = async () => {
       if (!activeRef.current || socketRef.current?.readyState === WebSocket.OPEN || socketRef.current?.readyState === WebSocket.CONNECTING) return;
-      const token = localStorage.getItem("accessToken");
-      if (!token) return;
-
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.hostname === "localhost" ? "localhost:8000" : window.location.host;
-      const socket = new WebSocket(`${protocol}//${host}/ws/paper/?token=${token}`);
+      try { await ensureFreshAccessToken(); } catch { retry(); return; }
+      if (!activeRef.current || disposed) return;
+      const socket = new WebSocket(getWebSocketUrl("/ws/paper/"));
       socketRef.current = socket;
 
       socket.onopen = () => {
@@ -45,20 +49,24 @@ export function usePaperTradingWebSocket({ enabled = true } = {}) {
         }
       };
 
-      socket.onclose = () => {
-        if (!activeRef.current || socketRef.current !== socket) return;
-        const delay = Math.min(1000 * 2 ** attemptsRef.current, 30000);
-        attemptsRef.current += 1;
-        reconnectTimerRef.current = setTimeout(connect, delay);
+      socket.onclose = (event) => {
+        if (!activeRef.current || socketRef.current !== socket || event.code === 4401) return;
+        retry();
       };
     };
 
     connect();
     return () => {
       activeRef.current = false;
+      disposed = true;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
-      if (socketRef.current) socketRef.current.close(1000, "Paper updates consumer unmounted");
+      if (socketRef.current) {
+        socketRef.current.onopen = null;
+        socketRef.current.onmessage = null;
+        socketRef.current.onclose = null;
+        socketRef.current.close(1000, "Paper updates consumer unmounted");
+      }
       socketRef.current = null;
     };
   }, [dispatch, enabled]);

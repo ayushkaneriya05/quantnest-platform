@@ -1,51 +1,24 @@
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.exceptions import AuthenticationFailed
-from django.core.cache import cache
-from common.cache_keys import CacheKeys
-import logging
+from datetime import timedelta
 
-logger = logging.getLogger(__name__)
+from dj_rest_auth.jwt_auth import JWTCookieAuthentication
+from django.utils import timezone
+from rest_framework.exceptions import AuthenticationFailed
 
-class SafeJWTAuthentication(JWTAuthentication):
-    """
-    Custom JWT Authentication that enforces Stateful validation via session_id.
-    Ensures absolute revocation accuracy with Redis caching.
-    """
-    def authenticate(self, request):
-        header = self.get_header(request)
-        if header is None:
-            # Fallback to checking cookies
-            from django.conf import settings
-            cookie_name = getattr(settings, 'REST_AUTH', {}).get('JWT_AUTH_COOKIE', 'quantnest-auth')
-            raw_token = request.COOKIES.get(cookie_name)
-        else:
-            raw_token = self.get_raw_token(header)
+from .models import UserSession
+from .sessions import token_session_id
 
-        if raw_token is None:
-            return None
 
-        if isinstance(raw_token, str):
-            raw_token = raw_token.encode('utf-8')
+class SafeJWTAuthentication(JWTCookieAuthentication):
+    """Require an active, owned session for bearer and cookie authentication."""
 
-        try:
-            validated_token = self.get_validated_token(raw_token)
-        except AuthenticationFailed:
-            return None
-
-        session_id = validated_token.get("session_id")
-        
-        if session_id:
-            cache_key = CacheKeys.AUTH_SESSION.format(session_id=session_id)
-            is_valid = cache.get(cache_key)
-
-            if is_valid is None:
-                # Local import to avoid circular import errors
-                from users.models import UserSession
-                is_valid = UserSession.objects.filter(session_id=session_id).exists()
-                cache.set(cache_key, is_valid, timeout=60)
-
-            if not is_valid:
-                logger.warning(f"Rejecting revoked session_id: {session_id}")
-                raise AuthenticationFailed("This session has been revoked or expired.", code="session_revoked")
-                
-        return self.get_user(validated_token), validated_token
+    def get_user(self, validated_token):
+        user = super().get_user(validated_token)
+        now = timezone.now()
+        session = UserSession.objects.filter(
+            session_id=token_session_id(validated_token), user=user, expires_at__gt=now,
+        ).only("id", "last_activity").first()
+        if session is None:
+            raise AuthenticationFailed("This session has ended. Please sign in again.", code="session_revoked")
+        if session.last_activity < now - timedelta(minutes=1):
+            UserSession.objects.filter(pk=session.pk, last_activity=session.last_activity).update(last_activity=now)
+        return user

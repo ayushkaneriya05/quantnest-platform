@@ -231,7 +231,7 @@ class ExecutionRoute(BaseTimestampModel):
     sizing_method = models.CharField(
         max_length=20, choices=QuantityType.choices,
         null=True, blank=True,
-        help_text='Overrides strategy sizing method (FIXED, CAPITAL_BASED, RISK_FIXED, RISK_PERCENTAGE)'
+        help_text='Overrides strategy sizing method (FIXED or CAPITAL_BASED)'
     )
     fixed_quantity = models.IntegerField(
         null=True, blank=True,
@@ -240,10 +240,6 @@ class ExecutionRoute(BaseTimestampModel):
     capital_percentage = models.DecimalField(
         max_digits=6, decimal_places=2, null=True, blank=True,
         help_text='For CAPITAL_BASED method: percent of portfolio capital to allocate'
-    )
-    risk_per_trade_percentage = models.DecimalField(
-        max_digits=6, decimal_places=2, null=True, blank=True,
-        help_text='For RISK_PERCENTAGE method: percent of portfolio capital to risk per trade'
     )
     
     def __str__(self):
@@ -256,6 +252,5 @@ class ExecutionRoute(BaseTimestampModel):
             "sizing_method": self.sizing_method,
             "fixed_quantity": self.fixed_quantity,
             "capital_percentage": self.capital_percentage,
-            "risk_per_trade_percentage": self.risk_per_trade_percentage,
         }
 

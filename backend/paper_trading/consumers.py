@@ -1,3 +1,4 @@
+from users.websocket import AuthSessionConsumerMixin
 import json
 import logging
 
@@ -6,7 +7,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 logger = logging.getLogger(__name__)
 
 
-class PaperTradingConsumer(AsyncWebsocketConsumer):
+class PaperTradingConsumer(AuthSessionConsumerMixin, AsyncWebsocketConsumer):
     async def connect(self):
         user = self.scope.get("user")
         if not user or not user.is_authenticated:

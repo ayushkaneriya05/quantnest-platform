@@ -1,22 +1,17 @@
 /* eslint-disable react/prop-types */
-import React, { useState } from "react";
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Brain,
   BarChart,
-  Database,
   Code,
   TestTube,
-  Store,
   Rocket,
   Terminal,
   CreditCard,
   Plug,
   Shield,
   BookOpen,
-  Users,
-  Trophy,
-  GraduationCap,
   UserCircle,
   Settings,
   LogOut,
@@ -36,6 +31,7 @@ import {
 import { useSidebar } from "@/shared/hooks/useSidebar";
 import { useDispatch, useSelector } from "react-redux";
 import { logoutUser } from "@/shared/store/authSlice";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSystemNotificationsContext } from "@/shared/context/SystemNotificationsContext";
 
 const SidebarLink = ({ to, icon: Icon, label, currentPath }) => {
@@ -61,6 +57,7 @@ const SidebarLink = ({ to, icon: Icon, label, currentPath }) => {
 
 export default function Sidebar() {
   const dispatch = useDispatch();
+  const { notify } = useNotifications();
   const { user } = useSelector((state) => state.auth);
   const navigate = useNavigate();
   const location = useLocation();
@@ -74,10 +71,6 @@ export default function Sidebar() {
     brokers: false,
     liveOps: false,
     journal: false,
-    ai: false,
-    marketplace: false,
-    governance: false,
-    community: false,
   });
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const { unreadCount } = useSystemNotificationsContext();
@@ -92,12 +85,10 @@ export default function Sidebar() {
 
   const handleLogout = async () => {
     try {
-      // The thunk now handles full cleanup in authSlice extraReducers
-      await dispatch(logoutUser());
-    } catch (error) {
-      console.error("Logout failed", error);
-    } finally {
+      await dispatch(logoutUser()).unwrap();
       navigate("/");
+    } catch (error) {
+      notify.error(typeof error === "string" ? error : "Could not sign out. Please retry.");
     }
   };
 
@@ -165,12 +156,6 @@ export default function Sidebar() {
                   to="/dashboard/analysis/market-screener"
                   icon={BarChart}
                   label="Market Screener"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/analysis/alternative-data-hub"
-                  icon={Database}
-                  label="Alternative Data Hub"
                   currentPath={pathname}
                 />
               </div>
@@ -393,165 +378,8 @@ export default function Sidebar() {
             )}
           </div>
 
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("ai")}
-            >
-              <div className="flex items-center gap-2">
-                <Brain className="h-4 w-4 flex-shrink-0 text-fuchsia-400" />
-                <span className="font-medium">AI Engine</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${openSections.ai ? "rotate-180" : ""}`}
-              />
-            </Button>
-            {openSections.ai && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/dashboard/ai/advisor"
-                  icon={Brain}
-                  label="Advisor"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/ai/scores"
-                  icon={BarChart}
-                  label="Health Scores"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/ai/regime"
-                  icon={Database}
-                  label="Market Regime"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
 
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("marketplace")}
-            >
-              <div className="flex items-center gap-2">
-                <Store className="h-4 w-4 flex-shrink-0 text-orange-400" />
-                <span className="font-medium">Marketplace</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${openSections.marketplace ? "rotate-180" : ""}`}
-              />
-            </Button>
-            {openSections.marketplace && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/dashboard/marketplace"
-                  icon={Store}
-                  label="Explore"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/marketplace/creator"
-                  icon={Trophy}
-                  label="Creator Earnings"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/marketplace/subscriptions"
-                  icon={CreditCard}
-                  label="Subscriptions"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
 
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("governance")}
-            >
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 flex-shrink-0 text-red-400" />
-                <span className="font-medium">Governance</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${openSections.governance ? "rotate-180" : ""}`}
-              />
-            </Button>
-            {openSections.governance && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/dashboard/settings/audit"
-                  icon={Terminal}
-                  label="Audit Logs"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/settings/governance"
-                  icon={Shield}
-                  label="Approvals"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/settings/compliance"
-                  icon={BookOpen}
-                  label="Compliance"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/settings/system"
-                  icon={Settings}
-                  label="System Settings"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-slate-300 hover:bg-gray-800/70 hover:text-slate-100 transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("community")}
-            >
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 flex-shrink-0 text-amber-400" />
-                <span className="font-medium">Community & Learning</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  openSections.community ? "rotate-180" : ""
-                }`}
-              />
-            </Button>
-            {openSections.community && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/dashboard/community/social-hub"
-                  icon={Users}
-                  label="Social Hub"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/community/leaderboards"
-                  icon={Trophy}
-                  label="Leaderboards"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/dashboard/community/learning-center"
-                  icon={GraduationCap}
-                  label="Learning Center"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
         </div>
       </nav>
 
@@ -586,6 +414,11 @@ export default function Sidebar() {
               >
                 <Settings className="h-4 w-4" />
                 <span className="text-sm">Profile & Settings</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="hover:bg-gray-800 cursor-pointer transition-colors">
+              <Link to="/dashboard/settings/audit" className="flex items-center gap-2 w-full" onClick={() => setDropdownOpen(false)}>
+                <Shield className="h-4 w-4" /><span className="text-sm">Activity History</span>
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem className="hover:bg-gray-800 cursor-pointer transition-colors">

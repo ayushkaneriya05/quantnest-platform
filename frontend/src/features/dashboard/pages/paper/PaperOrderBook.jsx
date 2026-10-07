@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
+import { OverflowTooltip } from "@/shared/components/ui/tooltip";
 import { paperApi } from "@/shared/services/paperApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
@@ -103,7 +104,7 @@ export default function PaperOrderBook({ selectedAccountId }) {
               No orders found.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scrollbar-thin-theme">
               <table className="w-full text-sm">
                 <thead className="bg-gray-800/20 border-y border-gray-800">
                   <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500">
@@ -155,9 +156,9 @@ export default function PaperOrderBook({ selectedAccountId }) {
                             {order.status}
                           </Badge>
                           {order.status === "REJECTED" && order.rejection_reason && (
-                            <span className="text-[10px] text-red-400 mt-1 max-w-[150px] truncate" title={order.rejection_reason}>
+                            <OverflowTooltip className="text-[10px] text-red-400 mt-1 max-w-[150px]">
                               {order.rejection_reason}
-                            </span>
+                            </OverflowTooltip>
                           )}
                         </div>
                       </td>

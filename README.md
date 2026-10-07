@@ -2,7 +2,7 @@
 
 QuantNest is a full-stack trading platform for building strategies, validating them with historical data, deploying them to paper trading, placing manual trades, and running broker-connected live trading sessions.
 
-The codebase combines a Django/DRF backend with a React/Vite dashboard. It includes authentication, instruments and market data, strategy configuration, rule evaluation, risk management, portfolio allocation, backtesting, paper trading, manual trading, broker integrations, live execution, analytics, AI/research modules, marketplace/community features, and operational audit trails.
+The codebase combines a Django/DRF backend with a React/Vite dashboard. It includes authentication, instruments and market data, strategy configuration, rule evaluation, risk management, portfolio allocation, backtesting, paper trading, manual trading, broker integrations, live execution, AI research, private execution journals, source-specific reports, and activity history.
 
 > Trading systems can lose money. This project is software infrastructure, not financial advice. Always test with paper trading before connecting live capital.
 
@@ -179,12 +179,11 @@ Primary code:
 
 QuantNest also includes modules for:
 
-- Analytics and reports.
-- Trade journal.
-- AI advisor, strategy health, and market regime.
-- Marketplace and subscriptions.
-- Community, learning, reputation, proofs, replays, and gamification.
-- Notifications, audit logs, and platform events.
+- On-demand execution reports, with Terminal, Paper, and Live results kept separate.
+- Private trade reviews, notes, lessons, mistake tags, and self-reported execution ratings.
+- AI research with selected watchlists, deterministic screening/comparison, reviewed strategy drafts, and backtest explanations.
+- Optional AI review of recorded execution evidence; saved notes require explicit selection.
+- Notifications and sanitized configuration/lifecycle activity history.
 
 ---
 
@@ -203,7 +202,7 @@ QuantNest also includes modules for:
 - Manual trading terminal APIs.
 - Broker credentials, sessions, settings, logs, reconciliation.
 - Live trading sessions, orders, positions, allocations, logs, slippage.
-- Analytics, AI, marketplace, audit, notifications, journal, community, learning, reputation, proofs, replays, moderation, gamification.
+- Research, execution reports, private journal reviews, notifications, and activity history.
 
 ### Implemented Frontend Areas
 
@@ -211,14 +210,14 @@ QuantNest also includes modules for:
 - Auth screens and 2FA flows.
 - Dashboard shell and navigation.
 - Market overview and search.
-- Strategy wizard, rule builders, risk/time/asset settings, version history, marketplace pages.
+- Strategy wizard, rule builders, risk/time/asset settings, and version history.
 - Backtest setup, results, trade list, equity/drawdown charts, Monte Carlo.
 - Trading terminal.
 - Portfolio overview, risk, exposure, allocations, transactions.
 - Paper capital, allocations, portfolio, positions, orders, trade history, analytics, wallet.
 - Broker connections, order settings, broker logs.
 - Live portfolio, strategies, orders, positions, execution logs, emergency controls, performance and analysis components.
-- AI/research, alerts, journal, governance, community, learning, marketplace.
+- Conversational AI research, market screener, notifications, execution journal, source-specific reports, and account activity history.
 
 ---
 
@@ -283,9 +282,8 @@ QuantNest/
 |   +-- brokers/             # Broker credentials, sessions, settings, logs
 |   +-- live_trading/        # Live sessions, orders, positions, slippage
 |   +-- analytics/           # Analytics suite
-|   +-- ai_engine/           # AI advisor and health/regime services
+|   +-- research/            # Research jobs, evidence, screening, draft validation
 |   +-- trade_journal/       # Journal entries and reporting
-|   +-- marketplace/         # Strategy listings/subscriptions
 |   +-- notifications/       # User notifications
 |   +-- audit/               # Audit records
 |   +-- manage.py
@@ -301,12 +299,16 @@ QuantNest/
 |   |   +-- pages/brokers/   # Broker UX
 |   |   +-- pages/portfolio/ # Portfolio UX
 |   +-- vite.config.js
++-- research_service/       # Private FastAPI + Gemini service
 +-- README.md
 ```
 
 ---
 
 ## Local Setup
+
+For the AI research assistant's private service, environment variables, dedicated
+worker and verification commands, see [research service setup](research_service/README.md).
 
 ### Prerequisites
 
@@ -582,19 +584,8 @@ GET  /api/v1/live/slippage/
 /api/v1/analytics/
 /api/v1/journal/
 /api/v1/notifications/
-/api/v1/ai/
-/api/v1/marketplace/
+/api/v1/research/
 /api/v1/audit/
-/api/v1/events/
-/api/v1/activity/
-/api/v1/community/
-/api/v1/gamification/
-/api/v1/challenges/
-/api/v1/learning/
-/api/v1/reputation/
-/api/v1/proofs/
-/api/v1/replays/
-/api/v1/moderation/
 ```
 
 ---

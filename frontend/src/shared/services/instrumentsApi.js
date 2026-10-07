@@ -8,11 +8,9 @@ const INSTRUMENTS_URL = '/instruments/';
 // Instruments
 export const instrumentsApi = {
   // Search instruments
-  search: async (params = {}) => {
-    const response = await api.get(`${INSTRUMENTS_URL}instruments/search/`, { params });
-    const data = response.data;
-    // Handle both direct array and paginated { results: [] } responses
-    return Array.isArray(data) ? data : (data?.results || []);
+  search: async (params = {}, config = {}) => {
+    const response = await api.get(`${INSTRUMENTS_URL}instruments/search/`, { ...config, params });
+    return response.data;
   },
 
   // Get all instruments
@@ -27,6 +25,11 @@ export const instrumentsApi = {
     return response.data;
   },
 };
+
+export async function searchTerminalInstruments(params, config = {}) {
+  const response = await api.get("/trading/instruments/search/", { ...config, params });
+  return response.data;
+}
 
 
 

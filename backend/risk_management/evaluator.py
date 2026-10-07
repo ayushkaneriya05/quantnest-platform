@@ -4,7 +4,6 @@ from common.enums import (
     QuantityType,
 )
 from common.trading_utils import get_any_field, to_float, to_int
-from rules_engine.utils import compute_sl_distance_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -19,34 +18,16 @@ class RiskEvaluator:
         "sizing_method": QuantityType.CAPITAL_BASED,
         "fixed_quantity": 1,
         "capital_percentage": 10,
-        "risk_per_trade_percentage": 1,
     }
 
     def __init__(self, portfolio_capital):
         self.portfolio_capital = to_float(portfolio_capital, 0.0)
 
-    def calculate_quantity(self, sizing_config, entry_price, sl_distance=None, lot_size=1, strategy_config=None):
-        """
-        Calculate position quantity based on PositionSizingRule.
-        
-        Args:
-            sizing_config: Can be either:
-                - Full strategy config dict with nested 'position_sizing_rule' key
-                - Route-level sizing dict with direct 'sizing_method' key
-                - None (uses default sizing)
-            strategy_config: Full strategy config with rule_groups (needed for SL distance extraction).
-                             If None, sizing_config will be used as fallback.
-        """
+    def calculate_quantity(self, sizing_config, entry_price, lot_size=1):
+        """Calculate a fixed or capital-based quantity, rounded down to whole lots."""
         sizing = self._get_sizing_config(sizing_config)
         method = get_any_field(sizing, "sizing_method", QuantityType.CAPITAL_BASED)
         entry_price = max(to_float(entry_price, 0.0), 0.0)
-
-        # If sl_distance was not explicitly provided, try to extract it from config
-        if sl_distance is None and method == QuantityType.RISK_BASED:
-            # Use strategy_config for SL extraction (has rule_groups), fallback to sizing_config
-            sl_distance = compute_sl_distance_from_config(strategy_config, entry_price)
-        else:
-            sl_distance = to_float(sl_distance, 0.0)
 
         if entry_price <= 0:
             return 0
@@ -59,10 +40,6 @@ class RiskEvaluator:
             capital_pct = to_float(get_any_field(sizing, "capital_percentage", 10), 10.0) / 100
             allocated_capital = self.portfolio_capital * max(capital_pct, 0.0)
             quantity = int(allocated_capital / entry_price)
-        elif method == QuantityType.RISK_BASED:
-            risk_pct = to_float(get_any_field(sizing, "risk_per_trade_percentage", 1), 1.0) / 100
-            risk_amount = self.portfolio_capital * max(risk_pct, 0.0)
-            quantity = int(risk_amount / self._effective_sl_distance(entry_price, sl_distance))
         else:
             logger.warning("Unsupported sizing method %s, rejecting order with quantity 0", method)
 
@@ -80,7 +57,7 @@ class RiskEvaluator:
 
     def evaluate_auto_disable_rules(self, rules, stats):
         """
-        Evaluate a list/queryset of StrategyAutoDisable rules.
+        Evaluate auto-disable rules from an immutable execution configuration.
         """
         rule_list = list(rules or [])
         triggered = []
@@ -94,7 +71,7 @@ class RiskEvaluator:
             "triggered": bool(triggered),
             "matches": triggered,
             "should_disable": bool(triggered),
-            "can_auto_reenable": any(item["auto_reenable"] for item in triggered),
+            "can_auto_reenable": bool(triggered) and all(item["auto_reenable"] for item in triggered),
             "max_cooldown_hours": max((item["cooldown_hours"] for item in triggered), default=0),
         }
 
@@ -190,11 +167,6 @@ class RiskEvaluator:
             "auto_reenable": bool(get_any_field(rule, "auto_reenable", False)),
             "cooldown_hours": to_int(get_any_field(rule, "cooldown_hours", 24), 24),
         }
-
-    def _effective_sl_distance(self, entry_price, sl_distance):
-        if sl_distance and sl_distance > 0:
-            return sl_distance
-        return max(entry_price * 0.01, 0.01)
 
     def _get_stat(self, stats, key, default=0.0):
         if isinstance(stats, dict):

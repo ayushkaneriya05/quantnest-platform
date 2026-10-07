@@ -1,15 +1,12 @@
 /**
  * Risk Settings - position sizing, execution, and re-entry configuration
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { Badge } from "@/shared/components/ui/badge";
-import { Switch } from "@/shared/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { Slider } from "@/shared/components/ui/slider";
 import { 
   DollarSign, Gauge
 } from 'lucide-react';
@@ -21,15 +18,7 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
-// Risk level indicator
-const getRiskLevel = (pct) => {
-  if (pct <= 1) return { label: 'Conservative', color: 'text-emerald-400', bg: 'bg-emerald-500/15', border: 'border-emerald-500/30' };
-  if (pct <= 2) return { label: 'Moderate', color: 'text-amber-400', bg: 'bg-amber-500/15', border: 'border-amber-500/30' };
-  if (pct <= 3) return { label: 'Aggressive', color: 'text-orange-400', bg: 'bg-orange-500/15', border: 'border-orange-500/30' };
-  return { label: 'Very Aggressive', color: 'text-rose-400', bg: 'bg-rose-500/15', border: 'border-rose-500/30' };
-};
-
-import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
+import { usePageActions } from '@/shared/context/pageActions'; // Added import
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function RiskSettings() {
@@ -52,12 +41,8 @@ export default function RiskSettings() {
     fixed_quantity: 1,
     capital_percentage: 10,
     cooldown_seconds: 0,
-    risk_per_trade_pct: 1,
   });
 
-  useEffect(() => {
-    if (id) fetchData();
-  }, [id]);
 
   // Set Navigation in Header
   useEffect(() => {
@@ -65,7 +50,7 @@ export default function RiskSettings() {
     return () => setPageHeader(null);
   }, [strategy, setPageHeader]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const data = await strategyApi.getById(id);
@@ -92,7 +77,6 @@ export default function RiskSettings() {
           quantity_type: s.sizing_method || 'CAPITAL_BASED',
           fixed_quantity: s.fixed_quantity || 1,
           capital_percentage: s.capital_percentage || 10,
-          risk_per_trade_pct: s.risk_per_trade_percentage ?? 1,
         }));
       }
 
@@ -101,7 +85,9 @@ export default function RiskSettings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, notify]);
+
+  useEffect(() => { if (id) fetchData(); }, [id, fetchData]);
 
   const handleSave = async () => {
     try {
@@ -121,7 +107,6 @@ export default function RiskSettings() {
         sizing_method: formData.quantity_type,
         fixed_quantity: formData.quantity_type === 'FIXED' ? formData.fixed_quantity : null,
         capital_percentage: formData.quantity_type === 'CAPITAL_BASED' ? formData.capital_percentage : null,
-        risk_per_trade_percentage: formData.quantity_type === 'RISK_BASED' ? formData.risk_per_trade_pct : null,
       };
 
       // Sanitize: convert NaN to 0, preserve nulls (needed to clear unused fields in DB)
@@ -134,7 +119,7 @@ export default function RiskSettings() {
         await riskApi.updateSizingRule(sizingRuleId, sizingPayload);
       } else {
         const newSizing = await riskApi.createSizingRule(sizingPayload);
-        setSizingRuleId(newSizing.id);
+        setSizingRuleId(newSizing.data.id);
       }
       notify.success('Risk settings saved');
       // navigate removed to keep user on same page
@@ -147,7 +132,6 @@ export default function RiskSettings() {
     }
   };
 
-  const riskLevel = getRiskLevel(formData.risk_per_trade_pct);
 
   if (loading) {
     return (
@@ -264,35 +248,6 @@ export default function RiskSettings() {
             )}
           </div>
 
-          {/* Risk slider with level indicator - Only show for RISK_BASED */}
-          {formData.quantity_type === 'RISK_BASED' && (
-          <div className="space-y-3 pt-2">
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-500">Risk per Trade</span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-mono text-white">{formData.risk_per_trade_pct}%</span>
-                <Badge variant="outline" className={`text-[10px] ${riskLevel.color} ${riskLevel.border} ${riskLevel.bg}`}>
-                  {riskLevel.label}
-                </Badge>
-              </div>
-            </div>
-            <Slider
-              value={[formData.risk_per_trade_pct]}
-              onValueChange={(v) => setFormData({ ...formData, risk_per_trade_pct: v[0] })}
-              max={5}
-              step={0.25}
-              className="w-full"
-            />
-            <div className="flex justify-between text-[10px] text-gray-600">
-              <span>0%</span>
-              <span>1%</span>
-              <span>2%</span>
-              <span>3%</span>
-              <span>4%</span>
-              <span>5%</span>
-            </div>
-          </div>
-          )}
 
         </CardContent>
       </Card>

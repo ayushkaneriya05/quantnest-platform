@@ -8,6 +8,7 @@ from common.enums import (
     OperandType, ComparisonOperator, CandlePatternType, CandleTimeframe, RuleType,
     get_math_expression_operand_types, get_operand_parameter_config,
     get_operand_parameter_defaults,
+    OPERAND_PARAMETER_CONFIG,
 )
 
 
@@ -46,6 +47,8 @@ def _normalize_and_validate_operand_params(operand_type, raw_params, field_name,
                     raise serializers.ValidationError({field_name: f'{error_key} must be a number.'})
                 if not (-float('inf') < number < float('inf')):
                     raise serializers.ValidationError({field_name: f'{error_key} must be finite.'})
+                if float(spec.get('step', 1)).is_integer() and not number.is_integer():
+                    raise serializers.ValidationError({field_name: f'{error_key} must be an integer.'})
                 if spec.get('min') is not None and number < spec['min']:
                     raise serializers.ValidationError({field_name: f'{error_key} must be at least {spec["min"]}.'})
                 if spec.get('max') is not None and number > spec['max']:

@@ -4,10 +4,8 @@ Views for the backtesting app.
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
-from kombu.exceptions import OperationalError
 from .models import (
     BacktestRun, BacktestMetrics, MonteCarloRun
 )
@@ -17,14 +15,12 @@ from .serializers import (
     MonteCarloRunSerializer, MonteCarloResultSerializer
 )
 from common.enums import BacktestStatus
-from strategies.services import StrategySnapshotService
+from .services import create_backtest, start_backtest
 from .tasks import _notify_backtest_result, run_backtest_task, run_monte_carlo_task
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-from backend.celery import app as celery_app
 
 def _queue_task(task, obj):
     try:
@@ -38,9 +34,13 @@ def _queue_task(task, obj):
 class BacktestRunViewSet(viewsets.ModelViewSet):
     """ViewSet for backtest runs."""
     permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'post', 'delete', 'head', 'options']
     
     def get_queryset(self):
-        return BacktestRun.objects.filter(user=self.request.user).select_related('strategy')
+        queryset = BacktestRun.objects.filter(user=self.request.user).select_related('strategy')
+        if self.action == 'list' and self.request.query_params.get('status'):
+            queryset = queryset.filter(status=self.request.query_params['status'])
+        return queryset
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -50,26 +50,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         return BacktestRunSerializer
     
     def perform_create(self, serializer):
-        strategy = serializer.validated_data['strategy']
-        if strategy.user_id != self.request.user.id and not strategy.allow_backtest:
-            raise ValidationError({"strategy": "Backtesting is disabled for this strategy."})
-        if not strategy.watchlist_instruments.exists():
-            raise ValidationError({"strategy": "Strategy has no watchlist instruments."})
-        if not strategy.rule_groups.filter(rule_type='ENTRY', is_active=True, rules__is_active=True).exists():
-            raise ValidationError({"strategy": "Strategy needs at least one active entry rule before backtesting."})
-
-        # Create an immutable snapshot
-        version = StrategySnapshotService.create_snapshot(
-            strategy, 
-            user=self.request.user,
-            change_notes=f"Auto-snapshot for backtest: {serializer.validated_data.get('name', 'Unnamed')}"
-        )
-
-        serializer.save(
-            user=self.request.user, 
-            strategy_version=version,
-            config_snapshot=version.config_snapshot,
-        )
+        create_backtest(serializer, self.request.user)
     
     @action(detail=True, methods=['post'])
     def start(self, request, pk=None):
@@ -78,14 +59,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         if run.status != BacktestStatus.PENDING:
             return Response({'error': f'Backtest cannot be started in {run.status} status'}, status=400)
 
-        started_at = timezone.now()
-        updated = BacktestRun.objects.filter(pk=run.pk, status=BacktestStatus.PENDING).update(
-            status=BacktestStatus.RUNNING, started_at=started_at, error_message="", progress_pct=0,
-            progress_message="Starting backtest and loading historical candles...",
-        )
-        if not updated:
-            return Response({'error': 'Backtest has already been started.'}, status=status.HTTP_409_CONFLICT)
-        run.refresh_from_db()
+        start_backtest(run)
         
         # Broadcast that backtest has started
         try:
@@ -109,15 +83,10 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.warning(f"Failed to broadcast backtest start: {e}")
 
-        if not _queue_task(run_backtest_task, run):
-            BacktestRun.objects.filter(pk=run.pk, status=BacktestStatus.RUNNING).update(
-                status=BacktestStatus.PENDING,
-                started_at=None,
-                error_message='Task queue is unavailable. Start a Celery worker and try again.',
-                progress_message="Backtest is waiting to be started.",
-            )
+        run.refresh_from_db()
+        if run.status == BacktestStatus.PENDING and run.error_message:
             return Response(
-                {'error': 'Backtest queue is unavailable. Start the Celery broker/worker and try again.'},
+                {'error': run.error_message},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 

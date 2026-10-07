@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.db import transaction
 from common.enums import CapitalAllocationType
 from .models import (
     PaperAccount, PaperPosition, PaperOrder, PaperTrade,
@@ -53,23 +54,18 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Allocation not found'}, status=404)
 
         try:
-            PaperExecutionService._resolve_cost_configuration(
-                request.user,
-                request.data.get('slippage_pct', 0),
-                request.data.get('charge_profile'),
-                request.data.get('include_charges', True),
-            )
-            paper_account = PortfolioService.ensure_paper_account_for_allocation(allocation, name=name)
-            PaperExecutionService.deploy_session(
-                user=request.user,
-                strategy=strategy,
-                allocation=paper_account.allocation,
-                account=paper_account,
-                initial_status="STOPPED",
-                slippage_pct=request.data.get('slippage_pct', 0),
-                charge_profile_id=request.data.get('charge_profile'),
-                include_charges=request.data.get('include_charges', True),
-            )
+            with transaction.atomic():
+                paper_account = PortfolioService.ensure_paper_account_for_allocation(allocation, name=name)
+                PaperExecutionService.deploy_session(
+                    user=request.user,
+                    strategy=strategy,
+                    allocation=paper_account.allocation,
+                    account=paper_account,
+                    initial_status="STOPPED",
+                    slippage_pct=request.data.get('slippage_pct', 0),
+                    charge_profile_id=request.data.get('charge_profile'),
+                    include_charges=request.data.get('include_charges', True),
+                )
         except ValueError as e:
             return Response({'error': str(e)}, status=400)
 
@@ -201,9 +197,11 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(allocations, many=True).data)
 
     @action(detail=True, methods=['post'], url_path='deploy-version')
+    @transaction.atomic
     def deploy_version(self, request, pk=None):
         """Hot-swap the deployed strategy version on a paper allocation."""
         allocation = self.get_object()
+        allocation = CapitalAllocation.objects.select_for_update(of=("self",)).get(pk=allocation.pk)
         version_id = request.data.get('version_id')
 
         if not version_id:
@@ -224,11 +222,16 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        if allocation.deployed_version_id == version.pk:
+            return Response(self.get_serializer(allocation).data)
         allocation.deployed_version = version
         allocation.save(update_fields=['deployed_version', 'updated_at'])
 
-        for session in allocation.paper_sessions.filter(status="RUNNING"):
-            PaperExecutionService._publish_execution_event("VERSION_CHANGE", session, "paper")
+        from risk_management.auto_disable import AutoDisableGate
+        for session in allocation.paper_sessions.all():
+            AutoDisableGate.version_changed(session)
+            if session.status == "RUNNING":
+                transaction.on_commit(lambda session=session: PaperExecutionService._publish_execution_event("VERSION_CHANGE", session, "paper"))
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)

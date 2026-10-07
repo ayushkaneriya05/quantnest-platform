@@ -31,6 +31,7 @@ class TradingSession(BaseTimestampModel):
     ended_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=SESSION_STATUSES, default="PAUSED")
     error_message = models.TextField(blank=True)
+    auto_disable_state = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "live_trading_session"
@@ -244,6 +245,7 @@ class LiveTrade(BaseTimestampModel):
     class Meta:
         db_table = "live_trade"
         ordering = ["-exit_time"]
+        indexes = [models.Index(fields=['user', '-exit_time'], name='live_close_time_idx')]
 
     def __str__(self):
         result = 'WIN' if self.realized_pnl > 0 else 'LOSS'

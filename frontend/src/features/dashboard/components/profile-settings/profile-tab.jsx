@@ -17,7 +17,6 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/shared/components/ui/avat
 import { User, Upload, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import api from "@/shared/services/api";
 import { updateUser } from "@/shared/store/authSlice";
-import React from "react";
 
 export default function ProfileTab() {
   const { user } = useSelector((state) => state.auth);
@@ -29,15 +28,14 @@ export default function ProfileTab() {
     username: "",
     email: "",
     bio: "",
-    avatar: "",
-    newAvatar: "",
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [errors, setErrors] = useState({});
   const [avatarPreview, setAvatarPreview] = useState(null);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
 
   // Load user data on component mount
   useEffect(() => {
@@ -48,14 +46,17 @@ export default function ProfileTab() {
         username: user.username || "",
         email: user.email || "",
         bio: user.bio || "",
-        avatar: user.avatar || "",
-        newAvatar: user.avatar || "",
       });
-      if (user.avatar) {
-        setAvatarPreview(user.avatar);
-      }
+      setAvatarFile(null);
+      setRemoveAvatar(false);
     }
   }, [user]);
+
+  useEffect(() => {
+    const preview = avatarFile ? URL.createObjectURL(avatarFile) : null;
+    setAvatarPreview(preview || (removeAvatar ? null : user?.avatar));
+    return () => { if (preview) URL.revokeObjectURL(preview); };
+  }, [avatarFile, removeAvatar, user?.avatar]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -72,8 +73,9 @@ export default function ProfileTab() {
     }
   };
 
-  const handleAvatarChange = async (e) => {
+  const handleAvatarChange = (e) => {
     const file = e.target.files[0];
+    e.target.value = "";
     if (!file) return;
 
     // Validate file type and size
@@ -95,13 +97,8 @@ export default function ProfileTab() {
       return;
     }
 
-    // Create preview
-    const previewUrl = URL.createObjectURL(file);
-    setAvatarPreview(previewUrl);
-    setFormData((prev) => ({
-      ...prev,
-      newAvatar: file,
-    }));
+    setAvatarFile(file);
+    setRemoveAvatar(false);
 
     // Clear avatar error
     if (errors.avatar) {
@@ -111,29 +108,12 @@ export default function ProfileTab() {
       }));
     }
   };
-  const handleRemoveAvatar = async () => {
+  const handleRemoveAvatar = () => {
     if (!avatarPreview) return;
-    setIsLoading(true);
     setMessage(null);
-    try {
-      setFormData((prev) => ({
-        ...prev,
-        newAvatar: null,
-      }));
-
-      // Clear avatar error
-      if (errors.avatar) {
-        setErrors((prev) => ({
-          ...prev,
-          avatar: null,
-        }));
-      }
-      setAvatarPreview(null);
-    } catch (err) {
-      setMessage({ type: "error", text: "Failed to remove avatar." });
-    } finally {
-      setIsLoading(false);
-    }
+    setAvatarFile(null);
+    setRemoveAvatar(true);
+    setErrors((prev) => ({ ...prev, avatar: null }));
   };
 
 
@@ -147,21 +127,14 @@ export default function ProfileTab() {
       const submitData = new FormData();
 
       // Add text fields
-      Object.keys(formData).forEach((key) => {
-        if (
-          key !== "avatar" &&
-          formData[key] !== null &&
-          formData[key] !== undefined
-        ) {
-          submitData.append(key, formData[key]);
-        }
-      });
+      for (const key of ["first_name", "last_name", "username", "bio"]) {
+        submitData.append(key, formData[key]);
+      }
 
       // Add avatar if selected
-      if (formData.newAvatar) {
-        submitData.append("avatar", formData.newAvatar);
-      } else if (!formData.newAvatar && formData.avatar) {
-        await api.post("/users/avatar/delete/");
+      if (avatarFile) {
+        submitData.append("avatar", avatarFile);
+      } else if (removeAvatar) {
         submitData.append("avatar", "");
       }
 
@@ -175,11 +148,6 @@ export default function ProfileTab() {
         text: "Profile updated successfully!",
       });
 
-      // Clear avatar file input
-      setFormData((prev) => ({
-        ...prev,
-        avatar: null,
-      }));
     } catch (err) {
       console.error("Profile update error:", err);
 
@@ -241,10 +209,7 @@ export default function ProfileTab() {
             <CardContent className="pt-6 flex flex-col items-center text-center">
               <div className="relative group">
                 <Avatar className="w-32 h-32 border-2 border-indigo-500/30 group-hover:border-indigo-500 transition-colors duration-300">
-                  <AvatarImage
-                    src={avatarPreview || "/placeholder.svg?height=128&width=128&text=Avatar"}
-                    className="object-cover"
-                  />
+                  {avatarPreview && <AvatarImage src={avatarPreview} alt="Profile picture" className="object-cover" />}
                   <AvatarFallback className="bg-gray-800 text-slate-300">
                     <User className="h-12 w-12" />
                   </AvatarFallback>
@@ -364,7 +329,7 @@ export default function ProfileTab() {
           <Card className="bg-gray-900/50 border-gray-800/50">
             <CardHeader className="border-b border-gray-800/50">
               <CardTitle className="text-lg font-semibold text-slate-200">Biography</CardTitle>
-              <CardDescription className="text-slate-400">A brief description about yourself to share with the community.</CardDescription>
+              <CardDescription className="text-slate-400">A brief description for your personal profile.</CardDescription>
             </CardHeader>
             <CardContent className="p-6">
               <div className="space-y-2">

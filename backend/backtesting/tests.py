@@ -71,6 +71,7 @@ class BacktestExecutionTests(SimpleTestCase):
         BacktestExecutionService.execute_pending_orders(self.context, {self.instrument.id: fill_candle}, fill_time)
         self.assertEqual(self.context.get_pending_orders(), [])
         self.assertEqual(self.context.get_position(self.instrument.id)["avg_price"], 101)
+        self.assertEqual(self.context.diagnostics["entry_fills"], 1)
 
     def test_entry_is_rejected_when_next_open_exceeds_available_capital(self):
         fill_time = self.entry_time.replace(minute=16)
@@ -88,3 +89,4 @@ class BacktestExecutionTests(SimpleTestCase):
         BacktestExecutionService.execute_pending_orders(self.context, {self.instrument.id: fill_candle}, fill_time)
         self.assertIsNone(self.context.get_position(self.instrument.id))
         self.assertEqual(self.context.get_pending_orders(), [])
+        self.assertEqual(self.context.diagnostics["capital_rejections"], 1)

@@ -1,10 +1,11 @@
+from users.websocket import AuthSessionConsumerMixin
 import json
 import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 logger = logging.getLogger(__name__)
 
-class NotificationConsumer(AsyncWebsocketConsumer):
+class NotificationConsumer(AuthSessionConsumerMixin, AsyncWebsocketConsumer):
     async def connect(self):
         user = self.scope.get('user')
         if not user or user.is_anonymous:

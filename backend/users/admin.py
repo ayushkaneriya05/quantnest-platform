@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import APIKey, BackupCode, User, UserSession
+from .models import BackupCode, User, UserSession
 
 
 @admin.register(User)
@@ -31,14 +31,6 @@ class CustomUserAdmin(UserAdmin):
             },
         ),
     )
-
-
-@admin.register(APIKey)
-class APIKeyAdmin(admin.ModelAdmin):
-    list_display = ("prefix", "user", "name", "created_at", "last_used")
-    list_filter = ("created_at",)
-    search_fields = ("prefix", "user__email", "name")
-    readonly_fields = ("key_hash", "prefix", "created_at")
 
 
 @admin.register(BackupCode)

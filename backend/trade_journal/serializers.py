@@ -1,66 +1,38 @@
 from rest_framework import serializers
-
-from .models import JournalEntry, MistakeTag, TradingInsight
-
-
-class MistakeTagSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MistakeTag
-        fields = ["id", "name", "category", "created_at", "updated_at"]
-        read_only_fields = ["created_at", "updated_at"]
+from analytics.services import SOURCES
+from .models import JournalEntry
 
 
 class JournalEntrySerializer(serializers.ModelSerializer):
-    strategy_name = serializers.CharField(source="strategy.name", read_only=True)
-    symbol = serializers.SerializerMethodField()
-    trade_source = serializers.SerializerMethodField()
-    live_order_status = serializers.CharField(source="live_order.status", read_only=True)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=12000)
+    lessons_learned = serializers.CharField(required=False, allow_blank=True, max_length=6000)
+    mistake_tags = serializers.ListField(child=serializers.CharField(max_length=60), max_length=12, required=False)
+    execution_quality = serializers.IntegerField(min_value=1, max_value=5, allow_null=True, required=False)
 
     class Meta:
         model = JournalEntry
-        fields = [
-            "id",
-            "paper_trade",
-            "live_order",
-            "strategy",
-            "strategy_name",
-            "symbol",
-            "trade_source",
-            "live_order_status",
-            "title",
-            "notes",
-            "emotion_before",
-            "emotion_after",
-            "setup_quality",
-            "execution_quality",
-            "rule_followed",
-            "mistake_tags",
-            "lessons_learned",
-            "ai_feedback",
-            "screenshot_urls",
-            "chart_snapshot_url",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["created_at", "updated_at"]
+        fields = ["id", "source", "terminal_trade", "paper_trade", "live_trade", "title", "notes",
+                  "mistake_tags", "lessons_learned", "execution_quality", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
-    def get_symbol(self, obj):
-        if obj.paper_trade and obj.paper_trade.instrument:
-            return obj.paper_trade.instrument.sym_ticker
-        if obj.live_order and obj.live_order.instrument:
-            return obj.live_order.instrument.sym_ticker
-        return ""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request:
+            for source in SOURCES.values():
+                self.fields[source["review"]].queryset = source["model"].objects.filter(**{source["owner"]: request.user})
 
-    def get_trade_source(self, obj):
-        if obj.paper_trade_id:
-            return "PAPER"
-        if obj.live_order_id:
-            return "LIVE"
-        return "MANUAL"
-
-
-class TradingInsightSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TradingInsight
-        fields = ["id", "insight_type", "title", "description", "related_trades", "generated_at", "created_at", "updated_at"]
-        read_only_fields = ["generated_at", "created_at", "updated_at"]
+    def validate(self, attrs):
+        if self.instance:
+            for field in ("source", "terminal_trade", "paper_trade", "live_trade"):
+                if field in attrs and attrs[field] != getattr(self.instance, field):
+                    raise serializers.ValidationError("A saved review cannot be moved to another execution source or trade.")
+        source = attrs.get("source", getattr(self.instance, "source", None))
+        relation = SOURCES[source]["review"]
+        attached = [field for field in ("terminal_trade", "paper_trade", "live_trade")
+                    if attrs.get(field, getattr(self.instance, field, None))]
+        if attached != [relation]:
+            raise serializers.ValidationError("Attach exactly one completed trade from the selected source.")
+        if "mistake_tags" in attrs:
+            attrs["mistake_tags"] = list(dict.fromkeys(tag.strip() for tag in attrs["mistake_tags"] if tag.strip()))
+        return attrs

@@ -1,5 +1,6 @@
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
+import PropTypes from "prop-types";
 import { Button } from "@/shared/components/ui/button";
 import {
   Dialog,
@@ -14,6 +15,12 @@ import { Label } from "@/shared/components/ui/label";
 import { QrCode, Copy, CheckCircle, Loader2, AlertCircle, Download } from "lucide-react";
 import api from "@/shared/services/api";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+
+TwoFASetupModal.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  onSetupComplete: PropTypes.func.isRequired,
+};
 
 export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
   const [step, setStep] = useState(1);
@@ -37,7 +44,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
     setError("");
 
     try {
-      const response = await api.get("/users/2fa/create/");
+      const response = await api.post("/users/2fa/create/");
       const svgBase64 = btoa(response.data.qr_code);
       setQrCodeUrl(`data:image/svg+xml;base64,${svgBase64}`);
       setSecretKey(response.data.secret_key);

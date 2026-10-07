@@ -1,6 +1,7 @@
 import logging
+from copy import deepcopy
 from django.db import transaction
-from .models import Strategy, StrategyVersion, EntryOrderConfig, ExitOrderConfig
+from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig
 from .serializers import StrategyDetailSerializer
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
 from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
@@ -19,7 +20,8 @@ class StrategySnapshotService:
         """Validate that config snapshot has all required fields."""
         required_fields = [
             'name', 'strategy_type', 'market_type', 'exchange', 'instrument_type',
-            'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments'
+            'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments',
+            'time_rule', 'special_event_filter', 'position_sizing_rule', 'auto_disable_rules'
         ]
         missing = [field for field in required_fields if field not in snapshot]
         if missing:
@@ -27,6 +29,7 @@ class StrategySnapshotService:
         return True
 
     @staticmethod
+    @transaction.atomic
     def create_snapshot(strategy, user=None, change_notes=None):
         """
         Creates a new version snapshot of the strategy.
@@ -34,6 +37,7 @@ class StrategySnapshotService:
         try:
             # 1. Serialize the full strategy state
             # We use specific serializers or manual dict construction to ensure deep nesting is captured
+            strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
             snapshot = StrategySnapshotService._serialize_strategy(strategy)
             
             # 2. Validate snapshot completeness
@@ -51,6 +55,8 @@ class StrategySnapshotService:
                 change_notes=change_notes,
                 created_by=user
             )
+            from audit.services import AuditService
+            AuditService.configuration_changed(strategy, last_version.config_snapshot if last_version else {}, snapshot, version)
             return version
         except Exception as e:
             logger.error(f"Error creating snapshot for strategy {strategy.id}: {str(e)}")
@@ -65,7 +71,11 @@ class StrategySnapshotService:
         """
         try:
             version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
-            snapshot = version.config_snapshot
+            snapshot = deepcopy(version.config_snapshot)
+            StrategySnapshotService.validate_config_snapshot(snapshot)
+            strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
+            auto_version_enabled = strategy.auto_version_enabled
+            strategy.auto_version_enabled = False
             
             # 1. Restore Strategy Base Fields
             strategy.name = snapshot.get('name', strategy.name)
@@ -75,7 +85,8 @@ class StrategySnapshotService:
             strategy.exchange = snapshot.get('exchange', strategy.exchange)
             strategy.instrument_type = snapshot.get('instrument_type', strategy.instrument_type)
             strategy.save()
-            
+            strategy.tags.set([StrategyTag.objects.get_or_create(name=name)[0] for name in snapshot.get('tags', [])])
+
             # 2. Restore 1:1 Configs (Update in place)
             if 'time_rule' in snapshot:
                 StrategySnapshotService._restore_time_rule(strategy, snapshot['time_rule'])
@@ -110,13 +121,13 @@ class StrategySnapshotService:
             # 5. Restore watchlist instruments
             if 'watchlist_instruments' in snapshot:
                 StrategySnapshotService._restore_watchlist(strategy, snapshot['watchlist_instruments'])
-            elif 'watchlist_instrument_ids' in snapshot:
-                StrategySnapshotService._restore_watchlist(strategy, snapshot['watchlist_instrument_ids'])
             
             # 4. Create a new version to represent this rollback state
             # This ensures the "Current" version in history matches the restored state
+            strategy.auto_version_enabled = auto_version_enabled
+            strategy.save(update_fields=['auto_version_enabled', 'updated_at'])
             StrategySnapshotService.create_snapshot(
-                strategy, 
+                strategy, user=strategy.user, 
                 change_notes=f"Rollback to version {version.version_number}"
             )
 
@@ -150,31 +161,25 @@ class StrategySnapshotService:
             'auto_version_enabled': strategy.auto_version_enabled,
             'paper_trading_enabled': strategy.paper_trading_enabled,
             'live_trading_enabled': strategy.live_trading_enabled,
-            'allow_clone': strategy.allow_clone,
-            'allow_backtest': strategy.allow_backtest,
+            'tags': list(strategy.tags.order_by('name').values_list('name', flat=True)),
         }
 
-        # 1:1 Relations — use try/except to handle RelatedObjectDoesNotExist
         for rel_name in ('entry_order_config', 'exit_order_config', 'time_rule', 'special_event_filter', 'position_sizing_rule'):
-            try:
-                rel_obj = getattr(strategy, rel_name)
-                if rel_obj is not None:
-                    data[rel_name] = StrategySnapshotService._model_to_dict(rel_obj, exclude=['id', 'strategy', 'created_at', 'updated_at'])
-            except Exception:
-                pass
+            rel_obj = getattr(strategy, rel_name)
+            data[rel_name] = StrategySnapshotService._model_to_dict(rel_obj, exclude=['id', 'strategy', 'created_at', 'updated_at'])
 
         data['auto_disable_rules'] = [
             StrategySnapshotService._model_to_dict(rule, exclude=['id', 'strategy', 'created_at', 'updated_at'])
-            for rule in strategy.auto_disable_rules.all()
+            for rule in strategy.auto_disable_rules.order_by('id')
         ]
 
         # Watchlist instruments and execution routes
         watchlist_data = []
-        for wi in strategy.watchlist_instruments.all().prefetch_related('execution_routes'):
-            wi_dict = {'instrument_id': wi.instrument_id}
+        for wi in strategy.watchlist_instruments.select_related('instrument').prefetch_related('execution_routes').order_by('instrument_id'):
+            wi_dict = {'instrument_id': wi.instrument_id, 'instrument_symbol': wi.instrument.symbol, 'instrument_name': wi.instrument.name}
             
             routes_data = []
-            for route in wi.execution_routes.all():
+            for route in sorted(wi.execution_routes.all(), key=lambda item: item.pk):
                 routes_data.append(StrategySnapshotService._model_to_dict(
                     route, 
                     exclude=['id', 'watchlist_instrument', 'created_at', 'updated_at']
@@ -186,15 +191,14 @@ class StrategySnapshotService:
             watchlist_data.append(wi_dict)
             
         data['watchlist_instruments'] = watchlist_data
-        data['watchlist_instrument_ids'] = [wi['instrument_id'] for wi in watchlist_data] # Keep for backward compatibility
 
         # Rule Groups (Deep nesting)
         groups = []
-        for group in strategy.rule_groups.all().order_by('priority'):
+        for group in strategy.rule_groups.prefetch_related('rules').order_by('rule_type', 'priority', 'id'):
             g_data = StrategySnapshotService._model_to_dict(group, exclude=['id', 'strategy', 'created_at', 'updated_at', 'rules'])
             
             # Rules
-            g_data['rules'] = [StrategySnapshotService._model_to_dict(r, exclude=['id', 'rule_group', 'created_at', 'updated_at']) for r in group.rules.all()]
+            g_data['rules'] = [StrategySnapshotService._model_to_dict(r, exclude=['id', 'rule_group', 'created_at', 'updated_at']) for r in sorted(group.rules.all(), key=lambda item: item.pk)]
             
             groups.append(g_data)
         
@@ -252,39 +256,22 @@ class StrategySnapshotService:
 
     @staticmethod
     def _restore_watchlist(strategy, watchlist_data):
-        """Restore watchlist instruments and routes from snapshot."""
-        from instruments.models import Instrument, WatchlistInstrument, ExecutionRoute
+        """Restore the complete selection; fail if a saved instrument is unavailable."""
+        from instruments.models import Instrument, ExecutionRoute
+        ids = {item['instrument_id'] for item in watchlist_data}
+        instruments = Instrument.objects.in_bulk(ids)
+        missing = ids - set(instruments)
+        if missing:
+            raise ValueError(f"Saved instruments are unavailable: {sorted(missing)}.")
         strategy.watchlist_instruments.all().delete()
-        
-        # Backward compatibility for old snapshots (list of IDs)
-        if isinstance(watchlist_data, list) and (len(watchlist_data) == 0 or isinstance(watchlist_data[0], int)):
-            for inst_id in watchlist_data:
-                try:
-                    instrument = Instrument.objects.get(id=inst_id)
-                    WatchlistInstrument.objects.get_or_create(strategy=strategy, instrument=instrument)
-                except Instrument.DoesNotExist:
-                    pass
-            return
-
-        # New format (list of dicts)
         for item in watchlist_data:
-            inst_id = item.get('instrument_id')
-            try:
-                instrument = Instrument.objects.get(id=inst_id)
-                wi, _ = WatchlistInstrument.objects.get_or_create(
-                    strategy=strategy,
-                    instrument=instrument,
-                )
-                # Restore multiple routes
-                routes_data = item.get('execution_routes', [])
-                    
-                for route_data in routes_data:
-                    ExecutionRoute.objects.create(
-                        watchlist_instrument=wi,
-                        **route_data
-                    )
-            except Instrument.DoesNotExist:
-                logger.warning("Watchlist instrument %s not found during restore", inst_id)
+            watch = WatchlistInstrument.objects.create(strategy=strategy, instrument=instruments[item['instrument_id']])
+            for route in item.get('execution_routes', []):
+                values = dict(route)
+                for field in ExecutionRoute._meta.fields:
+                    if field.is_relation and field.name in values:
+                        values[field.attname] = values.pop(field.name)
+                ExecutionRoute.objects.create(watchlist_instrument=watch, **values)
 
 
 class StrategyLifecycleService:
@@ -369,14 +356,6 @@ class StrategyLifecycleService:
 
 class StrategyDeploymentService:
     @staticmethod
-    def _has_static_stop_distance(strategy):
-        for group in strategy.rule_groups.filter(rule_type='STOP_LOSS', is_active=True).prefetch_related('rules'):
-            for rule in group.rules.filter(is_active=True):
-                if rule.operand_a_type in ['POSITION_PNL_POINTS', 'POSITION_PNL_PERCENTAGE', 'TRAILING_PEAK_OFFSET'] and rule.operand_b_type == 'CONSTANT':
-                    return True
-        return False
-
-    @staticmethod
     def validate_for_deployment(strategy, mode='paper'):
         errors = []
         if strategy.status != 'ACTIVE':
@@ -403,11 +382,6 @@ class StrategyDeploymentService:
 
         if not hasattr(strategy, 'position_sizing_rule'):
             errors.append('Configure position sizing before deployment.')
-        else:
-            sizing = strategy.position_sizing_rule
-
-            if sizing.sizing_method == 'RISK_BASED' and not StrategyDeploymentService._has_static_stop_distance(strategy):
-                errors.append('Risk-based sizing requires a fixed, trailing, or emergency stop-loss distance.')
 
         has_stop_loss = strategy.rule_groups.filter(
             rule_type='STOP_LOSS',

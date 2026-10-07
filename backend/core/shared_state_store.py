@@ -233,6 +233,18 @@ class SharedStateStore:
             metrics.update(updates)
             self._set(key, self._stamp(key, metrics), timeout=None)
 
+    def mutate_risk_metrics(self, scope: str, session_id: str, transform) -> Dict[str, Any]:
+        """Calculate and publish metrics while holding the existing session lock."""
+        key = self._key("risk", scope, session_id)
+        with self._with_lock(self._lock_key("risk", scope, session_id)):
+            current = self.get_risk_metrics(scope, session_id)
+            updated = transform(current)
+            if updated is None:
+                return current
+            result = self._stamp(key, updated)
+            self._set(key, result, timeout=None)
+            return deepcopy(result)
+
     def clear_session(self, scope: str, session_id: str) -> None:
         self._delete(self._key("orders", scope, session_id))
         self._delete(self._key("positions", scope, session_id))

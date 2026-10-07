@@ -17,6 +17,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency } from "@/shared/utils/formatters";
+import { TooltipHint } from "@/shared/components/ui/tooltip";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 
 export default function PaperAnalytics() {
@@ -170,18 +171,14 @@ export default function PaperAnalytics() {
           {pnlBars.length ? <>
             <div className="flex h-48 items-end gap-1.5 border-b border-gray-800 pt-4">
               {pnlBars.map((bar, i) => (
-              <div key={i} className="group relative flex h-full min-w-0 flex-1 items-end">
+              <TooltipHint key={i} content={<><p className="font-bold">{bar.date}</p><p className={bar.pnl >= 0 ? "text-emerald-400" : "text-rose-400"}>{bar.pnl >= 0 ? "+" : ""}{formatCurrency(bar.pnl)}</p></>}>
+              <div tabIndex={0} aria-label={`Realized P&L on ${bar.date}: ${formatCurrency(bar.pnl)}`} className="group relative flex h-full min-w-0 flex-1 items-end">
                 <div
                   className={`w-full rounded-t-sm transition-all duration-300 ${bar.pnl >= 0 ? "bg-emerald-500/60 group-hover:bg-emerald-500" : "bg-rose-500/60 group-hover:bg-rose-500"}`}
                   style={{ height: `${Math.max(bar.pct, 4)}%` }}
                 />
-                <div className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-800 text-[10px] text-white px-2 py-1 rounded shadow-2xl z-20 whitespace-nowrap border border-gray-700">
-                  <p className="font-bold">{bar.date}</p>
-                  <p className={bar.pnl >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                    {bar.pnl >= 0 ? "+" : ""}{formatCurrency(bar.pnl)}
-                  </p>
-                </div>
               </div>
+              </TooltipHint>
               ))}
             </div>
             <div className="flex justify-between pt-2">

@@ -4,7 +4,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Delete, Calculator, Check, Activity, Edit2 } from 'lucide-react';
 import OperandSelector from './OperandSelector';
 import { getDefaultParams } from './operandUtils';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, OverflowTooltip } from '@/shared/components/ui/tooltip';
 
 export default function MathExpressionBuilder({
   value,
@@ -135,7 +135,7 @@ export default function MathExpressionBuilder({
                   {token.name}
                 </div>
               </TooltipTrigger>
-              <TooltipContent className="bg-black/90 border border-gray-800 text-xs z-50">
+              <TooltipContent className="text-xs">
                 <div className="font-bold text-white">{token.config.type}</div>
                 <div className="text-gray-400">Click to edit</div>
               </TooltipContent>
@@ -259,12 +259,9 @@ export default function MathExpressionBuilder({
                     </span>
                     <Edit2 className="w-3 h-3 text-gray-600 group-hover:text-indigo-400 transition-colors" />
                   </div>
-                  <span
-                    className="text-[10px] text-gray-400 font-mono truncate"
-                    title={formatVarConfig(v.config)}
-                  >
+                  <OverflowTooltip className="text-[10px] text-gray-400 font-mono">
                     {formatVarConfig(v.config)}
-                  </span>
+                  </OverflowTooltip>
                 </div>
               ))
             )}

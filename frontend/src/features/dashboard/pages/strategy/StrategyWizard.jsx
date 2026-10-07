@@ -18,7 +18,7 @@ import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageTitle } from '@/shared/hooks/use-page-title';
 import { useEnums } from '@/shared/context/EnumsContext';
-import { usePageActions } from '@/shared/context/PageActionsContext'; // Added import
+import { usePageActions } from '@/shared/context/pageActions'; // Added import
 import StrategyConfigNav from './StrategyConfigNav';
 import StrategyFooter from './StrategyFooter';
 import TagInput from './components/TagInput';
@@ -39,7 +39,6 @@ export default function StrategyWizard() {
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   
-  const [availableTags, setAvailableTags] = useState([]);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -61,7 +60,6 @@ export default function StrategyWizard() {
   });
 
   useEffect(() => {
-    fetchTags();
     if (isEdit) fetchStrategy();
   }, [id]);
 
@@ -74,19 +72,9 @@ export default function StrategyWizard() {
     return () => setPageHeader(null);
   }, [isEdit, id, setPageHeader, formData.status]);
 
-  const fetchTags = async () => {
-      try {
-          const tags = await strategyApi.getTags();
-          setAvailableTags(tags);
-      } catch (e) {
-          console.error("Failed to fetch tags", e);
-      }
-  };
-
   const handleCreateTag = async (tagName) => {
       try {
           const newTag = await strategyApi.createTag({ name: tagName });
-          setAvailableTags(prev => [...prev, newTag]);
           // Auto select
           setFormData(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
           notify.success(`Tag "${tagName}" created`);
@@ -298,7 +286,6 @@ export default function StrategyWizard() {
                 <TagInput 
                     value={formData.tags}
                     onChange={(tags) => handleChange('tags', tags)}
-                    availableTags={availableTags}
                     onCreateTag={handleCreateTag}
                 />
             </div>

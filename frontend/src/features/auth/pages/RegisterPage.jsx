@@ -1,5 +1,7 @@
 /* eslint-disable react/prop-types */
-import React, { useState } from "react";
+import { useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { loginSuccess } from "@/shared/store/authSlice";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -13,9 +15,7 @@ import {
 } from "lucide-react";
 
 import EmailVerificationModal from "@/features/auth/components/email-verification-modal";
-import GoogleLoginButton, {
-  GoogleLoginFallback,
-} from "@/features/auth/components/GoogleLoginButton";
+import GoogleLoginButton from "@/features/auth/components/GoogleLoginButton";
 import MainHeader from "@/shared/components/layout/main-header";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -53,6 +53,8 @@ export default function RegisterPage() {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const isAuthenticated = useSelector((state) => state.auth.isAuthenticated);
 
   const getPasswordStrength = (pwd) => {
     let strength = 0;
@@ -109,7 +111,7 @@ export default function RegisterPage() {
     try {
       const { firstName, lastName, username, email, password1, password2 } =
         formData;
-      await api.post("users/auth/registration/", {
+      const { data } = await api.post("users/auth/registration/", {
         first_name: firstName,
         last_name: lastName,
         username,
@@ -117,6 +119,7 @@ export default function RegisterPage() {
         password1,
         password2,
       });
+      if (data.access) dispatch(loginSuccess(data));
 
       setRegisteredEmail(email);
       setIsEmailModalOpen(true);
@@ -133,6 +136,10 @@ export default function RegisterPage() {
 
   const handleEmailVerificationComplete = () => {
     setIsEmailModalOpen(false);
+    if (isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+      return;
+    }
     navigate("/login", {
       state: {
         message:
@@ -141,10 +148,8 @@ export default function RegisterPage() {
     });
   };
 
-  const googleClientId = import.meta.env.VITE_REACT_APP_GOOGLE_CLIENT_ID;
-
   return (
-    <div className="relative flex min-h-screen flex-col overflow-y-auto bg-[#050505] text-white lg:h-screen lg:overflow-hidden">
+    <div className="scrollbar-theme relative flex min-h-screen flex-col overflow-y-auto bg-[#050505] text-white lg:h-screen lg:overflow-hidden">
       <div className="landing-market-animation absolute inset-0 opacity-70" />
       <div className="landing-grid absolute inset-0 opacity-25" />
       <MainHeader authPage="register" />
@@ -190,15 +195,7 @@ export default function RegisterPage() {
 
           <CardContent className="p-5 lg:p-6">
             <div className="mb-3">
-              {googleClientId ? (
-                <GoogleLoginButton
-                  onError={handleGoogleError}
-                  isLoading={isLoading}
-                  type="registration"
-                />
-              ) : (
-                <GoogleLoginFallback type="registration" />
-              )}
+              <GoogleLoginButton onError={handleGoogleError} isLoading={isLoading} />
             </div>
 
             <div className="relative mb-3 flex items-center">

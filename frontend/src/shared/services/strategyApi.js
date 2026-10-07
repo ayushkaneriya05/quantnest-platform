@@ -7,6 +7,10 @@ const STRATEGIES_URL = '/strategies/';
 
 // Strategy CRUD
 export const strategyApi = {
+  getShared: async (id, signal) => {
+    const response = await api.get(`${STRATEGIES_URL}shared/${id}/`, { signal, publicRequest: true, withCredentials: false });
+    return response.data;
+  },
   // Get all strategies
   getAll: async () => {
     const response = await api.get(`${STRATEGIES_URL}strategies/`);

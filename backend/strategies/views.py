@@ -142,7 +142,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     'sizing_method': sizing.sizing_method,
                     'fixed_quantity': sizing.fixed_quantity,
                     'capital_percentage': sizing.capital_percentage,
-                    'risk_per_trade_percentage': sizing.risk_per_trade_percentage,
                 }
             )
 
@@ -295,6 +294,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 }
             )
         except ValueError as exc:
+            transaction.set_rollback(True)
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'], url_path='deploy-live')
@@ -410,45 +410,10 @@ class StrategyViewSet(viewsets.ModelViewSet):
     def versions(self, request, pk=None):
         """Get history of versions."""
         strategy = self.get_object()
-        versions = strategy.versions.all()
-        serializer = StrategyVersionSerializer(versions, many=True)
+        versions = list(strategy.versions.select_related('created_by').order_by('-version_number'))
+        previous = {version.pk: versions[index + 1] if index + 1 < len(versions) else None for index, version in enumerate(versions)}
+        serializer = StrategyVersionSerializer(versions, many=True, context={'previous_versions': previous})
         return Response(serializer.data)
-
-    def get_object(self):
-        """
-        Override get_object to ensure config objects exist.
-        This handles cases where strategies were created before signals were added.
-        """
-        obj = super().get_object()
-
-        # Keep older strategies compatible with the full builder defaults.
-        had_versions = obj.versions.exists()
-        missing_defaults = (
-            not EntryOrderConfig.objects.filter(strategy=obj).exists()
-            or not ExitOrderConfig.objects.filter(strategy=obj).exists()
-            or not PositionSizingRule.objects.filter(strategy=obj).exists()
-            or not TimeRule.objects.filter(strategy=obj).exists()
-            or not SpecialEventFilter.objects.filter(strategy=obj).exists()
-        )
-        auto_version_enabled = obj.auto_version_enabled
-        if auto_version_enabled:
-            Strategy.objects.filter(pk=obj.pk).update(auto_version_enabled=False)
-            obj.auto_version_enabled = False
-        try:
-            with transaction.atomic():
-                EntryOrderConfig.objects.get_or_create(strategy=obj)
-                ExitOrderConfig.objects.get_or_create(strategy=obj)
-                PositionSizingRule.objects.get_or_create(strategy=obj)
-                TimeRule.objects.get_or_create(strategy=obj)
-                SpecialEventFilter.objects.get_or_create(strategy=obj)
-        finally:
-            if auto_version_enabled:
-                Strategy.objects.filter(pk=obj.pk).update(auto_version_enabled=True)
-                obj.auto_version_enabled = True
-        if not had_versions or missing_defaults:
-            StrategySnapshotService.create_snapshot(obj, user=obj.user, change_notes='Initial strategy configuration')
-        obj.refresh_from_db()
-        return obj
 
     @action(detail=True, methods=['post'])
     @transaction.atomic

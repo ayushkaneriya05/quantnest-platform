@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/shared/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
-import { usePageActions } from "@/shared/context/PageActionsContext";
+import { usePageActions } from "@/shared/context/pageActions";
 import { useLiveTradingData } from "./hooks/useLiveTradingData";
 import LivePortfolioSummary from "./components/LivePortfolioSummary";
 import LivePositionsAnalysis from "./components/LivePositionsAnalysis";
@@ -72,7 +72,6 @@ export default function LivePortfolio() {
           positions={data.positions.results}
           positionsForPnL={data.pnlPositions}
           summary={data.positionsSummary}
-          sessions={data.sessions}
           allocationFilter={data.positionAllocation}
           onAllocationChange={(value) => data.filterPositions(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter positions")))}
           pagination={{ page: data.positionsPage, count: data.positions.count }}
@@ -83,7 +82,6 @@ export default function LivePortfolio() {
         <LiveOrdersAnalysis
           orders={data.orders.results}
           summary={data.ordersSummary}
-          sessions={data.sessions}
           allocationFilter={data.orderAllocation}
           onAllocationChange={(value) => data.filterOrderAllocation(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter orders")))}
           statusFilter={data.orderStatus}
@@ -97,7 +95,6 @@ export default function LivePortfolio() {
         trades={data.trades.results}
         pagination={{ page: data.tradesPage, count: data.trades.count }}
         summary={data.tradesSummary}
-        sessions={data.sessions}
         allocationFilter={data.tradeAllocation}
         onAllocationChange={(value) => data.filterTrades(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter trades")))}
         onPageChange={data.changeTradesPage}

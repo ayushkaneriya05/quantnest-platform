@@ -70,6 +70,9 @@ class BrokerCredentialViewSet(viewsets.ModelViewSet):
             credential.save(update_fields=["is_active", "updated_at"])
 
     def perform_update(self, serializer):
+        serializer.instance._audit_sensitive_fields = tuple(field for field in
+            ("client_id", "api_key", "api_secret", "totp_secret", "permissions")
+            if field in serializer.validated_data and serializer.validated_data[field] != getattr(serializer.instance, field))
         requested_active = serializer.validated_data.get(
             "is_active",
             serializer.instance.is_active,

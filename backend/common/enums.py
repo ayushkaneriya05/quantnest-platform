@@ -27,8 +27,6 @@ class MarketType(models.TextChoices):
     EQUITY = 'EQUITY', 'Equity'
     FUTURES = 'FUTURES', 'Futures'
     OPTIONS = 'OPTIONS', 'Options'
-    FOREX = 'FOREX', 'Forex'
-    CRYPTO = 'CRYPTO', 'Crypto'
 
 
 class Exchange(models.TextChoices):
@@ -114,7 +112,6 @@ class StrategyVisibility(models.TextChoices):
     """Strategy visibility level."""
     PRIVATE = 'PRIVATE', 'Private'
     PUBLIC = 'PUBLIC', 'Public'
-    MARKETPLACE = 'MARKETPLACE', 'Marketplace'
 
 
 class CandleTimeframe(models.TextChoices):
@@ -436,7 +433,6 @@ class QuantityType(models.TextChoices):
     """How position quantity is determined."""
     FIXED = 'FIXED', 'Fixed Quantity'
     CAPITAL_BASED = 'CAPITAL_BASED', 'Capital Based'
-    RISK_BASED = 'RISK_BASED', 'Risk Based (%)'
 
 
 class CapitalAllocationType(models.TextChoices):
@@ -623,3 +619,13 @@ class ExchangeInstrumentType(models.IntegerChoices):
     # ── BSE-specific ──
     MISC_BSE = 50, 'Misc (BSE)'
 
+
+class ActivityResource(models.TextChoices):
+    STRATEGY = "Strategy", "Strategy"
+    BROKER = "BrokerCredential", "Broker account"
+    PAPER_ACCOUNT = "PaperAccount", "Paper account"
+    PAPER_ALLOCATION = "CapitalAllocation", "Paper allocation"
+    LIVE_ALLOCATION = "LiveStrategyAllocation", "Live allocation"
+    PAPER_SESSION = "PaperTradingSession", "Paper session"
+    LIVE_SESSION = "TradingSession", "Live session"
+    USER = "User", "Authentication"

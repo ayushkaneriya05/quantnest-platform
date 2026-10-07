@@ -1,15 +1,15 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import ProfileTab from "@/features/dashboard/components/profile-settings/profile-tab";
 import AccountTab from "@/features/dashboard/components/profile-settings/account-tab";
 import SecurityTab from "@/features/dashboard/components/profile-settings/security-tab";
 import NotificationsTab from "@/features/dashboard/components/profile-settings/notifications-tab";
 import { User, CreditCard, Shield, Bell } from "lucide-react";
-import { usePageActions } from "@/shared/context/PageActionsContext";
+import { usePageActions } from "@/shared/context/pageActions";
 
 export default function ProfileSettings() {
   const [activeTab, setActiveTab] = useState("profile");
   const { setPageHeader, clearPageHeader } = usePageActions();
-
+  
   useEffect(() => {
     // Custom tab navigation to render inside MainContentHeader
     const HeaderTabs = () => (

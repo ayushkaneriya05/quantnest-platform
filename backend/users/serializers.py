@@ -2,8 +2,14 @@ from allauth.account.models import EmailAddress
 from dj_rest_auth.registration.serializers import RegisterSerializer
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import APIKey, User
+from .models import User
+from .tokens import CustomRefreshToken
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    token_class = CustomRefreshToken
 
 
 class CustomRegisterSerializer(RegisterSerializer):
@@ -53,7 +59,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "is_email_verified",
         )
-        read_only_fields = ("id", "email")
+        read_only_fields = ("id", "email", "is_2fa_enabled")
 
     def validate_bio(self, value):
         if value and len(value.strip()) < 10:
@@ -61,23 +67,3 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 "Bio must be at least 10 characters long."
             )
         return value
-
-
-class APIKeySerializer(serializers.ModelSerializer):
-    """Serializer for API key listing."""
-
-    class Meta:
-        model = APIKey
-        fields = ("id", "prefix", "masked_key", "name", "created_at", "last_used")
-        read_only_fields = fields
-
-
-class SessionSerializer(serializers.Serializer):
-    """Serializer for representing JWT sessions from OutstandingToken."""
-
-    id = serializers.IntegerField()
-    created_at = serializers.DateTimeField()
-    expires_at = serializers.DateTimeField()
-    is_current = serializers.BooleanField(default=False)
-    ip_address = serializers.CharField(default="Unknown")
-    user_agent = serializers.CharField(default="Unknown")

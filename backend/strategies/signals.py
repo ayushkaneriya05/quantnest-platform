@@ -1,36 +1,47 @@
+import logging
 from django.db import transaction
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, m2m_changed
 from django.dispatch import receiver
-from django.utils import timezone
-from datetime import timedelta
-from .models import Strategy, EntryOrderConfig, ExitOrderConfig, StrategyVersion
+from .models import Strategy, EntryOrderConfig, ExitOrderConfig
+from .services import StrategySnapshotService
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
 from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
-from .services import StrategySnapshotService
-from django.core.cache import cache
-import logging
+from instruments.models import WatchlistInstrument, ExecutionRoute
 
 logger = logging.getLogger(__name__)
 
+
+def save_checkpoint(strategy_id, initial=False):
+    strategy = Strategy.objects.filter(pk=strategy_id).first()
+    if not strategy:
+        return
+    latest = strategy.versions.order_by("-version_number").first()
+    if initial:
+        if latest:
+            return
+    elif not strategy.auto_version_enabled:
+        return
+    snapshot = StrategySnapshotService._serialize_strategy(strategy)
+    if latest and latest.config_snapshot == snapshot:
+        return
+    StrategySnapshotService.create_snapshot(strategy, user=strategy.user,
+        change_notes="Initial strategy configuration" if initial else "Auto-save checkpoint")
+
+
 @receiver(post_save, sender=Strategy)
 def create_strategy_configs(sender, instance, created, **kwargs):
-    if created:
-        with transaction.atomic():
-            auto_version_enabled = instance.auto_version_enabled
-            if auto_version_enabled:
-                Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=False)
-                instance.auto_version_enabled = False
-            try:
-                EntryOrderConfig.objects.get_or_create(strategy=instance)
-                ExitOrderConfig.objects.get_or_create(strategy=instance)
-                PositionSizingRule.objects.get_or_create(strategy=instance)
-                TimeRule.objects.get_or_create(strategy=instance)
-                SpecialEventFilter.objects.get_or_create(strategy=instance)
-            finally:
-                if auto_version_enabled:
-                    Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=True)
-                    instance.auto_version_enabled = True
-            StrategySnapshotService.create_snapshot(instance, user=instance.user, change_notes='Initial strategy configuration')
+    if not created:
+        return
+    with transaction.atomic():
+        enabled = instance.auto_version_enabled
+        instance.auto_version_enabled = False
+        Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=False)
+        for model in (EntryOrderConfig, ExitOrderConfig, PositionSizingRule, TimeRule, SpecialEventFilter):
+            model.objects.get_or_create(strategy=instance)
+        instance.auto_version_enabled = enabled
+        Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=enabled)
+        transaction.on_commit(lambda: save_checkpoint(instance.pk, initial=True))
+
 
 @receiver(post_save, sender=Strategy)
 @receiver(post_save, sender=EntryOrderConfig)
@@ -41,45 +52,29 @@ def create_strategy_configs(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Rule)
 @receiver(post_save, sender=PositionSizingRule)
 @receiver(post_save, sender=StrategyAutoDisable)
+@receiver(post_save, sender=WatchlistInstrument)
+@receiver(post_save, sender=ExecutionRoute)
 @receiver(post_delete, sender=RuleGroup)
 @receiver(post_delete, sender=Rule)
 @receiver(post_delete, sender=StrategyAutoDisable)
+@receiver(post_delete, sender=WatchlistInstrument)
+@receiver(post_delete, sender=ExecutionRoute)
 def auto_create_version(sender, instance, **kwargs):
-    """
-    Automatically create a version snapshot on save/delete, with debouncing.
-    """
-    # 1. Resolve strategy instance
-    strategy = None
+    if sender is Strategy and kwargs.get("created"):
+        return
     if isinstance(instance, Strategy):
         strategy = instance
-    elif hasattr(instance, 'strategy'):
-        strategy = instance.strategy
-    elif hasattr(instance, 'rule_group') and instance.rule_group:
+    elif isinstance(instance, ExecutionRoute):
+        strategy = instance.watchlist_instrument.strategy
+    elif isinstance(instance, Rule):
         strategy = instance.rule_group.strategy
-    
-    if not strategy:
-        return
-        
-    # Skip if strategy is just being created (kwargs.get('created') is True only for post_save)
-    if sender == Strategy and kwargs.get('created', False):
-        return
+    else:
+        strategy = instance.strategy
+    if strategy.auto_version_enabled:
+        transaction.on_commit(lambda: save_checkpoint(strategy.pk))
 
-    # 2. Check if auto-versioning is enabled. Draft edits must not mutate the
-    # execution cache for already deployed allocations; those use immutable
-    if not strategy.auto_version_enabled:
-        return
 
-    # 3. Check last version time (Debounce for snapshots)
-    # Reduced to 10 seconds for easier testing and more frequent checkpoints
-    last_version = strategy.versions.order_by('-created_at').first()
-    
-    if last_version:
-        time_since_last = timezone.now() - last_version.created_at
-        if time_since_last < timedelta(seconds=10):
-            return
-
-    # 4. Create Snapshot
-    try:
-        StrategySnapshotService.create_snapshot(strategy,  change_notes="Auto-save checkpoint")
-    except Exception as e:
-        logger.error(f"Failed to auto-version strategy {strategy.id}: {e}")
+@receiver(m2m_changed, sender=Strategy.tags.through)
+def version_tag_changes(sender, instance, action, reverse, **kwargs):
+    if not reverse and action in ("post_add", "post_remove", "post_clear") and instance.auto_version_enabled:
+        transaction.on_commit(lambda: save_checkpoint(instance.pk))

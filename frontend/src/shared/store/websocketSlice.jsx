@@ -14,6 +14,10 @@ const websocketSlice = createSlice({
   name: "websocket",
   initialState,
   reducers: {
+    clearPrivateUpdates: (state) => {
+      state.manualTradingTerminalUpdate = null;
+      state.paperLastMessage = null;
+    },
     setConnected: (state, action) => {
       state.isConnected = action.payload;
       state.connectionStatus = action.payload ? "connected" : "disconnected";

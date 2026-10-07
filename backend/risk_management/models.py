@@ -11,7 +11,7 @@ from common.enums import QuantityType, AutoDisableTriggerType
 class PositionSizingRule(BaseTimestampModel):
     """
     Defines how position size is calculated for a strategy.
-    Supports fixed quantity, capital-based, and risk-based sizing.
+    Supports fixed quantity and capital-based sizing.
     """
     strategy = models.OneToOneField(
         'strategies.Strategy',
@@ -35,11 +35,6 @@ class PositionSizingRule(BaseTimestampModel):
         help_text="Percentage of capital per trade"
     )
     
-    # Risk-based sizing
-    risk_per_trade_percentage = models.DecimalField(
-        max_digits=5, decimal_places=2, default=1.00, null=True, blank=True,
-        help_text="Percentage of capital to risk per trade"
-    )
     
     class Meta:
         db_table = 'risk_position_sizing_rule'

@@ -1,76 +1,38 @@
-from rest_framework import permissions, viewsets
+from django.db import IntegrityError, transaction
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import JournalEntry, MistakeTag, TradingInsight
-from .serializers import JournalEntrySerializer, MistakeTagSerializer, TradingInsightSerializer
-from .services import TradeJournalService
-
-
-class MistakeTagViewSet(viewsets.ModelViewSet):
-    queryset = MistakeTag.objects.all()
-    serializer_class = MistakeTagSerializer
-    permission_classes = [permissions.IsAuthenticated]
+from analytics.views import TradePagination, request_filters
+from .models import JournalEntry
+from .serializers import JournalEntrySerializer
+from .services import journal_summary
 
 
 class JournalEntryViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     serializer_class = JournalEntrySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = TradePagination
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        return JournalEntry.objects.filter(user=self.request.user).select_related("paper_trade", "paper_trade__instrument", "live_order", "strategy")
+        qs = JournalEntry.objects.filter(user=self.request.user)
+        if self.action == "list":
+            filters = request_filters(self.request)
+            qs = qs.filter(source=filters["source"])
+        return qs
 
-    def perform_create(self, serializer):
-        entry = serializer.save(user=self.request.user)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            from gamification.services import GamificationService
-            from platform_events.services import ActivityService, DomainEventService
-            from reputation.services import ReputationService
-
-            event = DomainEventService.emit(
-                "JOURNAL_CREATED",
-                user=self.request.user,
-                source=entry,
-                source_app="trade_journal",
-                payload={"title": entry.title, "rule_followed": entry.rule_followed, "setup_quality": entry.setup_quality},
-            )
-            ActivityService.create(
-                self.request.user,
-                "POST_CREATED",
-                f"Logged journal insight: {entry.title}",
-                summary=(entry.lessons_learned or entry.notes or "")[:240],
-                target=entry,
-                domain_event=event,
-                visibility="PRIVATE",
-                metadata={"source": "journal", "rule_followed": entry.rule_followed},
-            )
-            GamificationService.grant_xp(self.request.user, "JOURNAL_CREATED", 20, source=entry, metadata={"rule_followed": entry.rule_followed})
-            ReputationService.recalculate_user(self.request.user)
-        except Exception:
-            pass
-
-    @action(detail=False, methods=["post"])
-    def bootstrap(self, request):
-        created = TradeJournalService.bootstrap_recent_entries(self.request.user)
-        return Response({"created": len(created)})
+            with transaction.atomic():
+                serializer.save(user=request.user)
+        except IntegrityError:
+            return Response({"message": "This trade already has a review. Open it to make changes."}, status=status.HTTP_409_CONFLICT)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
-        return Response(TradeJournalService.journal_summary(self.request.user))
-
-
-class TradingInsightViewSet(viewsets.ModelViewSet):
-    serializer_class = TradingInsightSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return TradingInsight.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-    @action(detail=False, methods=["post"])
-    def generate(self, request):
-        insights = TradeJournalService.generate_insights(self.request.user)
-        serializer = self.get_serializer(insights, many=True)
-        return Response({"generated": len(insights), "items": serializer.data})
+        return Response(journal_summary(request.user, request_filters(request)))

@@ -1,19 +1,22 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { X, Plus } from 'lucide-react';
 import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import { Button } from "@/shared/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
+import { useSelectOptions } from "@/shared/hooks/useSelectOptions";
 
 export default function TagInput({ 
   value = [], 
   onChange, 
-  availableTags = [], 
   onCreateTag,
   placeholder = "Select tags..." 
 }) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState("");
+  const [page, setPage] = useState(1);
+  const options = useSelectOptions("strategy-tags", {}, open, inputValue, page);
 
   const handleSelect = (tag) => {
     if (value.some(t => t.id === tag.id)) {
@@ -53,7 +56,7 @@ export default function TagInput({
           </Badge>
         ))}
         
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={(next) => { setOpen(next); setInputValue(""); setPage(1); }}>
             <PopoverTrigger asChild>
                 <Button 
                     variant="outline" 
@@ -70,35 +73,40 @@ export default function TagInput({
                     <Input 
                         placeholder={placeholder}
                         value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
+                        onChange={(e) => { setInputValue(e.target.value); setPage(1); }}
                         className="h-8 bg-gray-800 border-gray-700 text-xs mb-2"
                         autoFocus
                     />
-                    <div className="space-y-1 max-h-40 overflow-y-auto scrollbar-thin">
-                        {(Array.isArray(availableTags) ? availableTags : [])
+                    <div className="space-y-1 max-h-40 overflow-y-auto scrollbar-thin-theme">
+                        {options.results
                             .filter(t => !value.some(v => v.id === t.id))
-                            .filter(t => t.name.toLowerCase().includes(inputValue.toLowerCase()))
                             .map(tag => (
-                            <div 
+                            <button type="button"
                                 key={tag.id}
                                 onClick={() => handleSelect(tag)}
-                                className="flex items-center px-2 py-1.5 text-sm text-gray-300 hover:bg-gray-800 rounded cursor-pointer"
+                                className="flex w-full items-center px-2 py-1.5 text-sm text-gray-300 hover:bg-gray-800 rounded cursor-pointer"
                             >
                                 {tag.name}
-                            </div>
+                            </button>
                         ))}
-                        {inputValue && !availableTags.some(t => t.name.toLowerCase() === inputValue.toLowerCase()) && (
-                             <div 
+                        {inputValue && !options.loading && !options.error && !options.results.some(t => t.name.toLowerCase() === inputValue.toLowerCase()) && (
+                             <button type="button"
                                 onClick={handleCreate}
                                 className="flex items-center px-2 py-1.5 text-sm text-indigo-400 hover:bg-gray-800 rounded cursor-pointer"
                              >
                                 <Plus className="h-3 w-3 mr-2" />
-                                Create "{inputValue}"
-                             </div>
+                                Create &quot;{inputValue}&quot;
+                             </button>
                         )}
-                        {availableTags.length === 0 && !inputValue && (
+                        {options.error && <p role="alert" className="text-xs text-rose-300">{options.error}</p>}
+                        {options.loading && <p role="status" className="text-xs text-gray-500">Loading tags…</p>}
+                        {!options.loading && options.results.length === 0 && !inputValue && (
                             <p className="text-xs text-gray-500 text-center py-2">No tags found</p>
                         )}
+                    </div>
+                    <div className="mt-2 flex justify-between text-xs text-gray-400">
+                      {page > 1 && <button type="button" disabled={options.loading} onClick={() => setPage(page - 1)}>Previous</button>}
+                      {options.has_more && <button type="button" disabled={options.loading} onClick={() => setPage(page + 1)}>Next</button>}
                     </div>
                 </div>
             </PopoverContent>
@@ -107,3 +115,5 @@ export default function TagInput({
     </div>
   );
 }
+TagInput.propTypes = { value: PropTypes.array, onChange: PropTypes.func.isRequired,
+  onCreateTag: PropTypes.func, placeholder: PropTypes.string };

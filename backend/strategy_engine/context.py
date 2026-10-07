@@ -50,6 +50,10 @@ class SessionContext(ABC):
         """Refresh slow-changing funds and risk inputs outside signal evaluation."""
         funds = cache_view.get_session_funds(self.scope, self.session_id)
         risk = cache_view.get_risk_metrics(self.scope, self.session_id) or {}
+        from risk_management.metrics import metrics_complete
+        if not metrics_complete(risk):
+            StrategyRuntimeState.ensure_risk_metrics(self.scope, self.session_id)
+            risk = cache_view.get_risk_metrics(self.scope, self.session_id)
         capital = 0.0
         if funds:
             available = funds.get("available_margin") or funds.get("cash_balance") or funds.get("net_equity") or 0

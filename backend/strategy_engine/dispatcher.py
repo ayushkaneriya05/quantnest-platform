@@ -96,7 +96,6 @@ class OrderDispatcher:
                     risk_evaluator=risk_evaluator,
                     sizing_config=sizing,
                     price=exec_price,
-                    sl_distance=None,
                     lot_size=lot_size,
                     strategy_config=strategy_config
                 )

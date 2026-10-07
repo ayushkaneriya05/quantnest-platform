@@ -1,3 +1,4 @@
+from users.websocket import AuthSessionConsumerMixin
 import json
 import re
 
@@ -23,7 +24,7 @@ get_latest_quote = sync_to_async(QuoteStore.get_latest, thread_sensitive=True)
 get_live_quote_from_fyers = sync_to_async(MarketDataService.get_live_quote_from_fyers, thread_sensitive=True)
 
 
-class MarketDataConsumer(AsyncWebsocketConsumer):
+class MarketDataConsumer(AuthSessionConsumerMixin, AsyncWebsocketConsumer):
     async def connect(self):
         user = self.scope["user"]
         if user.is_anonymous:

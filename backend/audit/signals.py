@@ -1,110 +1,66 @@
-from django.db.models.signals import post_delete, post_save, pre_save
-from django.dispatch import receiver
+"""Watch configuration fields only. Order, position and tick updates are excluded."""
+from django.db.models.signals import pre_save, post_save, pre_delete, post_delete
+from .services import AuditService, SAFE_FIELDS
+
+
+def before_save(sender, instance, update_fields=None, raw=False, **kwargs):
+    if raw:
+        return
+    fields = SAFE_FIELDS[sender.__name__]
+    if update_fields is not None and not set(update_fields).intersection(fields) and not getattr(instance, "_audit_sensitive_fields", None):
+        return
+    previous = sender.objects.filter(pk=instance.pk).only(*fields).first() if instance.pk else None
+    instance._audit_previous = AuditService.snapshot_instance(previous) if previous else {}
+    instance._audit_track_save = True
+
+
+def after_save(sender, instance, created, raw=False, **kwargs):
+    if raw or not getattr(instance, "_audit_track_save", False):
+        return
+    instance._audit_track_save = False
+    old = instance._audit_previous
+    new = AuditService.snapshot_instance(instance)
+    changed = {key: value for key, value in new.items() if old.get(key) != value}
+    sensitive = getattr(instance, "_audit_sensitive_fields", ())
+    instance._audit_sensitive_fields = ()
+    if not created and not changed and not sensitive:
+        return
+    action = "CREATE" if created else "UPDATE"
+    if sender.__name__ in {"CapitalAllocation", "LiveStrategyAllocation"} and created:
+        action = "ALLOCATE"
+    if created and sender.__name__ in {"TradingSession", "PaperTradingSession"}:
+        action = "DEPLOY" if new.get("status") == "RUNNING" else "CREATE"
+    elif sender.__name__ in {"TradingSession", "PaperTradingSession"} and "status" in changed:
+        action = {"RUNNING": "RESUME" if old.get("status") in {"PAUSED", "ERROR"} else "DEPLOY",
+                  "PAUSED": "PAUSE", "STOPPING": "STOP_REQUESTED", "STOPPED": "STOP"}.get(new["status"], action)
+    owner = instance.portfolio.user if sender.__name__ == "CapitalAllocation" else instance.user
+    AuditService.log_action(owner, action, instance, old_value={key: old.get(key) for key in changed},
+                            new_value=changed, reason=("Credential fields changed: " + ", ".join(sensitive)) if sensitive else getattr(instance, "_audit_reason", ""),
+                            actor_name=getattr(instance, "_audit_actor", None))
+
+
+def before_delete(sender, instance, **kwargs):
+    instance._audit_owner = instance.portfolio.user if sender.__name__ == "CapitalAllocation" else instance.user
+    # Do not create owned events while that owner is being deleted.
+    origin = kwargs.get("origin")
+    instance._audit_skip_delete = origin == instance._audit_owner or getattr(origin, "model", None) is type(instance._audit_owner)
+
+
+def after_delete(sender, instance, **kwargs):
+    if instance._audit_skip_delete:
+        return
+    owner = instance._audit_owner
+    action = "DEALLOCATE" if sender.__name__ in {"CapitalAllocation", "LiveStrategyAllocation"} else "DELETE"
+    AuditService.log_action(owner, action, instance, old_value=AuditService.snapshot_instance(instance))
+
 
 from brokers.models import BrokerCredential
 from strategies.models import Strategy
+from paper_trading.models import CapitalAllocation, PaperAccount, PaperTradingSession
+from live_trading.models import LiveStrategyAllocation, TradingSession
 
-from .services import AuditService
-
-
-# ── Models to track ──
-_TRACKED_MODELS = [Strategy, BrokerCredential]
-
-# Dynamically add signals for live_trading models if available
-try:
-    from live_trading.models import TradingSession
-    _TRACKED_MODELS.append(TradingSession)
-except Exception:
-    TradingSession = None
-
-try:
-    from marketplace.models import MarketplaceListing
-    _TRACKED_MODELS.append(MarketplaceListing)
-except Exception:
-    MarketplaceListing = None
-
-
-@receiver(pre_save, sender=Strategy)
-@receiver(pre_save, sender=BrokerCredential)
-def cache_old_entity_state(sender, instance, **kwargs):
-    if instance.pk:
-        try:
-            instance._audit_old_value = AuditService.snapshot_instance(sender.objects.get(pk=instance.pk))
-        except sender.DoesNotExist:
-            instance._audit_old_value = {}
-
-
-@receiver(post_save, sender=Strategy)
-@receiver(post_save, sender=BrokerCredential)
-def log_entity_save(sender, instance, created, **kwargs):
-    AuditService.log_action(
-        getattr(instance, "user", None),
-        "CREATE" if created else "UPDATE",
-        instance,
-        old_value=getattr(instance, "_audit_old_value", {}),
-        new_value=AuditService.snapshot_instance(instance),
-    )
-
-
-@receiver(post_delete, sender=Strategy)
-@receiver(post_delete, sender=BrokerCredential)
-def log_entity_delete(sender, instance, **kwargs):
-    AuditService.log_action(
-        getattr(instance, "user", None),
-        "DELETE",
-        instance,
-        old_value=AuditService.snapshot_instance(instance),
-        new_value={},
-    )
-
-
-# ── TradingSession signals ──
-if TradingSession is not None:
-    @receiver(pre_save, sender=TradingSession)
-    def cache_old_session_state(sender, instance, **kwargs):
-        if instance.pk:
-            try:
-                instance._audit_old_value = AuditService.snapshot_instance(sender.objects.get(pk=instance.pk))
-            except sender.DoesNotExist:
-                instance._audit_old_value = {}
-
-    @receiver(post_save, sender=TradingSession)
-    def log_session_save(sender, instance, created, **kwargs):
-        action = "CREATE" if created else "UPDATE"
-        # Map session status to meaningful audit actions
-        if not created:
-            new_status = getattr(instance, "status", "")
-            if new_status == "RUNNING":
-                action = "DEPLOY"
-            elif new_status == "PAUSED":
-                action = "PAUSE"
-            elif new_status == "STOPPED":
-                action = "STOP"
-        AuditService.log_action(
-            getattr(instance, "user", None),
-            action,
-            instance,
-            old_value=getattr(instance, "_audit_old_value", {}),
-            new_value=AuditService.snapshot_instance(instance),
-        )
-
-
-# ── MarketplaceListing signals ──
-if MarketplaceListing is not None:
-    @receiver(pre_save, sender=MarketplaceListing)
-    def cache_old_listing_state(sender, instance, **kwargs):
-        if instance.pk:
-            try:
-                instance._audit_old_value = AuditService.snapshot_instance(sender.objects.get(pk=instance.pk))
-            except sender.DoesNotExist:
-                instance._audit_old_value = {}
-
-    @receiver(post_save, sender=MarketplaceListing)
-    def log_listing_save(sender, instance, created, **kwargs):
-        AuditService.log_action(
-            getattr(instance, "creator", None),
-            "CREATE" if created else "UPDATE",
-            instance,
-            old_value=getattr(instance, "_audit_old_value", {}),
-            new_value=AuditService.snapshot_instance(instance),
-        )
+for model in (Strategy, BrokerCredential, CapitalAllocation, PaperAccount, PaperTradingSession, LiveStrategyAllocation, TradingSession):
+    pre_save.connect(before_save, sender=model, dispatch_uid=f"audit:{model._meta.label}:before")
+    post_save.connect(after_save, sender=model, dispatch_uid=f"audit:{model._meta.label}:after")
+    pre_delete.connect(before_delete, sender=model, dispatch_uid=f"audit:{model._meta.label}:before_delete")
+    post_delete.connect(after_delete, sender=model, dispatch_uid=f"audit:{model._meta.label}:delete")

@@ -20,7 +20,7 @@ class InstrumentResolver:
     def execution_instrument_ids(session):
         """Return the deployed watchlist instrument IDs for the active session.
         Execution must always use the strategy version pinned to the active session.
-        The config snapshot already stores the direct IDs for quick access.
+        The config snapshot contains the instruments selected for this deployment.
         """
         candidate = session
         if hasattr(candidate, 'allocation') and candidate.allocation is not None:
@@ -29,9 +29,9 @@ class InstrumentResolver:
             raise ValueError("Session has no deployed strategy version configured for execution.")
 
         config = candidate.deployed_version.config_snapshot or {}
-        direct_ids = config.get('watchlist_instrument_ids') or []
+        direct_ids = [item['instrument_id'] for item in config['watchlist_instruments']]
         if not direct_ids:
-            raise ValueError("Deployed strategy snapshot is missing watchlist_instrument_ids for execution.")
+            raise ValueError("Deployed strategy snapshot is has no watchlist instruments for execution.")
         return sorted({int(item) for item in direct_ids if item is not None})
 
     
@@ -72,7 +72,7 @@ class InstrumentResolver:
             # Handle both model objects and dict format
             if isinstance(route, dict):
                 route_type = route.get('route_type')
-                sizing = route
+                sizing = dict(route) if route.get('override_sizing', False) else None
                 # target_instrument_id = route.get('target_instrument_id')
             else:
                 route_type = route.route_type

@@ -108,5 +108,8 @@ class ClosedPositionLog(models.Model):
     entry_time = models.DateTimeField()
     exit_time = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        indexes = [models.Index(fields=['account', '-exit_time'], name='terminal_close_time_idx')]
+
     def __str__(self):
         return f"{self.side} {self.quantity} {self.instrument.symbol} - P&L: {self.realized_pnl}"

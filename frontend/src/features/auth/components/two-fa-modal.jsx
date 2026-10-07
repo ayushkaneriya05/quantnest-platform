@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React, { useState } from "react";
+import { useState } from "react";
 import { AlertCircle, KeyRound, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
@@ -63,7 +63,7 @@ export default function TwoFAModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#08090d]/95 p-0 text-slate-100 shadow-[0_28px_90px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:max-w-[430px]">
+      <DialogContent onPointerDownOutside={(event) => event.preventDefault()} className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#08090d]/95 p-0 text-slate-100 shadow-[0_28px_90px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:max-w-[430px]">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(229,196,97,0.18),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,0.16),transparent_34%)]" />
         <div className="relative p-6">
           <DialogHeader className="items-center text-center">
@@ -102,7 +102,7 @@ export default function TwoFAModal({
               <Input
                 id="2fa-token"
                 type="text"
-                placeholder={useBackupCode ? "A1B2C3D4" : "000000"}
+                placeholder={useBackupCode ? "1234-5678" : "000000"}
                 value={token}
                 onChange={handleTokenChange}
                 maxLength={useBackupCode ? 16 : 6}

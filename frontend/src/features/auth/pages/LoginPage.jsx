@@ -1,5 +1,6 @@
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
-import React, { useState } from "react";
+import { useState } from "react";
+import PropTypes from "prop-types";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import {
@@ -12,9 +13,7 @@ import {
 } from "lucide-react";
 
 import TwoFAModal from "@/features/auth/components/two-fa-modal";
-import GoogleLoginButton, {
-  GoogleLoginFallback,
-} from "@/features/auth/components/GoogleLoginButton";
+import GoogleLoginButton from "@/features/auth/components/GoogleLoginButton";
 import MainHeader from "@/shared/components/layout/main-header";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -27,26 +26,21 @@ import {
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import api from "@/shared/services/api";
-import {
-  fetchUserProfile,
-  loginSuccess,
-  set2FARequired,
-  setLoading,
-} from "@/shared/store/authSlice";
+import { loginSuccess, setLoading } from "@/shared/store/authSlice";
 
-export default function LoginPage() {
+export default function LoginPage({ twoFactorChallenge = null }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [loginToken, setLoginToken] = useState("");
+  const [loginToken, setLoginToken] = useState(twoFactorChallenge?.login_token || "");
   const [error, setError] = useState("");
   const [twoFAError, setTwoFAError] = useState("");
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
-  const { is2FARequired, isLoading } = useSelector((state) => state.auth);
+  const { isLoading } = useSelector((state) => state.auth);
 
-  const from = location.state?.from?.pathname || "/dashboard";
+  const from = twoFactorChallenge?.next || location.state?.from?.pathname || "/dashboard";
   const successMessage = location.state?.message;
 
   const handleSubmit = async (e) => {
@@ -60,12 +54,10 @@ export default function LoginPage() {
         password,
       });
 
-      if (response.status === 200 && response.data.is_2fa_required) {
+      if (response.data.is_2fa_required) {
         setLoginToken(response.data.login_token);
-        dispatch(set2FARequired(true));
-      } else if (response.status === 200) {
+      } else {
         dispatch(loginSuccess(response.data));
-        await dispatch(fetchUserProfile());
         navigate(from, { replace: true });
       }
     } catch (err) {
@@ -86,11 +78,8 @@ export default function LoginPage() {
         otp_token: otpToken,
       });
 
-      if (response.status === 200) {
-        dispatch(loginSuccess(response.data));
-        dispatch(set2FARequired(false));
-        navigate(from, { replace: true });
-      }
+      dispatch(loginSuccess(response.data));
+      navigate(from, { replace: true });
     } catch (err) {
       setTwoFAError(getApiErrorMessage(err, "2FA verification failed."));
       console.error(err.response?.data);
@@ -100,16 +89,16 @@ export default function LoginPage() {
   };
 
   const handle2FAClose = () => {
-    dispatch(set2FARequired(false));
     setTwoFAError("");
     setLoginToken("");
+    if (twoFactorChallenge) {
+      navigate("/login", { replace: true, state: { from: { pathname: from } } });
+    }
   };
 
   const handleGoogleError = (errorMessage) => {
     setError(errorMessage);
   };
-
-  const googleClientId = import.meta.env.VITE_REACT_APP_GOOGLE_CLIENT_ID;
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-[#050505] text-white">
@@ -131,15 +120,7 @@ export default function LoginPage() {
 
           <CardContent className="px-0">
             <div className="space-y-3">
-              {googleClientId ? (
-                <GoogleLoginButton
-                  onError={handleGoogleError}
-                  isLoading={isLoading}
-                  type="login"
-                />
-              ) : (
-                <GoogleLoginFallback type="login" />
-              )}
+              <GoogleLoginButton onError={handleGoogleError} isLoading={isLoading} />
             </div>
 
             <div className="relative my-3 flex items-center">
@@ -262,7 +243,7 @@ export default function LoginPage() {
       </div>
 
       <TwoFAModal
-        isOpen={is2FARequired}
+        isOpen={Boolean(loginToken)}
         onClose={handle2FAClose}
         onVerify={handle2FAVerify}
         isLoading={isLoading}
@@ -271,3 +252,10 @@ export default function LoginPage() {
     </div>
   );
 }
+
+LoginPage.propTypes = {
+  twoFactorChallenge: PropTypes.shape({
+    login_token: PropTypes.string.isRequired,
+    next: PropTypes.string,
+  }),
+};

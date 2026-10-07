@@ -28,7 +28,7 @@ import { strategyApi } from "@/shared/services/strategyApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useEnums } from "@/shared/context/EnumsContext";
-import { usePageActions } from "@/shared/context/PageActionsContext";
+import { usePageActions } from "@/shared/context/pageActions";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { getDefaultParams } from "./components/operandUtils";
 import RuleConditionEditor from "./components/RuleConditionEditor";

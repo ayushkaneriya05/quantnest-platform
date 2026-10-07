@@ -110,7 +110,7 @@ export default function ExecutionLogs() {
       </div>
 
       <Tabs defaultValue="events" className="space-y-4">
-        <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/60 p-1 sm:w-auto">
+        <TabsList className="scrollbar-thin-theme h-auto w-full justify-start gap-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/60 p-1 sm:w-auto">
           <TabsTrigger value="events" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">Order lifecycle</TabsTrigger>
           <TabsTrigger value="slippage" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">Slippage</TabsTrigger>
         </TabsList>

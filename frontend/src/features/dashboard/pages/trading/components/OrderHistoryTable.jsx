@@ -40,7 +40,7 @@ export default function OrderHistoryTable({
   return (
     <div className="space-y-4">
       <Card className="bg-slate-950/40 border-slate-800/50 backdrop-blur-xl overflow-hidden rounded-3xl">
-        <div className="overflow-x-auto custom-scrollbar min-h-[400px]">
+        <div className="overflow-x-auto scrollbar-thin-theme min-h-[400px]">
           <Table>
             <TableHeader>
               <TableRow className="border-slate-800/50 hover:bg-transparent bg-slate-900/40">

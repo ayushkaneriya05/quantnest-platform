@@ -432,7 +432,7 @@ class PortfolioService:
     @staticmethod
     @transaction.atomic
     def delete_paper_account(paper_account):
-        paper_account = PaperAccount.objects.select_for_update().select_related("allocation", "user").get(pk=paper_account.pk)
+        paper_account = PaperAccount.objects.select_for_update(of=("self",)).select_related("allocation", "user").get(pk=paper_account.pk)
         can_delete, reason = PortfolioService.can_delete_paper_account(paper_account)
         if not can_delete:
             raise ValueError(reason)
@@ -477,6 +477,7 @@ class PortfolioService:
 
         wallet_before = portfolio.current_capital
         if delta:
+            account_before = paper_account.current_balance
             portfolio.current_capital -= delta
             paper_account.current_balance = paper_account.initial_balance
             portfolio.save(update_fields=["current_capital", "updated_at"])
@@ -490,6 +491,10 @@ class PortfolioService:
                 notes=f"Reset paper account {paper_account.name} to its initial balance",
             )
             _refresh_paper_account_funds_after_commit(paper_account)
+            from audit.services import AuditService
+            AuditService.log_action(paper_account.user, "RESET", paper_account,
+                old_value={"current_balance": account_before}, new_value={"current_balance": paper_account.current_balance},
+                reason="Restored initial balance; execution history retained")
 
     @staticmethod
     def take_daily_snapshot(portfolio):
@@ -616,6 +621,7 @@ class PaperExecutionService:
         return sess or 0
 
     @staticmethod
+    @transaction.atomic
     def deploy_session(
         user,
         strategy,
@@ -657,12 +663,13 @@ class PaperExecutionService:
             session.charge_profile_snapshot = profile_snapshot
             session.include_charges = include_charges
             session.status = initial_status
+            session.auto_disable_state = {}
             session.started_at = timezone.now() if initial_status == "RUNNING" else None
             session.ended_at = None
             session.error_message = ""
             session.save(update_fields=[
                 "slippage_pct", "charge_profile", "charge_profile_snapshot", "include_charges",
-                "status", "started_at", "ended_at", "error_message", "updated_at",
+                "status", "started_at", "ended_at", "error_message", "auto_disable_state", "updated_at",
             ])
         else:
             session = PaperTradingSession.objects.create(
@@ -681,7 +688,6 @@ class PaperExecutionService:
             )
 
         # Initialize the separate account-funds cache used for capital sizing.
-        from core.cache_api import cache_api
         funds_data = {
             'net_equity': str(account.current_balance),
             'cash_balance': str(account.current_balance),
@@ -689,10 +695,11 @@ class PaperExecutionService:
             'used_margin': '0',
             'account_id': str(account.id),
         }
-        cache_api.update_session_funds("paper", str(session.id), funds_data)
+        _publish_cache_after_commit("update_session_funds", "paper", str(session.id), funds_data)
+        _publish_cache_after_commit("update_risk_metrics", "paper", str(session.id), {"auto_disable_release": {}})
 
         if initial_status == "RUNNING":
-            PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
+            transaction.on_commit(lambda: PaperExecutionService._publish_execution_event("SESSION_START", session, "paper"))
         
         NotificationService.notify(
             user=user,
@@ -708,7 +715,8 @@ class PaperExecutionService:
     def pause_session(session):
         session.status = "PAUSED"
         session.error_message = ""
-        session.save(update_fields=["status", "error_message", "updated_at"])
+        session.auto_disable_state = {}
+        session.save(update_fields=["status", "error_message", "auto_disable_state", "updated_at"])
         
         NotificationService.notify(
             user=session.user,
@@ -776,12 +784,14 @@ class PaperExecutionService:
             'used_margin': '0',
             'account_id': str(session.account.id),
         })
+        from risk_management.auto_disable import AutoDisableGate
+        AutoDisableGate.release(session)
         session.status = "RUNNING"
         session.error_message = ""
         if not session.started_at:
             session.started_at = timezone.now()
         session.ended_at = None
-        session.save(update_fields=["status", "error_message", "started_at", "ended_at", "updated_at"])
+        session.save(update_fields=["status", "error_message", "auto_disable_state", "started_at", "ended_at", "updated_at"])
         
         NotificationService.notify(
             user=session.user,
@@ -813,12 +823,15 @@ class PaperExecutionService:
 
 
     @staticmethod
-    def _validate_auto_disable(session, account, raise_on_trigger=True):
+    def _validate_auto_disable(session, account, raise_on_trigger=True, stats=None, config=None):
         from risk_management.auto_disable import AutoDisableGate
         from core.cache_view import cache_view
 
-        stats = cache_view.get_risk_metrics("paper", session.id)
-        match = AutoDisableGate.evaluate(session, stats, account.initial_balance)
+        if stats is None:
+            from strategy_engine.runtime import StrategyRuntimeState
+            StrategyRuntimeState.ensure_risk_metrics("paper", session.id)
+            stats = cache_view.get_risk_metrics("paper", session.id)
+        match = AutoDisableGate.evaluate(session, stats, account.initial_balance, config=config)
         if match and match.get("paused_now"):
             PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
         if match and raise_on_trigger:
@@ -844,16 +857,18 @@ class PaperExecutionService:
         order_tag="strategy_execution",
         reason="",
         request_id=None,
+        intent="ENTRY",
     ):
         if request_id:
             existing = PaperOrder.objects.filter(request_id=request_id).first()
             if existing:
                 return existing.id
 
-        PaperExecutionService._validate_auto_disable(
-            session=session,
-            account=account,
-        )
+        if intent == "ENTRY":
+            PaperExecutionService._validate_auto_disable(
+                session=session,
+                account=account,
+            )
 
         return PaperExecutionService._execute_market_order(
             session=session,
@@ -1040,32 +1055,9 @@ class PaperExecutionService:
                 holding_duration_seconds=max(int((executed_at - opposite_position.opened_at).total_seconds()), 0),
             )
 
-            # Update unified cache risk metrics with trade result
-            from core.cache_view import cache_view
-            current = cache_view.get_risk_metrics("paper", session.id)
-            pnl = float(net_pnl)
-            current["daily_trades"] = int(current.get("daily_trades", 0) or 0) + 1
-            current["daily_pnl"] = float(current.get("daily_pnl", 0.0) or 0.0) + pnl
-            current["weekly_pnl"] = float(current.get("weekly_pnl", 0.0) or 0.0) + pnl
-            current["monthly_pnl"] = float(current.get("monthly_pnl", 0.0) or 0.0) + pnl
-            current["total_closed_trades"] = int(current.get("total_closed_trades", 0) or 0) + 1
-            current["closed_trades"] = current["total_closed_trades"]
-            current["last_exit_time"] = executed_at
-            
-            if pnl < 0:
-                current["consecutive_losses"] = current.get("consecutive_losses", 0) + 1
-                current["consecutive_wins"] = 0
-                current["losing_trades"] = int(current.get("losing_trades", 0) or 0) + 1
-            elif pnl > 0:
-                current["consecutive_wins"] = current.get("consecutive_wins", 0) + 1
-                current["consecutive_losses"] = 0
-                current["winning_trades"] = int(current.get("winning_trades", 0) or 0) + 1
-            
-            total_closed = int(current.get("total_closed_trades", 0) or 0)
-            wins = int(current.get("winning_trades", 0) or 0)
-            current["win_rate"] = (wins / total_closed) * 100 if total_closed else 0.0
-
-            _publish_cache_after_commit("update_risk_metrics", "paper", session.id, current)
+            from risk_management.auto_disable import AutoDisableGate
+            transaction.on_commit(lambda trade=trade: AutoDisableGate.record_close(
+                session, trade.pk, trade.net_pnl, trade.exit_time, account.initial_balance, strategy_config))
 
             margin_released = (
                 Decimal(str(opposite_position.margin_blocked or 0))
@@ -1203,12 +1195,6 @@ class PaperExecutionService:
         if session:
             cache_api.update_session_funds("paper", str(session.id), funds_data)
         
-        if session:
-            PaperExecutionService._validate_auto_disable(
-                session=session,
-                account=account,
-                raise_on_trigger=False,
-            )
         return order
 
 
@@ -1230,7 +1216,7 @@ class PaperExecutionService:
             request_id = data["request_id"]
             if PaperOrder.objects.filter(request_id=request_id).exists():
                 return
-            session = PaperTradingSession.objects.select_related("account", "strategy").get(id=data["session_id"])
+            session = PaperTradingSession.objects.select_related("account", "strategy", "allocation__deployed_version").get(id=data["session_id"])
             instrument = Instrument.objects.get(id=data["instrument_id"])
             try:
                 if not entry_is_allowed(session.status, data.get("intent")):
@@ -1239,6 +1225,7 @@ class PaperExecutionService:
                     session=session, strategy=session.strategy, account=session.account,
                     instrument=instrument, side=data["side"], quantity=data["qty"],
                     price=data.get("target_price"), reason=data.get("reason") or "", request_id=request_id,
+                    intent=data.get("intent", "ENTRY"),
                 )
                 order = PaperOrder.objects.get(pk=order_id)
             except Exception as exc:

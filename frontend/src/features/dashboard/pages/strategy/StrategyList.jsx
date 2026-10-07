@@ -18,6 +18,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Label } from "@/shared/components/ui/label";
 import { Input } from "@/shared/components/ui/input";
+import StrategyVersionSelect from "./components/StrategyVersionSelect";
 import { Switch } from "@/shared/components/ui/switch";
 import {
   Select,
@@ -34,6 +35,7 @@ import {
 import { strategyApi } from '@/shared/services/strategyApi';
 import { brokersApi } from '@/shared/services/brokersApi';
 import { portfolioApi } from '@/shared/services/portfolioApi';
+import api from '@/shared/services/api';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
 import { customConfirm } from '@/shared/components/ui/custom-dialog';
@@ -69,7 +71,6 @@ export default function StrategyList() {
   const [deployingId, setDeployingId] = useState(null);
   const [liveDeployOpen, setLiveDeployOpen] = useState(false);
   const [liveDeployStrategy, setLiveDeployStrategy] = useState(null);
-  const [brokerOptions, setBrokerOptions] = useState([]);
   const [selectedBroker, setSelectedBroker] = useState("");
   const [allocationMode, setAllocationMode] = useState("FIXED");
   const [allocationAmount, setAllocationAmount] = useState("");
@@ -130,13 +131,12 @@ export default function StrategyList() {
   };
 
   const loadBrokerOptions = async () => {
-    const catalog = await brokersApi.getCatalog();
-    const rows = Array.isArray(catalog.data) ? catalog.data : [];
-    const connected = rows.filter((item) => item.enabled && item.is_verified);
-    setBrokerOptions(connected);
-    const active = connected.find((item) => item.is_active) || connected[0];
-    setSelectedBroker(active?.credential_id ? String(active.credential_id) : "");
-    return connected;
+    const params = { resource: "broker-accounts", is_verified: true };
+    const active = await api.get("/common/choices/", { params: { ...params, is_active: true } });
+    const choices = active.data.results.length ? active.data.results :
+      (await api.get("/common/choices/", { params })).data.results;
+    setSelectedBroker(choices[0]?.value || "");
+    return choices;
   };
 
   const openPaperDeploy = async (strategy) => {
@@ -595,29 +595,23 @@ export default function StrategyList() {
       )}
 
       <Dialog open={liveDeployOpen} onOpenChange={setLiveDeployOpen}>
-        <DialogContent className="bg-gray-950 border-gray-800 text-white">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-gray-950 border-gray-800 text-white sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Deploy Strategy Live</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="text-sm text-gray-400">
+            <div className="break-words text-sm text-gray-400">
               {liveDeployStrategy
                 ? `Choose the connected broker account for ${liveDeployStrategy.name}.`
                 : "Choose a broker account."}
             </div>
             <div className="space-y-2">
               <Label className="text-gray-300">Connected Broker</Label>
-              <Select value={selectedBroker} onValueChange={setSelectedBroker}>
+              <Select resource="broker-accounts" filters={{ is_verified: true }} value={selectedBroker} onValueChange={setSelectedBroker}>
                 <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
                   <SelectValue placeholder="Select broker account" />
                 </SelectTrigger>
-                <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                  {brokerOptions.map((broker) => (
-                    <SelectItem key={broker.credential_id} value={String(broker.credential_id)}>
-                      {broker.display_name} - {broker.account_name || broker.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+                <SelectContent className="bg-gray-900 border-gray-800 text-white" />
               </Select>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -655,21 +649,21 @@ export default function StrategyList() {
               </div>
               <div className="space-y-2">
                 <Label className="text-gray-300">Strategy Version</Label>
-                <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+                <StrategyVersionSelect filters={{ strategy_id: liveDeployStrategy?.id }} value={selectedVersion} onValueChange={setSelectedVersion}>
                   <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
                     <SelectValue placeholder="Select version" />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-900 border-gray-800 text-white">
                     {versions.map((v) => (
-                      <SelectItem key={v.id} value={v.id.toString()}>
-                        Version {v.version_number} - {new Date(v.created_at).toLocaleDateString()}
+                      <SelectItem key={v.id} value={v.id.toString()} data={v}>
+                        Version {v.version_number}
                       </SelectItem>
                     ))}
                     {versions.length === 0 && (
                       <SelectItem value="none" disabled>No versions found</SelectItem>
                     )}
                   </SelectContent>
-                </Select>
+                </StrategyVersionSelect>
               </div>
 
             </div>
@@ -708,12 +702,12 @@ export default function StrategyList() {
 
       {/* Paper Deploy Modal */}
       <Dialog open={paperDeployOpen} onOpenChange={setPaperDeployOpen}>
-        <DialogContent className="bg-gray-950 border-gray-800 text-white">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-gray-950 border-gray-800 text-white sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Deploy Strategy to Paper Trading</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="text-sm text-gray-400">
+            <div className="break-words text-sm text-gray-400">
               {paperDeployStrategy
                 ? `Choose the version for ${paperDeployStrategy.name}.`
                 : "Choose version."}
@@ -721,7 +715,7 @@ export default function StrategyList() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-gray-300">Capital Allocation</Label>
-                <Select value={selectedAllocation} onValueChange={setSelectedAllocation}>
+                <Select resource="paper-allocations" filters={{ strategy_id: paperDeployStrategy?.id }} value={selectedAllocation} onValueChange={setSelectedAllocation}>
                   <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
                     <SelectValue placeholder="Select allocation" />
                   </SelectTrigger>
@@ -731,7 +725,7 @@ export default function StrategyList() {
                         Existing: ₹{Number(a.allocated_amount).toLocaleString()} (Alloc #{a.id})
                       </SelectItem>
                     ))}
-                    <SelectItem value="new" className="text-indigo-400 font-medium">
+                    <SelectItem persistent value="new" className="text-indigo-400 font-medium">
                       + Create New Allocation
                     </SelectItem>
                   </SelectContent>
@@ -752,21 +746,21 @@ export default function StrategyList() {
 
               <div className="space-y-2">
                 <Label className="text-gray-300">Strategy Version</Label>
-                <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+                <StrategyVersionSelect filters={{ strategy_id: paperDeployStrategy?.id }} value={selectedVersion} onValueChange={setSelectedVersion}>
                   <SelectTrigger className="bg-gray-900 border-gray-700 text-white">
                     <SelectValue placeholder="Select version" />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-900 border-gray-800 text-white">
                     {versions.map((v) => (
-                      <SelectItem key={v.id} value={v.id.toString()}>
-                        Version {v.version_number} - {new Date(v.created_at).toLocaleDateString()}
+                      <SelectItem key={v.id} value={v.id.toString()} data={v}>
+                        Version {v.version_number}
                       </SelectItem>
                     ))}
                     {versions.length === 0 && (
                       <SelectItem value="none" disabled>No versions found</SelectItem>
                     )}
                   </SelectContent>
-                </Select>
+                </StrategyVersionSelect>
               </div>
 
               <div className="grid grid-cols-2 gap-3 border-t border-gray-800 pt-4">
@@ -784,7 +778,7 @@ export default function StrategyList() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-gray-300">Charge Profile</Label>
-                  <Select
+                  <Select resource="charge-profiles"
                     value={paperChargeProfile || "none"}
                     onValueChange={(value) => setPaperChargeProfile(value === "none" ? "" : value)}
                     disabled={!paperIncludeCharges || chargeProfiles.length === 0}

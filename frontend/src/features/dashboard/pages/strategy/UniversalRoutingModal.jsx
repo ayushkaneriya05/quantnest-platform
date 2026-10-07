@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/shared/components/ui/dialog";
@@ -11,6 +12,7 @@ import { Label } from "@/shared/components/ui/label";
 import { Badge } from "@/shared/components/ui/badge";
 import { Switch } from "@/shared/components/ui/switch";
 import { Search, Loader2, GitMerge, AlertCircle, Trash, Plus, Edit2, ArrowLeft } from 'lucide-react';
+import { useInstrumentSearch } from '@/shared/hooks/useInstrumentSearch';
 import { executionRoutesApi, instrumentsApi } from '@/shared/services/instrumentsApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
@@ -51,7 +53,7 @@ const TYPE_DOT = {
   COMMODITY: 'bg-orange-400', BOND: 'bg-teal-400', MF: 'bg-fuchsia-400',
 };
 
-export default function UniversalRoutingModal({ open, onClose, watchlistInstrument, strategyConfig }) {
+export default function UniversalRoutingModal({ open, onClose, watchlistInstrument }) {
   const { enums } = useEnums();
   const { notify } = useNotifications();
   const [loading, setLoading] = useState(false);
@@ -66,7 +68,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
   const [routeId, setRouteId] = useState(null);
   const [routeType, setRouteType] = useState('DIRECT');
   const [overrideSizing, setOverrideSizing] = useState(false);
-  const [sizingConfig, setSizingConfig] = useState({});
+  const [sizingConfig, setSizingConfig] = useState({ sizing_method: 'CAPITAL_BASED', capital_percentage: 10, fixed_quantity: 1 });
   const [targetInstrument, setTargetInstrument] = useState(null);
 
   const [expiryPreference, setExpiryPreference] = useState('NEAREST');
@@ -76,21 +78,15 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
   
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const debounceRef = useRef(null);
+  const searchFilters = ['FUTURES', 'OPTIONS'].includes(routeType) ? {
+    type: 'INDEX,STOCK', ...(routeType === 'FUTURES' ? { has_futures: true } : { has_options: true }),
+  } : {};
+  const { results: searchResults, loading: searching, error: searchError } = useInstrumentSearch(
+    searchQuery, searchFilters, open && viewMode === 'form' && showDropdown);
 
-  useEffect(() => {
-    if (open && watchlistInstrument) {
-      setViewMode('list');
-      fetchRoutes();
-    } else {
-      setRoutes([]);
-    }
-  }, [open, watchlistInstrument]);
 
-  const fetchRoutes = async () => {
+  const fetchRoutes = useCallback(async () => {
     setLoading(true);
     try {
       const res = await executionRoutesApi.getByWatchlistInstrument(watchlistInstrument.id);
@@ -116,7 +112,12 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
     } finally {
       setLoading(false);
     }
-  };
+  }, [watchlistInstrument, notify]);
+
+  useEffect(() => {
+    if (open && watchlistInstrument) { setViewMode('list'); fetchRoutes(); }
+    else setRoutes([]);
+  }, [open, watchlistInstrument, fetchRoutes]);
 
   const openFormForRoute = (route) => {
     if (route) {
@@ -124,10 +125,9 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
       setRouteType(route.route_type);
       setOverrideSizing(route.override_sizing);
       setSizingConfig({
-        sizing_method: route.sizing_method,
-        fixed_quantity: route.fixed_quantity,
-        capital_percentage: route.capital_percentage,
-        risk_per_trade_percentage: route.risk_per_trade_percentage,
+        sizing_method: route.sizing_method || 'CAPITAL_BASED',
+        fixed_quantity: route.fixed_quantity ?? 1,
+        capital_percentage: route.capital_percentage ?? 10,
       });
       setExpiryPreference(route.expiry_preference || 'NEAREST');
       setBuySignalOptionType(route.buy_signal_option_type || 'CE');
@@ -139,7 +139,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
       setRouteId(null);
       setRouteType('DIRECT');
       setOverrideSizing(false);
-      setSizingConfig({});
+      setSizingConfig({ sizing_method: 'CAPITAL_BASED', capital_percentage: 10, fixed_quantity: 1 });
       setTargetInstrument(null);
       setExpiryPreference('NEAREST');
       setBuySignalOptionType('CE');
@@ -147,45 +147,11 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
       setStrikeSelection('ATM');
     }
     setSearchQuery('');
-    setSearchResults([]);
     setShowDropdown(false);
     setViewMode('form');
   };
 
-  const doSearch = useCallback(async (query) => {
-    if (!query || query.trim().length < 2) {
-      setSearchResults([]);
-      setShowDropdown(false);
-      return;
-    }
-    try {
-      setSearching(true);
-      const params = { q: query, limit: 10 };
-      if (['FUTURES', 'OPTIONS'].includes(routeType)) {
-        params.type = 'INDEX,STOCK';
-        if (routeType === 'FUTURES') params.has_futures = true;
-        if (routeType === 'OPTIONS') params.has_options = true;
-      }
-      const results = await instrumentsApi.search(params);
-      setSearchResults(Array.isArray(results) ? results : []);
-      setShowDropdown(true);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
-  }, [routeType]);
-
-  const handleQueryChange = (value) => {
-    setSearchQuery(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (value.trim().length < 2) {
-      setSearchResults([]);
-      setShowDropdown(false);
-      return;
-    }
-    debounceRef.current = setTimeout(() => doSearch(value), 300);
-  };
+  const handleQueryChange = (value) => { setSearchQuery(value); setShowDropdown(true); };
 
   const selectTargetInstrument = (inst) => {
     setTargetInstrument(inst);
@@ -386,12 +352,14 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
                   <Input
                     value={searchQuery}
                     onChange={(e) => handleQueryChange(e.target.value)}
+                    onFocus={() => setShowDropdown(true)}
                     placeholder="Search for an instrument (e.g., NIFTY, BANKNIFTY)..."
                     className="bg-gray-950 border-gray-800 pl-9"
                   />
                   
+                  {searchError && <p role="alert" className="mt-2 text-sm text-rose-300">{searchError}</p>}
                   {showDropdown && (
-                    <div className="absolute z-10 w-full mt-1 bg-gray-950 border border-gray-800 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                    <div className="scrollbar-theme absolute z-10 w-full mt-1 bg-gray-950 border border-gray-800 rounded-lg shadow-xl max-h-60 overflow-y-auto">
                       {searching ? (
                         <div className="p-3 text-center"><Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-500" /></div>
                       ) : searchResults.length > 0 ? (
@@ -525,7 +493,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
             <div className="flex gap-2 items-start bg-indigo-500/10 border border-indigo-500/20 p-3 rounded-xl mt-3">
               <AlertCircle className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
               <p className="text-xs text-indigo-300/90 leading-snug">
-                This route will inherit the global position sizing configuration defined in your strategy's Risk Settings.
+                This route will inherit the global position sizing configuration defined in your strategy&apos;s Risk Settings.
               </p>
             </div>
           )}
@@ -575,18 +543,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
                 </div>
               )}
               
-              {sizingConfig.sizing_method === 'RISK_BASED' && (
-                <div className="space-y-2 col-span-2 sm:col-span-1">
-                  <Label className="text-xs text-gray-400">Risk per Trade (%)</Label>
-                  <Input
-                    type="number"
-                    min="0" max="100" step="0.1"
-                    value={sizingConfig.risk_per_trade_percentage || 1}
-                    onChange={(e) => updateSizing('risk_per_trade_percentage', e.target.value)}
-                    className="h-9 bg-gray-950 border-gray-800"
-                  />
-                </div>
-              )}
+
             </div>
           )}
         </div>
@@ -650,3 +607,5 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
     </Dialog>
   );
 }
+
+UniversalRoutingModal.propTypes = { open: PropTypes.bool.isRequired, onClose: PropTypes.func.isRequired, watchlistInstrument: PropTypes.object };

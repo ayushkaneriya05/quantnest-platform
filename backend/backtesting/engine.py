@@ -1,4 +1,3 @@
-import copy
 import logging
 from datetime import datetime, timedelta
 
@@ -18,6 +17,7 @@ from .context import BacktestContext
 from .execution_service import BacktestExecutionService
 from .executor import BacktestStrategyExecutor, process_exit_action
 from .models import BacktestMetrics, BacktestRun, BacktestTrade, EquityCurvePoint
+from .services import backtest_configuration
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +40,7 @@ class BacktestEngine:
         self.strategy = self.run.strategy
         self.user = self.run.user
 
-        if getattr(self.run, "strategy_version", None):
-            self.config = copy.deepcopy(self.run.strategy_version.config_snapshot or {})
-        else:
-            self.config = copy.deepcopy(self.run.config_snapshot or {})
-
-        if self.run.parameters:
-            self._deep_merge(self.config, self.run.parameters)
+        self.config = backtest_configuration(self.run)
 
         self.watchlist_by_instrument_id = {
             int(item["instrument_id"]): item
@@ -70,6 +64,7 @@ class BacktestEngine:
             initial_capital=self.initial_capital,
             charge_profile=self.charge_profile,
             include_charges=self.run.include_charges,
+            strategy_config=self.config,
         )
 
         self.equity_curve = []
@@ -435,17 +430,30 @@ class BacktestEngine:
                     open_pos = self.context.get_position(instrument_id)
                     instrument_state = self.instrument_states[instrument_id]
 
+                    if not bool(context["entry_signals"].get(timestamp, False)):
+                        continue
+                    self.context.diagnostics["entry_signals"] += 1
+                    if open_pos:
+                        self.context.diagnostics["existing_positions"] += 1
+
                     if not open_pos:
                         executor = context["executor"]
 
+                        if not self.context.can_enter(timestamp):
+                            self.context.diagnostics["auto_disable_restrictions"] += 1
+                            continue
+
                         if is_in_no_trade_zone:
+                            self.context.diagnostics["time_event_restrictions"] += 1
                             continue
 
                         # Check for new entries using the backtest-local executor.
                         can_enter, _ = executor.can_enter(
                             {"last_exit_time": instrument_state["last_exit_time"]}, timestamp
                         )
-                        if can_enter and bool(context["entry_signals"].get(timestamp, False)):
+                        if not can_enter:
+                            self.context.diagnostics["cooldown_restrictions"] += 1
+                        if can_enter:
                             # Queue entry for NEXT candle open
                             self._process_entry(
                                 context["instrument"],
@@ -581,7 +589,8 @@ class BacktestEngine:
         self.run.completed_at = timezone.now()
         self.run.progress_pct = 100
         self.run.progress_message = "Backtest completed successfully."
-        self.run.save(update_fields=["status", "completed_at", "progress_pct", "progress_message"])
+        self.run.diagnostics = dict(self.context.diagnostics)
+        self.run.save(update_fields=["status", "completed_at", "progress_pct", "progress_message", "diagnostics"])
 
         # Broadcast completion via WebSocket
         try:
@@ -641,7 +650,7 @@ class BacktestEngine:
 
         gross_profit = sum(win_pnls)
         gross_loss = abs(sum(loss_pnls))
-        metrics.profit_factor = gross_profit / gross_loss if gross_loss else (None if gross_profit else 0)
+        metrics.profit_factor = gross_profit / gross_loss if gross_loss else None
         metrics.expectancy = float(np.mean(pnl_series)) if pnl_series else 0
         metrics.payoff_ratio = float(metrics.avg_win) / abs(float(metrics.avg_loss)) if metrics.avg_loss else None
 
@@ -809,21 +818,13 @@ class BacktestEngine:
         return longest
 
 
-    def _deep_merge(self, base, updates):
-        for key, value in (updates or {}).items():
-            if isinstance(value, dict) and isinstance(base.get(key), dict):
-                self._deep_merge(base[key], value)
-            else:
-                base[key] = value
-
-
     def _process_entry(self, instrument, candle, timestamp, executor, current_candles):
         """Resolve and size configured entry routes, then queue next-open fills."""
         spot_price = float(candle["close"])
         entry_side = executor.entry_config.get("entry_side", Side.BUY)
         watch = self.watchlist_by_instrument_id.get(instrument.id)
-        print("watch----------->", watch)
         if watch is None:
+            self.context.diagnostics["route_rejections"] += 1
             logger.warning("No watchlist config for backtest instrument %s", instrument.id)
             return
 
@@ -832,16 +833,15 @@ class BacktestEngine:
         available_capital = self.context.get_available_capital()
         for execution_instrument, execution_side, sizing in resolutions:
             execution_instrument_id = execution_instrument if isinstance(execution_instrument, int) else getattr(execution_instrument, "id", None)
-            print("execution_instrument_id----------->", execution_instrument_id)
             routed_instrument = execution_instrument if not isinstance(execution_instrument, int) else self.instruments_by_id.get(execution_instrument_id)
             execution_candle = current_candles.get(execution_instrument_id)
 
             if routed_instrument is None or execution_candle is None:
+                self.context.diagnostics["route_rejections"] += 1
                 logger.warning("Skipping backtest route for instrument %s: instrument or candle is unavailable", execution_instrument_id)
                 continue
 
             execution_price = float(execution_candle["close"])
-            print("execution_price----------->", execution_price)
             lot_size = getattr(routed_instrument, "lot_size", 1) or 1
             risk_evaluator = RiskEvaluator(available_capital)
             try:
@@ -849,13 +849,14 @@ class BacktestEngine:
                     sizing_config=sizing if sizing is not None else self.config,
                     entry_price=execution_price,
                     lot_size=lot_size,
-                    strategy_config=self.config,
                 ) or 0), 0)
             except Exception:
+                self.context.diagnostics["sizing_rejections"] += 1
                 logger.exception("Backtest position sizing failed for execution instrument %s", execution_instrument_id)
                 continue
 
             if quantity <= 0:
+                self.context.diagnostics["sizing_rejections"] += 1
                 continue
 
             BacktestExecutionService.execute_market_order(
@@ -871,6 +872,7 @@ class BacktestEngine:
                 execute_immediately=False,
             )
             available_capital = max(available_capital - execution_price * quantity, 0.0)
+            self.context.diagnostics["queued_entries"] += 1
 
     def _save_trades_from_context(self):
         """

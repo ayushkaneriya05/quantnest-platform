@@ -64,7 +64,6 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
     allocation_id: "",
     name: "Paper Account",
   });
-  const [allocations, setAllocations] = useState([]);
   const [deleteDialog, setDeleteDialog] = useState(null);
   const [chargeProfiles, setChargeProfiles] = useState([]);
   const [costSettingsOpen, setCostSettingsOpen] = useState(false);
@@ -81,17 +80,14 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
         accountsRes,
         positionsRes,
         tradesRes,
-        allocRes,
       ] = await Promise.all([
         paperApi.getAccounts(),
         paperApi.getPositions(),
         paperApi.getTrades(),
-        portfolioApi.getAllocations(),
       ]);
       setAccounts(accountsRes.data || []);
       setPositions(positionsRes.data || []);
       setTrades(tradesRes.data || []);
-      setAllocations(allocRes.data || []);
 
     } catch (error) {
       if (loading) notify.error(getApiErrorMessage(error, "Failed to load paper account data"));
@@ -514,20 +510,14 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>Capital Source</Label>
-                <Select
+                <Select resource="paper-allocations" filters={{ strategy__status: "ACTIVE", strategy__paper_trading_enabled: true, paper_account__isnull: true }}
                   value={createForm.allocation_id?.toString() || undefined}
                   onValueChange={(val) => setCreateForm({...createForm, allocation_id: val})}
                 >
                   <SelectTrigger className="w-full bg-gray-800 border-gray-700 text-white p-2.5 rounded-lg text-sm h-[42px]">
                     <SelectValue placeholder="Select allocation..." />
                   </SelectTrigger>
-                  <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                    {allocations.filter(a => a.strategy && a.strategy_status === 'ACTIVE' && a.paper_trading_enabled && !accounts.some(acc => acc.allocation === a.id)).map(a => (
-                      <SelectItem key={a.id} value={a.id.toString()} className="focus:bg-gray-800 focus:text-white">
-                        {a.strategy_name} (Alloc #{a.id} - {formatCurrency(a.available_amount)})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                  <SelectContent className="bg-gray-900 border-gray-800 text-white" />
                 </Select>
               </div>
               <div className="space-y-2">
@@ -572,7 +562,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
               </div>
               <div className="space-y-2">
                 <Label>Charge Profile</Label>
-                <Select
+                <Select resource="charge-profiles"
                   value={costSettingsForm.charge_profile || "none"}
                   onValueChange={(value) => setCostSettingsForm((current) => ({ ...current, charge_profile: value === "none" ? "" : value }))}
                   disabled={!costSettingsForm.include_charges || chargeProfiles.length === 0}
@@ -808,7 +798,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
           <Button variant="ghost" size="sm" className="text-xs text-indigo-400 hover:text-indigo-300" onClick={() => setActiveTab && setActiveTab('trades')}>View History</Button>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scrollbar-thin-theme">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-gray-500 uppercase border-b border-gray-800">
                 <tr>

@@ -115,7 +115,7 @@ export default function BacktestResults() {
   }, []);
 
   const handleCompleteOrError = useCallback((data) => {
-    if (!['COMPLETED', 'FAILED'].includes(data.status)) return;
+    if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(data.status)) return;
 
     setRun((prev) => prev ? {
       ...prev,
@@ -130,7 +130,8 @@ export default function BacktestResults() {
     Number(id), // Convert id to number just in case
     handleProgress,
     handleCompleteOrError,
-    handleCompleteOrError
+    handleCompleteOrError,
+    fetchData
   );
 
   const handleCancel = useCallback(async () => {
@@ -181,6 +182,10 @@ export default function BacktestResults() {
             {cancelling ? "..." : "Cancel"}
           </Button>
         )}
+
+        {run?.status === "COMPLETED" && <Button variant="outline" size="sm" asChild>
+          <Link to={`/dashboard/analysis/ai-research-assistant?backtest=${id}`}>Research review</Link>
+        </Button>}
 
         <Button
           variant="outline"
@@ -807,7 +812,7 @@ export default function BacktestResults() {
             </div>
             <div>
               <div className="text-xs text-gray-500 uppercase mb-2">Monthly Returns</div>
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-56 overflow-y-auto scrollbar-thin-theme pr-1">
                 {monthlyReturns.length === 0 && (
                   <div className="text-sm text-gray-500">No monthly return data available.</div>
                 )}
