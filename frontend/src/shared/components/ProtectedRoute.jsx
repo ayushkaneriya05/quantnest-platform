@@ -13,9 +13,9 @@ function ProtectedRoute() {
 
   if (!initialized || isInitializing) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black">
-        <Card className="p-8 bg-gray-900/50 border border-gray-800/50">
-          <div className="flex items-center gap-3 text-slate-200">
+      <div className="flex items-center justify-center min-h-dvh bg-background">
+        <Card className="p-8 bg-card/50 border border-border/50">
+          <div className="flex items-center gap-3 text-foreground">
             <Loader2 className="h-6 w-6 animate-spin" />
             <span>Loading...</span>
           </div>
@@ -25,9 +25,9 @@ function ProtectedRoute() {
   }
 
   if (!isAuthenticated && error) {
-    return <div className="flex min-h-screen flex-col items-center justify-center gap-4 text-slate-200">
+    return <div className="flex min-h-dvh flex-col items-center justify-center gap-4 text-foreground">
       <p>{error}</p>
-      <button onClick={() => dispatch(initializeAuth())} className="rounded-md bg-indigo-600 px-4 py-2">Retry connection</button>
+      <button onClick={() => dispatch(initializeAuth())} className="rounded-md bg-indigo-600 px-4 py-2 text-white">Retry connection</button>
     </div>;
   }
 

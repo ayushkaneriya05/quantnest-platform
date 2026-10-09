@@ -3,10 +3,10 @@ import PropTypes from "prop-types"
 import { cn } from "@/shared/lib/utils"
 
 const Table = React.forwardRef(({ className, ...props }, ref) => (
-  <div className="scrollbar-thin-theme relative w-full overflow-auto">
+  <div className="scrollbar-thin-theme relative min-w-0 w-full max-w-full overflow-auto">
     <table
       ref={ref}
-      className={cn("w-full caption-bottom text-sm", className)}
+      className={cn("w-full caption-bottom text-sm [&_th]:whitespace-nowrap", className)}
       {...props}
     />
   </div>

@@ -41,21 +41,21 @@ export default function PasswordResetRequestPage() {
   };
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-[#050505] text-white">
+    <div className="relative flex h-[var(--viewport-height)] flex-col overflow-hidden bg-card text-foreground">
       <div className="landing-market-animation absolute inset-0 opacity-70" />
       <div className="landing-grid absolute inset-0 opacity-25" />
       <MainHeader />
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 py-4">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#0b0d12]/90 p-5 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+      <div className="scrollbar-theme relative flex min-h-0 flex-1 items-start justify-center overflow-y-auto px-4 py-4">
+        <Card className="my-auto shrink-0 w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card/90 p-5 shadow-card backdrop-blur-xl">
           <CardHeader className="px-0 pb-5 text-center">
             <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
-              <Mail className="h-5 w-5 text-[#e5c461]" />
+              <Mail className="h-5 w-5 text-brand" />
             </div>
-            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-white">
+            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-foreground">
               Reset your password
             </CardTitle>
-            <CardDescription className="mt-2 text-sm leading-6 text-slate-400">
+            <CardDescription className="mt-2 text-sm leading-6 text-muted-foreground">
               Enter your account email and we will send a secure reset link.
             </CardDescription>
           </CardHeader>
@@ -63,8 +63,8 @@ export default function PasswordResetRequestPage() {
           <CardContent className="px-0">
             <div className="mb-5 rounded-2xl border border-[#e5c461]/15 bg-[#e5c461]/[0.06] p-4">
               <div className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#e5c461]" />
-                <p className="text-sm leading-6 text-slate-300">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+                <p className="text-sm leading-6 text-foreground">
                   Use this when you cannot access your QuantNest workspace. The
                   link will let you choose a new password.
                 </p>
@@ -72,7 +72,7 @@ export default function PasswordResetRequestPage() {
             </div>
 
             {message && (
-              <div className="mb-4 rounded-lg border border-green-800 bg-green-900/50 p-3 text-sm text-green-300">
+              <div className="mb-4 rounded-lg border border-green-800 bg-green-50 dark:bg-green-900/50 p-3 text-sm text-green-700 dark:text-green-300">
                 {message}
               </div>
             )}
@@ -81,18 +81,18 @@ export default function PasswordResetRequestPage() {
               <div className="space-y-1.5">
                 <Label
                   htmlFor="email"
-                  className="text-sm font-medium text-slate-200"
+                  className="text-sm font-medium text-foreground"
                 >
                   Email address
                 </Label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="email"
                     name="email"
                     type="email"
                     placeholder="you@example.com"
-                    className="h-11 border-white/10 bg-white/[0.06] pl-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
+                    className="h-11 border-border bg-muted/50 pl-10 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -101,7 +101,7 @@ export default function PasswordResetRequestPage() {
               </div>
 
               {error && (
-                <div className="rounded-lg border border-red-800 bg-red-900/50 p-3 text-sm text-red-300">
+                <div className="rounded-lg border border-red-800 bg-red-50 dark:bg-red-900/50 p-3 text-sm text-red-700 dark:text-red-300">
                   {error}
                 </div>
               )}
@@ -116,18 +116,18 @@ export default function PasswordResetRequestPage() {
               </Button>
             </form>
 
-            <div className="mt-5 border-t border-white/10 pt-5 text-center text-sm text-slate-400">
+            <div className="mt-5 border-t border-border pt-5 text-center text-sm text-muted-foreground">
               Remember your password?{" "}
               <Link
                 to="/login"
-                className="font-medium text-[#e5c461] underline hover:text-[#f2da8e]"
+                className="font-medium text-brand underline hover:text-brand"
               >
                 Back to login
               </Link>
             </div>
             <Link
               to="/"
-              className="mt-3 flex items-center justify-center gap-2 text-sm text-slate-400 transition-colors hover:text-[#f2da8e]"
+              className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground transition-colors hover:text-brand"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to landing page

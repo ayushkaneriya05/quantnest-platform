@@ -1,13 +1,9 @@
+import animate from "tailwindcss-animate";
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
-  content: [
-    "./pages/**/*.{js,jsx}",
-    "./components/**/*.{js,jsx}",
-    "./app/**/*.{js,jsx}",
-    "./src/**/*.{js,jsx}",
-    "*.{js,jsx,mdx}"
-  ],
+  content: ["./index.html", "./src/**/*.{js,jsx}"],
   prefix: "",
   theme: {
     container: {
@@ -34,6 +30,7 @@ export default {
         },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
+          text: "hsl(var(--destructive-text))",
           foreground: "hsl(var(--destructive-foreground))",
         },
         muted: {
@@ -52,10 +49,14 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        brand: "hsl(var(--brand) / <alpha-value>)",
+        success: "hsl(var(--success) / <alpha-value>)",
+        warning: "hsl(var(--warning) / <alpha-value>)",
+        loss: "hsl(var(--loss) / <alpha-value>)",
         // Custom colors for QuantNest
-        'qn-dark-blue': '#0A0A1A', // A very dark blue-gray for subtle background variation
-        'qn-light-cyan': '#67E8F9', // A bright, but not neon, cyan for highlights
-        'qn-muted-gray': '#334155', // A slightly lighter gray for borders/dividers
+        'qn-dark-blue': "hsl(var(--card))", // A very dark blue-gray for subtle background variation
+        'qn-light-cyan': "hsl(var(--success))", // A bright, but not neon, cyan for highlights
+        'qn-muted-gray': "hsl(var(--border))", // A slightly lighter gray for borders/dividers
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -82,5 +83,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [animate],
 }

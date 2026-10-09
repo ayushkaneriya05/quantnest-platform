@@ -18,9 +18,9 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
 
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 40 }).map((_, i) => currentYear - 20 + i)
-  
+
   const monthNames = [
-    "January", "February", "March", "April", "May", "June", 
+    "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ]
 
@@ -54,42 +54,42 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
         <Button
           variant="outline"
           className={cn(
-            "w-full justify-start text-left font-normal bg-gray-800/80 border-gray-700 h-11 text-white hover:bg-gray-700/80 hover:text-white",
-            !date && "text-slate-400",
+            "w-full justify-start text-left font-normal bg-secondary/80 border-border h-11 text-foreground hover:bg-muted/80 hover:text-foreground",
+            !date && "text-muted-foreground",
             className
           )}
         >
-          <CalendarIcon className="mr-2 h-4 w-4 text-slate-400" />
-          {date ? format(date, "PPP") : <span>{placeholder}</span>}
+          <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+          <span className="min-w-0 truncate">{date ? format(date, "PPP") : placeholder}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-auto p-0 bg-gray-900 border border-gray-700/50 text-white shadow-2xl shadow-black/40 rounded-xl overflow-hidden"
+        className="w-auto p-0 bg-card border border-border/50 text-foreground shadow-2xl shadow-black/40 rounded-xl overflow-y-auto"
         align="start"
       >
         {/* Custom Header */}
-        <div className="px-3 pt-3 pb-2 border-b border-gray-800/80 flex items-center justify-between">
+        <div className="px-3 pt-3 pb-2 border-b border-border/80 flex items-center justify-between">
           <div className="flex items-center gap-0.5">
             {view === "days" && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-slate-400 hover:text-slate-200 hover:bg-gray-800"
-                onClick={goToPrevMonth}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                aria-label="Previous month" onClick={goToPrevMonth}
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
             )}
-            <Button 
-              variant="ghost" 
-              className="h-8 px-2 hover:bg-gray-800 hover:text-white font-semibold text-sm text-gray-200" 
+            <Button
+              variant="ghost"
+              className="h-8 px-2 hover:bg-secondary hover:text-foreground font-semibold text-sm text-foreground"
               onClick={() => setView(view === "months" ? "days" : "months")}
             >
               {format(displayMonth, "MMMM")}
             </Button>
-            <Button 
-              variant="ghost" 
-              className="h-8 px-2 hover:bg-gray-800 hover:text-white font-semibold text-sm text-gray-200" 
+            <Button
+              variant="ghost"
+              className="h-8 px-2 hover:bg-secondary hover:text-foreground font-semibold text-sm text-foreground"
               onClick={() => setView(view === "years" ? "days" : "years")}
             >
               {displayMonth.getFullYear()}
@@ -98,17 +98,17 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-slate-400 hover:text-slate-200 hover:bg-gray-800"
-                onClick={goToNextMonth}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                aria-label="Next month" onClick={goToNextMonth}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             )}
           </div>
-          <Button 
-            variant="ghost" 
-            className="h-7 px-2.5 hover:bg-gray-800 text-xs text-indigo-400 hover:text-indigo-300 font-semibold"
-            onClick={() => { 
+          <Button
+            variant="ghost"
+            className="h-7 px-2.5 hover:bg-secondary text-xs text-indigo-700 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold"
+            onClick={() => {
               const today = new Date()
               setDisplayMonth(today)
               setView("days")
@@ -125,7 +125,7 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
           <Calendar
             mode="single"
             selected={date}
-            onSelect={(newDate) => { 
+            onSelect={(newDate) => {
               setDate(newDate)
               if (newDate) {
                 setDisplayMonth(newDate)
@@ -147,10 +147,10 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
                 key={monthStr}
                 variant="ghost"
                 className={cn(
-                  "h-10 rounded-lg text-sm font-medium transition-all hover:bg-gray-800 hover:text-white",
-                  displayMonth.getMonth() === index 
-                    ? "bg-indigo-600 text-white hover:bg-indigo-500" 
-                    : "text-gray-300"
+                  "h-10 rounded-lg text-sm font-medium transition-all hover:bg-secondary hover:text-foreground",
+                  displayMonth.getMonth() === index
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                    : "text-foreground"
                 )}
                 onClick={() => {
                   setDisplayMonth(setMonth(setDayOfMonth(displayMonth, 1), index))
@@ -171,10 +171,10 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
                 key={year}
                 variant="ghost"
                 className={cn(
-                  "h-10 rounded-lg text-sm font-medium transition-all hover:bg-gray-800 hover:text-white",
-                  displayMonth.getFullYear() === year 
-                    ? "bg-indigo-600 text-white hover:bg-indigo-500" 
-                    : "text-gray-300"
+                  "h-10 rounded-lg text-sm font-medium transition-all hover:bg-secondary hover:text-foreground",
+                  displayMonth.getFullYear() === year
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                    : "text-foreground"
                 )}
                 onClick={() => {
                   setDisplayMonth(setYear(setDayOfMonth(displayMonth, 1), year))

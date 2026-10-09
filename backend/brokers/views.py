@@ -283,7 +283,7 @@ def fyers_broker_callback(request):
     auth_code = request.GET.get("auth_code") or request.GET.get("authCode")
     raw_state = request.GET.get("state")
     frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
-    redirect_url = f"{frontend_url}/dashboard/brokers"
+    redirect_url = f"{frontend_url}/brokers"
     if not auth_code or not raw_state:
         return HttpResponseRedirect(f"{redirect_url}?{urlencode({'broker': 'FYERS', 'status': 'failed', 'message': 'Missing authorization code or state'})}")
 

@@ -63,21 +63,21 @@ export default function TwoFAModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent onPointerDownOutside={(event) => event.preventDefault()} className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#08090d]/95 p-0 text-slate-100 shadow-[0_28px_90px_rgba(0,0,0,0.6)] backdrop-blur-2xl sm:max-w-[430px]">
+      <DialogContent onPointerDownOutside={(event) => event.preventDefault()} className="overflow-y-auto rounded-[2rem] border border-border bg-card/95 p-0 text-foreground shadow-card backdrop-blur-2xl sm:max-w-[430px]">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(229,196,97,0.18),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,0.16),transparent_34%)]" />
         <div className="relative p-6">
           <DialogHeader className="items-center text-center">
             <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#e5c461]/30 bg-[#e5c461]/10 shadow-[0_18px_42px_rgba(229,196,97,0.16)]">
               {useBackupCode ? (
-                <KeyRound className="h-7 w-7 text-[#f0d676]" />
+                <KeyRound className="h-7 w-7 text-brand" />
               ) : (
-                <ShieldCheck className="h-7 w-7 text-[#f0d676]" />
+                <ShieldCheck className="h-7 w-7 text-brand" />
               )}
             </div>
-            <DialogTitle className="text-2xl font-semibold tracking-[-0.03em] text-white">
+            <DialogTitle className="text-2xl font-semibold tracking-[-0.03em] text-foreground">
               {useBackupCode ? "Use backup code" : "Secure your sign in"}
             </DialogTitle>
-            <DialogDescription className="max-w-sm pt-1 text-sm leading-6 text-slate-400">
+            <DialogDescription className="max-w-sm pt-1 text-sm leading-6 text-muted-foreground">
               {useBackupCode
                 ? "Enter one of your saved backup codes to continue into QuantNest."
                 : "Enter the 6 digit code from your authenticator app to finish signing in."}
@@ -86,7 +86,7 @@ export default function TwoFAModal({
 
           <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
             {error && (
-              <div className="flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-200">
+              <div className="flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-200">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -95,7 +95,7 @@ export default function TwoFAModal({
             <div className="space-y-2">
               <Label
                 htmlFor="2fa-token"
-                className="block text-center text-xs font-semibold uppercase tracking-[0.22em] text-[#e5c461]"
+                className="block text-center text-xs font-semibold uppercase tracking-[0.22em] text-brand"
               >
                 {useBackupCode ? "Backup code" : "Authenticator code"}
               </Label>
@@ -106,11 +106,11 @@ export default function TwoFAModal({
                 value={token}
                 onChange={handleTokenChange}
                 maxLength={useBackupCode ? 16 : 6}
-                className="h-14 rounded-2xl border-white/10 bg-white/[0.06] text-center font-mono text-2xl tracking-[0.32em] text-white placeholder:text-slate-600 focus-visible:ring-[#e5c461]/45"
+                className="h-14 rounded-2xl border-border bg-muted/50 text-center font-mono text-2xl tracking-[0.32em] text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
                 required
                 autoComplete="one-time-code"
               />
-              <p className="text-center text-xs text-slate-500">
+              <p className="text-center text-xs text-muted-foreground">
                 {useBackupCode
                   ? "Use an unused backup code from your security setup."
                   : "Codes refresh often, so enter the latest one."}
@@ -120,7 +120,7 @@ export default function TwoFAModal({
             <button
               type="button"
               onClick={handleToggleMode}
-              className="justify-self-center text-sm font-medium text-[#f0d676] transition hover:text-white focus:outline-none"
+              className="justify-self-center text-sm font-medium text-brand transition hover:text-foreground focus:outline-none"
             >
               {useBackupCode
                 ? "Use authenticator app instead"
@@ -132,7 +132,7 @@ export default function TwoFAModal({
                 type="button"
                 onClick={resetAndClose}
                 variant="outline"
-                className="h-11 rounded-full border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/[0.08] hover:text-white"
+                className="h-11 rounded-full border-border bg-muted/50 text-foreground hover:bg-muted/50 hover:text-foreground"
                 disabled={isLoading}
               >
                 Cancel

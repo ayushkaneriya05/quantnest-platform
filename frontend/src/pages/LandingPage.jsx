@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect } from "react";
+import { useTheme } from "@/shared/context/theme";
+import { Link, useLocation } from "react-router-dom";
 import {
   Activity,
   ArrowRight,
@@ -77,7 +78,7 @@ const platformFeatures = [
     description:
       "Screen selected stocks, compare calculated evidence, and turn an AI-assisted hypothesis into a strategy draft worth testing.",
     accent: "from-violet-500/20 to-indigo-500/5",
-    iconColor: "text-violet-300",
+    iconColor: "text-violet-700 dark:text-violet-300",
   },
   {
     icon: SlidersHorizontal,
@@ -86,7 +87,7 @@ const platformFeatures = [
     description:
       "Create structured rules for when to enter, when to exit, how much to trade, and when to stop the strategy.",
     accent: "from-indigo-500/20 to-purple-500/5",
-    iconColor: "text-indigo-300",
+    iconColor: "text-indigo-700 dark:text-indigo-300",
   },
   {
     icon: LineChart,
@@ -95,7 +96,7 @@ const platformFeatures = [
     description:
       "See trade-by-trade results, equity curve, drawdown, risk metrics, and Monte Carlo analysis before deployment.",
     accent: "from-sky-500/20 to-cyan-500/5",
-    iconColor: "text-sky-300",
+    iconColor: "text-sky-700 dark:text-sky-300",
   },
   {
     icon: Activity,
@@ -104,7 +105,7 @@ const platformFeatures = [
     description:
       "Deploy strategies to paper accounts, follow orders and positions, manage capital, and review performance.",
     accent: "from-emerald-500/20 to-teal-500/5",
-    iconColor: "text-emerald-300",
+    iconColor: "text-emerald-700 dark:text-emerald-300",
   },
   {
     icon: Radio,
@@ -113,7 +114,7 @@ const platformFeatures = [
     description:
       "Connect broker credentials, create live sessions, manage allocations, pause or stop strategies, and inspect execution logs.",
     accent: "from-rose-500/20 to-red-500/5",
-    iconColor: "text-rose-300",
+    iconColor: "text-rose-700 dark:text-rose-300",
   },
   {
     icon: Terminal,
@@ -122,7 +123,7 @@ const platformFeatures = [
     description:
       "Use the trading terminal for watchlists, charts, order tickets, positions, and manual paper trading.",
     accent: "from-amber-500/20 to-orange-500/5",
-    iconColor: "text-amber-300",
+    iconColor: "text-amber-700 dark:text-amber-300",
   },
 ];
 
@@ -176,41 +177,15 @@ const lifecycleLabels = [
   "Review",
 ];
 
-const themeMap = {
-  dark: {
-    page: "bg-[#050505] text-white selection:bg-[#e5c461] selection:text-black",
-    hero: "bg-[#050505]",
-    section: "bg-[#050505]",
-    alt: "bg-[#090909]",
-    card: "border-white/10 bg-[#0b0b0b] text-white",
-    cardSoft: "border-white/10 bg-[#0f1117]/90",
-    panel: "border-white/10 bg-[#0a0a0a]/90",
-    text: "text-white",
-    muted: "text-zinc-400",
-    subtle: "text-zinc-500",
-    border: "border-white/10",
-    badge: "border-[#e5c461]/20 bg-[#e5c461]/[0.07] text-[#f2da8e]",
-    ghost:
-      "border-white/15 bg-white/[0.03] text-zinc-200 hover:border-white/30 hover:bg-white/[0.07] hover:text-white",
-    ctaGhost: "border-white/15 bg-black/20 text-white hover:bg-white/[0.06]",
-  },
-  light: {
-    page: "bg-[#fffaf0] text-[#19140a] selection:bg-[#d8b557] selection:text-black",
-    hero: "bg-[#fffaf0]",
-    section: "bg-[#fffaf0]",
-    alt: "bg-[#f7f0df]",
-    card: "border-amber-900/10 bg-white/75 text-[#19140a]",
-    cardSoft: "border-amber-900/10 bg-white/80",
-    panel: "border-amber-900/10 bg-white/82",
-    text: "text-[#19140a]",
-    muted: "text-stone-600",
-    subtle: "text-stone-500",
-    border: "border-amber-900/10",
-    badge: "border-[#b68b34]/25 bg-[#d8b557]/15 text-[#8a6724]",
-    ghost:
-      "border-amber-900/15 bg-white/60 text-stone-800 hover:border-[#b68b34]/40 hover:bg-[#fff3c8] hover:text-[#8a6724]",
-    ctaGhost: "border-amber-900/15 bg-white/60 text-stone-800 hover:bg-[#fff3c8]",
-  },
+const theme = {
+  page: "bg-background text-foreground selection:bg-brand/25",
+  hero: "bg-background", section: "bg-background", alt: "bg-muted/40",
+  card: "border-border bg-card text-card-foreground",
+  cardSoft: "border-border bg-card/90", panel: "border-border bg-card/90",
+  text: "text-foreground", muted: "text-muted-foreground", subtle: "text-muted-foreground",
+  border: "border-border", badge: "border-brand/20 bg-brand/10 text-brand",
+  ghost: "border-border bg-card text-foreground hover:bg-accent",
+  ctaGhost: "border-border bg-card text-foreground hover:bg-accent",
 };
 
 function SectionHeading({ eyebrow, title, description, align = "center", theme }) {
@@ -225,7 +200,7 @@ function SectionHeading({ eyebrow, title, description, align = "center", theme }
         }`}
       >
         <span className="h-px w-8 bg-[#d8b557]" />
-        <span className="text-xs font-semibold uppercase tracking-[0.24em] text-[#caa64f]">
+        <span className="text-xs font-semibold uppercase tracking-[0.24em] text-brand">
           {eyebrow}
         </span>
         {align === "center" && <span className="h-px w-8 bg-[#d8b557]" />}
@@ -241,20 +216,16 @@ function SectionHeading({ eyebrow, title, description, align = "center", theme }
 }
 
 export default function QuantNestLanding() {
-  const [themeName, setThemeName] = useState("dark");
-  const theme = themeMap[themeName];
-  const isLight = themeName === "light";
-
-  const toggleTheme = () => {
-    setThemeName((current) => (current === "dark" ? "light" : "dark"));
-  };
+  const { resolvedTheme: themeName } = useTheme();
+  const { hash } = useLocation();
+  useEffect(() => { if (hash) document.getElementById(hash.slice(1))?.scrollIntoView(); }, [hash]);
 
   return (
     <div
       data-landing-theme={themeName}
       className={`qn-landing min-h-screen overflow-x-clip ${theme.page}`}
     >
-      <MainHeader theme={themeName} onThemeToggle={toggleTheme} />
+      <MainHeader />
 
       <main>
         <section className={`relative isolate overflow-hidden ${theme.hero}`}>
@@ -311,15 +282,15 @@ export default function QuantNestLanding() {
 
               <div className={`mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-xs sm:text-sm ${theme.subtle}`}>
                 <span className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-[#d8b557]" />
+                  <Check className="h-4 w-4 text-brand" />
                   AI research
                 </span>
                 <span className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-[#d8b557]" />
+                  <Check className="h-4 w-4 text-brand" />
                   Strategy backtesting
                 </span>
                 <span className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-[#d8b557]" />
+                  <Check className="h-4 w-4 text-brand" />
                   Paper and live deployment
                 </span>
               </div>
@@ -358,7 +329,7 @@ export default function QuantNestLanding() {
               >
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/15">
-                    <Activity className="h-4 w-4 text-emerald-300" />
+                    <Activity className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />
                   </span>
                   <div>
                     <p className={`text-[11px] ${theme.subtle}`}>Live status</p>
@@ -374,7 +345,7 @@ export default function QuantNestLanding() {
               >
                 <div className="mb-2 flex items-center justify-between">
                   <span className={`text-[11px] ${theme.subtle}`}>Risk controls</span>
-                  <ShieldCheck className="h-4 w-4 text-[#d8b557]" />
+                  <ShieldCheck className="h-4 w-4 text-brand" />
                 </div>
                 <div className="space-y-1.5">
                   {["Sizing rules", "Capital limits", "Emergency stop"].map(
@@ -431,7 +402,7 @@ export default function QuantNestLanding() {
                       {step.number}
                     </div>
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
-                      <Icon className="h-5 w-5 text-[#d8b557]" />
+                      <Icon className="h-5 w-5 text-brand" />
                     </div>
                     <h3 className={`mt-5 text-lg font-semibold tracking-tight ${theme.text}`}>
                       {step.title}
@@ -439,7 +410,7 @@ export default function QuantNestLanding() {
                     <p className={`mt-3 text-sm leading-6 ${theme.muted}`}>
                       {step.description}
                     </p>
-                    <p className="mt-4 rounded-2xl border border-[#e5c461]/20 bg-[#e5c461]/10 p-3 text-xs leading-5 text-[#caa64f]">
+                    <p className="mt-4 rounded-2xl border border-[#e5c461]/20 bg-[#e5c461]/10 p-3 text-xs leading-5 text-brand">
                       {step.benefit}
                     </p>
                   </article>
@@ -516,7 +487,7 @@ export default function QuantNestLanding() {
                     className={`flex items-start gap-3 text-sm leading-6 ${theme.muted}`}
                   >
                     <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/15">
-                      <Check className="h-3 w-3 text-emerald-300" />
+                      <Check className="h-3 w-3 text-emerald-700 dark:text-emerald-300" />
                     </span>
                     {item}
                   </div>
@@ -568,7 +539,7 @@ export default function QuantNestLanding() {
                 />
                 <div className="mt-7 rounded-2xl border border-[#e5c461]/20 bg-[#e5c461]/[0.08] p-5">
                   <div className="flex items-start gap-3">
-                    <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-[#d8b557]" />
+                    <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
                     <p className={`text-sm leading-6 ${theme.muted}`}>
                       AI suggestions are reviewable. Applying a change remains
                       a deliberate user action.
@@ -588,7 +559,7 @@ export default function QuantNestLanding() {
                       } ${theme.card}`}
                     >
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/10 ring-1 ring-violet-400/20">
-                        <Icon className="h-5 w-5 text-violet-300" />
+                        <Icon className="h-5 w-5 text-violet-700 dark:text-violet-300" />
                       </div>
                       <h3 className={`mt-7 text-xl font-semibold ${theme.text}`}>
                         {feature.title}
@@ -622,9 +593,9 @@ export default function QuantNestLanding() {
                 return (
                   <article
                     key={feature.title}
-                    className={`p-6 transition-colors duration-300 ${isLight ? "bg-white/70 hover:bg-white" : "bg-[#0b0b0b] hover:bg-[#10100e]"}`}
+                    className={`p-6 transition-colors duration-300 bg-card hover:bg-accent`}
                   >
-                    <Icon className="h-6 w-6 text-[#d8b557]" />
+                    <Icon className="h-6 w-6 text-brand" />
                     <h3 className={`mt-8 text-lg font-semibold ${theme.text}`}>
                       {feature.title}
                     </h3>
@@ -681,7 +652,7 @@ export default function QuantNestLanding() {
         </section>
       </main>
 
-      <footer className={`border-t ${theme.border} ${isLight ? "bg-[#fffaf0]" : "bg-black"}`}>
+      <footer className={`border-t ${theme.border} bg-background`}>
         <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-sm">
@@ -712,7 +683,7 @@ export default function QuantNestLanding() {
                       .getElementById(target)
                       ?.scrollIntoView({ behavior: "smooth" })
                   }
-                  className={`text-left transition-colors hover:text-[#b68b34] ${theme.subtle}`}
+                  className={`text-left transition-colors hover:text-brand ${theme.subtle}`}
                 >
                   {label}
                 </button>

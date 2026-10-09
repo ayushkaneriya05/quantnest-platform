@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -28,11 +28,17 @@ import { configureStore } from '@reduxjs/toolkit';
 import authReducer from './src/shared/store/authSlice.jsx';
 import notificationReducer from './src/shared/store/notificationSlice.jsx';
 import { PageActionsProvider } from './src/shared/context/PageActionsContext.jsx';
+import ThemeProvider from './src/shared/context/ThemeProvider.jsx';
 import { usePageActions, usePageActionState } from './src/shared/context/pageActions.js';
 import { useSetPageActions } from './src/shared/hooks/useSetPageActions.js';
-import ProfileTab from './src/features/dashboard/components/profile-settings/profile-tab.jsx';
+import ProfileTab from './src/features/settings/components/profile-tab.jsx';
 import GoogleCallbackPage from './src/features/auth/pages/GoogleCallbackPage.jsx';
 import GoogleLoginButton from './src/features/auth/components/GoogleLoginButton.jsx';
+import TwoFASetupModal from './src/features/settings/components/two-fa-setup-modal.jsx';
+import LoginPage from './src/features/auth/pages/LoginPage.jsx';
+import RegisterPage from './src/features/auth/pages/RegisterPage.jsx';
+import PasswordResetRequestPage from './src/features/auth/pages/PasswordResetRequestPage.jsx';
+import PasswordResetConfirmPage from './src/features/auth/pages/PasswordResetConfirmPage.jsx';
 
 window.regressionErrors = [];
 window.addEventListener('error', (event) => window.regressionErrors.push(event.message));
@@ -57,10 +63,57 @@ function Page() {
   useSetPageActions(<button id="action" onClick={() => setCount((current) => current + 1)}>Count {count}</button>);
   return <main>Page</main>;
 }
-const root = createRoot(document.querySelector('#root'));
+const browserRoot = createRoot(document.querySelector('#root'));
+const root = { render: (content) => browserRoot.render(<ThemeProvider>{content}</ThemeProvider>) };
 const mode = new URLSearchParams(location.search).get('case');
 async function run() {
-  if (mode === 'header') {
+  if (mode === 'twofa-setup') {
+    root.render(<><p>Background page content</p><TwoFASetupModal isOpen onClose={() => {}} onSetupComplete={() => {}} /></>);
+    await waitFor(() => document.querySelector('#secret-key')?.value === 'TESTSETUPSECRET');
+    const checkSurface = () => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const sample = document.createElement('div');
+      sample.style.backgroundColor = 'hsl(var(--card))';
+      document.body.appendChild(sample);
+      check(getComputedStyle(dialog).backgroundColor === getComputedStyle(sample).backgroundColor, 'Setup modal must use the solid themed card surface');
+      check(getComputedStyle(dialog).opacity === '1', 'Setup modal remains translucent');
+      sample.remove();
+    };
+    await wait(); await wait(); checkSurface();
+    check(getComputedStyle(document.querySelector('img[alt="QR Code for 2FA"]')).backgroundColor === 'rgb(255, 255, 255)', 'QR code needs a white scanning surface');
+    [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Next').click();
+    await waitFor(() => document.getElementById('2fa-code-verify'));
+    checkSurface();
+    const code = document.getElementById('2fa-code-verify');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(code, '123456');
+    code.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait();
+    [...document.querySelectorAll('button')].find(button => button.textContent.includes('Verify & Enable')).click();
+    await waitFor(() => document.body.textContent.includes('TEST-BACKUP-CODE'));
+    checkSurface();
+  } else if (mode.startsWith('auth-')) {
+    const store = configureStore({ reducer: { auth: authReducer, notification: notificationReducer } });
+    const Page = { 'auth-login': LoginPage, 'auth-register': RegisterPage, 'auth-reset': PasswordResetRequestPage, 'auth-confirm': PasswordResetConfirmPage }[mode];
+    root.render(<Provider store={store}><MemoryRouter initialEntries={['/password-reset/confirm/example/token']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path='/password-reset/confirm/:uid/:token' element={<Page />} /></Routes></MemoryRouter></Provider>);
+    await waitFor(() => document.querySelector('form'));
+    check(document.documentElement.scrollWidth <= window.innerWidth + 1, 'Authentication page overflows horizontally');
+    for (const input of document.querySelectorAll('form input:not([type=checkbox])')) {
+      const box = input.getBoundingClientRect();
+      check(box.width > 100 && box.left >= 0 && box.right <= window.innerWidth, 'Form input is clipped');
+    }
+    const rgb = value => { const n=value.match(/[0-9.]+/g).map(Number); return [...n.slice(0,3),n[3] ?? 1]; };
+    const blend = (a,b) => [...a.slice(0,3).map((v,i)=>v*a[3]+b[i]*(1-a[3])),1];
+    const lum = c => c.slice(0,3).map(v=>v/255).map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[0.2126,0.7152,0.0722][i],0);
+    for (const node of document.querySelectorAll('label, button, a, h1, h2, h3, p')) {
+      if (!node.textContent.trim() || node.closest('[disabled]') || !node.getClientRects().length) continue;
+      const chain=[]; for(let parent=node;parent;parent=parent.parentElement)chain.unshift(parent);
+      let background=[255,255,255,1];
+      for(const parent of chain)background=blend(rgb(getComputedStyle(parent).backgroundColor),background);
+      const foreground=blend(rgb(getComputedStyle(node).color),background);
+      const ratio=(Math.max(lum(foreground),lum(background))+0.05)/(Math.min(lum(foreground),lum(background))+0.05);
+      check(ratio>=4.5, 'Low contrast ('+ratio.toFixed(2)+'): '+node.textContent.trim().slice(0,60));
+    }
+  } else if (mode === 'header') {
     root.render(<MemoryRouter initialEntries={['/page']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <PageActionsProvider><Routes><Route element={<Layout />}>
         <Route path="page" element={<Page />} /><Route path="other" element={<main>Other</main>} />
@@ -97,7 +150,7 @@ async function run() {
     const store = configureStore({ reducer: { auth: authReducer, notification: notificationReducer } });
     root.render(<Provider store={store}><MemoryRouter initialEntries={['/google-callback']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes><Route path="/google-callback" element={<GoogleCallbackPage />} />
-        <Route path="/dashboard" element={<main id="signed-in">Dashboard</main>} />
+        <Route path="/overview" element={<main id="signed-in">Dashboard</main>} />
         <Route path="/login" element={<main>Login</main>} /></Routes>
     </MemoryRouter></Provider>);
     await wait();
@@ -173,13 +226,15 @@ await build({
       export const isAuthFailure = () => false;
       export const refreshAccessToken = async () => 'fixture-access';
       export default { post: async (url, payload) => {
+        if (url === '/users/2fa/create/') return { data: { secret_key: 'TESTSETUPSECRET', qr_code: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" /></svg>' } };
+        if (url === '/users/2fa/verify/') return { data: { backup_codes: ['TEST-BACKUP-CODE'] } };
         window.googleRequests.push(url);
         if (url.includes('/start/')) return new Promise(() => {});
         const mode = new URLSearchParams(location.search).get('case');
         if (mode === 'google-error') throw { response: { data: { message: 'Google sign-in was cancelled.' } } };
-        if (mode === 'google-2fa' && url.includes('/complete/')) return { data: { is_2fa_required: true, login_token: 'challenge', next: '/dashboard' } };
+        if (mode === 'google-2fa' && url.includes('/complete/')) return { data: { is_2fa_required: true, login_token: 'challenge', next: '/overview' } };
         if (url.includes('/verify-2fa/') && (payload.login_token !== 'challenge' || payload.otp_token !== '123456')) throw new Error('Invalid two-factor payload');
-        return { data: { access: 'fixture-access', user: window.fixtureUser, next: '/dashboard' } };
+        return { data: { access: 'fixture-access', user: window.fixtureUser, next: '/overview' } };
       }, patch: async (_, payload) => {
         window.profileRequests.push(new Map(payload.entries()));
         const user = { ...window.fixtureUser, bio: payload.get('bio') };
@@ -191,14 +246,20 @@ await build({
 });
 const script = await readFile(path.join(temporary, "harness.js"), "utf8");
 const html = path.join(temporary, "harness.html");
-await writeFile(html, `<div id="root"></div><pre id="result"></pre><script>${script.replaceAll("</script>", "<\\/script>")}</script>`);
+const assets = path.join(frontend, "dist", "assets");
+const stylesheet = (await readdir(assets)).find(name => name.endsWith(".css"));
+assert.ok(stylesheet, "Build the frontend before running UI regressions.");
+const themeBootstrap = `const theme = new URLSearchParams(location.search).get('theme'); document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.dataset.themePreference = theme;`;
+await writeFile(html, `<style>${await readFile(path.join(assets, stylesheet), "utf8")}</style><script>${themeBootstrap}</script><div id="root"></div><pre id="result" style="display:none"></pre><script>${script.replaceAll("</script>", "<\\/script>")}</script>`);
 
-for (const scenario of ["header", "profile", "google-success", "google-2fa", "google-error", "google-back"]) {
-  test(`${scenario} UI regression in headless Chrome`, { skip: !chrome }, () => {
+for (const theme of ["light", "dark"])
+for (const scenario of ["twofa-setup", "auth-login", "auth-register", "auth-reset", "auth-confirm", "header", "profile", "google-success", "google-2fa", "google-error", "google-back"]) {
+  test(`${scenario} ${theme} UI regression in headless Chrome`, { skip: !chrome }, () => {
     const url = pathToFileURL(html);
     url.searchParams.set("case", scenario);
+    url.searchParams.set("theme", theme);
     const result = spawnSync(chrome, ["--headless", "--disable-gpu", "--no-first-run", "--disable-background-networking",
-      "--disable-extensions", `--user-data-dir=${path.join(temporary, scenario)}`, "--dump-dom", "--virtual-time-budget=8000", url.toString()],
+      "--disable-extensions", `--window-size=${scenario.startsWith('auth-') ? '390,844' : '1440,1000'}`, `--user-data-dir=${path.join(temporary, theme + '-' + scenario)}`, "--dump-dom", "--virtual-time-budget=8000", url.toString()],
       { encoding: "utf8", windowsHide: true, timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
     assert.equal(result.status, 0, result.error?.message || result.stderr.slice(-2000));
     const output = result.stdout.match(/<pre id="result"[^>]*>(.*?)<\/pre>/s)?.[1];

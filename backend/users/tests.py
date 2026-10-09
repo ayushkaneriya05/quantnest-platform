@@ -293,7 +293,7 @@ class AuthenticationTests(TestCase):
         self.assertNotIn("refresh", response.data)
         self.assertEqual(UserSession.objects.count(), 1)
 
-    def google_start(self, next_path="/dashboard"):
+    def google_start(self, next_path="/overview"):
         site, _ = Site.objects.get_or_create(pk=settings.SITE_ID, defaults={"domain": "quantnest.test", "name": "QuantNest"})
         app, _ = SocialApp.objects.get_or_create(provider="google", defaults={"name": "Google", "client_id": "test-client", "secret": "test-secret"})
         app.sites.add(site)
@@ -301,7 +301,7 @@ class AuthenticationTests(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         return parse_qs(urlparse(response.data["authorization_url"]).query), response
 
-    def google_callback(self, next_path="/dashboard"):
+    def google_callback(self, next_path="/overview"):
         params, _ = self.google_start(next_path)
         with patch("users.google_auth._google_user", return_value=self.user):
             response = self.client.get(AUTH + "google/callback/", {"state": params["state"][0], "code": "test-code"})
@@ -324,11 +324,11 @@ class AuthenticationTests(TestCase):
         self.assertEqual(cookie["max-age"], 300)
 
     def test_google_completion_is_single_use_and_preserves_return_path(self):
-        self.google_callback("/dashboard/backtests")
+        self.google_callback("/backtests")
         cookie = self.client.cookies[RESULT_COOKIE].value
         response = self.client.post(AUTH + "google/complete/", {})
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(response.data["next"], "/dashboard/backtests")
+        self.assertEqual(response.data["next"], "/backtests")
         self.client.cookies[RESULT_COOKIE] = cookie
         self.assertEqual(self.client.post(AUTH + "google/complete/", {}).status_code, 400)
         self.assertEqual(UserSession.objects.count(), 1)

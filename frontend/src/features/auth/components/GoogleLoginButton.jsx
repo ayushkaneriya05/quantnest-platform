@@ -23,7 +23,7 @@ export default function GoogleLoginButton({ onError, isLoading: parentLoading })
     setIsProcessing(true);
     try {
       const { data } = await api.post("/users/auth/google/start/", {
-        next: location.state?.from?.pathname || "/dashboard",
+        next: (location.state?.from ? `${location.state.from.pathname}${location.state.from.search || ""}${location.state.from.hash || ""}` : "/overview"),
       });
       window.location.assign(data.authorization_url);
     } catch (error) {
@@ -37,7 +37,7 @@ export default function GoogleLoginButton({ onError, isLoading: parentLoading })
   return (
     <Button
       variant="outline"
-      className="w-full flex items-center justify-center gap-2 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50 hover:text-slate-100 border-gray-700/50 py-2.5"
+      className="w-full flex items-center justify-center gap-2 bg-secondary/50 text-foreground hover:bg-muted/50 hover:text-foreground border-border/50 py-2.5"
       onClick={googleLogin}
       type="button"
       disabled={disabled}

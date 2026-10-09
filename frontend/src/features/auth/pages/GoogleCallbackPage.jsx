@@ -30,16 +30,16 @@ export default function GoogleCallbackPage() {
   if (twoFactorChallenge) return <LoginPage twoFactorChallenge={twoFactorChallenge} />;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#050505] px-4 text-white">
-      <div className="w-full max-w-md space-y-4 rounded-3xl border border-white/10 bg-[#0b0d12] p-8 text-center">
+    <main className="flex min-h-[var(--viewport-height)] items-center justify-center bg-card px-4 text-foreground">
+      <div className="w-full max-w-md space-y-4 rounded-3xl border border-border bg-card p-8 text-center">
         <h1 className="text-xl font-semibold">Google sign-in</h1>
-        {error ? <p role="alert" className="text-red-300">{error}</p> : (
-          <p className="flex items-center justify-center gap-2 text-slate-300">
+        {error ? <p role="alert" className="text-red-700 dark:text-red-300">{error}</p> : (
+          <p className="flex items-center justify-center gap-2 text-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             Completing your sign-in…
           </p>
         )}
-        <Link to="/login" className="inline-block text-[#e5c461] hover:underline">Back to login</Link>
+        <Link to="/login" className="inline-block text-brand hover:underline">Back to login</Link>
       </div>
     </main>
   );

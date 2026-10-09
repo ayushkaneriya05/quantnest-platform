@@ -4,7 +4,8 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --viewport-height: 100dvh;
+    --background: 216 33% 97%;
     --foreground: 222.2 84% 4.9%;
 
     --card: 0 0% 100%;
@@ -20,22 +21,55 @@
     --secondary-foreground: 222.2 47.4% 11.2%;
  
     --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted-foreground: 215 19% 40%;
  
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;
  
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 42%;
+    --destructive-text: 0 72% 42%;
     --destructive-foreground: 210 40% 98%;
 
     --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --input: 215 20% 55%;
     --ring: 222.2 84% 4.9%;
  
     --radius: 0.5rem;
+    --brand: 40 65% 32%;
+    --success: 160 84% 25%;
+    --loss: 347 77% 42%;
+    --warning: 35 85% 32%;
+    --scroll-thumb: 215 18% 65%;
+    --chart-grid: 214 25% 88%;
+    --chart-background: #ffffff;
+    --chart-text: #475569;
+    --chart-grid-color: #e2e8f0;
+    --chart-border: #cbd5e1;
+    --chart-up: #047857;
+    --chart-down: #be123c;
+    --chart-line-color: #4f46e5;
+    --chart-line: 239 75% 55%;
+    --shadow-strength: 0.08;
+    color-scheme: light;
   }
  
   .dark {
+    --brand: 45 73% 64%;
+    --success: 160 70% 47%;
+    --loss: 347 90% 67%;
+    --warning: 43 96% 56%;
+    --scroll-thumb: 215 16% 35%;
+    --chart-grid: 217 33% 17%;
+    --chart-background: #020617;
+    --chart-text: #cbd5e1;
+    --chart-grid-color: #1e293b;
+    --chart-border: #334155;
+    --chart-up: #10b981;
+    --chart-down: #fb7185;
+    --chart-line-color: #818cf8;
+    --chart-line: 239 84% 74%;
+    --shadow-strength: 0.3;
+    color-scheme: dark;
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
  
@@ -58,10 +92,11 @@
     --accent-foreground: 210 40% 80%;
  
     --destructive: 0 62.8% 30.6%;
+    --destructive-text: 0 94% 82%;
     --destructive-foreground: 210 40% 98%;
  
     --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --input: 215 20% 42%;
     --ring: 212.7 26.8% 83.9%;
   }
 }
@@ -86,89 +121,24 @@
 }
 
 @layer utilities {
-  /* Project Theme Scrollbar Styles */
-  .scrollbar-theme {
+  /* All scroll containers share the same theme, including Radix portals. */
+  .scrollbar-theme, .scrollbar-thin-theme, .scrollbar-custom {
     scrollbar-width: thin;
-    scrollbar-color: rgba(75, 85, 99, 0.8) rgba(13, 17, 23, 0.3);
+    scrollbar-color: hsl(var(--scroll-thumb)) transparent;
   }
-
-  .scrollbar-theme::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  .scrollbar-theme::-webkit-scrollbar-track {
-    background: rgba(13, 17, 23, 0.3);
-    border-radius: 4px;
-  }
-
-  .scrollbar-theme::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, rgba(75, 85, 99, 0.8) 0%, rgba(55, 65, 81, 0.9) 100%);
-    border-radius: 4px;
-    border: 1px solid rgba(31, 41, 55, 0.8);
-    transition: all 0.2s ease;
-  }
-
-  .scrollbar-theme::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, rgba(107, 114, 128, 0.9) 0%, rgba(75, 85, 99, 1) 100%);
-    border-color: rgba(55, 65, 81, 0.9);
-  }
-
-  .scrollbar-theme::-webkit-scrollbar-corner {
-    background: rgba(13, 17, 23, 0.3);
-  }
-
-  /* Thin scrollbar variant */
-  .scrollbar-thin-theme {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(75, 85, 99, 0.6) transparent;
-  }
-
-  .scrollbar-thin-theme::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  .scrollbar-thin-theme::-webkit-scrollbar-track {
-    background: transparent;
-    border-radius: 3px;
-  }
-
-  .scrollbar-thin-theme::-webkit-scrollbar-thumb {
-    background: rgba(75, 85, 99, 0.6);
-    border-radius: 3px;
-    transition: all 0.2s ease;
-  }
-
-  .scrollbar-thin-theme::-webkit-scrollbar-thumb:hover {
-    background: rgba(107, 114, 128, 0.8);
-  }
-
-  /* Custom Scrollbar Styles (Legacy) */
-  .scrollbar-custom {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(55, 65, 81, 0.8) transparent;
-  }
-
-  .scrollbar-custom::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .scrollbar-custom::-webkit-scrollbar-track {
-    background: transparent;
-    border-radius: 3px;
-  }
-
-  .scrollbar-custom::-webkit-scrollbar-thumb {
-    background: linear-gradient(to bottom, rgba(55, 65, 81, 0.8), rgba(75, 85, 99, 0.6));
-    border-radius: 3px;
-    transition: all 0.2s ease;
-  }
-
-  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(to bottom, rgba(75, 85, 99, 0.9), rgba(107, 114, 128, 0.8));
-    width: 8px;
-  }
+  .scrollbar-theme::-webkit-scrollbar,
+  .scrollbar-thin-theme::-webkit-scrollbar,
+  .scrollbar-custom::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-theme::-webkit-scrollbar-track,
+  .scrollbar-thin-theme::-webkit-scrollbar-track,
+  .scrollbar-custom::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-theme::-webkit-scrollbar-thumb,
+  .scrollbar-thin-theme::-webkit-scrollbar-thumb,
+  .scrollbar-custom::-webkit-scrollbar-thumb { background: hsl(var(--scroll-thumb)); border-radius: 8px; }
+  .scrollbar-theme::-webkit-scrollbar-thumb:hover,
+  .scrollbar-thin-theme::-webkit-scrollbar-thumb:hover,
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+  .scrollbar-theme::-webkit-scrollbar-corner { background: transparent; }
 
   /* Hide horizontal scrollbar */
   .no-horizontal-scroll {
@@ -269,7 +239,7 @@
 
   /* Improved focus styles for better accessibility */
   .focus-ring {
-    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
   }
 
   /* Better mobile touch targets */
@@ -284,7 +254,7 @@
 
   /* Loading state utilities */
   .loading-pulse {
-    @apply animate-pulse bg-gray-700/50;
+    @apply animate-pulse bg-muted/50;
   }
 
   /* Mobile-first responsive text sizing */
@@ -307,14 +277,14 @@
   /* Improved shadow utilities for dark theme */
   .shadow-card {
     box-shadow:
-      0 4px 6px -1px rgba(0, 0, 0, 0.4),
+      0 4px 6px -1px rgb(0 0 0 / var(--shadow-strength)),
       0 2px 4px -1px rgba(0, 0, 0, 0.2),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
   }
 
   .shadow-card-hover {
     box-shadow:
-      0 8px 25px -5px rgba(0, 0, 0, 0.5),
+      0 8px 25px -5px rgb(0 0 0 / var(--shadow-strength)),
       0 4px 6px -2px rgba(0, 0, 0, 0.3),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
   }
@@ -442,3 +412,27 @@
     scroll-behavior: auto;
   }
 }
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; min-width: 320px; }
+  #root { min-height: var(--viewport-height); }
+  :focus-visible { scroll-margin-block: 1rem; }
+  @media (max-width: 767px) {
+    input, select, textarea { font-size: max(1rem, 1em); }
+  }
+}
+@layer utilities {
+  .safe-bottom { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+  .page-content { @apply w-full min-w-0 space-y-4 p-4 sm:space-y-6 sm:p-6 lg:p-8; }
+  .page-toolbar { @apply flex min-w-0 flex-wrap items-center gap-3; }
+}
+
+/* Mobile controls retain readable text even when individual pages request compact sizes. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; }
+  button[role="combobox"], [role="menuitem"], [role="menuitemradio"] { min-height: 44px; }
+}
+
+[data-ui="dialog-content"] { max-height: calc(var(--viewport-height) - 2rem); }
+[data-ui="dialog-content"][data-layout="sheet"] { max-height: var(--viewport-height); }

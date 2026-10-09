@@ -19,7 +19,7 @@ class PageErrorBoundary extends React.Component {
     if (!this.state.hasError) return this.props.children;
     return <main className="scrollbar-theme flex min-h-[100dvh] items-center justify-center overflow-y-auto bg-background px-4 py-10 text-foreground">
       <section aria-labelledby="page-error-title" role="alert" className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 shadow-xl sm:p-8">
-        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-300"><AlertTriangle aria-hidden="true" /></div>
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300"><AlertTriangle aria-hidden="true" /></div>
         <p className="mb-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">QuantNest</p>
         <h1 id="page-error-title" className="text-2xl font-semibold">This page could not load</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Try opening it again. If the error continues, reload the page or return to the home page.</p>

@@ -22,7 +22,7 @@ export default function SharedStrategyPage() {
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [id, revision]);
-  return <div className="scrollbar-theme min-h-screen bg-background text-foreground">
+  return <div className="scrollbar-theme min-h-dvh bg-background text-foreground">
     <header className="border-b border-border bg-card"><div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
       <Link to="/" className="text-xl font-semibold">QuantNest</Link>
       <span className="flex items-center gap-2 text-sm text-muted-foreground"><Lock className="h-4 w-4" />Read-only strategy</span>

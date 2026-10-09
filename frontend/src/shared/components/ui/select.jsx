@@ -114,7 +114,7 @@ SelectTrigger.propTypes = { className: PropTypes.string, children: PropTypes.nod
 function SelectValue({ placeholder, children, ...props }) {
   const { selected, renderOption } = React.useContext(SelectContext);
   return <span className="block min-w-0 flex-1 overflow-hidden text-left" {...props}>{children ?? (selected && renderOption ?
-    renderOption(selected, { selected: true }) :
+    renderOption(selected, { selected: true, inTrigger: true }) :
     <OverflowTooltip>{selected?.label ?? placeholder}</OverflowTooltip>)}</span>;
 }
 SelectValue.propTypes = { placeholder: PropTypes.node, children: PropTypes.node };
@@ -131,7 +131,7 @@ const SelectContent = React.forwardRef(({ className,
   }, [activeValue]);
   let group = "";
   return <PopoverPrimitive.Portal><PopoverPrimitive.Content ref={ref} align="start" sideOffset={4}
-    className={cn("z-50 flex max-h-[min(24rem,var(--radix-popover-content-available-height))] min-w-[8rem] flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md outline-none", className)}
+    className={cn("z-50 flex max-h-[min(24rem,var(--radix-popover-content-available-height))] min-w-[8rem] max-w-[calc(100vw_-_2rem)] flex-col overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md outline-none", className)}
     style={{ minWidth: "min(100vw - 1rem, max(14rem, var(--radix-popover-trigger-width)))", maxWidth: "calc(100vw - 1rem)",
       width: "var(--radix-popover-trigger-width)", ...style }}
     onOpenAutoFocus={(event) => {
@@ -147,7 +147,7 @@ const SelectContent = React.forwardRef(({ className,
         value={select.query} onChange={(event) => select.search(event.target.value)}
         onKeyDown={select.onKeyDown} aria-controls={listId}
         aria-activedescendant={activeValue ? `${listId}-${activeValue}` : undefined}
-        className="h-8 pl-8 text-sm" autoComplete="off" maxLength={160} />
+        className="h-10 pl-8 text-base md:text-sm" autoComplete="off" maxLength={160} />
     </div>
     <div ref={listRef} id={listId} role="listbox" aria-label="Options" aria-busy={remote.loading}
       className="scrollbar-thin-theme min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-1">
@@ -157,11 +157,11 @@ const SelectContent = React.forwardRef(({ className,
         return <React.Fragment key={option.value}>{heading && (option.groupLabel || <SelectLabel>{heading}</SelectLabel>)}
           <SelectItem {...option} value={option.value}>{select.renderOption ?
             select.renderOption(option, { active: select.keyboardNavigation ? activeValue === option.value : undefined,
-              selected: select.selectedValue === option.value }) :
-            <OverflowTooltip active={select.keyboardNavigation ? activeValue === option.value : undefined}>{option.label}</OverflowTooltip>}</SelectItem></React.Fragment>;
+              selected: select.selectedValue === option.value, inTrigger: false }) :
+            <OverflowTooltip className="whitespace-normal break-words sm:truncate" active={select.keyboardNavigation ? activeValue === option.value : undefined}>{option.label}</OverflowTooltip>}</SelectItem></React.Fragment>;
       })}
       {select.resource && remote.loading && <p role="status" className="p-3 text-sm text-muted-foreground">Loading options…</p>}
-      {select.resource && remote.error && <p role="alert" className="p-3 text-sm text-destructive">{remote.error}</p>}
+      {select.resource && remote.error && <p role="alert" className="p-3 text-sm text-destructive-text">{remote.error}</p>}
       {!options.length && !remote.loading && !remote.error && <p className="p-3 text-sm text-muted-foreground">No options found.</p>}
     </div>
     {select.resource && <div className="flex shrink-0 items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground">
@@ -183,7 +183,7 @@ const SelectItem = React.forwardRef(({ className, children, value, disabled, tex
   return <button ref={ref} type="button" role="option" tabIndex={-1} id={`${select.listId}-${value}`}
     data-value={value} aria-label={textValue} aria-selected={checked} disabled={disabled} data-disabled={disabled ? "" : undefined}
     data-state={checked ? "checked" : "unchecked"}
-    className={cn("relative flex min-w-0 w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50",
+    className={cn("relative flex min-w-0 w-full cursor-default select-none items-center rounded-sm min-h-10 py-2 pl-8 pr-2 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50",
       select.activeValue === value && "bg-accent text-accent-foreground", className)}
     onMouseEnter={() => { select.setKeyboardNavigation(false); select.setActiveValue(value); }}
     onMouseDown={(event) => event.preventDefault()}

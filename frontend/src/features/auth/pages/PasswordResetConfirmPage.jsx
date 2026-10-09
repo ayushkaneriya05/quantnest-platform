@@ -95,21 +95,21 @@ export default function PasswordResetConfirmPage() {
   };
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-[#050505] text-white">
+    <div className="relative flex h-[var(--viewport-height)] flex-col overflow-hidden bg-card text-foreground">
       <div className="landing-market-animation absolute inset-0 opacity-70" />
       <div className="landing-grid absolute inset-0 opacity-25" />
       <MainHeader />
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-4 py-4">
-        <Card className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#0b0d12]/90 p-5 shadow-[0_28px_80px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+      <div className="scrollbar-theme relative flex min-h-0 flex-1 items-start justify-center overflow-y-auto px-4 py-4">
+        <Card className="my-auto shrink-0 w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card/90 p-5 shadow-card backdrop-blur-xl">
           <CardHeader className="px-0 pb-4 text-center">
             <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
-              <ShieldCheck className="h-5 w-5 text-[#e5c461]" />
+              <ShieldCheck className="h-5 w-5 text-brand" />
             </div>
-            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-white">
+            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-foreground">
               Set a new password
             </CardTitle>
-            <CardDescription className="mt-2 text-sm leading-6 text-slate-400">
+            <CardDescription className="mt-2 text-sm leading-6 text-muted-foreground">
               Choose a strong password to protect your QuantNest workspace.
             </CardDescription>
           </CardHeader>
@@ -127,30 +127,30 @@ export default function PasswordResetConfirmPage() {
               />
 
               {formData.new_password1.length > 0 && (
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                <div className="rounded-2xl border border-border bg-muted/50 p-3">
                   <div className="mb-2 flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Password strength</span>
+                    <span className="text-muted-foreground">Password strength</span>
                     <span
                       className={`font-medium ${
                         passwordStrength < 50
-                          ? "text-red-400"
+                          ? "text-red-700 dark:text-red-400"
                           : passwordStrength < 75
-                            ? "text-amber-400"
+                            ? "text-amber-700 dark:text-amber-400"
                             : passwordStrength < 100
-                              ? "text-blue-400"
-                              : "text-emerald-400"
+                              ? "text-blue-700 dark:text-blue-400"
+                              : "text-emerald-700 dark:text-emerald-400"
                       }`}
                     >
                       {getStrengthText()}
                     </span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-800">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
                     <div
                       className={`h-full transition-all duration-300 ${getStrengthColor()}`}
                       style={{ width: `${passwordStrength}%` }}
                     />
                   </div>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
                     Use at least 8 characters with uppercase, lowercase,
                     number, or symbol.
                   </p>
@@ -168,7 +168,7 @@ export default function PasswordResetConfirmPage() {
               />
 
               {error && (
-                <div className="rounded-lg border border-red-800 bg-red-900/50 p-3 text-sm text-red-300">
+                <div className="rounded-lg border border-red-800 bg-red-50 dark:bg-red-900/50 p-3 text-sm text-red-700 dark:text-red-300">
                   {error}
                 </div>
               )}
@@ -183,17 +183,17 @@ export default function PasswordResetConfirmPage() {
               </Button>
             </form>
 
-            <div className="mt-5 border-t border-white/10 pt-5 text-center text-sm text-slate-400">
+            <div className="mt-5 border-t border-border pt-5 text-center text-sm text-muted-foreground">
               <Link
                 to="/login"
-                className="font-medium text-[#e5c461] underline hover:text-[#f2da8e]"
+                className="font-medium text-brand underline hover:text-brand"
               >
                 Back to login
               </Link>
             </div>
             <Link
               to="/"
-              className="mt-3 flex items-center justify-center gap-2 text-sm text-slate-400 transition-colors hover:text-[#f2da8e]"
+              className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground transition-colors hover:text-brand"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to landing page
@@ -216,17 +216,17 @@ function PasswordInput({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-sm font-medium text-slate-200">
+      <Label htmlFor={id} className="text-sm font-medium text-foreground">
         {label}
       </Label>
       <div className="relative">
-        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           id={id}
           name={name}
           type={showPassword ? "text" : "password"}
           placeholder="Enter password"
-          className="h-11 border-white/10 bg-white/[0.06] pl-10 pr-10 text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#e5c461]/45"
+          className="h-11 border-border bg-muted/50 pl-10 pr-10 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
           value={value}
           onChange={onChange}
           required
@@ -234,7 +234,7 @@ function PasswordInput({
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-200 focus:outline-none"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground focus:outline-none"
           aria-label={showPassword ? "Hide password" : "Show password"}
         >
           {showPassword ? (

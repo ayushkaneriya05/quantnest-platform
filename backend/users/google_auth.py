@@ -103,7 +103,7 @@ class GoogleStartView(AuthActionMixin, APIView):
     throttle_classes = [LoginThrottle]
 
     def post(self, request):
-        next_path = request.data.get("next", "/dashboard")
+        next_path = request.data.get("next", "/overview")
         if not isinstance(next_path, str) or not next_path.startswith("/") or not url_has_allowed_host_and_scheme(next_path, allowed_hosts=set()):
             raise ValidationError("The return page must be a local QuantNest path.")
         adapter = GoogleOAuth2Adapter(request._request)
@@ -133,7 +133,7 @@ class GoogleCallbackView(APIView):
     throttle_classes = []
 
     def get(self, request):
-        result = {"nonce": secrets.token_urlsafe(32), "next": "/dashboard"}
+        result = {"nonce": secrets.token_urlsafe(32), "next": "/overview"}
         try:
             flow = _read_cookie(request, STATE_COOKIE)
             if not constant_time_compare(flow["nonce"], request.query_params.get("state", "")):

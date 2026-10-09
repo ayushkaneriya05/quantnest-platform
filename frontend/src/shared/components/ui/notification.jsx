@@ -5,14 +5,14 @@ import PropTypes from "prop-types";
 import { Button } from "./button";
 
 const notificationTypes = {
-  INFO: { icon: Info, className: "bg-blue-900/50 border-blue-800 text-blue-300", label: "Information" },
-  WARNING: { icon: AlertTriangle, className: "bg-orange-900/50 border-orange-800 text-orange-300", label: "Warning" },
-  CRITICAL: { icon: AlertTriangle, className: "bg-red-900/50 border-red-800 text-red-300", label: "Critical" },
+  INFO: { icon: Info, className: "bg-blue-50 dark:bg-blue-900/50 border-blue-800 text-blue-700 dark:text-blue-300", label: "Information" },
+  WARNING: { icon: AlertTriangle, className: "bg-orange-50 dark:bg-orange-900/50 border-orange-800 text-orange-700 dark:text-orange-300", label: "Warning" },
+  CRITICAL: { icon: AlertTriangle, className: "bg-red-50 dark:bg-red-900/50 border-red-800 text-red-700 dark:text-red-300", label: "Critical" },
 };
 
 const toastVariants = {
-  success: { icon: CheckCircle2, className: "bg-emerald-900/50 border-emerald-800 text-emerald-300", label: "Success" },
-  error: { icon: XCircle, className: "bg-red-900/50 border-red-800 text-red-300", label: "Error" },
+  success: { icon: CheckCircle2, className: "bg-emerald-50 dark:bg-emerald-900/50 border-emerald-800 text-emerald-700 dark:text-emerald-300", label: "Success" },
+  error: { icon: XCircle, className: "bg-red-50 dark:bg-red-900/50 border-red-800 text-red-700 dark:text-red-300", label: "Error" },
 };
 
 export function Notification({
@@ -49,7 +49,7 @@ export function Notification({
         <div className="min-w-0 flex-1">
           <h4 className="mb-0.5 text-xs font-black uppercase tracking-widest">{title || config.label}</h4>
           {message != null && (
-            <p className="text-[11px] font-medium leading-tight opacity-90">
+            <p className="break-words text-sm font-medium leading-relaxed opacity-90">
               {typeof message === "object" ? JSON.stringify(message) : message}
             </p>
           )}
@@ -63,7 +63,7 @@ export function Notification({
             </div>
           )}
         </div>
-        <Button variant="ghost" size="sm" onClick={handleClose} className="h-auto p-1 text-current hover:bg-white/10" aria-label="Dismiss notification">
+        <Button variant="ghost" size="sm" onClick={handleClose} className="h-auto p-1 text-current hover:bg-muted/50" aria-label="Dismiss notification">
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -88,9 +88,9 @@ Notification.propTypes = {
 export function NotificationContainer({ notifications = [], onClose }) {
   if (!notifications.length || typeof document === "undefined") return null;
   return createPortal(
-    <div className="pointer-events-none fixed right-4 top-4 z-[9999] flex flex-col items-end space-y-3 p-0">
+    <div className="pointer-events-none fixed right-3 top-3 z-[9999] w-[calc(100vw_-_1.5rem)] max-w-sm sm:right-4 sm:top-4 flex flex-col items-end space-y-3 p-0">
       {notifications.map((notification) => (
-        <div key={notification.id} className="pointer-events-auto">
+        <div key={notification.id} className="pointer-events-auto w-full">
           <Notification {...notification} onClose={onClose} />
         </div>
       ))}

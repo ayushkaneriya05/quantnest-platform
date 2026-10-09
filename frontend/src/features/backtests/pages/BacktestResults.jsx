@@ -1,0 +1,835 @@
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/shared/components/ui/card";
+import { Button } from "@/shared/components/ui/button";
+import { Badge } from "@/shared/components/ui/badge";
+import {
+  TrendingUp,
+  TrendingDown,
+  BarChart2,
+  Activity,
+  RefreshCw,
+  ListIcon,
+  LineChart,
+  Dices,
+
+  AlertCircle,
+  CheckCircle2,
+  Info,
+  Power,
+  ChevronLeft,
+  DollarSign,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import { backtestApi } from "@/shared/services/backtestApi";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
+import { useBacktestProgress } from "@/shared/hooks/useBacktestProgress";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
+
+const STATUS_STYLES = {
+  PENDING: { bg: "bg-yellow-500/10 text-yellow-800 dark:text-yellow-300", text: "Pending", icon: RefreshCw },
+  RUNNING: { bg: "bg-blue-500/10 text-blue-800 dark:text-blue-300", text: "Running", icon: RefreshCw },
+  COMPLETED: { bg: "bg-green-500/10 text-green-800 dark:text-green-300", text: "Completed", icon: CheckCircle2 },
+  FAILED: { bg: "bg-red-500/10 text-red-800 dark:text-red-300", text: "Failed", icon: AlertCircle },
+  CANCELLED: { bg: "bg-muted text-muted-foreground", text: "Cancelled", icon: Activity },
+};
+
+/* ─── Helpers ─── */
+const toNumber = (val) => {
+  const numeric = Number(val);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const formatPercent = (val) => `${toNumber(val).toFixed(2)}%`;
+const formatRatio = (val) => val == null ? "N/A" : formatNumber(val);
+
+export default function BacktestResults() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { notify } = useNotifications();
+
+  const [run, setRun] = useState(null);
+  const [metrics, setMetrics] = useState(null);
+  const [equityData, setEquityData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [cancelling, setCancelling] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchData = useCallback(async (isSilent = true) => {
+    if (!isSilent) setIsRefreshing(true);
+    try {
+      const [runData, metricsData, equityCurveData] = await Promise.all([
+        backtestApi.getRun(id),
+        backtestApi.getRunMetrics(id),
+        backtestApi.getRunEquityCurve(id),
+      ]);
+      setRun(runData.data);
+      setMetrics(metricsData.data);
+      setEquityData(
+        (equityCurveData.data || []).map((point) => ({
+          ...point,
+          timestamp: formatDateTime(point.timestamp),
+          equity: parseFloat(point.equity_value),
+        })),
+      );
+      
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load backtest"));
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [id, notify]);
+
+  const chartEquityData = equityData;
+
+  useEffect(() => {
+    fetchData(true);
+  }, [fetchData]);
+
+
+  const handleProgress = useCallback((data) => {
+    setRun((prev) => prev ? {
+      ...prev,
+      progress_pct: data.progress_pct,
+      status: data.status,
+      progress_message: data.message || prev.progress_message,
+    } : prev);
+  }, []);
+
+  const handleCompleteOrError = useCallback((data) => {
+    if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(data.status)) return;
+
+    setRun((prev) => prev ? {
+      ...prev,
+      progress_pct: data.progress_pct ?? prev.progress_pct,
+      status: data.status,
+      progress_message: data.error || data.message || prev.progress_message,
+    } : prev);
+    fetchData(); // Fetch the full results when done
+  }, [fetchData]);
+
+  useBacktestProgress(
+    Number(id), // Convert id to number just in case
+    handleProgress,
+    handleCompleteOrError,
+    handleCompleteOrError,
+    fetchData
+  );
+
+  const handleCancel = useCallback(async () => {
+    try {
+      setCancelling(true);
+      await backtestApi.cancelRun(id);
+      notify.success("Backtest cancelled");
+      fetchData();
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to cancel backtest"));
+    } finally {
+      setCancelling(false);
+    }
+  }, [fetchData, id, notify]);
+
+  const consolidatedActions = useMemo(() => (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 mr-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate("/backtests")}
+          className="bg-card border-border hover:bg-secondary h-9 px-3"
+        >
+          <ChevronLeft className="h-4 w-4 mr-1" />
+          Back
+        </Button>
+        <Badge
+          variant="outline"
+          className={`${STATUS_STYLES[run?.status]?.bg || STATUS_STYLES.PENDING.bg} border-none px-3 h-9 flex items-center gap-1.5 rounded-md`}
+        >
+          {React.createElement(STATUS_STYLES[run?.status]?.icon || RefreshCw, { className: "h-4 w-4" })}
+          <span className="text-xs font-bold uppercase tracking-wider">
+            {STATUS_STYLES[run?.status]?.text || "Pending"}
+          </span>
+        </Badge>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {run?.status === "RUNNING" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCancel}
+            disabled={cancelling}
+            className="border-red-500/30 bg-red-500/5 text-red-700 dark:text-red-300 hover:bg-red-700 hover:text-white dark:hover:text-white h-9"
+          >
+            <Power className="h-4 w-4 mr-2" />
+            {cancelling ? "..." : "Cancel"}
+          </Button>
+        )}
+
+        {run?.status === "COMPLETED" && <Button variant="outline" size="sm" asChild>
+          <Link to={`/research?backtest=${id}`}>Research review</Link>
+        </Button>}
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            navigate("/backtests/montecarlo", {
+              state: { backtestId: id },
+            })
+          }
+          className="border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-black dark:hover:text-black h-9"
+        >
+          <Dices className="h-4 w-4 mr-2" />
+          Monte Carlo
+        </Button>
+      </div>
+
+      <div className="h-4 w-px bg-secondary mx-2" />
+
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fetchData(false)}
+          className="border-border hover:bg-secondary text-foreground h-9 w-9 p-0"
+        >
+          <RefreshCw
+            className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+          />
+        </Button>
+        <Link to={`/backtests/trades/${id}`}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-border hover:bg-secondary text-foreground h-9"
+          >
+            <ListIcon className="h-4 w-4 mr-1" />
+            Trades
+          </Button>
+        </Link>
+        <Link to={`/backtests/charts/${id}`}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-border hover:bg-secondary text-foreground h-9"
+          >
+            <LineChart className="h-4 w-4 mr-1" />
+            Charts
+          </Button>
+        </Link>
+      </div>
+    </div>
+  ), [id, run?.status, cancelling, isRefreshing, navigate, fetchData, handleCancel]);
+
+  useSetPageActions(consolidatedActions);
+
+  const instrumentBreakdown = Object.entries(metrics?.instrument_breakdown_json || {});
+  const monthlyReturns = Object.entries(metrics?.monthly_returns_json || {});
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-96">
+        <GlobalLoader />
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 space-y-6">
+      {run?.status === "FAILED" && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-800/50 rounded-xl p-4 flex gap-3">
+          <AlertCircle className="h-5 w-5 text-red-700 dark:text-red-400 shrink-0" />
+          <div className="text-red-700 dark:text-red-300 text-sm">{run.error_message}</div>
+        </div>
+      )}
+
+      {run?.data_quality?.complete === false && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-700/50 rounded-xl p-4 flex gap-3">
+          <AlertCircle className="h-5 w-5 text-amber-700 dark:text-amber-400 shrink-0" />
+          <div className="text-amber-700 dark:text-amber-200 text-sm">
+            <strong>Historical data is incomplete.</strong> Some expected candles were unavailable after vendor backfill; interpret this run with caution.
+            {run.data_quality.warnings?.length > 0 && <ul className="mt-2 list-disc pl-5">{run.data_quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+            {run.data_quality.instruments?.filter((item) => !item.complete).map((item) => (
+              <div className="mt-2" key={item.instrument}>
+                <span className="font-medium">{item.instrument}:</span>{" "}
+                {Object.entries(item.timeframes || {}).filter(([, coverage]) => coverage.missing_count > 0).map(([timeframe, coverage]) => (
+                  <span key={timeframe} className="mr-3">
+                    {timeframe} has {coverage.missing_count} missing {coverage.source_timeframe || timeframe} source candle(s) on {coverage.missing_dates?.join(", ")}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {run?.status === "RUNNING" && (
+        <Card className="bg-indigo-50 dark:bg-indigo-900/10 border-indigo-800/30 overflow-hidden">
+          <CardContent className="py-5 px-6">
+            <div className="flex items-center gap-5">
+              <div className="relative flex items-center justify-center h-12 w-12 rounded-full bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-500/30">
+                <RefreshCw className="h-5 w-5 text-indigo-700 dark:text-indigo-400 animate-spin" />
+                <div className="absolute inset-0 rounded-full animate-ping bg-indigo-500/20" />
+              </div>
+              <div className="flex-1">
+                <div className="flex justify-between items-end mb-2">
+                  <div>
+                    <p className="text-indigo-700 dark:text-indigo-200 text-sm font-semibold">
+                      Backtest in progress
+                    </p>
+                    <p className="text-indigo-700 dark:text-indigo-400 text-xs mt-0.5">
+                      {run.progress_message || "Preparing backtest..."}
+                    </p>
+                  </div>
+                  <span className="text-indigo-700 dark:text-indigo-300 text-lg font-bold tabular-nums">
+                    {run.progress_pct || 0}%
+                  </span>
+                </div>
+                <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 rounded-full transition-all duration-700 shadow-[0_0_12px_rgba(99,102,241,0.5)]"
+                    style={{ width: `${run.progress_pct || 0}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          {
+            label: "Net Profit",
+            value: formatCurrency(Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0)),
+            positive: Number(metrics?.final_capital || 0) - Number(run?.initial_capital || 0) >= 0,
+            icon: TrendingUp,
+          },
+          {
+            label: "Total Return",
+            value: formatPercent(metrics?.total_return_pct),
+            positive: (metrics?.total_return_pct || 0) >= 0,
+            icon: Activity,
+          },
+          {
+            label: "Sharpe Ratio",
+            value: formatRatio(metrics?.sharpe_ratio),
+            icon: BarChart2,
+          },
+          {
+            label: "Max Drawdown",
+            value: formatPercent(metrics?.max_drawdown_pct),
+            negative: true,
+            icon: TrendingDown,
+          },
+        ].map((kpi, idx) => (
+          <Card
+            key={idx}
+            className="bg-card/50 border-border hover:border-border transition-colors"
+          >
+            <CardContent className="p-5">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-sm text-muted-foreground font-medium">{kpi.label}</p>
+                <div
+                  className={`p-1.5 rounded-lg ${kpi.positive ? "bg-green-500/10 text-green-700 dark:text-green-400" : kpi.negative ? "bg-red-500/10 text-red-700 dark:text-red-400" : "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400"}`}
+                >
+                  <kpi.icon className="h-4 w-4" />
+                </div>
+              </div>
+              <div
+                className={`text-2xl font-bold tracking-tight ${kpi.positive ? "text-green-700 dark:text-green-400" : kpi.negative ? "text-red-700 dark:text-red-400" : "text-foreground"}`}
+              >
+                {kpi.value}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Full-width Equity Curve */}
+      <Card className="bg-card/50 border-border backdrop-blur-sm">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-lg text-foreground font-semibold flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-indigo-700 dark:text-indigo-400" />
+              Equity Curve
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Portfolio value over simulation time
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            <div className="flex flex-col items-end">
+              <span className="text-muted-foreground uppercase tracking-tighter font-bold">Initial Capital</span>
+              <span className="text-foreground font-mono font-bold">{formatCurrency(run?.initial_capital)}</span>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[350px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartEquityData}>
+                <defs>
+                  <linearGradient
+                    id="colorEquity"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop offset="5%" stopColor="hsl(var(--chart-line))" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="hsl(var(--chart-line))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="hsl(var(--border))"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="timestamp"
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(val) => `INR ${Math.round(val / 1000)}k`}
+                  domain={["auto", "auto"]}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                  }}
+                  itemStyle={{ color: "hsl(var(--chart-line))" }}
+                  formatter={(val) => formatCurrency(val)}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="equity"
+                  stroke="hsl(var(--chart-line))"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorEquity)"
+                  dot={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Masonry stats grid */}
+      <div className="grid lg:grid-cols-3 gap-6 items-start">
+
+        {/* Column 1 */}
+        <div className="space-y-6">
+          <Card className="bg-card/50 border-border">
+          <CardHeader className="pb-3 border-b border-border/50">
+            <CardTitle className="text-md text-foreground font-semibold flex items-center gap-2">
+              <ListIcon className="h-4 w-4 text-indigo-700 dark:text-indigo-400" />
+              Performance Summary
+            </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/50">
+                {[
+                  { label: "Total Trades", value: metrics?.total_trades || 0 },
+                  {
+                    label: "Win Rate",
+                    value: formatPercent(metrics?.win_rate),
+                    color: "text-indigo-700 dark:text-indigo-400",
+                  },
+                  {
+                    label: "Winning Trades",
+                    value: metrics?.winning_trades || 0,
+                    color: "text-green-700 dark:text-green-400",
+                  },
+                  {
+                    label: "Losing Trades",
+                    value: metrics?.losing_trades || 0,
+                    color: "text-red-700 dark:text-red-400",
+                  },
+                  {
+                    label: "Profit Factor",
+                    value: formatRatio(metrics?.profit_factor),
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "Avg Trade P&L",
+                    value: formatCurrency(metrics?.avg_trade_pnl),
+                    color:
+                      (metrics?.avg_trade_pnl || 0) >= 0
+                        ? "text-green-700 dark:text-green-400"
+                        : "text-red-700 dark:text-red-400",
+                  },
+                  {
+                    label: "Avg Holding Time",
+                    value: `${Math.round(metrics?.avg_holding_time_minutes || 0)} min`,
+                    color: "text-muted-foreground",
+                  },
+                  {
+                    label: "Avg Win Hold",
+                    value: `${Math.round(metrics?.avg_winning_hold_time || 0)} min`,
+                    color: "text-green-700 dark:text-green-400",
+                  },
+                  {
+                    label: "Avg Loss Hold",
+                    value: `${Math.round(metrics?.avg_losing_hold_time || 0)} min`,
+                    color: "text-red-700 dark:text-red-400",
+                  },
+                  {
+                    label: "Expectancy",
+                    value: formatCurrency(metrics?.expectancy),
+                    color: "text-indigo-700 dark:text-indigo-400",
+                  },
+                  {
+                    label: "Payoff Ratio",
+                    value: formatRatio(metrics?.payoff_ratio),
+                    color: "text-foreground",
+                  },
+                ].map((stat, i) => (
+                  <div
+                    key={i}
+                    className="flex justify-between items-center p-4"
+                  >
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
+                      {stat.label}
+                    </span>
+                    <span className={`font-bold ${stat.color || "text-foreground"}`}>
+                      {stat.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 border-border">
+              <CardHeader className="pb-3 border-b border-border/50">
+                <CardTitle className="text-md text-foreground font-semibold">
+                  Run Configuration
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-border/50">
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Initial Capital</span>
+                    <span className="font-bold text-foreground">{formatCurrency(run?.initial_capital)}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Slippage</span>
+                    <span className="font-bold text-foreground">{formatPercent(run?.slippage_pct)}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Charge Profile</span>
+                    <span className="font-bold text-foreground">{run?.charge_profile_detail?.name || "No Charges"}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-4">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Include Charges</span>
+                    <span className="font-bold text-foreground">{run?.include_charges ? "Yes" : "No"}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+        </div>
+        {/* Column 2 */}
+        <div className="space-y-6">
+          <Card className="bg-card/50 border-border">
+            <CardHeader className="pb-3 border-b border-border/50">
+              <CardTitle className="text-md text-foreground font-semibold">
+                Risk and Returns
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/50">
+                {[
+                  {
+                    label: "Final Capital",
+                    value: formatCurrency(metrics?.final_capital),
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "CAGR",
+                    value: formatPercent(metrics?.cagr),
+                    color: "text-green-700 dark:text-green-400",
+                  },
+                  {
+                    label: "Sharpe Ratio",
+                    value: formatRatio(metrics?.sharpe_ratio),
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "Volatility",
+                    value: formatPercent(metrics?.volatility_pct),
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "Sortino Ratio",
+                    value: formatRatio(metrics?.sortino_ratio),
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "Calmar Ratio",
+                    value: formatRatio(metrics?.calmar_ratio),
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "Recovery Factor",
+                    value: formatRatio(metrics?.recovery_factor),
+                    color: "text-indigo-700 dark:text-indigo-400",
+                  },
+                  {
+                    label: "Max DD Amount",
+                    value: formatCurrency(metrics?.max_drawdown_amount),
+                    color: "text-red-700 dark:text-red-400",
+                  },
+                  {
+                    label: "DD Duration",
+                    value: `${metrics?.max_drawdown_duration_days || 0} days`,
+                    color: "text-muted-foreground",
+                  },
+                  {
+                    label: "Charges Paid",
+                    value: formatCurrency(metrics?.total_charges),
+                    color: "text-foreground",
+                  },
+                  {
+                    label: "Slippage Paid",
+                    value: formatCurrency(metrics?.total_slippage),
+                    color: "text-foreground",
+                  },
+                ].map((stat, i) => (
+                  <div key={i} className="flex justify-between items-center p-4">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
+                      {stat.label}
+                    </span>
+                    <span className={`font-bold ${stat.color || "text-foreground"}`}>
+                      {stat.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 border-border">
+              <CardHeader className="pb-3 border-b border-border/50">
+              <CardTitle className="text-md text-foreground font-semibold flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-amber-700 dark:text-amber-400" /> Charges Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/50">
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Total Brokerage</span>
+                  <span className="font-bold text-foreground">{formatCurrency(metrics?.charges_breakdown?.brokerage || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">STT / CTT</span>
+                  <span className="font-bold text-foreground">{formatCurrency(metrics?.charges_breakdown?.stt || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Exchange Txn</span>
+                  <span className="font-bold text-foreground">{formatCurrency(metrics?.charges_breakdown?.exchange_txn || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">SEBI / Stamp Duty</span>
+                  <span className="font-bold text-foreground">{formatCurrency((metrics?.charges_breakdown?.sebi || 0) + (metrics?.charges_breakdown?.stamp_duty || 0))}</span>
+                </div>
+                <div className="flex justify-between items-center p-4">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">GST</span>
+                  <span className="font-bold text-foreground">{formatCurrency(metrics?.charges_breakdown?.gst || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center p-4 bg-secondary/30">
+                  <span className="text-xs text-foreground uppercase tracking-wider font-bold">Total Charges</span>
+                  <span className="font-bold text-red-700 dark:text-red-400">{formatCurrency(metrics?.total_charges || 0)}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        {/* Column 3 */}
+        <div className="space-y-6">
+          <Card className="bg-card/50 border-border">
+            <CardHeader className="pb-3 border-b border-border/50">
+              <CardTitle className="text-md text-foreground font-semibold">
+                Trade Distribution
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-border/50">
+                {[
+                  {
+                    label: "Avg Win",
+                    value: formatCurrency(metrics?.avg_win),
+                    color: "text-green-700 dark:text-green-400",
+                  },
+                  {
+                    label: "Avg Loss",
+                    value: formatCurrency(metrics?.avg_loss),
+                    color: "text-red-700 dark:text-red-400",
+                  },
+                  {
+                    label: "Largest Win",
+                    value: formatCurrency(metrics?.largest_win),
+                    color: "text-green-700 dark:text-green-400",
+                  },
+                  {
+                    label: "Largest Loss",
+                    value: formatCurrency(metrics?.largest_loss),
+                    color: "text-red-700 dark:text-red-400",
+                  },
+                  {
+                    label: "Breakeven Trades",
+                    value: metrics?.breakeven_trades || 0,
+                    color: "text-muted-foreground",
+                  },
+                ].map((stat, i) => (
+                  <div key={i} className="flex justify-between items-center p-4">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
+                      {stat.label}
+                    </span>
+                    <span className={`font-bold ${stat.color || "text-foreground"}`}>
+                      {stat.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 border-border border-l-4 border-l-indigo-500">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <Info className="h-5 w-5 text-indigo-700 dark:text-indigo-400 mt-0.5" />
+                <div>
+                  <h4 className="text-md font-bold text-foreground uppercase ">
+                    Consistency Note
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-1 uppercase font-medium">
+                    Max consecutive wins:{" "}
+                    <span className="text-green-700 dark:text-green-400 font-bold">
+                      {metrics?.max_consecutive_wins || 0}
+                    </span>
+                  </p>
+                   <p className="text-xs text-muted-foreground mt-1 uppercase font-medium">
+                    Max consecutive losses:{" "}
+                    <span className="text-red-700 dark:text-red-400 font-bold">
+                      {metrics?.max_consecutive_losses || 0}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+  </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        <Card className="bg-card/50 border-border lg:col-span-2">
+          <CardHeader className="pb-3 border-b border-border/50">
+            <CardTitle className="text-md text-foreground font-semibold">
+              Instrument Breakdown
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Multi-instrument results summary
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border/50">
+              {instrumentBreakdown.length === 0 && (
+                <div className="p-4 text-sm text-muted-foreground">
+                  Instrument-level analytics will appear once trades are available.
+                </div>
+              )}
+              {instrumentBreakdown.map(([symbol, info]) => (
+                <div key={symbol} className="grid grid-cols-4 gap-4 p-4 text-sm">
+                  <div>
+                    <div className="text-foreground font-semibold">{symbol}</div>
+                    <div className="text-xs text-muted-foreground">Instrument</div>
+                  </div>
+                  <div>
+                    <div className="text-foreground font-semibold">{info.trades}</div>
+                    <div className="text-xs text-muted-foreground">Trades</div>
+                  </div>
+                  <div>
+                    <div className={info.pnl >= 0 ? "text-green-700 dark:text-green-400 font-semibold" : "text-red-700 dark:text-red-400 font-semibold"}>
+                      {formatCurrency(info.pnl)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Net P&amp;L</div>
+                  </div>
+                  <div>
+                    <div className="text-indigo-700 dark:text-indigo-300 font-semibold">{formatPercent(info.win_rate)}</div>
+                    <div className="text-xs text-muted-foreground">Win Rate</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/50 border-border">
+          <CardHeader className="pb-3 border-b border-border/50">
+            <CardTitle className="text-md text-foreground font-semibold">
+              Advanced Analytics
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-secondary/50 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase">Avg MAE</div>
+                <div className="text-red-700 dark:text-red-400 font-semibold">{formatCurrency(metrics?.avg_mae)}</div>
+              </div>
+              <div className="bg-secondary/50 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase">Avg MFE</div>
+                <div className="text-green-700 dark:text-green-400 font-semibold">{formatCurrency(metrics?.avg_mfe)}</div>
+              </div>
+              <div className="bg-secondary/50 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase">Efficiency</div>
+                <div className="text-indigo-700 dark:text-indigo-300 font-semibold">{formatRatio(metrics?.trade_efficiency)}</div>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground uppercase mb-2">Monthly Returns</div>
+              <div className="space-y-2 max-h-56 overflow-y-auto scrollbar-thin-theme pr-1">
+                {monthlyReturns.length === 0 && (
+                  <div className="text-sm text-muted-foreground">No monthly return data available.</div>
+                )}
+                {monthlyReturns.map(([month, value]) => (
+                  <div key={month} className="flex items-center justify-between text-sm bg-secondary/40 rounded-lg px-3 py-2">
+                    <span className="text-foreground">{month}</span>
+                    <span className={value >= 0 ? "text-green-700 dark:text-green-400 font-semibold" : "text-red-700 dark:text-red-400 font-semibold"}>
+                      {formatPercent(value)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

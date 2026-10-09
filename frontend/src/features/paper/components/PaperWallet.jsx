@@ -1,0 +1,171 @@
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import { useState, useEffect } from "react";
+import { Card, CardContent } from "@/shared/components/ui/card";
+import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
+import {
+  Plus,
+  Minus,
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  ShieldCheck,
+} from "lucide-react";
+import { portfolioApi } from "@/shared/services/portfolioApi";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import { formatCurrency } from "@/shared/utils/formatters";
+
+export default function PaperWallet() {
+  const { notify } = useNotifications();
+  const [portfolio, setPortfolio] = useState(null);
+  const [amount, setAmount] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const res = await portfolioApi.getMyPortfolio();
+      setPortfolio(res.data);
+    } catch (err) {
+      notify.error(getApiErrorMessage(err, "Failed to load paper wallet"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleAction = async (type) => {
+    if (!amount || parseFloat(amount) <= 0) {
+      notify.error("Enter a valid amount");
+      return;
+    }
+    try {
+      setSaving(true);
+      if (type === "DEPOSIT") {
+        await portfolioApi.deposit(
+          portfolio.id,
+          parseFloat(amount),
+          "Paper Fund Addition",
+        );
+        notify.success(`${formatCurrency(amount)} added to Paper Wallet`);
+      } else {
+        await portfolioApi.withdraw(
+          portfolio.id,
+          parseFloat(amount),
+          "Paper Fund Removal",
+        );
+        notify.success(`${formatCurrency(amount)} removed from Paper Wallet`);
+      }
+      setAmount("");
+      await fetchData();
+    } catch (err) {
+      notify.error(getApiErrorMessage(err, `${type === "DEPOSIT" ? "Addition" : "Removal"} failed`));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading)
+    return (
+      <div className="h-40 flex items-center justify-center">Loading...</div>
+    );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border-indigo-800/50">
+          <CardContent className="pt-6">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-indigo-700 dark:text-indigo-300 text-sm font-medium">
+                  Virtual Balance
+                </p>
+                <h3 className="text-3xl font-black text-foreground mt-1">
+                  ₹
+                  {Number(portfolio?.current_capital || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h3>
+                <p className="text-xs text-indigo-700 dark:text-indigo-400/80 mt-2 flex items-center gap-1">
+                  <ShieldCheck className="h-3 w-3" />
+                  Available for strategy allocation
+                </p>
+              </div>
+              <div className="p-3 bg-indigo-500/20 rounded-2xl">
+                <DollarSign className="h-6 w-6 text-indigo-700 dark:text-indigo-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/40 border-border">
+          <CardContent className="pt-6 space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                Adjust Paper Funds
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Amount (₹)"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  disabled={saving}
+                  className="bg-secondary border-border text-foreground"
+                />
+                <Button
+                  onClick={() => handleAction("DEPOSIT")}
+                  disabled={saving}
+                  className="text-white bg-emerald-700 hover:bg-emerald-800 shrink-0"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={() => handleAction("WITHDRAW")}
+                  disabled={saving}
+                  variant="outline"
+                  className="border-rose-800 text-rose-700 dark:text-rose-400 hover:bg-rose-500/10 shrink-0"
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                This adds/removes virtual capital from your global vault.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 flex items-center gap-4">
+          <div className="p-2 bg-emerald-500/10 rounded-lg">
+            <TrendingUp className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Realized P&amp;L</p>
+            <p className={`text-sm font-bold ${Number(portfolio?.realized_pnl || 0) >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>
+              {formatCurrency(portfolio?.realized_pnl)}
+            </p>
+          </div>
+        </div>
+        <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/10 flex items-center gap-4">
+          <div className="p-2 bg-rose-500/10 rounded-lg">
+            <TrendingDown className="h-5 w-5 text-rose-700 dark:text-rose-400" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Total Capital Allocated</p>
+            <p className="text-sm font-bold text-indigo-700 dark:text-indigo-400">
+              ₹
+              {Number((portfolio?.allocations || []).reduce((sum, allocation) => sum + Number(allocation.effective_allocated ?? allocation.allocated_amount ?? 0), 0)).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

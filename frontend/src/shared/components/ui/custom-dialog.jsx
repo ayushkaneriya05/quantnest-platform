@@ -42,9 +42,9 @@ const CustomDialogComponent = ({
 
   const getIcon = () => {
     switch (type) {
-      case "warn": return <AlertTriangle className="h-6 w-6 text-amber-500" />;
-      case "alert": return <Info className="h-6 w-6 text-sky-500" />;
-      case "prompt": return <Edit3 className="h-6 w-6 text-emerald-500" />;
+      case "warn": return <AlertTriangle className="h-6 w-6 text-warning" />;
+      case "alert": return <Info className="h-6 w-6 text-sky-700 dark:text-sky-400" />;
+      case "prompt": return <Edit3 className="h-6 w-6 text-success" />;
       case "confirm":
       default: return <HelpCircle className="h-6 w-6 text-indigo-500" />;
     }
@@ -52,11 +52,11 @@ const CustomDialogComponent = ({
 
   const getTitleClass = () => {
     switch (type) {
-      case "warn": return "text-amber-500";
-      case "alert": return "text-sky-500";
-      case "prompt": return "text-emerald-500";
+      case "warn": return "text-warning";
+      case "alert": return "text-sky-700 dark:text-sky-400";
+      case "prompt": return "text-success";
       case "confirm":
-      default: return "text-white";
+      default: return "text-foreground";
     }
   };
 
@@ -64,12 +64,12 @@ const CustomDialogComponent = ({
     <Dialog open={open} onOpenChange={(isOpen) => {
       if (!isOpen) handleClose(type === "prompt" ? null : false);
     }}>
-      <DialogContent className="bg-gray-900 border-gray-800 text-white sm:max-w-md">
+      <DialogContent className="bg-card border-border text-foreground sm:max-w-md">
         <DialogHeader className="flex flex-row items-center gap-4">
           <div className="mt-1">{getIcon()}</div>
           <div className="flex flex-col gap-1">
             <DialogTitle className={getTitleClass()}>{title || (type === "confirm" ? "Confirm Action" : type === "warn" ? "Warning" : "Alert")}</DialogTitle>
-            <DialogDescription className="text-gray-400">
+            <DialogDescription className="text-muted-foreground">
               {message}
             </DialogDescription>
             {type === "prompt" && (
@@ -77,7 +77,7 @@ const CustomDialogComponent = ({
                 <Input
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  className="bg-gray-800 border-gray-700 text-white"
+                  className="bg-secondary border-border text-foreground"
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleClose(inputValue);
@@ -89,12 +89,12 @@ const CustomDialogComponent = ({
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-0 mt-4">
           {(type === "confirm" || type === "prompt") && (
-            <Button variant="outline" className="border-gray-700 hover:bg-gray-800 text-gray-300" onClick={() => handleClose(type === "prompt" ? null : false)}>
+            <Button variant="outline" className="border-border hover:bg-secondary text-foreground" onClick={() => handleClose(type === "prompt" ? null : false)}>
               {cancelText}
             </Button>
           )}
           <Button 
-            className={type === "warn" ? "bg-amber-600 hover:bg-amber-700 text-white" : type === "prompt" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-indigo-600 hover:bg-indigo-700 text-white"} 
+            className={type === "warn" ? "bg-amber-700 hover:bg-amber-800 text-white" : type === "prompt" ? "bg-emerald-700 hover:bg-emerald-800 text-white" : "bg-indigo-600 hover:bg-indigo-700 text-white"}
             onClick={() => handleClose(type === "prompt" ? inputValue : true)}
           >
             {type === "confirm" || type === "prompt" ? confirmText : "OK"}

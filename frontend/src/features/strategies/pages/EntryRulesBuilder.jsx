@@ -1,0 +1,513 @@
+/**
+ * Entry Rules Builder - visual rule builder for entry conditions
+ */
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
+import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
+import { TooltipHint } from "@/shared/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
+import { Plus, Trash2, GripVertical, Target } from "lucide-react";
+import StrategyConfigNav from "@/features/strategies/components/StrategyConfigNav.jsx";
+import StrategyFooter from "@/features/strategies/components/StrategyFooter.jsx";
+import { ruleGroupApi, ruleApi } from "@/shared/services/rulesApi";
+import { entryConfigApi, strategyApi } from "@/shared/services/strategyApi";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import { customConfirm } from "@/shared/components/ui/custom-dialog";
+import { usePageActions } from "@/shared/context/pageActions";
+import { useEnums } from "@/shared/context/EnumsContext";
+import { GlobalLoader } from "@/shared/components/ui/global-loader";
+import { getDefaultParams } from "@/features/strategies/components/operandUtils.js";
+import RuleConditionEditor from "@/features/strategies/components/RuleConditionEditor.jsx";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+
+export default function EntryRulesBuilder() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { notify } = useNotifications();
+  const { enums } = useEnums();
+  const { setPageHeader, setPageActions } = usePageActions();
+
+  const [strategy, setStrategy] = useState(null);
+  const [ruleGroups, setRuleGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [interGroupOperator, setInterGroupOperator] = useState("OR");
+  const [entrySide, setEntrySide] = useState("BUY");
+
+  const [pendingEdits, setPendingEdits] = useState({
+    rules: {},
+    groups: {},
+    entryConfig: null,
+  });
+
+  const hasPendingChanges =
+    Object.keys(pendingEdits.rules).length > 0 ||
+    Object.keys(pendingEdits.groups).length > 0 ||
+    pendingEdits.entryConfig !== null;
+
+  useEffect(() => {
+    setPageHeader(<StrategyConfigNav strategy={strategy} />);
+    return () => setPageHeader(null);
+  }, [strategy, setPageHeader]);
+
+  useEffect(() => {
+    setPageActions(null);
+    return () => setPageActions(null);
+  }, [setPageActions]);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [strategyData, groups] = await Promise.all([
+        strategyApi.getById(id),
+        ruleGroupApi.getByStrategy(id, "ENTRY"),
+      ]);
+      setStrategy(strategyData);
+      setRuleGroups(groups || []);
+      setPendingEdits({ rules: {}, groups: {}, entryConfig: null });
+      if (strategyData?.entry_order_config) {
+        if (strategyData.entry_order_config.entry_group_operator) {
+          setInterGroupOperator(
+            strategyData.entry_order_config.entry_group_operator,
+          );
+        }
+        if (strategyData.entry_order_config.entry_side) {
+          setEntrySide(strategyData.entry_order_config.entry_side);
+        }
+      }
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load entry rules"));
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, notify]);
+
+  useEffect(() => {
+    if (id) fetchData();
+  }, [id, fetchData]);
+
+  const handleUpdateInterGroupOperator = () => {
+    const newOp = interGroupOperator === "OR" ? "AND" : "OR";
+    setInterGroupOperator(newOp);
+    setPendingEdits((prev) => ({
+      ...prev,
+      entryConfig: { ...(prev.entryConfig || {}), entry_group_operator: newOp },
+    }));
+  };
+
+  const handleUpdateEntrySide = (v) => {
+    setEntrySide(v);
+    setPendingEdits((prev) => ({
+      ...prev,
+      entryConfig: { ...(prev.entryConfig || {}), entry_side: v },
+    }));
+  };
+
+  const handleAddGroup = async () => {
+    try {
+      const newGroup = await ruleGroupApi.create({
+        strategy: id,
+        name: `Entry Group ${ruleGroups.length + 1}`,
+        rule_type: "ENTRY",
+        logical_operator: "AND",
+        priority: ruleGroups.length + 1,
+      });
+      setRuleGroups((groups) => [...groups, { ...newGroup, rules: [] }]);
+      notify.success("Rule group added");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to add rule group"));
+    }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    if (!(await customConfirm("Delete this rule group and all its rules?")))
+      return;
+    try {
+      await ruleGroupApi.delete(groupId);
+      setRuleGroups((groups) => groups.filter((group) => group.id !== groupId));
+      notify.success("Rule group deleted");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to delete rule group"));
+    }
+  };
+
+  const handleAddRule = async (groupId) => {
+    try {
+      const defaultTypeA = "RSI";
+      const defaultParamsA = getDefaultParams(defaultTypeA, enums.OperandParameterConfig);
+
+      const defaultTypeB = "CONSTANT";
+      const defaultParamsB = getDefaultParams(defaultTypeB, enums.OperandParameterConfig);
+
+      const newRule = await ruleApi.create({
+        rule_group: groupId,
+        operand_a_type: defaultTypeA,
+        operand_a_params: defaultParamsA,
+        comparison: "GT",
+        operand_b_type: defaultTypeB,
+        operand_b_params: defaultParamsB,
+        is_active: true,
+      });
+      setRuleGroups((groups) =>
+        groups.map((group) =>
+          group.id === groupId
+            ? { ...group, rules: [...(group.rules || []), newRule] }
+            : group,
+        ),
+      );
+      notify.success("Rule added");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to add rule"));
+    }
+  };
+
+  const handleDeleteRule = async (groupId, ruleId) => {
+    try {
+      await ruleApi.delete(ruleId);
+      setRuleGroups((groups) =>
+        groups.map((group) =>
+          group.id === groupId
+            ? { ...group, rules: (group.rules || []).filter((rule) => rule.id !== ruleId) }
+            : group,
+        ),
+      );
+      notify.success("Rule deleted");
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to delete rule"));
+    }
+  };
+
+  const handleUpdateRule = (groupId, ruleId, field, value) => {
+    const updates = { [field]: value };
+    if (field === "operand_a_type") {
+      updates.operand_a_params = getDefaultParams(
+        value,
+        enums.OperandParameterConfig,
+      );
+    }
+    if (field === "operand_b_type") {
+      updates.operand_b_params = getDefaultParams(
+        value,
+        enums.OperandParameterConfig,
+      );
+    }
+
+    setRuleGroups((groups) =>
+      groups.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              rules: (group.rules || []).map((rule) =>
+                rule.id === ruleId ? { ...rule, ...updates } : rule,
+              ),
+            }
+          : group,
+      ),
+    );
+
+    setPendingEdits((prev) => ({
+      ...prev,
+      rules: {
+        ...prev.rules,
+        [ruleId]: { ...(prev.rules[ruleId] || {}), ...updates },
+      },
+    }));
+  };
+
+  const handleUpdateGroup = (groupId, field, value) => {
+    setRuleGroups((groups) =>
+      groups.map((group) =>
+        group.id === groupId ? { ...group, [field]: value } : group,
+      ),
+    );
+
+    setPendingEdits((prev) => ({
+      ...prev,
+      groups: {
+        ...prev.groups,
+        [groupId]: { ...(prev.groups[groupId] || {}), [field]: value },
+      },
+    }));
+  };
+
+  const handleSaveAll = async () => {
+    if (!hasPendingChanges) return;
+
+    try {
+      setSaving(true);
+      const updates = [
+        ...Object.entries(pendingEdits.rules).map(([ruleId, fields]) =>
+          ruleApi.update(ruleId, fields),
+        ),
+        ...Object.entries(pendingEdits.groups).map(([groupId, fields]) =>
+          ruleGroupApi.update(groupId, fields),
+        ),
+      ];
+      if (pendingEdits.entryConfig && strategy?.entry_order_config?.id) {
+        updates.push(
+          entryConfigApi.update(
+            strategy.entry_order_config.id,
+            pendingEdits.entryConfig,
+          ),
+        );
+      }
+
+      await Promise.all(updates);
+      setPendingEdits({ rules: {}, groups: {}, entryConfig: null });
+      notify.success("All changes saved");
+    } catch (error) {
+      console.error(error);
+      notify.error(getApiErrorMessage(error, "Failed to save some changes"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelAll = async () => {
+    if (
+      hasPendingChanges &&
+      !(await customConfirm("Discard all unsaved changes?"))
+    ) {
+      return;
+    }
+    navigate("/strategies");
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col justify-center items-center h-96 gap-3">
+        <GlobalLoader />
+        <p className="text-sm text-muted-foreground">Loading entry rules...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex-1 overflow-y-auto scrollbar-theme">
+        <div className="container-padding py-6 lg:py-8 space-y-6">
+          {/* Rule Groups */}
+          {ruleGroups.length === 0 ? (
+            <Card className="bg-card/40 border-border/80 border-dashed">
+              <CardContent className="py-10 text-center">
+                <Target className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                <p className="text-muted-foreground text-sm font-medium">
+                  No entry rules defined
+                </p>
+                <Button
+                  onClick={handleAddGroup}
+                  variant="link"
+                  className="text-emerald-700 dark:text-emerald-400"
+                >
+                  Create First Group
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/10">
+                    <Target className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">
+                      Entry Rules
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      Define entry conditions for the strategy
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Select
+                    value={entrySide}
+                    onValueChange={handleUpdateEntrySide}
+                  >
+                    <SelectTrigger
+                      className={`w-[110px] border text-sm h-9 font-semibold ${
+                        entrySide === "BUY"
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                          : "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-400"
+                      }`}
+                    >
+                      <span className="flex items-center">
+                        <span
+                          className={`inline-block h-2 w-2 rounded-full shrink-0 mr-2 ${
+                            entrySide === "BUY"
+                              ? "bg-emerald-400"
+                              : "bg-rose-400"
+                          }`}
+                        />
+                        {entrySide === "BUY" ? "Long" : "Short"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(enums.Side || []).filter(({ value }) => ["BUY", "SELL"].includes(value)).map((side) => (
+                        <SelectItem key={side.value} value={side.value}>
+                        <span className="flex items-center gap-2">
+                          <span className={`inline-block h-2 w-2 rounded-full ${side.value === "BUY" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                          {side.value === "BUY" ? "Long" : "Short"} ({side.label})
+                        </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleAddGroup}
+                    variant="outline"
+                    className="border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-800 dark:hover:text-emerald-300"
+                    size="sm"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1.5" />
+                    Add Group
+                  </Button>
+                </div>
+              </div>
+              {ruleGroups.map((group, groupIndex) => (
+                <div key={group.id}>
+                  {groupIndex > 0 && (
+                    <div className="flex items-center justify-center py-2">
+                      <div className="h-px w-12 bg-muted" />
+                      <TooltipHint content="Click to toggle between AND / OR logic between groups"><button
+                        onClick={handleUpdateInterGroupOperator}
+                        className={`mx-3 px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 cursor-pointer hover:scale-105 ${
+                          interGroupOperator === "AND"
+                            ? "bg-amber-600/20 text-amber-800 dark:text-amber-400 border-amber-500/30 hover:bg-amber-600/30"
+                            : "bg-indigo-600/20 text-indigo-700 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-600/30"
+                        }`}
+                      >
+                        {interGroupOperator}
+                      </button></TooltipHint>
+                      <div className="h-px w-12 bg-muted" />
+                    </div>
+                  )}
+
+                  <Card className="bg-card border-t border-t-emerald-500/20 border-border/80 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 left-1/4 w-1/2 h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
+                    <CardHeader className="pb-3 z-10 relative">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <div className="p-1.5 rounded-md bg-emerald-500/10">
+                            <GripVertical className="h-4 w-4 text-success/50 cursor-grab" />
+                          </div>
+                          <Input
+                            value={group.name}
+                            onChange={(e) =>
+                              handleUpdateGroup(
+                                group.id,
+                                "name",
+                                e.target.value,
+                              )
+                            }
+                            className="bg-transparent border-none text-foreground font-medium text-sm p-0 h-auto focus:ring-0 w-full max-w-[200px]"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={group.logical_operator}
+                            onValueChange={(v) =>
+                              handleUpdateGroup(group.id, "logical_operator", v)
+                            }
+                          >
+                            <SelectTrigger className="w-[90px] bg-muted/50 border-none hover:bg-muted/50 text-sm h-8 shadow-none focus:ring-0">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(enums.LogicalOperator || []).map((op) => (
+                                <SelectItem key={op.value} value={op.value}>
+                                  {op.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            onClick={() => handleAddRule(group.id)}
+                            variant="outline"
+                            size="sm"
+                            className="bg-emerald-500/10 border-none text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-800 dark:hover:text-emerald-300 h-8"
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1.5" />
+                            Add Rule
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteGroup(group.id)}
+                            className="text-muted-foreground hover:text-rose-800 dark:hover:text-rose-400 hover:bg-rose-500/10 h-8 w-8 p-0"
+                            title="Delete group"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-3 z-10 relative">
+                      {(group.rules || []).length === 0 ? (
+                        <div className="text-center py-6 border border-dashed border-border/60 rounded-lg">
+                          <p className="text-muted-foreground text-sm mb-2">
+                            No conditions in this group
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            {(group.rules || []).map((rule, ruleIndex) => (
+                              <RuleConditionEditor
+                                key={rule.id}
+                                rule={rule}
+                                logicalOperator={group.logical_operator}
+                                ruleType="ENTRY"
+                                showOperator={ruleIndex > 0}
+                                theme={{
+                                  accentBar:
+                                    "bg-emerald-500/30 group-hover:bg-emerald-500/60",
+                                  badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+                                  comparison: "text-emerald-700 dark:text-emerald-300",
+                                  switch: "data-[state=checked]:bg-emerald-500",
+                                }}
+                                deleteTitle="Delete Rule"
+                                onChange={(field, value) =>
+                                  handleUpdateRule(
+                                    group.id,
+                                    rule.id,
+                                    field,
+                                    value,
+                                  )
+                                }
+                                onDelete={() =>
+                                  handleDeleteRule(group.id, rule.id)
+                                }
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <StrategyFooter
+        onSave={handleSaveAll}
+        onCancel={handleCancelAll}
+        saving={saving}
+        disabled={!hasPendingChanges}
+        saveLabel="Save Changes"
+      />
+    </div>
+  );
+}

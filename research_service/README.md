@@ -147,7 +147,7 @@ cd backend
 cd ..
 .venv\Scripts\python.exe -m unittest research_service.tests -v
 cd frontend
-npx eslint src/features/dashboard/pages/analysis src/shared/services/researchApi.js
+npx eslint src/features/research src/shared/services/researchApi.js
 npm run build
 node --test --test-concurrency=1 tests/research-workspace.test.mjs tests/auth-session.test.mjs tests/ui-regressions.test.mjs
 ```

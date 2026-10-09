@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { build } from "esbuild";
-import { mergeResearchRuns } from "../src/features/dashboard/pages/analysis/hooks/researchState.js";
+import { mergeResearchRuns } from "../src/features/research/hooks/researchState.js";
 
 test("delayed research updates cannot replace a newer revision or erase history", () => {
   const original = [{ id: 1, revision: 4, status: "COMPLETED", result: { answer: "Validated" } }];
@@ -31,8 +31,8 @@ import { configureStore } from '@reduxjs/toolkit';
 import notificationReducer from './src/shared/store/notificationSlice.jsx';
 import { PageActionsProvider } from './src/shared/context/PageActionsContext.jsx';
 import { usePageActionState } from './src/shared/context/pageActions.js';
-import AIResearchAssistant from './src/features/dashboard/pages/analysis/AIResearchAssistant.jsx';
-import MarketScreener from './src/features/dashboard/pages/analysis/MarketScreener.jsx';
+import AIResearchAssistant from './src/features/research/pages/AIResearchAssistant.jsx';
+import MarketScreener from './src/features/research/pages/MarketScreener.jsx';
 window.regressionErrors = [];
 window.addEventListener('error', (event) => window.regressionErrors.push(event.message));
 console.error = (...args) => window.regressionErrors.push(args.map(String).join(' '));
@@ -45,7 +45,7 @@ const store = configureStore({ reducer: { notification: notificationReducer } })
 const freshConversation = ['welcome', 'message-race'].includes(mode);
 function WorkspaceLayout() {
   const { actions } = usePageActionState();
-  return <div className="flex h-screen flex-col"><header className="flex h-16 shrink-0 items-center justify-between px-4">Dashboard navigation<div>{actions}</div></header><main className="flex min-h-0 flex-1 flex-col">{mode === 'screener' ? <MarketScreener /> : <AIResearchAssistant />}</main></div>;
+  return <div className="flex min-h-0 flex-col" style={{ height: 'var(--viewport-height)' }}><header className="flex h-16 shrink-0 items-center justify-between px-4">Workspace navigation<div>{actions}</div></header><main className="flex min-h-0 flex-1 flex-col">{mode === 'screener' ? <MarketScreener /> : <AIResearchAssistant />}</main></div>;
 }
 createRoot(document.querySelector('#root')).render(<Provider store={store}><MemoryRouter initialEntries={[freshConversation ? '/' : '/?session=1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><PageActionsProvider><WorkspaceLayout /></PageActionsProvider></MemoryRouter></Provider>);
 async function run() {
@@ -178,11 +178,12 @@ const assets = path.join(frontend, "dist", "assets");
 const stylesheet = existsSync(assets) ? (await readdir(assets)).find((name) => name.endsWith(".css")) : null;
 assert.ok(stylesheet, "Build the frontend before running geometry regressions.");
 const html = path.join(temporary, "harness.html");
-await writeFile(html, `<style>${await readFile(path.join(assets, stylesheet), "utf8")}</style><div id="root"></div><pre id="result" style="display:none"></pre><script>${(await readFile(path.join(temporary, "harness.js"), "utf8")).replaceAll("</script>", "<\\/script>")}</script>`);
+await writeFile(html, `<style>${await readFile(path.join(assets, stylesheet), "utf8")}</style><script>document.documentElement.classList.toggle('dark', new URLSearchParams(location.search).get('theme') === 'dark');</script><div id="root"></div><pre id="result" style="display:none"></pre><script>${(await readFile(path.join(temporary, "harness.js"), "utf8")).replaceAll("</script>", "<\\/script>")}</script>`);
+for (const theme of ["light", "dark"])
 for (const scenario of ["welcome", "message-race", "conversation", "mobile", "attachments", "mobile-attachments", "progress", "confirmation", "screener"]) {
-  test(`research ${scenario} in headless Chrome`, { skip: !chrome }, () => {
-    const url = pathToFileURL(html); url.searchParams.set("case", scenario);
-    const result = spawnSync(chrome, ["--headless", "--disable-gpu", "--no-first-run", "--disable-background-networking", "--disable-extensions", `--window-size=${scenario.startsWith("mobile") ? "390,844" : "1440,1000"}`, `--user-data-dir=${path.join(temporary, scenario)}`, "--dump-dom", "--virtual-time-budget=8000", url.toString()], { encoding: "utf8", windowsHide: true, timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
+  test(`research ${scenario} ${theme} in headless Chrome`, { skip: !chrome }, () => {
+    const url = pathToFileURL(html); url.searchParams.set("case", scenario); url.searchParams.set("theme", theme);
+    const result = spawnSync(chrome, ["--headless", "--disable-gpu", "--no-first-run", "--disable-background-networking", "--disable-extensions", `--window-size=${scenario.startsWith("mobile") ? "390,844" : "1440,1000"}`, `--user-data-dir=${path.join(temporary, theme + '-' + scenario)}`, "--dump-dom", "--virtual-time-budget=8000", url.toString()], { encoding: "utf8", windowsHide: true, timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
     assert.equal(result.status, 0, result.error?.message || result.stderr.slice(-1500));
     const output = result.stdout.match(/<pre id="result"[^>]*>(.*?)<\/pre>/s)?.[1];
     assert.ok(output, result.stdout.slice(-4000));
