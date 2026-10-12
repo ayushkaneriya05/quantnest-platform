@@ -7,7 +7,6 @@ import logging
 from common.enums import BrokerName
 
 from .fyers_websocket import FyersOrderWebSocket
-from .paper_simulation import PaperWebSocketSimulator
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +28,12 @@ class BrokerWebSocketFactory:
     }
     
     @staticmethod
-    def create(credential, account=None):
+    def create(credential):
         """
         Create a broker WebSocket instance based on credential.
         
         Args:
             credential: BrokerCredential instance
-            account: Optional PaperAccount instance for paper trading simulation
             
         Returns:
             Instance of BaseBrokerWebSocket subclass
@@ -44,11 +42,6 @@ class BrokerWebSocketFactory:
             ValueError: If broker is not supported
         """
         broker_name = credential.broker_name
-        
-        # Check if this is for paper trading simulation
-        if account is not None:
-            logger.info(f"Creating paper WebSocket simulator for account {account.id}")
-            return PaperWebSocketSimulator(account)
         
         # Get broker-specific WebSocket class
         websocket_class = BrokerWebSocketFactory.BROKER_WEBSOCKET_CLASSES.get(broker_name)

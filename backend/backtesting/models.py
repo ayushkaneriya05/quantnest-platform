@@ -137,7 +137,7 @@ class BacktestTrade(BaseTimestampModel):
     holding_duration_minutes = models.PositiveIntegerField(default=0)
     
     # Context
-    exit_reason = models.CharField(max_length=50, blank=True)
+    exit_reason = models.TextField(blank=True)
     
     class Meta:
         db_table = 'backtest_trade'

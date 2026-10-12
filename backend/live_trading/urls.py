@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    BrokerAccountObservationViewSet,
     ExecutionLogViewSet,
     LiveOrderViewSet,
     LivePositionViewSet,
@@ -12,6 +13,7 @@ from .views import (
 )
 
 router = DefaultRouter()
+router.register(r"account-observations", BrokerAccountObservationViewSet, basename="broker-account-observation")
 router.register(r"sessions", TradingSessionViewSet, basename="live-session")
 router.register(r"orders", LiveOrderViewSet, basename="live-order")
 router.register(r"positions", LivePositionViewSet, basename="live-position")

@@ -10,6 +10,8 @@ class ResearchRequest(BaseModel):
     context: dict[str, Any]
     builder_schema: dict[str, Any]
     history: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
+    input_token_budget: int = Field(default=40000, ge=1000, le=200000)
+    output_token_budget: int = Field(default=6000, ge=1000, le=16000)
 
 
 class ResearchResult(BaseModel):

@@ -47,7 +47,7 @@ def latest_tick_data(request):
     normalized = MarketDataService.normalize_symbol(symbol)
     quote = QuoteStore.get_latest(normalized)
     if not quote:
-        quote = MarketDataService.get_live_quote_from_fyers(normalized)
+        quote = MarketDataService.get_live_quote(normalized)
     if not quote:
         quote = MarketDataService.latest_quote_from_storage(normalized)
     if not quote:
@@ -66,7 +66,7 @@ def live_quote(request):
     LiveMarketDataRegistry.add_symbols([normalized])
     quote = QuoteStore.get_latest(normalized)
     if not quote:
-        quote = MarketDataService.get_live_quote_from_fyers(normalized)
+        quote = MarketDataService.get_live_quote(normalized)
     if not quote:
         quote = MarketDataService.latest_quote_from_storage(normalized)
     if not quote:
@@ -86,7 +86,7 @@ def live_indices(request):
     for name, symbol in indices.items():
         quote = QuoteStore.get_latest(symbol)
         if not quote:
-            quote = MarketDataService.get_live_quote_from_fyers(symbol)
+            quote = MarketDataService.get_live_quote(symbol)
         if not quote:
             quote = MarketDataService.latest_quote_from_storage(symbol)
         if quote:

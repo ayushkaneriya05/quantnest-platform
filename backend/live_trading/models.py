@@ -109,6 +109,7 @@ class LiveStrategyAllocation(BaseTimestampModel):
         from django.db.models import Sum
         result = LiveOrder.objects.filter(
             allocation=self,
+            intent="ENTRY",
             status__in=[OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, "UNKNOWN"]
         ).aggregate(
             total=Sum(
@@ -155,6 +156,9 @@ class LiveOrder(BaseTimestampModel):
     filled_quantity = models.PositiveIntegerField(default=0)
     pending_quantity = models.PositiveIntegerField(default=0)
     avg_fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    filled_value = models.DecimalField(max_digits=24, decimal_places=8, default=0)
+    strategy_version = models.ForeignKey("strategies.StrategyVersion", on_delete=models.PROTECT, null=True, related_name="live_orders")
+    intent = models.CharField(max_length=10, choices=[("ENTRY", "Entry"), ("EXIT", "Exit")], default="ENTRY")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=OrderStatus.PENDING)
     rejection_reason = models.TextField(blank=True)
     placed_at = models.DateTimeField(auto_now_add=True)
@@ -181,6 +185,21 @@ class LiveOrder(BaseTimestampModel):
                 name="uniq_live_order_broker_id_per_credential",
             ),
         ]
+
+
+class BrokerAccountObservation(BaseTimestampModel):
+    """Unowned broker activity and account totals never become strategy trades."""
+    credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.CASCADE, related_name="account_observations")
+    kind = models.CharField(max_length=20, choices=[("ORDER", "External order"), ("POSITION", "Account position")])
+    broker_key = models.CharField(max_length=200)
+    symbol = models.CharField(max_length=100, blank=True)
+    payload = models.JSONField(default=dict)
+    expected_quantity = models.IntegerField(null=True, blank=True)
+    observed_quantity = models.IntegerField(null=True, blank=True)
+    matched = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["credential", "kind", "broker_key"], name="unique_broker_account_observation")]
 
 
 class LivePosition(BaseTimestampModel):
@@ -233,7 +252,7 @@ class LiveTrade(BaseTimestampModel):
     exit_price = models.DecimalField(max_digits=12, decimal_places=4)
     exit_time = models.DateTimeField()
   
-    exit_reason = models.CharField(max_length=50, blank=True)
+    exit_reason = models.TextField(blank=True)
     
     # P&L (broker handles costs, but we track for analytics)
     gross_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)

@@ -42,38 +42,24 @@ class StrategyRuntimeState:
     @classmethod
     def trade_state(cls, scope, session_id, instrument_id):
         """Get trade state for a session-instrument pair."""
+        scope = str(scope).lower()
         from core.cache_view import cache_view
         return cache_view.get_runtime_state(scope, session_id, instrument_id)
 
     @classmethod
     def update_trade_state(cls, scope, session_id, instrument_id, updates):
         """Update trade state for a session-instrument pair."""
-        from django.db import transaction
-        transaction.on_commit(
-            lambda: cache_api.update_runtime_state(scope, session_id, instrument_id, updates)
-        )
+        scope = str(scope).lower()
+        from core.outbox import enqueue
+        enqueue("runtime", f"{scope}:{session_id}:{instrument_id}", {
+            "scope": scope, "session_id": str(session_id),
+            "instrument_id": instrument_id, "updates": updates,
+        })
 
     # ------------------------------------------------------------------
     # Convenience state transition helpers
     # ------------------------------------------------------------------
 
-    @classmethod
-    def mark_entry_pending(
-        cls,
-        scope,
-        session_id,
-        instrument_id,
-        side,
-    ):
-        return cls.update_trade_state(
-            scope,
-            session_id,
-            instrument_id,
-            {
-                "phase": cls.ENTRY_PENDING,
-                "side": side,
-            },
-        )
 
     @classmethod
     def mark_open(
@@ -87,6 +73,7 @@ class StrategyRuntimeState:
         config=None,
         opened_at=None,
         execution_instrument_id=None,
+        settled_request_id=None,
     ):
         protection = derive_protection_levels(config or {}, side, avg_price)
         return cls.update_trade_state(
@@ -100,23 +87,15 @@ class StrategyRuntimeState:
                 "quantity": int(quantity or 0),
                 "avg_price": float(avg_price),
                 "entry_time": opened_at.isoformat() if opened_at else None,
+                "pending_request_id": None,
+                **({"settled_request_id": str(settled_request_id)} if settled_request_id else {}),
                 **protection,
             },
         )
 
-    @classmethod
-    def mark_exit_pending(cls, scope, session_id, instrument_id):
-        return cls.update_trade_state(
-            scope,
-            session_id,
-            instrument_id,
-            {
-                "phase": cls.EXIT_PENDING,
-            },
-        )
 
     @classmethod
-    def mark_closed(cls, scope, session_id, instrument_id):
+    def mark_closed(cls, scope, session_id, instrument_id, *, closed_at=None, entered_at=None, settled_request_id=None):
         return cls.update_trade_state(
             scope,
             session_id,
@@ -127,12 +106,17 @@ class StrategyRuntimeState:
                 "execution_instrument_id": None,
                 "protected_stop_price": None,
                 "protected_target_price": None,
+                "pending_request_id": None,
+                **({"settled_request_id": str(settled_request_id)} if settled_request_id else {}),
+                **({"last_exit_time": closed_at.isoformat()} if closed_at else {}),
+                **({"last_entry_time": entered_at.isoformat()} if entered_at else {}),
             },
         )
 
     @classmethod
-    def reconcile_trade_state(cls, scope, session_id, instrument_id, config=None, failed_reason=None):
+    def reconcile_trade_state(cls, scope, session_id, instrument_id, config=None, failed_reason=None, settled_request_id=None):
         """Rebuild one trade phase from durable active orders and positions."""
+        scope = str(scope).lower()
         from common.enums import OrderStatus
 
         session_id = str(session_id)
@@ -160,6 +144,7 @@ class StrategyRuntimeState:
             state_updates = {
                 "phase": phase,
                 "side": positions[0].side if positions else active_orders[0].side,
+                "pending_request_id": str(active_orders[0].request_id) if active_orders[0].request_id else None,
             }
             cls.update_trade_state(scope, session_id, instrument_id, state_updates)
             return phase
@@ -177,7 +162,8 @@ class StrategyRuntimeState:
                 scope,
                 session_id,
                 instrument_id,
-                {"phase": phase, "side": positions[0].side if positions else request_side},
+                {"phase": phase, "side": positions[0].side if positions else request_side,
+                 "pending_request_id": pending_request.get("request_id")},
             )
             return phase
 
@@ -192,11 +178,26 @@ class StrategyRuntimeState:
             else:
                 deployed = getattr(getattr(getattr(session, "account", None), "allocation", None), "deployed_version", None)
             config = config or (deployed.config_snapshot if deployed else {})
-            cls.mark_open(scope, session_id, instrument_id, position.side, quantity, avg_price, config=config, opened_at=position.opened_at, execution_instrument_id=execution_id)
+            cls.mark_open(scope, session_id, instrument_id, position.side, quantity, avg_price, config=config,
+                          opened_at=position.opened_at, execution_instrument_id=execution_id,
+                          settled_request_id=settled_request_id)
             cls._clear_failed_partial_exit(scope, session_id, instrument_id, failed_reason)
             return cls.OPEN
 
-        cls.mark_closed(scope, session_id, instrument_id)
+        # Recover instrument cooldowns from durable fills on this cold path.
+        # Session-wide risk timestamps must not block another instrument.
+        if scope == "live":
+            from live_trading.models import LiveTrade
+            closes = LiveTrade.objects.filter(exit_order__session=session, instrument_id=instrument_id)
+        else:
+            from paper_trading.models import PaperTrade
+            closes = PaperTrade.objects.filter(account=session.account, strategy=session.strategy,
+                                               instrument_id=instrument_id)
+        latest_close = closes.order_by("-exit_time", "-pk").values("entry_time", "exit_time").first()
+        cls.mark_closed(scope, session_id, instrument_id,
+                        closed_at=latest_close["exit_time"] if latest_close else None,
+                        entered_at=latest_close["entry_time"] if latest_close else None,
+                        settled_request_id=settled_request_id)
         cls._clear_failed_partial_exit(scope, session_id, instrument_id, failed_reason)
         return cls.CLOSED
 
@@ -276,85 +277,36 @@ class StrategyRuntimeState:
     # ------------------------------------------------------------------
 
     @classmethod
-    def rebuild_runtime_state_from_db(cls, scope, session_id):
+    def rebuild_runtime_state_from_db(cls, scope, session_id, instrument_ids=()):
+        """Recover each configured, positioned or pending instrument exactly once.
+
+        The caller holds the account lock. Let failures abort owner startup;
+        publishing a partially recovered session as ready is unsafe.
         """
-        Rebuild runtime state from database positions for session recovery.
-        
-        Args:
-            scope: Either "live" or "paper"
-            session_id: Session identifier
-            
-        Returns:
-            Number of positions recovered
-        """
-        try:
-            if scope == "live":
-                from live_trading.models import LivePosition, TradingSession
-                session = TradingSession.objects.select_related("allocation__deployed_version").get(id=session_id)
-                positions = LivePosition.objects.filter(
-                    allocation=session.allocation,
-                    quantity__gt=0
-                ).select_related('instrument', 'allocation__deployed_version')
-            else:
-                from paper_trading.models import PaperPosition, PaperTradingSession
-                session = PaperTradingSession.objects.select_related("account", "allocation__deployed_version").get(id=session_id)
-                positions = PaperPosition.objects.filter(
-                    account=session.account,
-                    strategy=session.strategy,
-                    quantity__gt=0
-                ).select_related('instrument', 'account__allocation__deployed_version')
-            
-            instrument_ids = {position.instrument_id for position in positions}
-            recovered_count = 0
-            for instrument_id in instrument_ids:
-                try:
-                    cls.reconcile_trade_state(scope, session_id, instrument_id)
-                    recovered_count += 1
-                except Exception as e:
-                    logger.error("Failed to rebuild runtime state for %s session %s instrument %s: %s", scope, session_id, instrument_id, e)
+        from common.enums import OrderStatus
 
-            logger.info(f"Rebuilt runtime state for {recovered_count} positions in {scope} session {session_id}")
-            return recovered_count
-            
-        except Exception as e:
-            logger.error(f"Failed to rebuild runtime state for {scope} session {session_id}: {e}")
-            return 0
-
-    @classmethod
-    def rebuild_pending_order_state(cls, scope, session_id):
-        """Recreate pending entry/exit phases after a worker restart."""
-        from common.enums import OrderStatus, Side
-
-        active_statuses = [OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, "UNKNOWN"]
+        active = [OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, "UNKNOWN"]
         if scope == "live":
             from live_trading.models import LiveOrder, LivePosition, TradingSession
-
-            session = TradingSession.objects.get(id=session_id)
-            orders = LiveOrder.objects.filter(session=session, status__in=active_statuses)
-            position_query = LivePosition.objects.filter(allocation=session.allocation, quantity__gt=0)
+            session = TradingSession.objects.get(pk=session_id)
+            positions = LivePosition.objects.filter(allocation_id=session.allocation_id, quantity__gt=0)
+            orders = LiveOrder.objects.filter(session_id=session.pk, status__in=active)
         else:
             from paper_trading.models import PaperOrder, PaperPosition, PaperTradingSession
+            session = PaperTradingSession.objects.get(pk=session_id)
+            positions = PaperPosition.objects.filter(
+                account_id=session.account_id, strategy_id=session.strategy_id, quantity__gt=0)
+            orders = PaperOrder.objects.filter(
+                account_id=session.account_id, strategy_id=session.strategy_id, status__in=active)
 
-            session = PaperTradingSession.objects.get(id=session_id)
-            orders = PaperOrder.objects.filter(account=session.account, strategy=session.strategy, status__in=active_statuses)
-            position_query = PaperPosition.objects.filter(account=session.account, strategy=session.strategy, quantity__gt=0)
+        ids = set(instrument_ids)
+        ids.update(positions.values_list("instrument_id", flat=True))
+        ids.update(orders.values_list("instrument_id", flat=True))
+        for instrument_id in sorted(ids):
+            cls.reconcile_trade_state(scope, str(session_id), instrument_id)
+        logger.info("Recovered %s instruments for %s session %s", len(ids), scope, session_id)
+        return len(ids)
 
-        positions = {(position.instrument_id, position.side): position for position in position_query}
-
-        recovered = 0
-        for order in orders.select_related("instrument"):
-            matching_position = positions.get((order.instrument_id, order.side))
-            opposite_side = Side.SELL if order.side == Side.BUY else Side.BUY
-            opposite_position = positions.get((order.instrument_id, opposite_side))
-            if opposite_position:
-                phase = cls.PARTIAL_EXIT_PENDING if order.filled_quantity else cls.EXIT_PENDING
-            elif matching_position:
-                phase = cls.ENTRY_PENDING
-            else:
-                phase = cls.ENTRY_PENDING
-            cls.update_trade_state(scope, str(session_id), order.instrument_id, {"phase": phase, "side": order.side})
-            recovered += 1
-        return recovered
 
     @classmethod
     def _rebuild_risk_metrics(cls, scope, session_id, current=None):

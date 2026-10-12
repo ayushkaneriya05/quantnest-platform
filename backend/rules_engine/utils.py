@@ -1,5 +1,4 @@
 import logging
-from decimal import Decimal
 from common.enums import Side, OperandType
 from common.trading_utils import to_float, get_any_field
 

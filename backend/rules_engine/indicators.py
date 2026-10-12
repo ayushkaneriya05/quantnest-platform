@@ -9,7 +9,7 @@ if not hasattr(np, "NaN"):
 import pandas_ta as ta
 from common.enums import OperandType, get_operand_parameter_config, get_operand_parameter_defaults
 from common.trading_utils import to_float
-from .math_utils import fast_ffill_align_float, fast_sma, fast_ema
+from .math_utils import fast_sma, fast_ema
 
 logger = logging.getLogger(__name__)
 

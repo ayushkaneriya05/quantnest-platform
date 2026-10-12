@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { cn } from "@/shared/lib/utils";
 import {
@@ -70,7 +70,6 @@ export default function ModifyPositionModal({
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentMarketPrice, setCurrentMarketPrice] = useState(null);
-  const [estimatedValue, setEstimatedValue] = useState(0);
   const [profitLoss, setProfitLoss] = useState({ amount: 0, percentage: 0 });
   const [riskReward, setRiskReward] = useState({
     risk: 0,
@@ -128,20 +127,12 @@ export default function ModifyPositionModal({
     }
   }, [position?.id]);
 
-  // Effect to calculate estimated order value and risk/reward
+  // Calculate risk/reward for the proposed position changes.
   useEffect(() => {
     if (!formData.quantity || currentMarketPrice === null) {
-      setEstimatedValue(0);
       setRiskReward({ risk: 0, reward: 0, ratio: 0 });
       return;
     }
-    const quantity = safeNumber(formData.quantity);
-    const price =
-      formData.order_type === "LIMIT" && formData.price
-        ? safeNumber(formData.price)
-        : currentMarketPrice;
-    setEstimatedValue(quantity * price);
-
     if (formData.stop_loss && formData.take_profit && position) {
       const stopLoss = safeNumber(formData.stop_loss);
       const takeProfit = safeNumber(formData.take_profit);

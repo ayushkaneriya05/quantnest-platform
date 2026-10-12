@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useWebSocket } from "@/shared/hooks/useWebSocket";
 import tradingTerminalApi from "@/features/terminal/services/tradingTerminalApi.js";

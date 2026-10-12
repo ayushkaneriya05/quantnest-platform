@@ -1,4 +1,3 @@
-import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import {
@@ -55,7 +54,6 @@ export default function AccountSummary({ account, trades = [], positions = [], m
   const isLiveDataConnected = connectionStatus === "connected";
   const { totals } = useLivePositionsPnL(positions);
   const dynamicUnrealizedPnl = totals.totalUnrealizedPnL || 0;
-  const realizedPnl = Number(metrics?.realizedPnl || 0);
   const equityValue = Number(metrics?.balance || 0) + dynamicUnrealizedPnl;
 
   return (

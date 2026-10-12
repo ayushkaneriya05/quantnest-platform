@@ -1,4 +1,3 @@
-import logging
 import threading
 import time
 from copy import deepcopy
@@ -7,8 +6,6 @@ from typing import Dict, Any, Optional
 
 from strategy_engine.runtime import StrategyRuntimeState
 from core.cache_view import cache_view
-
-logger = logging.getLogger(__name__)
 
 class SessionContext(ABC):
     """
@@ -28,17 +25,12 @@ class SessionContext(ABC):
         "pnl_points",
         "pnl_percentage",
     }
-    _PENDING_PHASES = {
-        StrategyRuntimeState.ENTRY_PENDING,
-        StrategyRuntimeState.EXIT_PENDING,
-        StrategyRuntimeState.PARTIAL_EXIT_PENDING,
-    }
-
     def __init__(self, session_id: str, strategy_id: str, scope: str):
         self.session_id = session_id
         self.strategy_id = strategy_id
         self.scope = scope
         self.user_id = self._fetch_user_id()
+        self.ownership = {}
         self._runtime_l1: Dict[int, Dict[str, Any]] = {}
         self._runtime_l1_lock = threading.RLock()
         self._execution_context_lock = threading.Lock()
@@ -56,7 +48,8 @@ class SessionContext(ABC):
             risk = cache_view.get_risk_metrics(self.scope, self.session_id)
         capital = 0.0
         if funds:
-            available = funds.get("available_margin") or funds.get("cash_balance") or funds.get("net_equity") or 0
+            available = next((funds[key] for key in ("available_margin", "cash_balance", "net_equity")
+                              if funds.get(key) is not None), 0)
             if self.scope == "live":
                 allocation = funds.get("allocation_available_capital")
                 capital = min(float(allocation or 0), float(available or 0))
@@ -72,26 +65,25 @@ class SessionContext(ABC):
         """Fetch the associated user ID for the session.  Called once at init (DB is OK here)."""
         pass
 
-    @abstractmethod
-    def get_strategy_config(self) -> Dict[str, Any]:
-        """Returns the strategy config for the session.  Called once at init (DB is OK here)."""
-        pass
-    
-    @abstractmethod
     def get_available_capital(self) -> float:
-        """Returns available capital for entry sizing."""
-        pass
+        """Read refreshed local capital; stale inputs block new entries."""
+        with self._execution_context_lock:
+            if time.monotonic() - self._execution_context_updated > 5:
+                return 0.0
+            return self._cached_capital
 
-    @abstractmethod
     def get_risk_stats(self) -> Dict[str, Any]:
-        """Returns stats required for risk evaluation (drawdown, daily loss, etc)."""
-        pass
-        
+        """Read refreshed local risk inputs without cache or database I/O."""
+        with self._execution_context_lock:
+            if time.monotonic() - self._execution_context_updated > 5:
+                return {}
+            return dict(self._cached_risk_stats)
+
     def get_risk_evaluator(self) -> Any:
         """Returns a RiskEvaluator initialized with the available capital."""
         from risk_management.evaluator import RiskEvaluator
         return RiskEvaluator(self.get_available_capital())
-        
+
     def get_runtime_state(self, instrument_id: int) -> Dict[str, Any]:
         """Read worker-local state; fetch the Redis projection only on first use."""
         with self._runtime_l1_lock:
@@ -102,26 +94,36 @@ class SessionContext(ABC):
                 self._runtime_l1[instrument_id] = local_state
 
             return deepcopy(local_state or {})
-        
+
     def update_runtime_state(self, instrument_id: int, updates: Dict[str, Any]):
-        """Update L1 state and persist only lifecycle/non-hot fields."""
+        """Update worker-local state; background publication owns persistence."""
         with self._runtime_l1_lock:
             state = self._runtime_l1.setdefault(instrument_id, {})
             state.update(updates)
 
-            shared_updates = {
-                field: value
-                for field, value in updates.items()
-                if field not in self._HOT_FIELDS and not field.startswith("breakeven_") and not field.startswith("partial_exit_")
-            }
-        if shared_updates:
-            StrategyRuntimeState.update_trade_state(self.scope, self.session_id, instrument_id, shared_updates)
+        # The owning actor applies decisions locally. The order publisher and
+        # financial outbox publish lifecycle transitions outside evaluation.
 
     def apply_external_runtime_state(self, instrument_id: int, updates: Dict[str, Any]):
-        """Apply a lifecycle event to this worker's L1 state."""
+        """Apply a newer event and report whether calculations must be invalidated."""
         with self._runtime_l1_lock:
             state = self._runtime_l1.setdefault(instrument_id, {})
+            if updates.get("_version", 0) <= state.get("_version", -1):
+                return False
+            pending_id = state.get("pending_request_id")
+            unsettled = pending_id and updates.get("settled_request_id") != pending_id
+            pending = {"phase": state.get("phase"), "pending_request_id": pending_id} if unsettled else {}
+            preserved = {key: value for key, value in state.items() if key in self._HOT_FIELDS}
+            if updates.get("entry_time") != state.get("entry_time"):
+                state.clear()
+                preserved = {}
+            elif state.get("protected_stop_price") is not None and updates.get("protected_stop_price") is not None:
+                before, after = float(state["protected_stop_price"]), float(updates["protected_stop_price"])
+                preserved["protected_stop_price"] = max(before, after) if state.get("side") == "BUY" else min(before, after)
             state.update(updates)
+            state.update(preserved)
+            state.update(pending)
+            return True
 
     def get_position(self, instrument_id: int, config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
@@ -148,59 +150,16 @@ class LiveSessionContext(SessionContext):
     def __init__(self, session_id: str, strategy_id: str):
         super().__init__(session_id, strategy_id, "live")
 
-    def get_strategy_config(self) -> Dict[str, Any]:
-        from live_trading.models import TradingSession
-        session = TradingSession.objects.filter(id=self.session_id).select_related(
-            'allocation__deployed_version'
-        ).first()
-        if session and session.allocation and session.allocation.deployed_version:
-            config = session.allocation.deployed_version.config_snapshot
-            return config
-        return {}
-    
     def _fetch_user_id(self) -> str:
         from live_trading.models import TradingSession
         session = TradingSession.objects.only("user_id").filter(id=self.session_id).first()
         return session.user_id if session else None
 
-    def get_available_capital(self) -> float:
-        with self._execution_context_lock:
-            if time.monotonic() - self._execution_context_updated > 5:
-                return 0.0
-            return self._cached_capital
-
-    def get_risk_stats(self) -> Dict[str, Any]:
-        with self._execution_context_lock:
-            if time.monotonic() - self._execution_context_updated > 5:
-                return {}
-            return dict(self._cached_risk_stats)
-
-
 class PaperSessionContext(SessionContext):
     def __init__(self, session_id: str, strategy_id: str):
         super().__init__(session_id, strategy_id, "paper")
-
-    def get_strategy_config(self) -> Dict[str, Any]:
-        from paper_trading.models import PaperTradingSession
-        session = PaperTradingSession.objects.filter(id=self.session_id).select_related('allocation__deployed_version').first()
-        if session and session.allocation and session.allocation.deployed_version:
-            config = session.allocation.deployed_version.config_snapshot
-            return config
-        return {}
 
     def _fetch_user_id(self) -> str:
         from paper_trading.models import PaperTradingSession
         session = PaperTradingSession.objects.only("account__user_id").select_related("account").filter(id=self.session_id).first()
         return session.account.user_id if session and session.account else None
-
-    def get_available_capital(self) -> float:
-        with self._execution_context_lock:
-            if time.monotonic() - self._execution_context_updated > 5:
-                return 0.0
-            return self._cached_capital
-
-    def get_risk_stats(self) -> Dict[str, Any]:
-        with self._execution_context_lock:
-            if time.monotonic() - self._execution_context_updated > 5:
-                return {}
-            return dict(self._cached_risk_stats)

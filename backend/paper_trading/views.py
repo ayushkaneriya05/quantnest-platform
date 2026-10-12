@@ -231,7 +231,7 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         for session in allocation.paper_sessions.all():
             AutoDisableGate.version_changed(session)
             if session.status == "RUNNING":
-                transaction.on_commit(lambda session=session: PaperExecutionService._publish_execution_event("VERSION_CHANGE", session, "paper"))
+                PaperExecutionService._publish_execution_event("VERSION_CHANGE", session, "paper")
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)

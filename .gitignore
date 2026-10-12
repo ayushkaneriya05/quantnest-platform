@@ -45,6 +45,11 @@ media/
 !**/migrations/__init__.py
 
 # === Node.js / React / Vite ===
+# Temporary browser profiles and UI test captures
+.research-harness-*/
+test-results/
+playwright-report/
+
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -70,6 +75,7 @@ src/assets/react.svg
 *.swo
 *.bak
 *.tmp
+*.tmp.json
 *.orig
 *.rej
 Thumbs.db

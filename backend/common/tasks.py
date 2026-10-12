@@ -2,6 +2,7 @@ import logging
 
 from celery import shared_task
 from django.core.management import call_command
+from core.retention import prune_runtime_records
 
 logger = logging.getLogger(__name__)
 

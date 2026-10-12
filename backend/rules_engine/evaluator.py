@@ -5,7 +5,6 @@ import pandas as pd
 if not hasattr(np, "NaN"):
     np.NaN = np.nan
 
-import pandas_ta as ta
 from common.enums import (
     ComparisonOperator,
     OperandType,

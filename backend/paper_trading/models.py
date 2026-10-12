@@ -523,7 +523,7 @@ class PaperTrade(BaseTimestampModel):
         null=True,
         related_name='exit_trades'
     )
-    exit_reason = models.CharField(max_length=50, blank=True)
+    exit_reason = models.TextField(blank=True)
     
     # P&L
     gross_pnl = models.DecimalField(max_digits=12, decimal_places=2)
@@ -560,6 +560,7 @@ class PaperTradingSession(BaseTimestampModel):
     SESSION_STATUSES = [
         ("RUNNING", "Running"),
         ("PAUSED", "Paused"),
+        ("STOPPING", "Stopping"),
         ("STOPPED", "Stopped"),
         ("ERROR", "Error"),
     ]

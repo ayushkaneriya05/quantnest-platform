@@ -15,6 +15,32 @@ class BaseTimestampModel(models.Model):
         abstract = True
 
 
+class RuntimeOutbox(BaseTimestampModel):
+    """Committed runtime publications, retried independently of API requests."""
+    topic = models.CharField(max_length=32)
+    aggregate_key = models.CharField(max_length=200)
+    payload = models.JSONField()
+    published_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["published_at", "id"], name="runtime_outbox_pending_idx")]
+
+
+class RuntimeAssignment(BaseTimestampModel):
+    """Indexed control-plane ownership; execution discovery reads only its partitions."""
+    scope = models.CharField(max_length=10, choices=[("paper", "Paper"), ("live", "Live")])
+    session_id = models.CharField(max_length=40)
+    instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE)
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE)
+    shard = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["scope", "session_id", "instrument"], name="unique_runtime_actor")]
+        indexes = [models.Index(fields=["shard", "scope", "session_id"], name="runtime_assignment_shard_idx")]
+
+
 class ExchangeConfig(BaseTimestampModel):
     """Stores market timing configuration for each exchange.
 

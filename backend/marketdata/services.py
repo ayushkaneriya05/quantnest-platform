@@ -1,10 +1,9 @@
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, timedelta
 from datetime import timezone as py_timezone
 from decimal import Decimal
 from math import ceil
 
-import pandas as pd
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
@@ -39,7 +38,7 @@ class MarketStatusService:
         is_weekday = now_ist.weekday() < 5
         market_start = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
         market_end = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
-        
+
         # If outside basic hours, we can skip the API call for optimization
         if not is_weekday or now_ist < market_start or now_ist > market_end:
             cache.set(cls.CACHE_KEY, False, timeout=cls.CACHE_TIMEOUT)
@@ -91,17 +90,8 @@ class MarketDataService:
 
     @classmethod
     def required_1m_candles(cls, config, session_minutes=375):
-        from rules_engine.metadata import IndicatorRequirementAnalyzer
-
-        requirements = IndicatorRequirementAnalyzer.get_warmup_requirements(config or {})
-        timeframe_minutes = {
-            "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30,
-            "1H": 60, "4H": 240, "1D": session_minutes, "1W": session_minutes * 5,
-        }
-        normalized_requirements = {
-            cls.normalize_timeframe(timeframe): count for timeframe, count in requirements.items()
-        }
-        return max(2, max(count * timeframe_minutes.get(timeframe, 1) for timeframe, count in normalized_requirements.items()))
+        from trading_domain.configuration import requirements
+        return requirements(config or {}, session_minutes)[2]
 
     @classmethod
     def normalize_symbol(cls, symbol):
@@ -118,11 +108,11 @@ class MarketDataService:
             from instruments.models import Instrument
             # 1. Prioritize NSE Equity
             instrument = Instrument.objects.filter(symbol=value.upper(), exchange="NSE", segment=10).first()
-            
+
             # 2. Fallback to any generic match if specific equity isn't found
             if not instrument:
                 instrument = Instrument.objects.filter(symbol=value.upper()).first()
-                
+
             if instrument and instrument.sym_ticker:
                 return instrument.sym_ticker
         except Exception:
@@ -133,30 +123,8 @@ class MarketDataService:
 
     @classmethod
     def normalize_timeframe(cls, timeframe):
-        value = str(timeframe or "1m").strip()
-        aliases = {
-            "1": "1m",
-            "3": "3m",
-            "5": "5m",
-            "15": "15m",
-            "30": "30m",
-            "60": "1H",
-            "240": "4H",
-            "D": "1D",
-            "1d": "1D",
-            "1D": "1D",
-            "W": "1W",
-            "1w": "1W",
-            "1W": "1W",
-            "1h": "1H",
-            "1H": "1H",
-            "4h": "4H",
-            "4H": "4H",
-        }
-        normalized = aliases.get(value, value)
-        if normalized not in SUPPORTED_TIMEFRAMES:
-            raise ValueError(f"Unsupported timeframe '{timeframe}'")
-        return normalized
+        from trading_domain.configuration import normalize_timeframe
+        return normalize_timeframe(timeframe)
 
     @classmethod
     def serialize_candle(cls, candle):
@@ -203,11 +171,20 @@ class MarketDataService:
         bucket_interval = cls.get_timescale_interval(timeframe)
         # Anchor intraday buckets to session open and weekly buckets to Monday midnight.
         calendar = calendar or MarketSessionCalendar.for_symbol(normalized)
-        session_origin = calendar.bucket_origin(timeframe)
+        if timeframe == "1W":
+            bucket = 'date_trunc(\'week\', "time", %s)'
+            bucket_params = [calendar.timezone_name]
+        else:
+            # Align each local date independently, including exchanges with DST.
+            bucket = """timezone(%s, date_bin(%s::interval, timezone(%s, "time"),
+                        date_trunc('day', timezone(%s, "time")) + %s::interval))"""
+            opening = timedelta(hours=calendar.market_open.hour, minutes=calendar.market_open.minute)
+            bucket_params = [calendar.timezone_name, bucket_interval, calendar.timezone_name,
+                             calendar.timezone_name, opening]
 
-        query = """
-            SELECT 
-                time_bucket(%s, "time", %s) AS bucket_time,
+        query = f"""
+            SELECT
+                {bucket} AS bucket_time,
                 FIRST(open, "time") AS open,
                 MAX(high) AS high,
                 MIN(low) AS low,
@@ -216,7 +193,7 @@ class MarketDataService:
             FROM marketdata_candle
             WHERE symbol = %s AND timeframe = %s
         """
-        params = [bucket_interval, session_origin, normalized, db_timeframe]
+        params = [*bucket_params, normalized, db_timeframe]
 
         if start_dt is not None:
             query += ' AND "time" >= %s'
@@ -252,10 +229,10 @@ class MarketDataService:
         latest_candle = cls.latest_candle(symbol, timeframe=timeframe)
         if latest_candle is None:
             return None
-            
+
         change = 0.0
         change_percent = 0.0
-        
+
         try:
             daily_candles = cls.list_candles(symbol, timeframe="1D", limit=2)
             if len(daily_candles) >= 2:
@@ -283,53 +260,24 @@ class MarketDataService:
         }
 
     @classmethod
-    def get_live_quote_from_fyers(cls, symbol):
-        access_token = get_active_fyers_access_token()
-        if not access_token:
+    def get_live_quote(cls, symbol):
+        from marketdata.providers import provider
+        from django.core.cache import caches
+        quotes = caches["marketdata"]
+        source = provider()
+        normalized = cls.normalize_symbol(symbol)
+        key = f"rest-quote:{source.name}:{normalized}"
+        cached = quotes.get(key)
+        if cached is not None:
+            return cached or None
+        if not quotes.add(f"{key}:loading", True, timeout=15):
             return None
-        
         try:
-            from fyers_apiv3 import fyersModel
-            fyers = fyersModel.FyersModel(client_id=settings.FYERS_CLIENT_ID, is_async=False, token=access_token)
-            
-            normalized = cls.normalize_symbol(symbol)
-            data = {"symbols": normalized}
-            response = fyers.quotes(data=data)
-            
-            if response.get("s") == "ok" and "d" in response and response["d"]:
-                quote_data = response["d"][0].get("v", {})
-                if quote_data:
-                    # Fyers timestamp is typically in epoch seconds
-                    tt_val = quote_data.get("tt", 0)
-                    if not tt_val:
-                        tt_val = int(timezone.now().timestamp())
-                    dt = datetime.fromtimestamp(int(tt_val), tz=py_timezone.utc)
-                    return {
-                        "symbol": normalized,
-                        "price": float(quote_data.get("lp", 0)),
-                        
-                        # Backward compatibility keys
-                        "open": float(quote_data.get("open_price", 0)),
-                        "high": float(quote_data.get("high_price", 0)),
-                        "low": float(quote_data.get("low_price", 0)),
-                        "close": float(quote_data.get("prev_close_price", 0)),
-                        
-                        # New, perfectly accurate daily keys
-                        "day_open": float(quote_data.get("open_price", 0)),
-                        "day_high": float(quote_data.get("high_price", 0)),
-                        "day_low": float(quote_data.get("low_price", 0)),
-                        "prev_close": float(quote_data.get("prev_close_price", 0)),
-                        "volume": int(quote_data.get("volume", 0)),
-                        "timestamp": dt.isoformat(),
-                        "resolution": "1m",
-                        "change": float(quote_data.get("ch", 0)),
-                        "change_percent": float(quote_data.get("chp", 0)),
-                        "updated_at": dt.isoformat(),
-                    }
-        except Exception as e:
-            logger.error(f"Error fetching live quote from Fyers for {symbol}: {e}")
-        return None
-
+            quote = source.quote(normalized)
+            quotes.set(key, quote or {}, timeout=2)
+            return quote
+        finally:
+            quotes.delete(f"{key}:loading")
 
     @staticmethod
     def get_instrument(symbol):
@@ -358,7 +306,7 @@ class MarketDataService:
             candle_time = candle["time"]
             if timezone.is_naive(candle_time):
                 candle_time = timezone.make_aware(candle_time, py_timezone.utc)
-            
+
             key = (normalized, timeframe, candle_time)
             unique_rows[key] = Candle(
                 instrument=instrument,
@@ -371,7 +319,7 @@ class MarketDataService:
                 close=Decimal(str(candle["close"])),
                 volume=int(candle.get("volume", 0) or 0),
             )
-            
+
         rows = list(unique_rows.values())
 
         with transaction.atomic():
@@ -411,65 +359,24 @@ class MarketDataService:
 
     @classmethod
     def fetch_candles_from_broker(cls, symbol, timeframe, date_from, date_to):
-        access_token = get_active_fyers_access_token()
-        if not access_token:
-            logger.error("No active Fyers access token found")
-            return None
-
-        client_id = settings.FYERS_CLIENT_ID
-        resolution = MarketDataService.normalize_timeframe(timeframe)
-        api_resolution = MarketDataService.RESOLUTION_TO_FYERS.get(resolution, resolution)
-
-        def _to_fyers_epoch(val, *, end_of_day=False):
-            if isinstance(val, (int, float)):
-                return int(val)
-            val_str = str(val)
-            if "T" in val_str or ":" in val_str:
-                dt = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
-                return int(dt.timestamp())
-            if "-" in val_str:
-                dt = datetime.fromisoformat(val_str[:10]).replace(tzinfo=py_timezone.utc)
-                if len(val_str) <= 10 and end_of_day:
-                    dt = dt.replace(hour=23, minute=59, second=59)
-                return int(dt.timestamp())
-            return int(val_str)
-        params = {
-            "symbol": MarketDataService.normalize_symbol(symbol),
-            "resolution": api_resolution,
-            "date_format": "0",
-            "range_from": str(_to_fyers_epoch(date_from)),
-            "range_to": str(_to_fyers_epoch(date_to, end_of_day=True)),
-            "cont_flag": "1",
-        }
-
-        try:
-            from fyers_apiv3 import fyersModel
-            fyers = fyersModel.FyersModel(client_id=client_id, is_async=False, token=access_token)
-            data = fyers.history(data=params)
-        except Exception as exc:
-            logger.exception("Exception while fetching candles for %s: %s", symbol, exc)
-            return None
-
-        if data.get("s") == "no_data":
-            return []
-
-        if data.get("s") != "ok":
-            logger.error("Fyers API Error for %s: %s", symbol, data)
-            return None
-
-        candles = []
-        for item in data.get("candles", []):
-            candles.append(
-                {
-                    "time": datetime.fromtimestamp(int(item[0]), tz=py_timezone.utc),
-                    "open": float(item[1]),
-                    "high": float(item[2]),
-                    "low": float(item[3]),
-                    "close": float(item[4]),
-                    "volume": int(item[5]),
-                }
-            )
-        return candles
+        from marketdata.providers import provider
+        from core.redis import runtime_redis
+        # Single-flight is keyed by canonical request; separate jobs share the fetch.
+        import hashlib, json
+        identity = hashlib.sha256(json.dumps([symbol, timeframe, str(date_from), str(date_to)]).encode()).hexdigest()
+        client = runtime_redis()
+        cache_key = f"quantnest:history:{settings.MARKET_DATA_PROVIDER}:{identity}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        with client.lock(f"{cache_key}:lock", timeout=180, blocking_timeout=20):
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
+            candles = provider().history(symbol, cls.normalize_timeframe(timeframe), date_from, date_to)
+            if candles is not None:
+                cache.set(cache_key, candles, timeout=60)
+            return candles
 
     @classmethod
     def backfill_candles_from_broker(cls, symbol, date_from, date_to, timeframe="1m"):
@@ -638,7 +545,7 @@ class ChartDataService:
                     start_dt=start_dt,
                     end_dt=end_dt,
                 )
-            
+
             if not candles:
                 candles = cls.list_candles(
                     symbol=normalized,
@@ -708,12 +615,12 @@ class ChartDataService:
             return True
         if len(candles) < min(int(limit), 120):
             return True
-            
+
         if end_dt:
             latest_time = max(c["time"] for c in candles)
             if (end_dt.timestamp() - latest_time) > 10:  # 10 second tolerance
                 return True
-                
+
         return False
 
     @classmethod
@@ -728,10 +635,8 @@ class ChartDataService:
             start=start_dt.date().isoformat(),
             end=end_dt.date().isoformat()
         )
-        if cache.get(lock_key):
+        if not cache.add(lock_key, True, timeout=cls.FETCH_LOCK_TTL_SECONDS):
             return 0
-
-        cache.set(lock_key, True, timeout=cls.FETCH_LOCK_TTL_SECONDS)
         fetched_total = 0
         chunk_start = start_dt.date()
         end_date = end_dt.date()
@@ -763,7 +668,7 @@ class ChartDataService:
             if fetched is None:
                 api_failed = True
                 break
-                
+
             fetched_total += len(fetched)
             chunk_start = chunk_end + timedelta(days=1)
 
@@ -772,7 +677,5 @@ class ChartDataService:
             return 0
 
         return fetched_total
-
-
 
 

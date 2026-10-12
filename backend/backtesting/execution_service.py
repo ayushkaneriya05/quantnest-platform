@@ -184,7 +184,6 @@ class BacktestExecutionService:
             return
 
         remaining_orders = []
-        committed_capital = sum(float(position.get('capital_used', 0.0)) for position in context.positions.values())
         for order in pending_orders:
             instrument = order['instrument']
             side = order['side']
@@ -204,10 +203,16 @@ class BacktestExecutionService:
 
             # Execute at OPEN price
             execution_price = float(execution_candle["open"])
-            if exit_reason == "strategy_entry" and execution_price * quantity > context.current_capital - committed_capital:
+            from common.costs import TradingCostCalculator
+            slipped_price = float(TradingCostCalculator.apply_slippage(execution_price, side, slippage_pct))
+            required_capital = slipped_price * quantity
+            # Earlier exits in this batch may release capital. Entries reserve
+            # their actual slipped notional, rather than the unslipped quote.
+            available_capital = context.get_available_capital()
+            if exit_reason == "strategy_entry" and required_capital > available_capital:
                 logger.info(
                     "Backtest entry rejected at fill: instrument=%s required=%.2f available=%.2f",
-                    instrument.id, execution_price * quantity, context.current_capital - committed_capital,
+                    instrument.id, required_capital, available_capital,
                 )
                 context.diagnostics["capital_rejections"] += 1
                 continue
@@ -224,7 +229,6 @@ class BacktestExecutionService:
                 execute_immediately=True,
             )
             if exit_reason == "strategy_entry":
-                committed_capital += execution_price * quantity
                 context.diagnostics["entry_fills"] += 1
 
         context.pending_orders = remaining_orders

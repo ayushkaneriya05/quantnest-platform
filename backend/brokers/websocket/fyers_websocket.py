@@ -16,25 +16,25 @@ logger = logging.getLogger(__name__)
 class FyersOrderWebSocket(BaseBrokerWebSocket):
     """
     Fyers order WebSocket implementation using fyers-apiv3 SDK.
-    
+
     Provides real-time updates for:
     - Orders (on_orders)
     - Trades (on_trades)
     - Positions (on_positions)
     - General messages (on_general)
     """
-    
+
     # Fyers order status codes
     STATUS_CANCELLED = 1
     STATUS_FILLED = 2
     STATUS_TRANSIT = 4
     STATUS_REJECTED = 5
     STATUS_PENDING = 6
-    
+
     def __init__(self, credential):
         """
         Initialize Fyers order WebSocket.
-        
+
         Args:
             credential: BrokerCredential instance for Fyers
         """
@@ -43,23 +43,23 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
         self.socket = None
         self.access_token = None
         self.auth_session_id = None
-        
+
     def _get_valid_token(self) -> str:
         """
         Get valid access token from broker session.
-        
+
         Returns:
             Access token string in format "client_id:access_token"
-            
+
         Raises:
             ValueError: If no valid session exists
         """
-        
+
         session = self.credential.sessions.filter(
             is_valid=True,
             token_expiry__gt=timezone.now()
         ).order_by('-created_at').first()
-        
+
         if not session:
             raise ValueError(
                 f"No valid Fyers session found for credential {self.credential.id}. "
@@ -69,11 +69,11 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
         self.auth_session_id = session.id
         self.access_token = session.access_token
         return f"{self.credential.client_id}:{self.access_token}"
-    
+
     def connect(self) -> None:
         """
         Connect to Fyers order WebSocket.
-        
+
         Raises:
             RuntimeError: If fyers-apiv3 is not available
             ValueError: If authentication fails
@@ -85,10 +85,10 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
                 "fyers-apiv3 package is not available. "
                 "Install it with: pip install fyers-apiv3==3.1.16"
             )
-        
+
         try:
             access_token = self._get_valid_token()
-            
+
             self.socket = order_ws.FyersOrderSocket(
                 access_token=access_token,
                 log_path=str(settings.BASE_DIR / "logs") if hasattr(settings, 'BASE_DIR') else "",
@@ -97,15 +97,15 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
                 on_positions=self._on_position_message,
                 on_general=self._on_general_message,
             )
-            
+
             self.socket.connect()
             self.is_connected = True
             logger.info(f"Connected to Fyers order WebSocket for credential {self.credential.id}")
-            
+
         except Exception as e:
             logger.exception(f"Failed to connect to Fyers order WebSocket: {e}")
             raise
-    
+
     def disconnect(self) -> None:
         """Disconnect from Fyers order WebSocket."""
         socket = self.socket
@@ -122,11 +122,11 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
             self.is_connected = False
             self.is_subscribed = False
             logger.info(f"Disconnected from Fyers order WebSocket for credential {self.credential.id}")
-    
+
     def subscribe(self, data_types: list) -> None:
         """
         Subscribe to Fyers data types.
-        
+
         Args:
             data_types: List of data types to subscribe to.
                        Valid values: 'orders', 'trades', 'positions', 'general'
@@ -134,7 +134,7 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
         """
         if not self.is_connected:
             raise RuntimeError("WebSocket is not connected. Call connect() first.")
-        
+
         try:
             # Map our data types to Fyers subscription format
             type_mapping = {
@@ -143,30 +143,30 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
                 'positions': 'OnPositions',
                 'general': 'OnGeneral'
             }
-            
+
             fyers_types = []
             for dt in data_types:
                 fyers_type = type_mapping.get(dt.lower())
                 if fyers_type:
                     fyers_types.append(fyers_type)
-            
+
             if not fyers_types:
                 logger.warning("No valid data types provided for subscription")
                 return
-            
+
             subscription_string = ",".join(fyers_types)
             self.socket.subscribe(data_type=subscription_string)
             self.is_subscribed = True
             logger.info(f"Subscribed to Fyers data types: {subscription_string}")
-            
+
         except Exception as e:
             logger.exception(f"Failed to subscribe to Fyers data types: {e}")
             raise
-    
+
     def _on_order_message(self, message: Dict[str, Any]) -> None:
         """
         Process Fyers order WebSocket message.
-        
+
         Args:
             message: Raw WebSocket message from Fyers
         """
@@ -179,11 +179,11 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
                 logger.warning(f"Fyers order message error: {message}")
         except Exception as e:
             logger.exception(f"Error processing Fyers order message: {e}")
-    
+
     def _on_trade_message(self, message: Dict[str, Any]) -> None:
         """
         Process Fyers trade WebSocket message.
-        
+
         Args:
             message: Raw WebSocket message from Fyers
         """
@@ -196,11 +196,11 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
                 logger.warning(f"Fyers trade message error: {message}")
         except Exception as e:
             logger.exception(f"Error processing Fyers trade message: {e}")
-    
+
     def _on_position_message(self, message: Dict[str, Any]) -> None:
         """
         Process Fyers position WebSocket message.
-        
+
         Args:
             message: Raw WebSocket message from Fyers
         """
@@ -213,32 +213,32 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
                 logger.warning(f"Fyers position message error: {message}")
         except Exception as e:
             logger.exception(f"Error processing Fyers position message: {e}")
-    
+
     def _on_general_message(self, message: Dict[str, Any]) -> None:
         """
         Process Fyers general WebSocket message (login, eDIS, price alerts).
-        
+
         Args:
             message: Raw WebSocket message from Fyers
         """
         try:
             self._trigger_callbacks('general', message)
-            logger.debug(f"Processed Fyers general message")
+            logger.debug("Processed Fyers general message")
         except Exception as e:
             logger.exception(f"Error processing Fyers general message: {e}")
-    
+
     def normalize_order_update(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize Fyers order update to standard format.
-        
+
         Args:
             raw_data: Raw Fyers order WebSocket message
-            
+
         Returns:
             Normalized order data with standard field names
         """
         orders = raw_data.get("orders", {})
-        
+
         return {
             "broker_order_id": orders.get("id") or "",
             "exchange_order_id": orders.get("exch_ord_id") or "",
@@ -257,19 +257,19 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
             "updated_at": timezone.now().isoformat(),
             "raw": orders
         }
-    
+
     def normalize_trade_update(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize Fyers trade update to standard format.
-        
+
         Args:
             raw_data: Raw Fyers trade WebSocket message
-            
+
         Returns:
             Normalized trade data with standard field names
         """
         trades = raw_data.get("trades", {})
-        
+
         return {
             "trade_number": trades.get("trade_number") or "",
             "order_number": trades.get("order_number") or "",
@@ -284,14 +284,14 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
             "updated_at": timezone.now().isoformat(),
             "raw": trades
         }
-    
+
     def normalize_position_update(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize Fyers position update to standard format.
-        
+
         Args:
             raw_data: Raw Fyers position WebSocket message
-            
+
         Returns:
             Normalized position data with standard field names
         """
@@ -303,7 +303,7 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
             position_side = Side.BUY
         else:
             position_side = None
-        
+
         return {
             "broker_position_id": positions.get("id") or "",
             "symbol": positions.get("symbol") or "",

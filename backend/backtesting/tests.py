@@ -13,6 +13,7 @@ class BacktestExecutionTests(SimpleTestCase):
         self.instrument = SimpleNamespace(id=7, instrument_type="EQUITY")
         self.context = BacktestContext(
             initial_capital=10000, include_charges=False,
+            strategy_config={"time_rule": {"timezone": "Asia/Kolkata"}, "auto_disable_rules": []},
         )
         self.entry_time = datetime(2026, 1, 5, 9, 15, tzinfo=timezone.utc)
 
@@ -90,3 +91,28 @@ class BacktestExecutionTests(SimpleTestCase):
         self.assertIsNone(self.context.get_position(self.instrument.id))
         self.assertEqual(self.context.get_pending_orders(), [])
         self.assertEqual(self.context.diagnostics["capital_rejections"], 1)
+
+    def test_capital_admission_includes_adverse_entry_slippage(self):
+        self.context.current_capital = 1000
+        self.context.add_pending_order({
+            "instrument": self.instrument, "side": Side.BUY, "quantity": 10,
+            "strategy_config": {}, "exit_reason": "strategy_entry", "slippage_pct": 1,
+        })
+        BacktestExecutionService.execute_pending_orders(
+            self.context, {self.instrument.id: {"open": 100}}, self.entry_time,
+        )
+        self.assertIsNone(self.context.get_position(self.instrument.id))
+        self.assertEqual(self.context.diagnostics["capital_rejections"], 1)
+
+    def test_an_exit_releases_capital_for_a_later_pending_entry(self):
+        self.context.current_capital = 1000
+        other = SimpleNamespace(id=8, instrument_type="EQUITY")
+        BacktestExecutionService.execute_market_order(self.context, self.instrument, Side.BUY, 10, 100,
+            self.entry_time, {}, execute_immediately=True)
+        for instrument, side, reason in ((self.instrument, Side.SELL, "strategy_exit"),
+                                         (other, Side.BUY, "strategy_entry")):
+            self.context.add_pending_order({"instrument": instrument, "side": side, "quantity": 10,
+                "strategy_config": {}, "exit_reason": reason, "slippage_pct": 0})
+        BacktestExecutionService.execute_pending_orders(self.context,
+            {self.instrument.id: {"open": 100}, other.id: {"open": 100}}, self.entry_time)
+        self.assertIsNotNone(self.context.get_position(other.id))

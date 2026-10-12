@@ -6,13 +6,13 @@ import json
 import logging
 import time
 import pandas as pd
-from django.core.cache import cache
+from django.core.cache import caches
 from django.db import transaction
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncMonth
 from django.forms.models import model_to_dict
 from rest_framework.exceptions import ValidationError
-from common.enums import CandleTimeframe, LogicalOperator, OperandType
+from common.enums import CandleTimeframe, LogicalOperator
 from instruments.models import Instrument
 from marketdata.access import StrategyMarketDataService
 from marketdata.calendar import MarketSessionCalendar
@@ -31,6 +31,7 @@ from .context import research_instrument_ids
 logger = logging.getLogger(__name__)
 
 MAX_TOOLS = 8
+cache = caches["research"]
 
 
 def _screen_config(arguments):

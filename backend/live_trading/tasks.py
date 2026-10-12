@@ -39,15 +39,13 @@ def reconcile_all_active_accounts(credential_id=None):
     active_sessions = list(active_sessions)
     credentials = {session.broker_credential_id: session.broker_credential for session in active_sessions if session.broker_credential_id and session.broker_credential}
 
-    for session in active_sessions:
+    for credential in credentials.values():
         try:
-            if session.broker_credential:
-                reconciliation_service = BrokerReconciliationService(session)
-                reconciliation_service.reconcile_orders()
-                # reconciliation_service.reconcile_positions()
-        except Exception as exc:
-            logger.exception("Account reconciliation failed for user %s: %s", session.user_id, exc)
-            continue
+            reconciliation_service = BrokerReconciliationService(credential)
+            reconciliation_service.reconcile_orders()
+            reconciliation_service.reconcile_positions()
+        except Exception:
+            logger.exception("Account reconciliation failed credential=%s", credential.pk)
 
     # Refresh after order/position reconciliation so allocation capital is
     # computed from the latest durable state.

@@ -15,7 +15,7 @@ from instruments.models import Instrument
 from marketdata.access import StrategyMarketDataService
 from strategies.models import Strategy
 from backtesting.models import BacktestRun, BacktestMetrics, BacktestTrade
-from .models import ResearchSession, ResearchRun, ResearchAction
+from .models import ResearchSession, ResearchRun
 from .actions import propose_action, confirm_action
 from .services import create_strategy_draft, update_active_run
 from .tools import execute_tool, market_rows, _screen_config, _closed_data, get_backtest_report
@@ -576,7 +576,10 @@ class ResearchTests(TestCase):
             self.assertEqual(payload["run"]["id"], 1)
             await connected.send_input({"type": "websocket.disconnect", "code": 1000})
             await connected.wait()
-        with patch("users.websocket.AuthSessionConsumerMixin._session_is_valid", new=AsyncMock(return_value=True)):
+        # Channels runs request connection cleanup on the sync test thread.
+        # Preserve TestCase's PostgreSQL transaction while testing routing.
+        with patch("users.websocket.AuthSessionConsumerMixin._session_is_valid", new=AsyncMock(return_value=True)), \
+             patch("channels.db.close_old_connections"):
             async_to_sync(verify)()
 
     def test_old_ai_table_cleanup_keeps_unrelated_tables(self):

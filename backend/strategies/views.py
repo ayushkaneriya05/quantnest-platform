@@ -454,7 +454,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         strategy = self.get_object()
 
         from paper_trading.models import PaperTradingSession
-        if PaperTradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED']).exists():
+        if PaperTradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED', 'STOPPING', 'ERROR']).exists():
             return Response(
                 {'error': 'Stop all running or paused paper sessions before archiving this strategy.'},
                 status=status.HTTP_409_CONFLICT,

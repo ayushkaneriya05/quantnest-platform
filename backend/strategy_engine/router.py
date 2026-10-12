@@ -17,6 +17,13 @@ class OrderRequest:
     target_price: float
     reason: Optional[str] = None
     intent: str = "ENTRY"
+    account_key: str = ""
+    owner_key: str = ""
+    owner_token: str = ""
+    expires_at: float = 0
+    entry_time: Optional[str] = None
+    strategy_version_id: int = 0
+    state_updates: dict = field(default_factory=dict)
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self):
@@ -39,11 +46,17 @@ class StrategyOrderRouter:
         self._initialized = True
         logger.info("OrderRouter initialized with durable Redis Streams transport")
 
+    def set_publisher(self, publisher):
+        self._publisher = publisher
+
     def publish_order(self, request: OrderRequest):
         """
         Adds the request to its live or paper stream. XADD is the durable handoff.
         """
         from strategy_engine.order_queue import publish_order
+        if getattr(self, "_publisher", None):
+            self._publisher(request)
+            return request.request_id
         request_id = publish_order(request)
         logger.info("Queued %s order request %s for instrument %s", request.scope, request_id, request.instrument_id)
         return request_id

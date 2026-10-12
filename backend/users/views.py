@@ -6,9 +6,7 @@ import qrcode
 import qrcode.image.svg
 from allauth.account.models import EmailAddress
 from django.contrib.auth import get_user_model
-from django.utils import timezone
 from django_otp import devices_for_user
-from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import generics, status, throttling
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated

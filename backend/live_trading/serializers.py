@@ -3,6 +3,17 @@ from django.utils import timezone
 
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
 from strategies.models import StrategyVersion
+from .models import BrokerAccountObservation
+
+
+class BrokerAccountObservationSerializer(serializers.ModelSerializer):
+    broker_label = serializers.CharField(source="credential.label", read_only=True)
+
+    class Meta:
+        model = BrokerAccountObservation
+        fields = ["id", "credential", "broker_label", "kind", "broker_key", "symbol", "payload",
+                  "expected_quantity", "observed_quantity", "matched", "created_at", "updated_at"]
+        read_only_fields = fields
 
 
 class TradingSessionSerializer(serializers.ModelSerializer):

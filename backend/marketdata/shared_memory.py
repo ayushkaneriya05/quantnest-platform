@@ -1,291 +1,232 @@
-import time
-import numpy as np
-from multiprocessing import shared_memory
-import logging
 
-logger = logging.getLogger(__name__)
+"""Consistent, local memory-mapped candles and sequenced observed ticks.
+
+Only the supervised feed writes. Readers take an OS shared lock on Linux;
+Windows uses a short exclusive file lock. Publication metadata is updated last.
+"""
+import hashlib
+import mmap
+import os
+import struct
+import tempfile
+import threading
+import time
+from contextlib import contextmanager
+from pathlib import Path
+
+import numpy as np
+
+HEADER = 128
+TICK_COLUMNS = 5  # sequence, event epoch, receive epoch, price, volume delta
+
 
 class SharedMemoryManager:
-    """
-    Manages POSIX Shared Memory blocks for Numpy arrays.
-    Creates a circular buffer for O(1) appending of OHLCV data.
-    """
-    def __init__(self, symbol: str, timeframe: str, max_size: int = 10000, create: bool = False):
-        self.symbol = symbol
-        self.timeframe = timeframe
-        self.max_size = max_size
-        self.shape = (max_size, 6) # Open, High, Low, Close, Volume, epoch timestamp
-        self.dtype = np.float64
-        
-        # Safe names for POSIX (can't have special chars)
-        safe_sym = symbol.replace(":", "_").replace("-", "_")
-        self.data_name = f"data_v3_{safe_sym}_{timeframe}"
-        self.meta_name = f"meta_v3_{safe_sym}_{timeframe}"
-        
-        self.data_shm = None
-        self.meta_shm = None
-        self.array = None
-        self.meta_array = None
-        
-        self._init_memory(create)
-
-    def _init_memory(self, create: bool):
-        # Data block: max_size * 6 * 8 bytes (float64)
-        data_bytes = self.max_size * 6 * 8
-        # Meta block: [current_index, tick_counter, latest_tick_epoch_ms]
-        meta_bytes = 24
-        
-        initialized_here = False
+    def __init__(self, symbol, timeframe, max_size=10000, create=False):
+        self.symbol, self.timeframe = symbol, timeframe
+        directory = Path(os.environ.get("QUANTNEST_RUNTIME_DIR", str(Path(tempfile.gettempdir()) / "quantnest-runtime")))
+        directory.mkdir(parents=True, exist_ok=True)
+        identity = hashlib.sha256(f"{symbol}:{timeframe}".encode()).hexdigest()[:32]
+        self.path = directory / f"market-v4-{identity}.mmap"
+        self._thread_lock = threading.RLock()
+        self._depth = 0
         if create:
-            try:
-                self.data_shm = shared_memory.SharedMemory(name=self.data_name, create=True, size=data_bytes)
-                try:
-                    self.meta_shm = shared_memory.SharedMemory(name=self.meta_name, create=True, size=meta_bytes)
-                except Exception:
-                    self.data_shm.close()
-                    self.data_shm.unlink()
-                    raise
-                initialized_here = True
-            except FileExistsError:
-                # A concurrent feed process may still be creating the paired block.
-                deadline = time.monotonic() + 5
-                while True:
-                    try:
-                        self.data_shm = shared_memory.SharedMemory(name=self.data_name)
-                        self.meta_shm = shared_memory.SharedMemory(name=self.meta_name)
-                        break
-                    except FileNotFoundError:
-                        if self.data_shm is not None:
-                            self.data_shm.close()
-                            self.data_shm = None
-                        if time.monotonic() >= deadline:
-                            raise RuntimeError(f"Shared memory initialization timed out for {self.symbol} {self.timeframe}")
-                        time.sleep(0.01)
+            descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+            self._file = os.fdopen(descriptor, "r+b")
         else:
+            self._file = open(self.path, "r+b")
+        with self._locked():
+            size = os.fstat(self._file.fileno()).st_size
+            if not size:
+                if not create:
+                    raise FileNotFoundError(self.path)
+                capacity = max(2, int(max_size))
+                tick_capacity = max(1024, int(os.environ.get("MARKET_TICK_CAPACITY", "32768")))
+                size = HEADER + capacity * 6 * 8 + tick_capacity * TICK_COLUMNS * 8
+                self._file.truncate(size)
+                self._file.seek(0)
+                self._file.write(struct.pack("<qq", capacity, tick_capacity))
+                self._file.flush()
+            self._map = mmap.mmap(self._file.fileno(), size)
+            self.max_size, self.tick_capacity = struct.unpack_from("<qq", self._map)
+            if self.max_size < 2 or size != HEADER + self.max_size * 48 + self.tick_capacity * TICK_COLUMNS * 8:
+                raise ValueError("Invalid market buffer header")
+            self.meta_array = np.ndarray((8,), dtype=np.int64, buffer=self._map, offset=16)
+            self.array = np.ndarray((self.max_size, 6), dtype=np.float64, buffer=self._map, offset=HEADER)
+            self.ticks = np.ndarray((self.tick_capacity, TICK_COLUMNS), dtype=np.float64,
+                                    buffer=self._map, offset=HEADER + self.max_size * 48)
+
+    @contextmanager
+    def _locked(self, shared=False):
+        with self._thread_lock:
+            if self._depth == 0:
+                if os.name == "nt":
+                    import msvcrt
+                    self._file.seek(0)
+                    deadline = time.monotonic() + 2
+                    while True:
+                        try:
+                            msvcrt.locking(self._file.fileno(), msvcrt.LK_NBLCK, 1)
+                            break
+                        except OSError:
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError("Market buffer lock timeout")
+                            time.sleep(0.001)
+                else:
+                    import fcntl
+                    fcntl.flock(self._file.fileno(), fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+            self._depth += 1
             try:
-                self.data_shm = shared_memory.SharedMemory(name=self.data_name)
-                self.meta_shm = shared_memory.SharedMemory(name=self.meta_name)
-            except FileNotFoundError:
-                logger.error(f"Shared memory blocks not found for {self.symbol} {self.timeframe}")
-                raise
-            except Exception as e:
-                logger.error(f"Failed to attach to shared memory for {self.symbol} {self.timeframe}: {e}")
-                raise
+                yield
+            finally:
+                self._depth -= 1
+                if self._depth == 0:
+                    if os.name == "nt":
+                        import msvcrt
+                        self._file.seek(0)
+                        msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
 
-        # The creator may use a session-specific capacity. Derive it from the
-        # attached block so workers use the same circular buffer.
-        self.max_size = self.data_shm.size // (6 * 8)
-        self.shape = (self.max_size, 6)
-            
-        self.array = np.ndarray(self.shape, dtype=self.dtype, buffer=self.data_shm.buf)
-        self.meta_array = np.ndarray((3,), dtype=np.int64, buffer=self.meta_shm.buf)
-        
-        if initialized_here:
-            # Attaching processes must never erase data owned by the feed.
-            self.array.fill(0.0)
-            self.meta_array.fill(0)
 
     @property
-    def current_index(self) -> int:
-        return int(self.meta_array[0])
-        
-    @property
-    def tick_counter(self) -> int:
-        return int(self.meta_array[1])
+    def tick_counter(self):
+        with self._locked(shared=True):
+            return int(self.meta_array[1])
 
-    def is_tick_fresh(self, max_age_seconds: float = 15.0) -> bool:
-        last_tick_ms = int(self.meta_array[2])
-        return last_tick_ms > 0 and 0 <= time.time() - (last_tick_ms / 1000.0) <= max_age_seconds
-        
+    @property
+    def revision(self):
+        with self._locked(shared=True):
+            return int(self.meta_array[3])
+
+    def is_tick_fresh(self, max_age_seconds=15.0):
+        with self._locked(shared=True):
+            received = int(self.meta_array[2]) / 1000.0
+        return received > 0 and 0 <= time.time() - received <= max_age_seconds
+
+    @property
+    def history_revision(self):
+        with self._locked(shared=True):
+            return int(self.meta_array[4])
+
     def advance_candle(self):
-        """
-        Moves the pointer forward when a candle closes.
-        """
-        idx = self.current_index
-        next_idx = (idx + 1) % self.max_size
-        self.meta_array[0] = next_idx
-        # Reset the new slot
-        self.array[next_idx].fill(0.0)
-        
-    def update_current_candle(self, price: float, volume: float, timestamp: float = None):
-        """
-        Updates the current forming candle with new tick data.
-        """
-        idx = self.current_index
-        tick_timestamp = float(timestamp if timestamp is not None else time.time())
-        candle_timestamp = int(tick_timestamp // 60) * 60
+        with self._locked():
+            index = (int(self.meta_array[0]) + 1) % self.max_size
+            self.array[index].fill(0)
+            self.meta_array[0] = index
+            self.meta_array[3] += 1
 
-        active_timestamp = int(self.array[idx, 5]) if self.array[idx, 5] else 0
-        if active_timestamp and candle_timestamp < active_timestamp:
-            # Out-of-order broker ticks must not move the active candle backward.
-            return
+    @property
+    def source_gap(self):
+        with self._locked(shared=True):
+            return int(self.meta_array[5])
 
-        if self.array[idx, 5] and self.array[idx, 5] != candle_timestamp:
-            self.advance_candle()
-            idx = self.current_index
-        
-        # If open is 0, initialize the candle
-        if self.array[idx, 0] == 0.0:
-            self.array[idx, 0] = price
-            self.array[idx, 1] = price
-            self.array[idx, 2] = price
-            self.array[idx, 3] = price
-            self.array[idx, 4] = volume
-            self.array[idx, 5] = candle_timestamp
-        else:
-            # Update High
-            if price > self.array[idx, 1]:
-                self.array[idx, 1] = price
-            # Update Low
-            if price < self.array[idx, 2]:
-                self.array[idx, 2] = price
-            # Update Close
-            self.array[idx, 3] = price
-            # Accumulate Volume
-            self.array[idx, 4] += volume
-            self.array[idx, 5] = candle_timestamp
-            
-        self.meta_array[1] += 1
-        self.meta_array[2] = int(time.time() * 1000)
-            
-    def get_latest_data(self, lookback: int = None):
-        """
-        Retrieves the data correctly ordered, unwrapping the circular buffer.
-        """
-        if lookback is None or lookback > self.max_size:
-            lookback = self.max_size
-        lookback = max(0, int(lookback))
-        if lookback == 0:
-            return np.empty((0, self.array.shape[1]), dtype=self.dtype)
+    def mark_gap(self):
+        with self._locked():
+            self.meta_array[5] += 1
 
-        idx = self.current_index
-        start = (idx - lookback + 1) % self.max_size
+    def update_current_candle(self, price, volume, timestamp=None, received_time=None,
+                              source_sequence=None, source_generation=None):
+        price, volume = float(price), float(volume)
+        event_time = float(timestamp if timestamp is not None else time.time())
+        if not np.isfinite([price, volume, event_time]).all() or price <= 0 or volume < 0:
+            raise ValueError("Invalid normalized market tick")
+        received = float(received_time if received_time is not None else time.time())
+        if not np.isfinite(received) or received <= 0 or received > time.time() + 1:
+            raise ValueError("Invalid market receipt timestamp")
+        candle_time = int(event_time // 60) * 60
+        with self._locked():
+            if source_sequence is not None:
+                previous_sequence, previous_generation = int(self.meta_array[6]), int(self.meta_array[7])
+                if previous_generation == source_generation and previous_sequence >= source_sequence:
+                    return False
+                if previous_sequence and (previous_generation != source_generation or source_sequence != previous_sequence + 1):
+                    self.meta_array[5] += 1
+                self.meta_array[6], self.meta_array[7] = source_sequence, source_generation
+            index = int(self.meta_array[0])
+            active = self.array[index, 5]
+            if active and candle_time < active:
+                return False
+            if active and active != candle_time:
+                self.advance_candle()
+                index = int(self.meta_array[0])
+            row = self.array[index]
+            if row[0] == 0:
+                row[:] = [price, price, price, price, volume, candle_time]
+            else:
+                row[1], row[2], row[3] = max(row[1], price), min(row[2], price), price
+                row[4] += volume
+            sequence = int(self.meta_array[1]) + 1
+            self.ticks[(sequence - 1) % self.tick_capacity] = [sequence, event_time, received, price, volume]
+            self.meta_array[2] = int(received * 1000)
+            self.meta_array[1] = sequence
+        return sequence
 
-        # Copy only the requested chronological window. np.roll copied the full
-        # shared-memory capacity on every slow-path evaluation, even when the
-        # strategy only needed a small indicator warmup window.
-        if start <= idx:
-            return self.array[start:idx + 1].copy()
-        return np.concatenate((self.array[start:], self.array[:idx + 1]), axis=0)
+    def read_ticks(self, after_sequence, limit=None):
+        with self._locked(shared=True):
+            latest = int(self.meta_array[1])
+            oldest = max(1, latest - self.tick_capacity + 1)
+            gap = after_sequence > latest or after_sequence + 1 < oldest
+            first = max(oldest, after_sequence + 1) if after_sequence <= latest else oldest
+            end = min(latest + 1, first + int(limit)) if limit else latest + 1
+            indices = (np.arange(first, end, dtype=np.int64) - 1) % self.tick_capacity
+            return self.ticks[indices].copy(), gap
+
+    def get_latest_data(self, lookback=None):
+        with self._locked(shared=True):
+            count = self.max_size if lookback is None else min(self.max_size, max(0, int(lookback)))
+            index = int(self.meta_array[0])
+            indices = (np.arange(index - count + 1, index + 1) % self.max_size).astype(int)
+            return self.array[indices].copy()
 
     def get_latest_price(self):
-        """Return the latest forming candle close, or None if empty."""
-        latest = self.array[self.current_index]
-        if latest[0] == 0.0:
-            return None
-        # Basic data validation
-        if not self._validate_price_data(latest):
-            logger.warning(f"Invalid price data detected for {self.symbol}, returning None")
-            return None
-        return float(latest[3])
-    
-    def _validate_price_data(self, data_row):
-        """Validate price data for integrity."""
-        try:
-            open_price = float(data_row[0])
-            high_price = float(data_row[1])
-            low_price = float(data_row[2])
-            close_price = float(data_row[3])
-            volume = float(data_row[4])
-            
-            # Basic validation
-            if open_price <= 0 or high_price <= 0 or low_price <= 0 or close_price <= 0:
-                return False
-            if high_price < low_price:
-                return False
-            if close_price > high_price or close_price < low_price:
-                return False
-            if volume < 0:
-                return False
-            
-            return True
-        except (ValueError, TypeError, IndexError):
-            return False
+        with self._locked(shared=True):
+            row = self.array[int(self.meta_array[0])].copy()
+        return float(row[3]) if self._validate_price_data(row) else None
+
+    @staticmethod
+    def _validate_price_data(row):
+        return bool(np.isfinite(row).all() and min(row[:4]) > 0 and row[1] >= row[2]
+                    and row[2] <= row[3] <= row[1] and row[4] >= 0 and row[5] > 0)
+
+    def preload_historical_data(self, max_lookback, validate=True):
+        from marketdata.services import MarketDataService
+        if max_lookback > self.max_size:
+            raise ValueError("Historical depth exceeds buffer capacity")
+        if validate:
+            readiness = MarketDataService.ensure_historical_candles(self.symbol, self.timeframe, max_lookback)
+            if not readiness["ready"]:
+                raise ValueError(f"Historical data incomplete for {self.symbol}")
+        candles = MarketDataService.list_candles(self.symbol, self.timeframe, limit=max_lookback)
+        if len(candles) < max_lookback:
+            raise ValueError(f"Historical depth incomplete for {self.symbol}")
+        rows = []
+        for candle in candles:
+            epoch = candle["time"]
+            epoch = epoch.timestamp() if hasattr(epoch, "timestamp") else epoch
+            row = [candle[key] for key in ("open", "high", "low", "close", "volume")] + [epoch]
+            if not self._validate_price_data(np.asarray(row, dtype=float)):
+                raise ValueError(f"Invalid historical candle for {self.symbol}")
+            rows.append(row)
+        with self._locked():
+            current = self.array[int(self.meta_array[0])].copy()
+            if current[5] and current[5] > rows[-1][5]:
+                rows.append(current.tolist())
+            elif current[5] and current[5] == rows[-1][5] and self.is_tick_fresh():
+                rows[-1] = current.tolist()
+            rows = rows[-self.max_size:]
+            self.array.fill(0)
+            self.array[:len(rows)] = rows
+            self.meta_array[0] = len(rows) - 1
+            self.meta_array[3] += 1
+            self.meta_array[4] += 1
+            # Preserve tick sequence and receipt time: history is not a fresh quote.
 
     def close(self):
-        """
-        Must be called to unlink shared memory.
-        """
-        if self.data_shm:
-            self.data_shm.close()
-        if self.meta_shm:
-            self.meta_shm.close()
-            
+        self.array = self.ticks = self.meta_array = None
+        self._map.close()
+        self._file.close()
+
     def unlink(self):
-        """
-        Only call this from the creator process to completely destroy the memory.
-        """
         self.close()
-        if self.data_shm:
-            try:
-                self.data_shm.unlink()
-            except Exception:
-                pass
-        if self.meta_shm:
-            try:
-                self.meta_shm.unlink()
-            except Exception:
-                pass
-                
-    def preload_historical_data(self, max_lookback: int, validate: bool = True):
-        """
-        Preloads the exact historical depth required by execution.
-        """
-        from marketdata.services import MarketDataService
-        
-        try:
-            if max_lookback > self.max_size:
-                raise RuntimeError(f"SHM capacity {self.max_size} is below required depth {max_lookback}")
-
-            if validate:
-                readiness = MarketDataService.ensure_historical_candles(self.symbol, timeframe=self.timeframe, required_count=max_lookback)
-                if not readiness["ready"]:
-                    raise RuntimeError(
-                        f"Historical data is incomplete for {self.symbol} {self.timeframe}: "
-                        f"requested={readiness['requested']} available={readiness['available']} "
-                        f"missing={readiness.get('missing', 0)} "
-                        f"latest_expected={readiness.get('latest_expected')} "
-                        f"latest_available={readiness.get('latest_available')}"
-                    )
-
-            candles = MarketDataService.list_candles(symbol=self.symbol, timeframe=self.timeframe, limit=max_lookback)
-
-            if len(candles) < max_lookback:
-                raise RuntimeError(f"Historical query returned only {len(candles)} candles for {self.symbol} {self.timeframe}; requested {max_lookback}")
-
-            logger.info("Preloading %s historical candles for %s %s.", len(candles), self.symbol, self.timeframe)
-            
-            # Reset array before preloading
-            self.array.fill(0.0)
-            self.meta_array[0] = 0
-            self.meta_array[1] = 0
-            
-            for i, candle in enumerate(candles):
-                idx = self.current_index
-                
-                # Support both dict and Django model instance
-                is_dict = isinstance(candle, dict)
-                c_open = candle.get('open', 0.0) if is_dict else getattr(candle, 'open', 0.0)
-                c_high = candle.get('high', 0.0) if is_dict else getattr(candle, 'high', 0.0)
-                c_low = candle.get('low', 0.0) if is_dict else getattr(candle, 'low', 0.0)
-                c_close = candle.get('close', 0.0) if is_dict else getattr(candle, 'close', 0.0)
-                c_volume = candle.get('volume', 0.0) if is_dict else getattr(candle, 'volume', 0.0)
-                
-                self.array[idx, 0] = float(c_open)
-                self.array[idx, 1] = float(c_high)
-                self.array[idx, 2] = float(c_low)
-                self.array[idx, 3] = float(c_close)
-                self.array[idx, 4] = float(c_volume)
-                candle_time = candle.get('time', 0.0) if is_dict else getattr(candle, 'time', 0.0)
-                if hasattr(candle_time, 'timestamp'):
-                    candle_time = candle_time.timestamp()
-                self.array[idx, 5] = float(candle_time or 0.0)
-                
-                # Advance to next slot for the next candle
-                if i < len(candles) - 1:
-                    self.advance_candle()
-                    
-            logger.info(f"Successfully preloaded {len(candles)} candles for {self.symbol} {self.timeframe}.")
-        except Exception as e:
-            logger.exception(f"Failed to preload historical data for {self.symbol}: {e}")
-            raise
+        self.path.unlink(missing_ok=True)

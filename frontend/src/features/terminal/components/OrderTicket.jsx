@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Calculator, DollarSign, Loader2, ShieldCheck, Zap } from "lucide-react";
 

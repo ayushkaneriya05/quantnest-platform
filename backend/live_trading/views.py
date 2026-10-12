@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import ValidationError
 from brokers.models import BrokerSession
+from .serializers import BrokerAccountObservationSerializer
 from common.enums import OrderStatus
 
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
@@ -29,6 +30,32 @@ class LiveTradingPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = "page_size"
     max_page_size = 200
+
+
+class BrokerAccountObservationViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = BrokerAccountObservationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LiveTradingPagination
+
+    def get_queryset(self):
+        from .models import BrokerAccountObservation
+        rows = BrokerAccountObservation.objects.filter(credential__user=self.request.user).select_related("credential").order_by("-updated_at", "-pk")
+        credential = self.request.query_params.get("credential")
+        if credential:
+            if not credential.isdigit():
+                raise ValidationError({"credential": "Use a broker credential ID."})
+            rows = rows.filter(credential_id=int(credential))
+        kind = self.request.query_params.get("kind")
+        if kind:
+            if kind not in {"ORDER", "POSITION"}:
+                raise ValidationError({"kind": "Choose ORDER or POSITION."})
+            rows = rows.filter(kind=kind)
+        matched = self.request.query_params.get("matched")
+        if matched is not None:
+            if matched.lower() not in {"true", "false"}:
+                raise ValidationError({"matched": "Choose true or false."})
+            rows = rows.filter(matched=matched.lower() == "true")
+        return rows
 
 
 class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -164,9 +191,9 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
         from live_trading.reconciliation_service import BrokerReconciliationService
         
         try:
-            reconciliation_service = BrokerReconciliationService(session)
+            reconciliation_service = BrokerReconciliationService(session.broker_credential)
             orders_result = reconciliation_service.reconcile_orders()
-            # positions_result = reconciliation_service.reconcile_positions()
+            positions_result = reconciliation_service.reconcile_positions()
             
             return Response({
                 "synced_orders": orders_result.get("matched", 0) + orders_result.get("created", 0),
@@ -351,7 +378,7 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
             from risk_management.auto_disable import AutoDisableGate
             AutoDisableGate.version_changed(session)
             if session.status == "RUNNING":
-                transaction.on_commit(lambda: LiveExecutionService._publish_execution_event("VERSION_CHANGE", session, "live"))
+                LiveExecutionService._publish_execution_event("VERSION_CHANGE", session, "live")
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)

@@ -39,7 +39,6 @@ python-dateutil
 
 pandas-ta
 numba 
-pyzmq
 
 pandas_market_calendars
 httpx

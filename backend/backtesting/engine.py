@@ -15,7 +15,8 @@ from risk_management.evaluator import RiskEvaluator
 from marketdata.calendar import MarketSessionCalendar
 from .context import BacktestContext
 from .execution_service import BacktestExecutionService
-from .executor import BacktestStrategyExecutor, process_exit_action
+from .executor import BacktestStrategyExecutor
+from trading_domain.exit_actions import process_exit_action
 from .models import BacktestMetrics, BacktestRun, BacktestTrade, EquityCurvePoint
 from .services import backtest_configuration
 
@@ -199,8 +200,7 @@ class BacktestEngine:
                 except Exception as e:
                     logger.warning(f"Timezone conversion error for MTF {timeframe} for {instrument}: {e}")
 
-                if timeframe != base_timeframe:
-                    mtf_data[timeframe] = self._index_mtf_candles_by_availability(timeframe_df, timeframe, calendar, local_tz)
+                mtf_data[timeframe] = self._index_mtf_candles_by_availability(timeframe_df, timeframe, calendar, local_tz)
 
             if not quality["complete"]:
                 data_quality["warnings"].append(f"Historical candles remain missing for {instrument.sym_ticker}; results may be incomplete.")
@@ -256,35 +256,52 @@ class BacktestEngine:
                 int(instrument_id): payload["instrument"]
                 for instrument_id, payload in datasets.items()
             }
-            active_event_cache = {}
             all_timestamps = set()
             for instrument_id, payload in datasets.items():
                 instrument = payload["instrument"]
                 df = payload["df"]
-                mtf_data = payload.get("mtf_data", {})
+                calendar = MarketSessionCalendar.for_instrument(instrument)
+                if not df.empty:
+                    calendar.load_holidays(df.index[0].date() - timedelta(days=7),
+                                           df.index[-1].date() + timedelta(days=7))
+                base_timeframe = StrategyMarketDataService.required_timeframes(self.config)[0]
+                # Execution candles retain opening timestamps for next-open
+                # fills. Every analytical frame uses completion timestamps.
+                signal_df = self._index_mtf_candles_by_availability(df, base_timeframe, calendar, df.index.tz)
+                mtf_data = dict(payload.get("mtf_data", {}))
+                mtf_data[base_timeframe] = signal_df
                 mtf_indicator_engines = {}
                 for tf, tdf in mtf_data.items():
                     mtf_indicator_engines[tf] = IndicatorEngine(tdf)
 
-                base_indicator_engine = IndicatorEngine(df)
+                base_indicator_engine = IndicatorEngine(signal_df)
+                from marketdata.event_context import load_events
+                active_event_cache = load_events(instrument_id, df.index[0].date(), df.index[-1].date()) if not df.empty else {}
                 executor = BacktestStrategyExecutor(
                     self.config,
                     mtf_data=mtf_data,
                     indicator_engine=base_indicator_engine,
                     mtf_indicator_engines=mtf_indicator_engines,
                     active_event_cache=active_event_cache,
+                    session_minutes=calendar.session_minutes,
                 )
                 preparation_progress = 15 + int((len(contexts) + 1) / max(len(datasets), 1) * 10)
                 self._broadcast_progress_update(preparation_progress, f"Preparing indicators and entry signals for {instrument.sym_ticker}...")
                 
+                entry_signals = executor.evaluate_entry_signals(signal_df)
+                completion_times = dict(zip(df.index, signal_df.index))
                 contexts[instrument_id] = {
                     "instrument": instrument,
                     "df": df,
                     "df_dict": payload.get("df_dict") or df.to_dict("index"),
                     "executor": executor,
-                    "entry_signals": executor.evaluate_entry_signals(df),
+                    "signal_df": signal_df,
+                    "completion_times": completion_times,
+                    "entry_signals": {opened: entry_signals.get(completed, False)
+                                      for opened, completed in completion_times.items()},
                 }
                 self.instrument_states[instrument_id] = {
+                    "last_entry_time": None,
                     "last_exit_time": None,
                     "last_candle": None,
                 }
@@ -336,6 +353,7 @@ class BacktestEngine:
                 for instrument_id, candle in instrument_candles.items():
                     open_pos = self.context.get_position(instrument_id)
                     if open_pos:
+                        self.instrument_states[instrument_id]["last_entry_time"] = open_pos["entry_time"]
                         # Update MAE/MFE
                         self._update_mae_mfe(open_pos, candle)
                         # Update peak price before checking protected exits.
@@ -390,16 +408,9 @@ class BacktestEngine:
                     # Evaluate exit rules (normal exits)
                     if open_pos:
                         executor = context["executor"]
-                        pos_state = {
-                            "avg_price": open_pos['avg_price'],
-                            "side": open_pos['side'],
-                            "current_price": float(candle["close"]),
-                            "peak_price": open_pos['peak_price'],
-                            "protected_stop_price": open_pos['protected_stop_price'],
-                            "protected_target_price": open_pos['protected_target_price'],
-                        }
+                        pos_state = {**open_pos, "current_price": float(candle["close"])}
 
-                        bars = context["df"].loc[:timestamp]
+                        bars = context["signal_df"].loc[:context["completion_times"][timestamp]]
                         should_exit, reason, action, action_params = executor.evaluate_exit_logic(pos_state, bars)
 
                         if should_exit:
@@ -421,7 +432,8 @@ class BacktestEngine:
                                 )
 
                 # STEP 7: EVALUATE ENTRY RULES
-                is_in_no_trade_zone = next(iter(contexts.values()))["executor"].is_in_no_trade_zone(timestamp)
+                for closed_id in positions_at_open - set(self.context.positions):
+                    self.instrument_states[closed_id]["last_exit_time"] = timestamp
                 for instrument_id, context in contexts.items():
                     candle = instrument_candles.get(instrument_id)
                     if candle is None:
@@ -438,8 +450,10 @@ class BacktestEngine:
 
                     if not open_pos:
                         executor = context["executor"]
+                        decision_time = context["completion_times"][timestamp]
+                        is_in_no_trade_zone = executor.is_in_no_trade_zone(decision_time)
 
-                        if not self.context.can_enter(timestamp):
+                        if not self.context.can_enter(decision_time):
                             self.context.diagnostics["auto_disable_restrictions"] += 1
                             continue
 
@@ -448,9 +462,7 @@ class BacktestEngine:
                             continue
 
                         # Check for new entries using the backtest-local executor.
-                        can_enter, _ = executor.can_enter(
-                            {"last_exit_time": instrument_state["last_exit_time"]}, timestamp
-                        )
+                        can_enter, _ = executor.can_enter(instrument_state, decision_time)
                         if not can_enter:
                             self.context.diagnostics["cooldown_restrictions"] += 1
                         if can_enter:
@@ -468,11 +480,6 @@ class BacktestEngine:
                 self.equity_curve.append(
                     EquityCurvePoint(run=self.run, timestamp=timestamp, equity_value=total_value, drawdown_pct=self._calculate_drawdown(total_value))
                 )
-
-                for closed_id in positions_at_open - set(self.context.positions):
-                    state = self.instrument_states.get(closed_id)
-                    if state is not None:
-                        state["last_exit_time"] = timestamp
 
             BacktestExecutionService.finalize_open_positions(self.context)
             if self.equity_curve:
@@ -820,7 +827,6 @@ class BacktestEngine:
 
     def _process_entry(self, instrument, candle, timestamp, executor, current_candles):
         """Resolve and size configured entry routes, then queue next-open fills."""
-        spot_price = float(candle["close"])
         entry_side = executor.entry_config.get("entry_side", Side.BUY)
         watch = self.watchlist_by_instrument_id.get(instrument.id)
         if watch is None:
@@ -829,7 +835,7 @@ class BacktestEngine:
             return
 
         routes = [dict(route) for route in (watch.get("execution_routes") or [])]
-        resolutions = InstrumentResolver.resolve(watch, entry_side, spot_price=spot_price, routes_data=routes)
+        resolutions = InstrumentResolver.resolve(watch, entry_side, routes_data=routes)
         available_capital = self.context.get_available_capital()
         for execution_instrument, execution_side, sizing in resolutions:
             execution_instrument_id = execution_instrument if isinstance(execution_instrument, int) else getattr(execution_instrument, "id", None)

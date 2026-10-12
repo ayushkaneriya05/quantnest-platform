@@ -23,8 +23,6 @@ export const brokersApi = {
   getFundsSummary: (id) => api.get(`${BASE_URL}/credentials/${id}/funds-summary/`),
   getOrderbook: (id) => api.get(`${BASE_URL}/credentials/${id}/orderbook/`),
   getSessions: () => api.get(`${BASE_URL}/sessions/`),
-  getSettings: (params) => api.get(`${BASE_URL}/settings/`, { params }),
-  updateSettings: (id, payload) => api.patch(`${BASE_URL}/settings/${id}/`, payload),
   getLogs: (params) => api.get(`${BASE_URL}/logs/`, { params }),
 
   // Charge Profiles

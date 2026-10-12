@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.db import transaction
 from instruments.models import Instrument
 
 from .models import Watchlist, Account, Position, Order, TradeHistory, ClosedPositionLog
@@ -72,6 +73,16 @@ class PositionSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        Account.objects.select_for_update().get(pk=instance.account_id)
+        self.instance = Position.objects.select_for_update().get(pk=instance.pk)
+        self.validate(validated_data)
+        position = super().update(self.instance, validated_data)
+        TradingOrderService.sync_position_sl_tp_orders(position)
+        return position
+
+
 class OrderSerializer(serializers.ModelSerializer):
     """
     Handles both creating and displaying orders.
@@ -132,7 +143,10 @@ class OrderSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        Account.objects.select_for_update().get(pk=instance.account_id)
+        instance = Order.objects.select_for_update().get(pk=instance.pk)
         if instance.status != "OPEN":
             raise serializers.ValidationError({"detail": "Only open orders can be modified."})
 
@@ -142,8 +156,12 @@ class OrderSerializer(serializers.ModelSerializer):
             fill_price = TradingOrderService.get_market_fill_price(instance.instrument)
 
         order = super().update(instance, validated_data)
+        TradingOrderService.reserve_order(order, fill_price)
+        from .services import TerminalOrderCache
+        TerminalOrderCache.update_order(order)
         if order.order_type == "MARKET":
             order = TradingOrderService.execute_order(order, fill_price)
+        TradingOrderService.sync_order_to_position(order)
         return order
 
 class TradeHistorySerializer(serializers.ModelSerializer):

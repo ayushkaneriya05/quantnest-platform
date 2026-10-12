@@ -26,7 +26,10 @@ class ProviderTests(IsolatedAsyncioTestCase):
         async def create(**kwargs):
             calls.append(json.loads(json.dumps(kwargs)))
             return [first, final, final][len(calls) - 1]
-        client = SimpleNamespace(aio=SimpleNamespace(interactions=SimpleNamespace(create=create)))
+        client = SimpleNamespace(aio=SimpleNamespace(
+            interactions=SimpleNamespace(create=create),
+            models=SimpleNamespace(count_tokens=AsyncMock(return_value=SimpleNamespace(total_tokens=100))),
+        ))
         gateway = AsyncMock()
         gateway.__aenter__.return_value = gateway
         response = SimpleNamespace(status_code=200, json=lambda: {"evidence_id": "E1", "data": {"name": "Saved"}})

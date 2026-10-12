@@ -24,7 +24,10 @@ from django.views.decorators.csrf import csrf_exempt
 @csrf_exempt
 def health_check(request):
     """Health check endpoint for monitoring."""
-    return JsonResponse({"status": "healthy", "message": "QuantNest API is running"})
+    from quantnest_runtime.health import readiness
+    checks = readiness()
+    ready = all(checks.values())
+    return JsonResponse({"status": "healthy" if ready else "unavailable", "checks": checks}, status=200 if ready else 503)
 
 
 urlpatterns = [

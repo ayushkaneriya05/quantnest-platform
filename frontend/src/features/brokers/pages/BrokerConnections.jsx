@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   Unplug,
   Wallet,
-  Settings,
 } from "lucide-react";
 
 import { Badge } from "@/shared/components/ui/badge";
@@ -23,7 +22,6 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { brokersApi } from "@/shared/services/brokersApi";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
-import { BrokerOrderSettingsModal } from "@/features/brokers/components/BrokerOrderSettingsModal.jsx";
 import { BrokerDetailsModal } from "@/features/brokers/components/BrokerDetailsModal.jsx";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 
@@ -124,18 +122,15 @@ export default function BrokerConnections() {
   const [fundsMap, setFundsMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [busyBroker, setBusyBroker] = useState("");
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
-  const [settingsCredentialId, setSettingsCredentialId] = useState(null);
-  const [settingsProviderName, setSettingsProviderName] = useState("");
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [detailsProvider, setDetailsProvider] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
 
-  const loadBrokerState = useCallback(async () => {
+  const loadBrokerState = useCallback(async ({ initial = false } = {}) => {
     try {
-      setLoading((current) => (catalog.length ? current : true));
-      if (catalog.length > 0) setIsRefreshing(true);
+      if (initial) setLoading(true);
+      else setIsRefreshing(true);
       
       const [catalogRes, sessionsRes] = await Promise.all([
         brokersApi.getCatalog(),
@@ -181,11 +176,11 @@ export default function BrokerConnections() {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [catalog.length, notify]);
+  }, [notify]);
 
   useEffect(() => {
-    loadBrokerState();
-  }, []);
+    loadBrokerState({ initial: true });
+  }, [loadBrokerState]);
 
   useEffect(() => {
     const status = searchParams.get("status");
@@ -199,8 +194,7 @@ export default function BrokerConnections() {
       notify.error(message || `${broker || "Broker"} connection failed`);
     }
     setSearchParams({}, { replace: true });
-    loadBrokerState();
-  }, [searchParams, setSearchParams]);
+  }, [notify, searchParams, setSearchParams]);
 
   const activeSessionByCredential = useMemo(() => {
     const lookup = {};
@@ -263,7 +257,7 @@ export default function BrokerConnections() {
         </Button>
       </div>
     ),
-    [catalog.length, isRefreshing, loadBrokerState],
+    [isRefreshing, loadBrokerState],
   );
 
   useSetPageActions(pageActions);
@@ -356,20 +350,6 @@ export default function BrokerConnections() {
                         Details
                       </Button>
 
-                      <Button
-                        variant="outline"
-                        className="border-border text-foreground hover:text-foreground"
-                        onClick={() => {
-                          setSettingsCredentialId(provider.credential_id);
-                          setSettingsProviderName(provider.display_name);
-                          setSettingsModalOpen(true);
-                        }}
-                        disabled={isBusy}
-                      >
-                        <Settings className="h-4 w-4 mr-2" />
-                        Settings
-                      </Button>
-
                       {(!session || provider.session_expired) && (
                         <Button
                           variant="ghost"
@@ -459,16 +439,6 @@ export default function BrokerConnections() {
           })}
         </div>
       </section>
-
-      <BrokerOrderSettingsModal
-        isOpen={settingsModalOpen}
-        onClose={() => {
-          setSettingsModalOpen(false);
-          setSettingsCredentialId(null);
-        }}
-        credentialId={settingsCredentialId}
-        providerName={settingsProviderName}
-      />
 
       <BrokerDetailsModal
         isOpen={detailsModalOpen}

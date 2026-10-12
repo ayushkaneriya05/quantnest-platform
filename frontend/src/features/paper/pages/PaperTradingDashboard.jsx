@@ -482,7 +482,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
                             {(account.session_status === 'PAUSED' || account.session_status === 'STOPPED' || account.session_status === 'ERROR') && (account.strategy_status !== 'ACTIVE' || !account.paper_trading_enabled) && (
                                 <span className="w-full py-2 text-center text-xs text-amber-800 dark:text-amber-300">Activate the strategy and enable paper trading to resume.</span>
                             )}
-                            {(account.session_status === 'RUNNING' || account.session_status === 'PAUSED') && (
+                            {(account.session_status === 'RUNNING' || account.session_status === 'PAUSED' || account.session_status === 'STOPPING') && (
                                 <Button variant="outline" className="flex-1 border-border text-foreground hover:text-rose-800 dark:hover:text-rose-400 hover:bg-rose-400/10 text-xs h-8" onClick={() => handleStop(account.id, account.session_id)} disabled={busy}>
                                     <Square className="h-3 w-3 mr-1" /> Stop
                                 </Button>

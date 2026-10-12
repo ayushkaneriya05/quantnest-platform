@@ -1,4 +1,3 @@
-import React from "react";
 import { cn } from "@/shared/lib/utils";
 import {
   Table,
@@ -11,7 +10,7 @@ import {
 import { Badge } from "@/shared/components/ui/badge";
 import { Card } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
-import { ChevronLeft, ChevronRight, Eye } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
 
 export default function OrderHistoryTable({

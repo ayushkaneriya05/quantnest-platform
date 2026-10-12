@@ -1,5 +1,5 @@
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Card,
@@ -52,7 +52,6 @@ export default function PaperAllocations() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [deleteDialog, setDeleteDialog] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
   const [hotSwapModal, setHotSwapModal] = useState({ open: false, session: null });
   const [strategyVersions, setStrategyVersions] = useState([]);
 
@@ -197,7 +196,6 @@ export default function PaperAllocations() {
   };
 
   const handleDelete = async (id) => {
-    setDeletingId(id);
     try {
       const response = await portfolioApi.deleteAllocation(id);
       if (response.data.status === "has_paper_account") {
@@ -213,8 +211,6 @@ export default function PaperAllocations() {
       }
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to remove allocation"));
-    } finally {
-      setDeletingId(null);
     }
   };
 

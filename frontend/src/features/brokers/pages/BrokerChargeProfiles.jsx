@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   Card, 
   CardContent, 
@@ -9,7 +9,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Badge } from "@/shared/components/ui/badge";
-import { Plus, Edit2, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, CheckCircle2 } from "lucide-react";
 import { brokersApi } from "@/shared/services/brokersApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
@@ -20,7 +20,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/shared/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 

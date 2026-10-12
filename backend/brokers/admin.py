@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderSettings
+from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession
 
 
 @admin.register(BrokerCredential)
@@ -16,9 +16,6 @@ class BrokerSessionAdmin(admin.ModelAdmin):
     list_filter = ["is_valid"]
 
 
-@admin.register(OrderSettings)
-class OrderSettingsAdmin(admin.ModelAdmin):
-    list_display = ["id", "broker_credential", "order_timeout_seconds"]
 
 
 @admin.register(BrokerAPILog)

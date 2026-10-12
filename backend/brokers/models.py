@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from common.enums import BrokerName, OrderStatus
+from common.enums import BrokerName
 from common.models import BaseTimestampModel
 
 
@@ -52,23 +52,6 @@ class BrokerSession(BaseTimestampModel):
         return f"{self.credential.broker_name} session {self.id}"
 
 
-class OrderSettings(BaseTimestampModel):
-    """Simplified order settings for MARKET orders only."""
-    broker_credential = models.OneToOneField(
-        "BrokerCredential",
-        on_delete=models.CASCADE,
-        related_name="order_settings",
-        null=True,
-        blank=True,
-    )
-    order_timeout_seconds = models.PositiveIntegerField(default=30)
-
-    class Meta:
-        db_table = "broker_order_settings"
-
-    def __str__(self):
-        username = self.broker_credential.user.username if self.broker_credential and self.broker_credential.user else "Unknown"
-        return f"Order Settings - {username}"
 
 
 class BrokerAPILog(BaseTimestampModel):

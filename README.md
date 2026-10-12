@@ -44,7 +44,7 @@ Supported configuration areas include:
 - Position sizing rules.
 - Auto-disable rules.
 
-The shared runtime representation is produced by `Strategy.to_execution_dict()` and consumed by the unified executor in `backend/strategy_engine/executor.py`.
+The shared runtime representation is produced by `Strategy.to_execution_dict()` and consumed by `StrategyProgram` in `backend/trading_domain/strategy.py`.
 
 ### 2. Backtest the Strategy
 
@@ -215,7 +215,7 @@ QuantNest also includes modules for:
 - Trading terminal.
 - Portfolio overview, risk, exposure, allocations, transactions.
 - Paper capital, allocations, portfolio, positions, orders, trade history, analytics, wallet.
-- Broker connections, order settings, broker logs.
+- Broker connections, charge profiles, broker logs.
 - Live portfolio, strategies, orders, positions, execution logs, emergency controls, performance and analysis components.
 - Conversational AI research, market screener, notifications, execution journal, source-specific reports, and account activity history.
 
@@ -223,14 +223,16 @@ QuantNest also includes modules for:
 
 ## Architecture
 
+For process internals, tick flow, configuration, and complete Paper, Live, Terminal, Chart and Backtest lifecycles, see the [Execution technical reference](docs/EXECUTION_TECHNICAL_REFERENCE.md).
+
 ### Backend
 
 - Python, Django, Django REST Framework.
 - SimpleJWT, dj-rest-auth, allauth, django-otp.
 - Channels and Redis for WebSocket-ready workflows.
 - Celery for background jobs and scheduled tasks.
-- ZeroMQ for order routing from strategy workers to execution services.
-- Redis Pub/Sub for session execution manager orchestration.
+- Persistent Redis Streams for partitioned order handoff and lifecycle publication.
+- Supervised fixed workers with leased actor ownership and bounded numerical pools.
 - PostgreSQL recommended for production (TimescaleDB for candle data).
 - Fyers and SmartAPI related broker packages.
 - Pandas/pandas-ta for market data and indicators.
@@ -248,7 +250,7 @@ QuantNest also includes modules for:
 
 The strategy decision layer is centralized in:
 
-- `backend/strategy_engine/executor.py`
+- `backend/trading_domain/strategy.py`
 - `backend/strategy_engine/runtime.py`
 - `backend/rules_engine/`
 - `backend/risk_management/evaluator.py`
@@ -549,8 +551,6 @@ GET    /api/v1/brokers/credentials/{id}/auth-url/
 POST   /api/v1/brokers/credentials/{id}/exchange-auth-code/
 GET    /api/v1/brokers/credentials/{id}/funds-summary/
 GET    /api/v1/brokers/sessions/
-GET    /api/v1/brokers/settings/
-POST   /api/v1/brokers/settings/
 GET    /api/v1/brokers/reconciliation/
 POST   /api/v1/brokers/reconciliation/{id}/resolve/
 GET    /api/v1/brokers/logs/
@@ -632,7 +632,9 @@ cd frontend
 npm run dev
 ```
 
-**For Full Live Trading (9 processes):**
+**Trading runtime services:**
+
+See [Backend runtime and deployment](docs/BACKEND_RUNTIME.md) for migrations, service supervision, resource limits, Paper-only/private deployments, scaling and recovery. Run these services from `backend` using the project virtual environment:
 
 ```bash
 # Terminal 1: Redis
@@ -656,19 +658,25 @@ npm run dev
 
 # Terminal 6: Fyers Live Data Ingestion (Continuous)
 cd backend
-python manage.py fyers_ingest
+python -m quantnest_runtime market-data
 
 # Terminal 7: WebSocket for Live Trading (Continuous)
 cd backend
-python manage.py start_websocket
+python -m quantnest_runtime broker-events
 
 # Terminal 8: Session Execution Manager (Continuous)
 cd backend
-python manage.py run_execution_manager
+python -m quantnest_runtime execution
 
 # Terminal 9: Order Subscribers (Continuous)
 cd backend
-python manage.py run_order_subscribers
+python -m quantnest_runtime orders
+
+# Terminal 10: Committed publications
+python -m quantnest_runtime outbox
+
+# Terminal 11: Manual simulated order matching
+python -m quantnest_runtime terminal
 ```
 
 ### One-Time Setup Commands
@@ -706,7 +714,7 @@ python manage.py ingest_historical --days 365 --timeframe 1m
 | ------------------- | -------------------------------------- | ---------- | ----------------------------- |
 | `sync_instruments`  | Sync instrument master from Fyers      | Periodic   | Nightly data sync             |
 | `ingest_historical` | Ingest historical data (90-day chunks) | Periodic   | All historical data ingestion |
-| `fyers_ingest`      | Live WebSocket market data streaming   | Continuous | Real-time live market data    |
+| `rebuild_execution_assignments` | Rebuild execution partitions | One-time | Coordinated topology changes |
 | `setup_timescale`   | Enable TimescaleDB for candle table    | One-time   | Database optimization         |
 
 ### Scheduled Tasks (Celery Beat)
@@ -802,8 +810,8 @@ npm run lint
 - For deterministic parity testing, compare backtest and paper using the same candles, fill model, fees, slippage, and timestamps.
 - For live trading, compare expected strategy decisions to actual broker fills through execution logs, slippage records, and reconciliation records.
 - Never run live execution with real capital until paper trading, risk limits, broker settings, and emergency controls are verified.
-- The system uses ZeroMQ for order routing from strategy workers to execution services.
-- Session execution manager uses Redis Pub/Sub for strategy worker orchestration.
+- Order handoff uses persistent, account-partitioned Redis Streams.
+- Fixed execution workers use leased ownership and fair, bounded calculation queues.
 - Fyers WebSocket ingestion provides real-time market data for paper/live trading.
 
 ---

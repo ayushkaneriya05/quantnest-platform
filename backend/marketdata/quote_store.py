@@ -1,6 +1,8 @@
 from datetime import datetime, timezone as dt_timezone
 
-from django.core.cache import cache
+from django.core.cache import caches
+
+cache = caches["marketdata"]
 
 
 class QuoteStore:
@@ -23,7 +25,7 @@ class QuoteStore:
         payload = {
             **(quote or {}),
             "symbol": normalized,
-            "updated_at": datetime.now(dt_timezone.utc).isoformat(),
+            "updated_at": datetime.fromtimestamp(quote["received_at"], dt_timezone.utc).isoformat() if quote and quote.get("received_at") else datetime.now(dt_timezone.utc).isoformat(),
         }
         cache.set(cls._key(normalized), payload, timeout=cls.TTL_SECONDS)
         return payload
@@ -45,7 +47,7 @@ class QuoteStore:
             age = (datetime.now(dt_timezone.utc) - timestamp).total_seconds()
         except (TypeError, ValueError):
             return None
-        return payload if age <= max_age_seconds else None
+        return payload if 0 <= age <= max_age_seconds else None
 
 
     @classmethod

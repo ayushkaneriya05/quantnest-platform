@@ -16,7 +16,7 @@ class OrderDispatcher:
         """
         Dispatches an exit action based on the evaluated logic using shared exit actions.
         """
-        from strategy_engine.exit_actions import process_exit_action
+        from trading_domain.exit_actions import process_exit_action
         
         decision = process_exit_action(
             action=action,
@@ -27,6 +27,12 @@ class OrderDispatcher:
         
         if decision.state_updates:
             context.update_runtime_state(instrument_id, decision.state_updates)
+            if not decision.should_send_order:
+                publisher = getattr(StrategyOrderRouter(), "_publisher", None)
+                if publisher:
+                    key, token = context.ownership[instrument_id]
+                    publisher(("checkpoint", scope.lower(), session_id, instrument_id,
+                               context.get_runtime_state(instrument_id), key, token))
             
         if decision.should_send_order:
             router = StrategyOrderRouter()
@@ -41,22 +47,28 @@ class OrderDispatcher:
                 target_price=None,
                 reason=decision.reason,
                 intent="EXIT",
+                account_key=getattr(context, "account_key", str(session_id)),
+                owner_key=getattr(context, "ownership", {}).get(instrument_id, ("", ""))[0],
+                owner_token=getattr(context, "ownership", {}).get(instrument_id, ("", ""))[1],
+                entry_time=position.get("entry_time"),
+                strategy_version_id=context.deployed_version_id,
+                state_updates=decision.state_updates,
             )
             # Decide if it's a partial exit or full exit phase update
             if decision.quantity < position.get("quantity", 0):
-                context.update_runtime_state(instrument_id, {"phase": TradePhase.PARTIAL_EXIT_PENDING})
+                context.update_runtime_state(instrument_id, {"phase": TradePhase.PARTIAL_EXIT_PENDING,
+                                                           "pending_request_id": str(req.request_id)})
             else:
-                context.update_runtime_state(instrument_id, {"phase": TradePhase.EXIT_PENDING})
+                context.update_runtime_state(instrument_id, {"phase": TradePhase.EXIT_PENDING,
+                                                           "pending_request_id": str(req.request_id)})
             try:
                 router.publish_order(req)
             except Exception:
                 logger.exception("Failed to publish exit order for runtime instrument %s", instrument_id)
-                from strategy_engine.runtime import StrategyRuntimeState
-                StrategyRuntimeState.reconcile_trade_state(scope, session_id, instrument_id, failed_reason=decision.reason)
                 raise
 
     @staticmethod
-    def dispatch_entry(context, risk_evaluator, executor, session_id, strategy_id, scope, instrument_id, side, reason, watch_map, spot_price, execution_price_reader):
+    def dispatch_entry(context, risk_evaluator, executor, session_id, strategy_id, scope, instrument_id, side, reason, watch_map, execution_price_reader):
         """
         Dispatches an entry action, checking sizes and resolving instruments using shared sizing logic.
         """
@@ -67,7 +79,7 @@ class OrderDispatcher:
 
         # Pass routes_data from config to avoid DB query in hot path
         routes_data = watch.get('execution_routes', []) if isinstance(watch, dict) else []
-        resolutions = InstrumentResolver.resolve(watch, side, spot_price=spot_price, routes_data=routes_data)
+        resolutions = InstrumentResolver.resolve(watch, side, routes_data=routes_data)
 
         router = StrategyOrderRouter()
         from strategy_engine.sizing import compute_position_size
@@ -79,7 +91,7 @@ class OrderDispatcher:
             # Handle both instrument objects and instrument IDs
             if isinstance(exec_inst, int):
                 exec_inst_id = exec_inst
-                lot_size = 1  # Default lot size for ID-based resolution
+                lot_size = getattr(context, "contracts", {}).get(exec_inst_id, {}).get("lot_size", 1)
             else:
                 exec_inst_id = exec_inst.id
                 lot_size = getattr(exec_inst, 'lot_size', 1) or 1
@@ -121,13 +133,17 @@ class OrderDispatcher:
                 target_price=target,
                 reason=reason,
                 intent="ENTRY",
+                account_key=getattr(context, "account_key", str(session_id)),
+                owner_key=getattr(context, "ownership", {}).get(instrument_id, ("", ""))[0],
+                owner_token=getattr(context, "ownership", {}).get(instrument_id, ("", ""))[1],
+                expires_at=__import__("time").time() + 5,
+                strategy_version_id=context.deployed_version_id,
             )
             # Set the phase immediately before publishing
-            context.update_runtime_state(instrument_id, {"phase": TradePhase.ENTRY_PENDING, "side": side})
+            context.update_runtime_state(instrument_id, {"phase": TradePhase.ENTRY_PENDING, "side": side,
+                                                       "pending_request_id": str(req.request_id)})
             try:
                 router.publish_order(req)
             except Exception:
                 logger.exception("Failed to publish entry order for runtime instrument %s", instrument_id)
-                from strategy_engine.runtime import StrategyRuntimeState
-                StrategyRuntimeState.reconcile_trade_state(scope, session_id, instrument_id)
                 raise

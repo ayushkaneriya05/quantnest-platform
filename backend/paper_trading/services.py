@@ -2,9 +2,7 @@ import logging
 import uuid
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
-from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
 
 from common.enums import (
@@ -19,10 +17,9 @@ from common.enums import (
 from marketdata.quote_store import QuoteStore
 from strategy_engine.runtime import StrategyRuntimeState
 from notifications.services import NotificationService
-from core.cache_api import cache_api
 
 from .models import (
-    PaperOrder, PaperPosition, PaperTrade, PaperAccount,
+    PaperOrder, PaperPosition, PaperTrade, PaperAccount, PaperTradingSession,
     Portfolio, CapitalAllocation, FundTransaction, DailyPerformance
 )
 
@@ -59,20 +56,22 @@ def _charge_profile_from_snapshot(snapshot):
 
 
 def _publish_cache_after_commit(method_name, *args, **kwargs):
-    callback = getattr(cache_api, method_name)
-    transaction.on_commit(lambda: callback(*args, **kwargs))
+    from core.outbox import cache_event
+    cache_event(method_name, *args, **kwargs)
 
 
 def _refresh_paper_account_funds_after_commit(account):
+    used_margin = account.margin_used
     funds_data = {
         "net_equity": str(account.current_balance),
         "cash_balance": str(account.current_balance),
-        "available_margin": str(account.margin_available),
-        "used_margin": str(account.margin_used),
+        "available_margin": str(max(Decimal("0"), account.current_balance - used_margin)),
+        "used_margin": str(used_margin),
         "account_id": str(account.id),
     }
     for session_id in account.sessions.values_list("id", flat=True):
-        transaction.on_commit(lambda sid=str(session_id), data=funds_data: cache_api.update_session_funds("paper", sid, data))
+        from core.outbox import cache_event
+        cache_event("update_session_funds", "paper", str(session_id), funds_data)
 
 
 logger = logging.getLogger(__name__)
@@ -161,7 +160,7 @@ class PortfolioService:
             balance_before=balance_before,
             balance_after=portfolio.current_capital,
             notes=notes,
-        )   
+        )
 
     @staticmethod
     @transaction.atomic
@@ -170,7 +169,7 @@ class PortfolioService:
         Allocate capital to a strategy.
         """
         from common.enums import StrategyStatus
-        
+
         if portfolio.user_id != strategy.user_id:
             raise ValueError('Strategy and portfolio must belong to the same user.')
         if allocation_instance is None:
@@ -188,26 +187,26 @@ class PortfolioService:
                 raise ValueError('Capital can only be allocated to an active strategy.')
             if not strategy.paper_trading_enabled:
                 raise ValueError('Paper trading is disabled for this strategy.')
-        
+
         paper_account = None
         if allocation_instance:
             paper_account = PaperAccount.objects.select_for_update().filter(allocation_id=allocation_instance.pk).first()
             allocation_instance = CapitalAllocation.objects.select_for_update().get(pk=allocation_instance.pk)
         portfolio = Portfolio.objects.select_for_update().get(pk=portfolio.pk)
-        
+
         if allocation_type == CapitalAllocationType.FIXED:
             amount = Decimal(str(amount_or_pct))
         else:
             pct = Decimal(str(amount_or_pct))
             if pct <= 0 or pct > 100:
                 raise ValueError("Allocation percentage must be between 0 and 100")
-        
+
         # Get existing allocation if it exists to calculate delta
         old_amount = allocation_instance.effective_allocated if allocation_instance else Decimal("0")
-        
+
         # Total equity before any changes
         E = portfolio.total_value
-        
+
         if allocation_type == CapitalAllocationType.FIXED:
             new_amount = amount
             defaults = {
@@ -286,7 +285,7 @@ class PortfolioService:
         amount_to_return = allocation.effective_allocated if not paper_account else Decimal("0")
 
         if paper_account:
-            if paper_account.sessions.filter(status__in=["RUNNING", "PAUSED"]).exists():
+            if paper_account.sessions.filter(status__in=["RUNNING", "PAUSED", "STOPPING", "ERROR"]).exists():
                 raise ValueError("Stop the paper session before removing its allocation")
             if paper_account.positions.exists():
                 raise ValueError("Close all paper positions before removing the allocation")
@@ -414,7 +413,7 @@ class PortfolioService:
     @staticmethod
     def can_delete_paper_account(paper_account):
         """Check if paper account can be safely deleted."""
-        if paper_account.sessions.filter(status__in=["RUNNING", "PAUSED"]).exists():
+        if paper_account.sessions.filter(status__in=["RUNNING", "PAUSED", "STOPPING", "ERROR"]).exists():
             return False, "Stop the paper session before deleting this account"
 
         # Check for open positions
@@ -461,7 +460,7 @@ class PortfolioService:
     @transaction.atomic
     def reset_paper_account(paper_account):
         paper_account = PaperAccount.objects.select_for_update().get(pk=paper_account.pk)
-        if paper_account.sessions.filter(status__in=["RUNNING", "PAUSED"]).exists():
+        if paper_account.sessions.filter(status__in=["RUNNING", "PAUSED", "STOPPING", "ERROR"]).exists():
             raise ValueError("Stop the paper session before resetting this account")
         if paper_account.positions.exists():
             raise ValueError("Close all open positions before resetting this account")
@@ -506,7 +505,7 @@ class PortfolioService:
             portfolio.save(update_fields=["peak_value", "peak_date", "updated_at"])
         opening_capital = closing_capital - portfolio.today_pnl
         trades = PaperTrade.objects.filter(account__user=portfolio.user, exit_time__date=current_date)
-        
+
         # Calculate daily fees
         brokerage_paid = sum(
             (_charge_totals(t.charges_json)[0] for t in trades),
@@ -585,40 +584,14 @@ class PaperExecutionService:
 
     @staticmethod
     def _publish_execution_event(action: str, session, scope: str = "paper"):
-        from django.core.cache import cache
-        import json
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        try:
-            if hasattr(cache, 'client'):
-                redis_client = cache.client.get_client()
-            else:
-                import redis
-                from django.conf import settings
-                redis_url = getattr(settings, 'CHANNEL_REDIS_URL', 'redis://localhost:6379/0')
-                redis_client = redis.from_url(redis_url)
-                
-            from instruments.services import InstrumentResolver
-            inst_ids = InstrumentResolver.execution_instrument_ids(session)
-            payload = {
-                "action": action,
-                "scope": scope,
-                "session_id": str(session.id),
-                "strategy_id": str(session.strategy_id),
-                "instrument_ids": inst_ids
-            }
-            redis_client.xadd("execution_control", {"payload": json.dumps(payload)}, maxlen=10000, approximate=True)
-        except Exception as e:
-            logger.error(f"Failed to publish execution event {action} for {session.id}: {e}")
+        from core.outbox import enqueue
+        from instruments.services import InstrumentResolver
+        enqueue("control", f"{scope}:{session.pk}", {
+            "action": action, "scope": scope, "session_id": str(session.pk),
+            "strategy_id": str(session.strategy_id),
+            "instrument_ids": InstrumentResolver.execution_instrument_ids(session),
+        })
 
-    @staticmethod
-    def _get_session_id(account, strategy_id):
-        if not account or not strategy_id:
-            return 0
-        from paper_trading.models import PaperTradingSession
-        sess = PaperTradingSession.objects.filter(account=account, strategy_id=strategy_id).values_list('id', flat=True).first()
-        return sess or 0
 
     @staticmethod
     @transaction.atomic
@@ -632,7 +605,6 @@ class PaperExecutionService:
         charge_profile_id=None,
         include_charges=True,
     ):
-        from paper_trading.models import PaperTradingSession
         from django.utils import timezone
         from strategies.models import Strategy
         strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
@@ -687,20 +659,13 @@ class PaperExecutionService:
                 error_message="",
             )
 
-        # Initialize the separate account-funds cache used for capital sizing.
-        funds_data = {
-            'net_equity': str(account.current_balance),
-            'cash_balance': str(account.current_balance),
-            'available_margin': str(account.current_balance),
-            'used_margin': '0',
-            'account_id': str(account.id),
-        }
-        _publish_cache_after_commit("update_session_funds", "paper", str(session.id), funds_data)
+        # Initialize the account projection from actual committed margin.
+        _refresh_paper_account_funds_after_commit(account)
         _publish_cache_after_commit("update_risk_metrics", "paper", str(session.id), {"auto_disable_release": {}})
 
         if initial_status == "RUNNING":
-            transaction.on_commit(lambda: PaperExecutionService._publish_execution_event("SESSION_START", session, "paper"))
-        
+            PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
+
         NotificationService.notify(
             user=user,
             title="Paper Strategy Deployed",
@@ -712,12 +677,13 @@ class PaperExecutionService:
         return session
 
     @staticmethod
+    @transaction.atomic
     def pause_session(session):
         session.status = "PAUSED"
         session.error_message = ""
         session.auto_disable_state = {}
         session.save(update_fields=["status", "error_message", "auto_disable_state", "updated_at"])
-        
+
         NotificationService.notify(
             user=session.user,
             title="Paper Strategy Paused",
@@ -730,7 +696,17 @@ class PaperExecutionService:
         return session
 
     @staticmethod
-    def stop_session(session, close_positions=True):            
+    @transaction.atomic
+    def stop_session(session, close_positions=True):
+        # Use the account -> allocation -> session lock order of admission.
+        # Commit the entry barrier and lifecycle invalidation with the stop.
+        account = PaperAccount.objects.select_for_update().get(pk=session.account_id)
+        if account.allocation_id:
+            CapitalAllocation.objects.select_for_update().get(pk=account.allocation_id)
+        session = PaperTradingSession.objects.select_for_update().get(pk=session.pk)
+        session.status, session.ended_at, session.error_message = "STOPPING", None, ""
+        session.save(update_fields=["status", "ended_at", "error_message", "updated_at"])
+        PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
         if close_positions:
             open_positions = PaperPosition.objects.filter(
                 account=session.account,
@@ -753,37 +729,32 @@ class PaperExecutionService:
                         )
                     except Exception:
                         logger.exception("Failed dispatching paper position close failure notification")
-                    
-        remaining_positions = PaperPosition.objects.filter(account=session.account, strategy=session.strategy, quantity__gt=0).count()
 
-        session.status = "STOPPED"
-        session.ended_at = timezone.now()
-        session.save(update_fields=["status", "ended_at", "updated_at"])
-        
+        remaining_positions = PaperPosition.objects.filter(account=session.account, strategy=session.strategy, quantity__gt=0).count()
+        from core.lifecycle import finalize_stop
+        finalize_stop("paper", session)
+        session.refresh_from_db()
+        awaiting_settlement = session.status == "STOPPING"
+
         NotificationService.notify(
             user=session.user,
-            title="Paper session needs attention" if remaining_positions else "Paper session stopped",
-            message=(f"Session for '{session.strategy.name}' stopped with {remaining_positions} open position(s) remaining." if remaining_positions else f"Paper session for '{session.strategy.name}' has stopped."),
-            type=NotificationType.WARNING if remaining_positions else NotificationType.INFO,
+            title="Paper session awaiting settlement" if awaiting_settlement else "Paper session stopped",
+            message=(f"Entries for '{session.strategy.name}' are stopped. Protection continues while positions or queued orders settle." if awaiting_settlement else f"Paper session for '{session.strategy.name}' has stopped."),
+            type=NotificationType.WARNING if awaiting_settlement else NotificationType.INFO,
             data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "open_positions_remaining": remaining_positions, "module": "paper"},
-            dedupe_key=f"paper-session:{session.id}:STOPPED:{session.updated_at.isoformat()}"
+            dedupe_key=f"paper-session:{session.id}:{session.status}:{session.updated_at.isoformat()}"
         )
-        PaperExecutionService._publish_execution_event("SESSION_STOP", session, "paper")
         return session, remaining_positions
 
     @staticmethod
+    @transaction.atomic
     def resume_session(session):
         from django.utils import timezone
         if session.strategy.status != 'ACTIVE' or not session.strategy.paper_trading_enabled:
             raise ValueError('Activate the strategy and enable paper trading before resuming this session.')
-        
-        cache_api.update_session_funds("paper", str(session.id), {
-            'net_equity': str(session.account.current_balance),
-            'cash_balance': str(session.account.current_balance),
-            'available_margin': str(session.account.current_balance),
-            'used_margin': '0',
-            'account_id': str(session.account.id),
-        })
+
+        account = PaperAccount.objects.select_for_update().get(pk=session.account_id)
+        _refresh_paper_account_funds_after_commit(account)
         from risk_management.auto_disable import AutoDisableGate
         AutoDisableGate.release(session)
         session.status = "RUNNING"
@@ -792,7 +763,7 @@ class PaperExecutionService:
             session.started_at = timezone.now()
         session.ended_at = None
         session.save(update_fields=["status", "error_message", "auto_disable_state", "started_at", "ended_at", "updated_at"])
-        
+
         NotificationService.notify(
             user=session.user,
             title="Paper Strategy Resumed",
@@ -807,10 +778,10 @@ class PaperExecutionService:
     @staticmethod
     def _close_position(session, position):
         from common.enums import Side
-        
-        
+
+
         close_side = Side.SELL if position.side == Side.BUY else Side.BUY
-        
+
         PaperExecutionService._execute_market_order(
             session=session,
             account=session.account,
@@ -819,6 +790,7 @@ class PaperExecutionService:
             side=close_side,
             quantity=position.quantity,
             exit_reason="SESSION_STOP",
+            intent="EXIT",
         )
 
 
@@ -853,11 +825,11 @@ class PaperExecutionService:
         instrument,
         side,
         quantity,
-        price=None,
         order_tag="strategy_execution",
         reason="",
         request_id=None,
         intent="ENTRY",
+        expected_version_id=None,
     ):
         if request_id:
             existing = PaperOrder.objects.filter(request_id=request_id).first()
@@ -875,42 +847,17 @@ class PaperExecutionService:
             account=account, instrument=instrument,
             strategy=strategy, side=side,
             quantity=quantity, order_tag=order_tag,
-            fallback_price=price,
             reason=reason,
             request_id=request_id,
+            intent=intent,
+            expected_version_id=expected_version_id,
         ).id
-    
-    @staticmethod
-    def start_websocket_processor(account):
-        """
-        Start WebSocket simulator for paper trading account.
-        This enables paper trading to use the same unified architecture as live trading.
-        
-        Args:
-            account: PaperAccount instance
-        """
-        from brokers.websocket import PaperWebSocketSimulator
-        
-        try:
-            websocket_simulator = PaperWebSocketSimulator(account)
-            websocket_simulator.connect()
-            websocket_simulator.subscribe(['orders', 'trades', 'positions'])
-            logger.info(f"Started WebSocket simulator for paper account {account.id}")
-            return websocket_simulator
-        except Exception as e:
-            logger.exception(f"Failed to start WebSocket simulator for paper account {account.id}: {e}")
-            return None
-
 
     @staticmethod
-    def resolve_market_price(instrument, fallback_price=None):
-        quote = QuoteStore.get_latest(instrument.sym_ticker)
+    def resolve_market_price(instrument):
+        quote = QuoteStore.get_latest(instrument.sym_ticker, max_age_seconds=15)
         if quote and quote.get("price") is not None:
             return Decimal(str(quote["price"]))
-        if fallback_price is not None:
-            return Decimal(str(fallback_price))
-        if instrument.previous_close is not None:
-            return Decimal(str(instrument.previous_close))
         raise ValueError("Live market price is unavailable")
 
 
@@ -924,11 +871,12 @@ class PaperExecutionService:
         quantity,
         strategy=None,
         order_tag="",
-        fallback_price=None,
         executed_at=None,
         exit_reason="strategy_exit",
         reason="",
         request_id=None,
+        intent="ENTRY",
+        expected_version_id=None,
     ):
         executed_at = executed_at or timezone.now()
         quantity = int(quantity)
@@ -939,7 +887,7 @@ class PaperExecutionService:
             if existing:
                 return existing
         order_type = OrderType.MARKET
-        
+
         # Lock rows separately because both relations are nullable and PostgreSQL
         # rejects FOR UPDATE on the nullable side of an outer join.
         account = PaperAccount.objects.select_for_update().get(id=account.id)
@@ -948,10 +896,15 @@ class PaperExecutionService:
             allocation = CapitalAllocation.objects.select_for_update().get(
                 id=account.allocation_id
             )
-        
+
         product_type = PaperExecutionService._resolve_product_type(instrument)
-                
-        raw_price = PaperExecutionService.resolve_market_price(instrument, fallback_price=fallback_price)
+
+        if expected_version_id and (not allocation or allocation.deployed_version_id != expected_version_id):
+            raise ValueError("Strategy version changed before order execution")
+        current_status = PaperTradingSession.objects.select_for_update().values_list("status", flat=True).get(pk=session.pk)
+        if intent == "ENTRY" and current_status != "RUNNING":
+            raise ValueError("Session stopped or paused before order execution")
+        raw_price = PaperExecutionService.resolve_market_price(instrument)
 
         strategy_config = None
         if allocation and allocation.deployed_version:
@@ -964,7 +917,7 @@ class PaperExecutionService:
         slippage_pct = Decimal(str(session.slippage_pct or 0))
         price = TradingCostCalculator.apply_slippage(raw_price, side, slippage_pct)
         slippage_amount = (abs(Decimal(str(price)) - Decimal(str(raw_price))) * quantity).quantize(Decimal("0.01"))
-        
+
         remaining = quantity
         opposite_side = Side.SELL if side == Side.BUY else Side.BUY
         opposite_position = (
@@ -972,9 +925,11 @@ class PaperExecutionService:
             .order_by("opened_at")
             .first()
         )
-        
+
         closing_qty = min(opposite_position.quantity, remaining) if opposite_position else 0
         opening_qty = remaining - closing_qty
+        if intent == "EXIT" and opening_qty > 0:
+            raise ValueError("Exit exceeds owned position quantity")
         if opening_qty > 0:
             required_margin = price * opening_qty
             if allocation and required_margin > allocation.available_amount:
@@ -989,7 +944,7 @@ class PaperExecutionService:
                     request_id=request_id or uuid.uuid4(),
                 )
                 return rejected_order
-            if required_margin > account.current_balance:
+            if required_margin > account.margin_available:
                 rejected_order = PaperOrder.objects.create(
                     account=account, strategy=strategy, instrument=instrument, reason=str(reason or "")[:255], order_type=order_type,
                     product_type=product_type, side=side, quantity=quantity, price=raw_price,
@@ -1055,9 +1010,12 @@ class PaperExecutionService:
                 holding_duration_seconds=max(int((executed_at - opposite_position.opened_at).total_seconds()), 0),
             )
 
-            from risk_management.auto_disable import AutoDisableGate
-            transaction.on_commit(lambda trade=trade: AutoDisableGate.record_close(
-                session, trade.pk, trade.net_pnl, trade.exit_time, account.initial_balance, strategy_config))
+            from core.outbox import enqueue
+            enqueue("risk", f"paper:{session.pk}", {
+                "scope": "paper", "session_id": session.pk, "trade_id": trade.pk,
+                "version_id": session.allocation.deployed_version_id, "pnl": str(trade.net_pnl),
+                "timestamp": trade.exit_time.isoformat(), "capital": str(account.initial_balance),
+                "config": strategy_config})
 
             margin_released = (
                 Decimal(str(opposite_position.margin_blocked or 0))
@@ -1081,44 +1039,17 @@ class PaperExecutionService:
                         execution_instrument_id=opposite_position.instrument_id,
                     )
 
-                    # Update unified cache for paper trading on partial close
-                    _publish_cache_after_commit("update_order", "paper", str(session.id), {
-                        'id': str(order.id),
-                        'instrument_id': order.instrument_id,
-                        'symbol': order.instrument.sym_ticker if order.instrument else '',
-                        'side': side,
-                        'quantity': closing_qty,
-                        'filled_quantity': closing_qty,
-                        'status': 'FILLED',
-                        'avg_fill_price': str(price),
-                        'slippage_pct_applied': str(slippage_pct),
-                        'slippage_amount': str(slippage_amount),
-                        'session_id': str(session.id),
-                    })
-                    # Update only the affected position in cache (no DB reload)
-                    if opposite_position.quantity > 0:
-                        _publish_cache_after_commit("update_position", "paper", str(session.id), {
-                            'id': str(opposite_position.id),
-                            'instrument_id': opposite_position.instrument_id,
-                            'symbol': opposite_position.instrument.sym_ticker if opposite_position.instrument else '',
-                            'side': opposite_position.side,
-                            'quantity': opposite_position.quantity,
-                            'avg_price': str(opposite_position.avg_price),
-                            'current_price': str(opposite_position.current_price),
-                            'unrealized_pnl': str(opposite_position.unrealized_pnl),
-                            'session_id': str(session.id),
-                        })
             else:
                 if opposite_position.strategy_id:
                     StrategyRuntimeState.mark_closed(
                         "paper",
                         session.id,
                         opposite_position.instrument_id,
+                        closed_at=trade.exit_time,
+                        entered_at=trade.entry_time,
                     )
                 opposite_position.delete()
-                
-                # Update unified cache for paper trading on position close
-                _publish_cache_after_commit("remove_position", "paper", str(session.id), str(opposite_position.id))
+
             remaining -= closing_qty
 
         if remaining > 0:
@@ -1131,14 +1062,14 @@ class PaperExecutionService:
                 position.current_price = price
                 position.margin_blocked = Decimal(str(position.margin_blocked)) + (price * remaining)
                 position.save(update_fields=["strategy", "quantity", "avg_price", "current_price", "margin_blocked", "last_updated", "updated_at"])
-                
+
             else:
                 position = PaperPosition.objects.create(
                     account=account, strategy=strategy, instrument=instrument,
                     side=side,
                     quantity=remaining, avg_price=price, current_price=price, margin_blocked=price * remaining,
                 )
-            
+
             trade_strategy_id = strategy.id if strategy else position.strategy_id
             if trade_strategy_id:
                 StrategyRuntimeState.mark_open(
@@ -1152,65 +1083,22 @@ class PaperExecutionService:
                     opened_at=position.opened_at,
                     execution_instrument_id=position.instrument_id,
                 )
-            
-            # Update unified cache for paper trading
-            _publish_cache_after_commit("update_order", "paper", str(session.id), {
-                'id': str(order.id),
-                'instrument_id': order.instrument_id,
-                'symbol': order.instrument.sym_ticker if order.instrument else '',
-                'side': side,
-                'quantity': remaining,
-                'filled_quantity': remaining,
-                'status': 'FILLED',
-                'avg_fill_price': str(price),
-                'slippage_pct_applied': str(slippage_pct),
-                'slippage_amount': str(slippage_amount),
-                'session_id': str(session.id),
-            })
-            # Update only the affected position in cache (no DB reload)
-            if position.quantity > 0:
-                _publish_cache_after_commit("update_position", "paper", str(session.id), {
-                    'id': str(position.id),
-                    'instrument_id': position.instrument_id,
-                    'symbol': position.instrument.sym_ticker if position.instrument else '',
-                    'side': position.side,
-                    'quantity': position.quantity,
-                    'avg_price': str(position.avg_price),
-                    'current_price': str(position.current_price),
-                    'unrealized_pnl': str(position.unrealized_pnl),
-                    'session_id': str(session.id),
-                })
+
             _publish_cache_after_commit("update_risk_metrics", "paper", session.id, {"last_entry_time": executed_at})
 
         account.save(update_fields=["current_balance", "updated_at"])
 
-        # Update unified cache for account funds
-        funds_data = {
-            'net_equity': str(account.current_balance),
-            'cash_balance': str(account.current_balance),
-            'available_margin': str(account.current_balance),
-            'used_margin': '0',
-            'account_id': str(account.id),
-        }
-        if session:
-            cache_api.update_session_funds("paper", str(session.id), funds_data)
-        
+        _refresh_paper_account_funds_after_commit(account)
+
         return order
 
 
-    @staticmethod
-    def rebuild_runtime_state_from_db(session_id):
-        """Initialize and recover runtime state from open paper positions using centralized method."""
-        from strategy_engine.runtime import StrategyRuntimeState
-        return StrategyRuntimeState.rebuild_runtime_state_from_db("paper", session_id)
-
     @classmethod
-    def run_order_stream_consumer(cls, stop_event=None):
+    def run_order_stream_consumer(cls, stop_event=None, worker_index=0):
         """Consume durable paper requests and acknowledge recorded outcomes."""
-        from paper_trading.models import PaperOrder, PaperTradingSession
         from common.enums import OrderStatus
         from instruments.models import Instrument
-        from strategy_engine.order_queue import consume_orders, entry_is_allowed
+        from strategy_engine.order_queue import consume_orders, entry_is_allowed, validate_request
 
         def handle(data):
             request_id = data["request_id"]
@@ -1219,13 +1107,14 @@ class PaperExecutionService:
             session = PaperTradingSession.objects.select_related("account", "strategy", "allocation__deployed_version").get(id=data["session_id"])
             instrument = Instrument.objects.get(id=data["instrument_id"])
             try:
+                validate_request(data)
                 if not entry_is_allowed(session.status, data.get("intent")):
                     raise ValueError(f"Paper session is {session.status}; queued entry was not executed")
                 order_id = PaperExecutionService.place_order(
                     session=session, strategy=session.strategy, account=session.account,
                     instrument=instrument, side=data["side"], quantity=data["qty"],
-                    price=data.get("target_price"), reason=data.get("reason") or "", request_id=request_id,
-                    intent=data.get("intent", "ENTRY"),
+                    reason=data.get("reason") or "", request_id=request_id,
+                    intent=data.get("intent", "ENTRY"), expected_version_id=data["strategy_version_id"],
                 )
                 order = PaperOrder.objects.get(pk=order_id)
             except Exception as exc:
@@ -1246,9 +1135,9 @@ class PaperExecutionService:
                 )
         def reconcile(data):
             StrategyRuntimeState.reconcile_trade_state(
-                "paper", data["session_id"], data["instrument_id"], failed_reason=data.get("reason")
+                "paper", data["session_id"], data["instrument_id"], failed_reason=data.get("reason"),
+                settled_request_id=data["request_id"],
             )
         logger.info("PaperExecutionService Redis Stream consumer is ready")
-        consume_orders("paper", handle, stop_event=stop_event, after_durable=reconcile)
-
+        consume_orders("paper", handle, stop_event=stop_event, after_durable=reconcile, worker_index=worker_index)
 

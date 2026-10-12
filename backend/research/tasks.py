@@ -144,6 +144,8 @@ def start_research(run_id):
             token = signing.dumps({"run_id": run.pk, "user_id": run.user_id}, salt="research-run")
             history = list(run.session.runs.filter(status=ResearchRun.Status.COMPLETED).exclude(pk=run.pk).order_by("-id")[:6])
             payload = {"prompt": run.prompt, "run_token": token, "as_of": run.as_of.isoformat(),
+                       "input_token_budget": settings.RESEARCH_INPUT_TOKEN_BUDGET,
+                       "output_token_budget": settings.RESEARCH_OUTPUT_TOKEN_BUDGET,
                        "context": {**{key: value for key, value in run.request.items() if key not in {"strategy_snapshot", "backtests", "execution_evidence"}},
                                    "backtests": [{"id": item["id"], "name": item["name"]} for item in run.request.get("backtests", [])],
                                    "has_strategy_snapshot": bool(run.request.get("strategy_snapshot")),

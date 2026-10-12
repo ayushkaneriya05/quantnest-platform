@@ -29,7 +29,7 @@ function Watchlist({
   onRefresh,
   className,
 }) {
-  const { subscribe, tickData, isConnected, getLatestPrice, getTickData } =
+  const { subscribe, isConnected, getLatestPrice, getTickData } =
     useWebSocket();
   const { notify } = useNotifications();
 

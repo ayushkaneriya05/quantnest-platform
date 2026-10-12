@@ -2,10 +2,8 @@ import logging
 from copy import deepcopy
 from django.db import transaction
 from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig
-from .serializers import StrategyDetailSerializer
 from risk_management.models import PositionSizingRule, StrategyAutoDisable
 from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
-from rules_engine.serializers import RuleGroupSerializer, TimeRuleSerializer, SpecialEventFilterSerializer
 from instruments.models import WatchlistInstrument
 
 logger = logging.getLogger(__name__)
@@ -291,8 +289,11 @@ class StrategyLifecycleService:
 
         active_sessions = list(TradingSession.objects.filter(
             strategy=strategy,
-            status__in=['RUNNING', 'PAUSED']
+            status__in=['RUNNING', 'PAUSED', 'STOPPING', 'ERROR']
         ).select_related('broker_credential'))
+
+        for session in active_sessions:
+            LiveExecutionService.pause_session(session)
 
         closed_positions = 0
         open_positions = LivePosition.objects.filter(
@@ -304,9 +305,9 @@ class StrategyLifecycleService:
             session = next(
                 (
                     item for item in active_sessions
-                    if item.broker_credential_id == position.broker_credential_id
+                    if item.allocation_id == position.allocation_id
                 ),
-                active_sessions[0] if active_sessions else None,
+                None,
             )
             if not session:
                 raise ValueError(f"No active live session found to close position {position.id}")
@@ -324,7 +325,7 @@ class StrategyLifecycleService:
             for _ in range(5):
                 # Use new BrokerReconciliationService instead of old sync method
                 from live_trading.reconciliation_service import BrokerReconciliationService
-                reconciliation_service = BrokerReconciliationService(session)
+                reconciliation_service = BrokerReconciliationService(session.broker_credential)
                 reconciliation_service.reconcile_orders()
                 
                 order.refresh_from_db()
@@ -338,10 +339,13 @@ class StrategyLifecycleService:
                 )
             closed_positions += 1
 
+        if TradingSession.objects.filter(strategy=strategy, orders__status__in=LiveExecutionService.ACTIVE_ORDER_STATUSES).exists():
+            raise RuntimeError('Pending broker orders must settle before archiving')
         for session in active_sessions:
             session.status = 'STOPPED'
             session.ended_at = timezone.now()
             session.save(update_fields=['status', 'ended_at', 'updated_at'])
+            LiveExecutionService._publish_execution_event('SESSION_STOP', session, 'live')
 
         strategy.status = 'ARCHIVED'
         strategy.save(update_fields=['status', 'updated_at'])
@@ -399,8 +403,8 @@ class StrategyDeploymentService:
         from paper_trading.models import PaperTradingSession
         from live_trading.models import TradingSession
 
-        paper_count = PaperTradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED']).count()
-        live_count = TradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED']).count()
+        paper_count = PaperTradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED', 'STOPPING', 'ERROR']).count()
+        live_count = TradingSession.objects.filter(strategy=strategy, status__in=['RUNNING', 'PAUSED', 'STOPPING', 'ERROR']).count()
         if paper_count or live_count:
             modes = []
             if paper_count:

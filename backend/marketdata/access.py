@@ -51,16 +51,9 @@ class StrategyMarketDataService:
 
     @staticmethod
     def required_timeframes(config):
-        time_rule = (config or {}).get("time_rule") or {}
-        base_timeframe = MarketDataService.normalize_timeframe(time_rule.get("candle_timeframe", "1m"))
-        from rules_engine.metadata import IndicatorRequirementAnalyzer
-
-        requirements = IndicatorRequirementAnalyzer.get_warmup_requirements(config or {})
-        required_timeframes = {
-            MarketDataService.normalize_timeframe(timeframe) for timeframe in requirements
-        }
-        required_timeframes.add(base_timeframe)
-        return base_timeframe, required_timeframes
+        from trading_domain.configuration import requirements
+        base, timeframes, _ = requirements(config or {})
+        return base, set(timeframes)
 
     @classmethod
     def get_backtest_candles(cls, symbol, resolution, start_dt, end_dt, fetch_missing=True, clean=True, calendar=None):

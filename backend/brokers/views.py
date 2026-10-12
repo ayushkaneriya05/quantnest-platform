@@ -19,7 +19,6 @@ from .serializers import (
     BrokerCredentialSerializer,
     BrokerFundsSnapshotSerializer,
     BrokerSessionSerializer,
-    OrderSettingsSerializer,
 )
 from .services import BrokerService
 
@@ -220,32 +219,6 @@ class BrokerSessionViewSet(viewsets.ReadOnlyModelViewSet):
         return BrokerSession.objects.filter(credential__user=self.request.user).select_related("credential")
 
 
-class OrderSettingsViewSet(viewsets.ViewSet):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def list(self, request):
-        credential_id = request.query_params.get("credential_id")
-        if not credential_id:
-            return Response({"error": "credential_id is required"}, status=400)
-        from brokers.models import BrokerCredential
-        credential = BrokerCredential.objects.filter(id=credential_id, user=request.user).first()
-        if not credential:
-            return Response({"error": "Broker credential not found"}, status=404)
-        return Response(OrderSettingsSerializer(BrokerService.get_order_settings(credential)).data)
-
-    def partial_update(self, request, pk=None):
-        credential_id = request.data.get("credential_id")
-        if not credential_id:
-            return Response({"error": "credential_id is required"}, status=400)
-        from brokers.models import BrokerCredential
-        credential = BrokerCredential.objects.filter(id=credential_id, user=request.user).first()
-        if not credential:
-            return Response({"error": "Broker credential not found"}, status=404)
-        settings_obj = BrokerService.get_order_settings(credential)
-        serializer = OrderSettingsSerializer(settings_obj, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data)
 
 
 from rest_framework.pagination import PageNumberPagination

@@ -10,7 +10,6 @@ from functools import lru_cache
 from datetime import datetime, time
 from decimal import Decimal
 
-from common.enums import Side
 logger = logging.getLogger(__name__)
 
 

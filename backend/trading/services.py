@@ -1,12 +1,9 @@
 from decimal import Decimal
 from datetime import timezone as dt_timezone
-from typing import Dict, List, Any
-import json
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Sum, Q
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
@@ -21,127 +18,15 @@ from .signals import order_status_changed, position_changed
 
 
 class TerminalOrderCache:
-    """
-    Shared cache for terminal (manual trading) orders using Django's cache framework.
-    Provides low-latency access to open orders for matching engine with immediate
-    cross-process synchronization (uses Redis or configured cache backend).
-    """
-    CACHE_PREFIX = "terminal_orders"
-    CACHE_TIMEOUT = 86400  # 24 hours (orders are actively managed, so this is safe)
-
+    """Persist committed book updates in the financial transaction."""
     @classmethod
-    def _get_cache_key(cls, symbol: str) -> str:
-        """Get cache key for a symbol."""
-        return f"{cls.CACHE_PREFIX}:{symbol}"
+    def update_order(cls, order):
+        from core.outbox import enqueue
+        from quantnest_runtime.terminal import order_payload
+        enqueue("terminal", str(order.instrument_id), order_payload(order))
 
-    @classmethod
-    def add_order(cls, order: Order):
-        """Add an order to the cache."""
-        symbol = order.instrument.sym_ticker or order.instrument.symbol
-        cache_key = cls._get_cache_key(symbol)
-
-        # Get existing orders from cache
-        orders_json = cache.get(cache_key, "[]")
-        orders = json.loads(orders_json) if orders_json else []
-
-        # Add new order
-        order_dict = {
-            'id': order.id,
-            'order_type': order.order_type,
-            'transaction_type': order.transaction_type,
-            'quantity': str(order.quantity),
-            'price': str(order.price) if order.price else None,
-            'trigger_price': str(order.trigger_price) if order.trigger_price else None,
-            'status': order.status,
-        }
-
-        orders.append(order_dict)
-
-        # Save back to cache
-        cache.set(cache_key, json.dumps(orders), cls.CACHE_TIMEOUT)
-
-    @classmethod
-    def remove_order(cls, order: Order):
-        """Remove an order from the cache."""
-        symbol = order.instrument.sym_ticker or order.instrument.symbol
-        cache_key = cls._get_cache_key(symbol)
-
-        # Get existing orders from cache
-        orders_json = cache.get(cache_key, "[]")
-        orders = json.loads(orders_json) if orders_json else []
-
-        # Remove order
-        orders = [o for o in orders if o['id'] != order.id]
-
-        # Save back to cache (or delete if empty)
-        if orders:
-            cache.set(cache_key, json.dumps(orders), cls.CACHE_TIMEOUT)
-        else:
-            cache.delete(cache_key)
-
-    @classmethod
-    def update_order(cls, order: Order):
-        """Update an order in the cache."""
-        cls.remove_order(order)
-        if order.status == "OPEN":
-            cls.add_order(order)
-
-    @classmethod
-    def get_terminal_orders(cls, symbol: str) -> List[Dict[str, Any]]:
-        """Get all open orders for a symbol from shared cache."""
-        cache_key = cls._get_cache_key(symbol)
-        orders_json = cache.get(cache_key, "[]")
-        orders = json.loads(orders_json) if orders_json else []
-
-        # Convert strings back to proper types
-        for order in orders:
-            order['quantity'] = Decimal(order['quantity'])
-            if order['price']:
-                order['price'] = Decimal(order['price'])
-            if order['trigger_price']:
-                order['trigger_price'] = Decimal(order['trigger_price'])
-
-        return orders
-
-    @classmethod
-    def initialize_from_db(cls):
-        """Initialize cache from database on startup."""
-        from django.db.models import Q
-
-        # Get all open orders from database
-        open_orders = Order.objects.filter(
-            status="OPEN"
-        ).select_related("instrument")
-
-        # Group by symbol and populate cache
-        orders_by_symbol: Dict[str, List[Dict[str, Any]]] = {}
-        for order in open_orders:
-            symbol = order.instrument.sym_ticker or order.instrument.symbol
-            if symbol not in orders_by_symbol:
-                orders_by_symbol[symbol] = []
-
-            order_dict = {
-                'id': order.id,
-                'order_type': order.order_type,
-                'transaction_type': order.transaction_type,
-                'quantity': str(order.quantity),
-                'price': str(order.price) if order.price else None,
-                'trigger_price': str(order.trigger_price) if order.trigger_price else None,
-                'status': order.status,
-            }
-
-            orders_by_symbol[symbol].append(order_dict)
-
-        # Save to cache
-        for symbol, orders in orders_by_symbol.items():
-            cache_key = cls._get_cache_key(symbol)
-            cache.set(cache_key, json.dumps(orders), cls.CACHE_TIMEOUT)
-
-    @classmethod
-    def force_refresh(cls):
-        """Force an immediate refresh from database."""
-        cls.initialize_from_db()
-
+    add_order = update_order
+    remove_order = update_order
 
 
 class TradingInstrumentService:
@@ -250,13 +135,13 @@ class TradingOrderService:
         if not raw_timestamp:
             return None
         if isinstance(raw_timestamp, (int, float)):
-            return max(0, timezone.now().timestamp() - float(raw_timestamp))
+            return timezone.now().timestamp() - float(raw_timestamp)
         parsed = parse_datetime(str(raw_timestamp))
         if parsed is None:
             return None
         if timezone.is_naive(parsed):
             parsed = timezone.make_aware(parsed, dt_timezone.utc)
-        return max(0, (timezone.now() - parsed).total_seconds())
+        return (timezone.now() - parsed).total_seconds()
 
     @classmethod
     def get_market_fill_price(cls, instrument):
@@ -272,7 +157,7 @@ class TradingOrderService:
         if not quote:
             # Fallback to live API, then DB storage
             from marketdata.services import MarketDataService
-            quote = MarketDataService.get_live_quote_from_fyers(symbol)
+            quote = MarketDataService.get_live_quote(symbol)
             if not quote:
                 quote = MarketDataService.latest_quote_from_storage(symbol)
 
@@ -281,12 +166,50 @@ class TradingOrderService:
             raise ValidationError("Live quote is unavailable. Market order was not placed.")
 
         age_seconds = cls._quote_age_seconds(quote)
-        if age_seconds is not None and age_seconds > cls.MARKET_QUOTE_MAX_AGE_SECONDS:
+        if age_seconds is None or not 0 <= age_seconds <= cls.MARKET_QUOTE_MAX_AGE_SECONDS:
             raise ValidationError("Live quote is stale. Please wait for a fresh tick before placing a market order.")
 
         return Decimal(str(price))
 
+    @staticmethod
+    def pending_cash(account, exclude_id=None):
+        orders = Order.objects.filter(account=account, status="OPEN")
+        if exclude_id:
+            orders = orders.exclude(pk=exclude_id)
+        return orders.aggregate(total=Sum("reserved_cash"))["total"] or Decimal("0")
+
     @classmethod
+    def reserve_order(cls, order, quote_price=None):
+        """Cold order admission under the account lock; protective exits reserve no capital."""
+        account = Account.objects.select_for_update().get(pk=order.account_id)
+        from trading_domain.contracts import Contract
+        spec = Contract(order.instrument_id, order.instrument.exchange, order.instrument.instrument_type,
+                        order.instrument.currency_code, order.instrument.tick_size, order.instrument.lot_size or 1,
+                        order.instrument.qty_multiplier)
+        if spec.quantity(order.quantity) != order.quantity:
+            raise ValidationError("Quantity must be a multiple of the instrument lot size.")
+        for value in (order.price, order.trigger_price):
+            if value is not None and spec.price(value) != value:
+                raise ValidationError("Order prices must match the instrument tick size.")
+        if order.position_link_id:
+            order.reserved_cash = Decimal("0")
+        else:
+            price = Decimal(str(quote_price or order.price or order.trigger_price or cls.get_market_fill_price(order.instrument)))
+            quantity = order.quantity
+            if order.transaction_type == "SELL":
+                owned = Position.objects.filter(account=account, instrument=order.instrument, quantity__gt=0).first()
+                pending_sells = Order.objects.filter(account=account, instrument=order.instrument,
+                    status="OPEN", transaction_type="SELL", position_link__isnull=True).exclude(pk=order.pk)
+                closing = max((owned.quantity if owned else 0) - (pending_sells.aggregate(total=Sum("quantity"))["total"] or 0), 0)
+                quantity = max(quantity - closing, 0)
+            order.reserved_cash = (price * quantity).quantize(Decimal("0.01"))
+        margin = cls.calculate_used_margin(account)
+        if order.reserved_cash > max(account.balance - margin - cls.pending_cash(account, order.pk), Decimal("0")):
+            raise ValidationError("Insufficient unreserved capital for this order.")
+        order.save(update_fields=["reserved_cash"])
+
+    @classmethod
+    @transaction.atomic
     def create_order(cls, user, validated_data):
         cls.validate_payload(validated_data)
         instrument_symbol = validated_data.pop("instrument_symbol")
@@ -300,6 +223,10 @@ class TradingOrderService:
         if instrument is None:
             raise ValueError("Instrument symbol was not found.")
 
+        account = Account.objects.select_for_update().get(pk=account.pk)
+        if Order.objects.filter(account=account, status="OPEN", position_link__isnull=True).count() >= settings.TERMINAL_MAX_OPEN_ORDERS:
+            raise ValidationError("Open order limit reached. Cancel an order before placing another.")
+
         # Ensure symbol is tracked in live market data
         try:
             LiveMarketDataRegistry.add_symbols([instrument.sym_ticker or instrument.symbol])
@@ -311,6 +238,7 @@ class TradingOrderService:
             fill_price = cls.get_market_fill_price(instrument)
 
         order = Order.objects.create(account=account, instrument=instrument, **validated_data)
+        cls.reserve_order(order, fill_price)
 
         # Add to terminal order cache for matching engine
         if order.status == "OPEN":
@@ -327,21 +255,28 @@ class TradingOrderService:
     @classmethod
     @transaction.atomic
     def execute_order(cls, order, fill_price):
+        account = Account.objects.select_for_update().get(pk=order.account_id)
         order = (
-            Order.objects.select_for_update()
+            Order.objects.select_for_update(of=("self",))
             .select_related("account", "instrument")
             .get(pk=order.pk)
         )
         if order.status != "OPEN":
             return order
 
-        account = Account.objects.select_for_update().get(pk=order.account_id)
         quantity = order.quantity
+        if order.position_link_id:
+            linked = Position.objects.select_for_update().filter(pk=order.position_link_id).first()
+            if not linked or linked.quantity == 0 or (linked.quantity > 0) == (order.transaction_type == "BUY"):
+                return cls.cancel_order(order)
+            quantity = min(quantity, abs(linked.quantity))
         order_value = fill_price * quantity
 
-        if order.transaction_type == "BUY" and account.balance < order_value:
+        if order.transaction_type == "BUY" and account.balance < order_value and not order.position_link_id:
             order.status = "REJECTED"
-            order.save(update_fields=["status"])
+            order.reserved_cash = Decimal("0")
+            order.save(update_fields=["status", "reserved_cash"])
+            TerminalOrderCache.remove_order(order)
             order_status_changed.send(sender=cls, order=order)
             return order
 
@@ -361,6 +296,19 @@ class TradingOrderService:
         old_quantity = position.quantity
         transaction_qty = quantity if order.transaction_type == "BUY" else -quantity
         new_quantity = old_quantity + transaction_qty
+
+        next_balance = account.balance - Decimal(transaction_qty) * fill_price
+        previous_short = Decimal(abs(min(old_quantity, 0))) * position.average_price * 2
+        next_short = Decimal(abs(min(new_quantity, 0))) * (position.average_price if old_quantity < 0 and new_quantity < 0 else fill_price) * 2
+        margin = cls.calculate_used_margin(account) - previous_short + next_short
+        closing_only = old_quantity != 0 and old_quantity * transaction_qty < 0 and abs(transaction_qty) <= abs(old_quantity)
+        if not closing_only and next_balance - margin - cls.pending_cash(account, order.pk) < 0:
+            order.status = "REJECTED"
+            order.reserved_cash = Decimal("0")
+            order.save(update_fields=["status", "reserved_cash"])
+            TerminalOrderCache.remove_order(order)
+            order_status_changed.send(sender=cls, order=order)
+            return order
 
         account.balance -= (Decimal(str(transaction_qty)) * fill_price)
         
@@ -409,14 +357,12 @@ class TradingOrderService:
             position.quantity = new_quantity
             position.save()
 
-        account.margin = cls.calculate_used_margin(account)
-        account.save()
-
         # Update Order
         order.status = "COMPLETE"
         order.executed_at = timezone.now()
         order.price = fill_price # Store the actual fill price
-        order.save(update_fields=["status", "executed_at", "price"])
+        order.reserved_cash = Decimal("0")
+        order.save(update_fields=["status", "executed_at", "price", "reserved_cash"])
 
         deleted_position_id = None
         if new_quantity == 0:
@@ -425,6 +371,11 @@ class TradingOrderService:
             cls.sync_position_sl_tp_orders(position)
             if position.pk:
                 position.delete()
+
+        # Recalculate after removing a flat position; otherwise a completed
+        # short cover leaves its old collateral blocked in the account.
+        account.margin = cls.calculate_used_margin(account)
+        account.save()
 
         # Remove from terminal order cache
         TerminalOrderCache.remove_order(order)
@@ -462,94 +413,16 @@ class TradingOrderService:
         
         return order
 
-    @classmethod
-    def process_matching_engine(cls, symbol, tick_data, open_orders=None):
-        """
-        Process matching engine logic for a given symbol and tick data.
-        """
-        # Gate: Never execute orders when the market is closed.
-        # Stale ticks from broker WebSockets can arrive on weekends/holidays.
-        from marketdata.services import MarketStatusService
-        if not MarketStatusService.is_market_open():
-            return
-
-        raw_price = tick_data.get("price")
-        if raw_price in (None, "", 0, "0"):
-            return
-        ltp = Decimal(str(raw_price))
-
-        # --- Process Open Orders ---
-        if open_orders is None:
-            open_orders = Order.objects.filter(
-                instrument__sym_ticker=symbol,
-                status="OPEN"
-            ).select_related("account", "instrument")
-
-        for order in open_orders:
-            should_fill = False
-
-            # Handle both Order objects and order dictionaries from cache
-            if isinstance(order, dict):
-                order_type = order.get('order_type')
-                transaction_type = order.get('transaction_type')
-                price = order.get('price')
-                trigger_price = order.get('trigger_price')
-                order_id = order.get('id')
-            else:
-                order_type = order.order_type
-                transaction_type = order.transaction_type
-                price = order.price
-                trigger_price = order.trigger_price
-                order_id = order.id
-
-            if order_type == "MARKET":
-                should_fill = True
-
-            elif order_type == "LIMIT":
-                if transaction_type == "BUY" and ltp <= price:
-                    should_fill = True
-                elif transaction_type == "SELL" and ltp >= price:
-                    should_fill = True
-
-            elif order_type == "STOP":
-                if transaction_type == "BUY" and ltp >= trigger_price:
-                    should_fill = True
-                elif transaction_type == "SELL" and ltp <= trigger_price:
-                    should_fill = True
-
-            elif order_type == "STOP_LIMIT":
-                if transaction_type == "BUY" and ltp >= trigger_price:
-                    # Convert to LIMIT order
-                    actual_order = Order.objects.get(id=order_id)
-                    actual_order.order_type = "LIMIT"
-                    actual_order.trigger_price = None
-                    actual_order.save(update_fields=["order_type", "trigger_price"])
-                    TerminalOrderCache.update_order(actual_order)
-                    if ltp <= price:
-                        should_fill = True
-                elif transaction_type == "SELL" and ltp <= trigger_price:
-                    # Convert to LIMIT order
-                    actual_order = Order.objects.get(id=order_id)
-                    actual_order.order_type = "LIMIT"
-                    actual_order.trigger_price = None
-                    actual_order.save(update_fields=["order_type", "trigger_price"])
-                    TerminalOrderCache.update_order(actual_order)
-                    if ltp >= price:
-                        should_fill = True
-
-            if should_fill:
-                # If using cache, fetch actual Order object from DB for execution
-                if isinstance(order, dict):
-                    actual_order = Order.objects.get(id=order_id)
-                    cls.execute_order(actual_order, ltp)
-                else:
-                    cls.execute_order(order, ltp)
-
-
     @staticmethod
+    @transaction.atomic
     def cancel_order(order):
+        Account.objects.select_for_update().get(pk=order.account_id)
+        order = Order.objects.select_for_update().get(pk=order.pk)
+        if order.status != "OPEN":
+            return order
         order.status = "CANCELLED"
-        order.save(update_fields=["status"])
+        order.reserved_cash = Decimal("0")
+        order.save(update_fields=["status", "reserved_cash"])
 
         # Remove from terminal order cache
         TerminalOrderCache.remove_order(order)
@@ -687,7 +560,7 @@ class TradingOrderService:
         total = Decimal("0")
         for position in Position.objects.filter(account=account):
             if position.quantity < 0:
-                total += Decimal(abs(position.quantity)) * Decimal(position.average_price)
+                total += Decimal(abs(position.quantity)) * Decimal(position.average_price) * 2
         return total
 
     @classmethod
@@ -698,7 +571,7 @@ class TradingOrderService:
         
         if not quote:
             from marketdata.services import MarketDataService
-            quote = MarketDataService.get_live_quote_from_fyers(symbol)
+            quote = MarketDataService.get_live_quote(symbol)
             if not quote:
                 quote = MarketDataService.latest_quote_from_storage(symbol)
             
@@ -713,18 +586,7 @@ class TradingOrderService:
 class PaperTradingTerminalService:
     @classmethod
     def build_snapshot(cls, user):
-        account = (
-            Account.objects.prefetch_related(
-                "positions__instrument",
-                "orders__instrument",
-                Prefetch(
-                    "orders__trades",
-                    queryset=TradeHistory.objects.select_related("order", "order__instrument").order_by("-timestamp"),
-                ),
-            )
-            .filter(user=user)
-            .first()
-        )
+        account = Account.objects.filter(user=user).first()
 
         if account is None:
             account = TradingAccountService.get_or_create_account(user)
@@ -733,12 +595,7 @@ class PaperTradingTerminalService:
         positions = list(
             Position.objects.filter(account=account).select_related("instrument").order_by("instrument__symbol")
         )
-        computed_margin = TradingOrderService.calculate_used_margin(account)
-        if account.margin != computed_margin:
-            account.margin = computed_margin
-            account.save(update_fields=["margin"])
-        orders = list(Order.objects.filter(account=account).select_related("instrument").order_by("-created_at"))
-        open_orders = [order for order in orders if order.status == "OPEN"]
+        open_orders = Order.objects.filter(account=account, status="OPEN").select_related("instrument").order_by("-created_at")
         trades = list(
             TradeHistory.objects.filter(order__account=account)
             .select_related("order", "order__instrument")
@@ -765,7 +622,9 @@ class PaperTradingTerminalService:
         return {
             "id": account.id,
             "balance": str(account.balance),
-            "margin": str(account.margin),
+            "margin": str(TradingOrderService.calculate_used_margin(account)),
+            "reserved_cash": str(TradingOrderService.pending_cash(account)),
+            "available_balance": str(max(account.balance - TradingOrderService.calculate_used_margin(account) - TradingOrderService.pending_cash(account), Decimal("0"))),
             "realized_pnl": str(account.realized_pnl),
             "unrealized_pnl": str(unrealized_pnl),
             "market_value": str(market_value),

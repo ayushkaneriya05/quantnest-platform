@@ -77,8 +77,7 @@ class PositionDetailView(generics.RetrieveUpdateAPIView):
         return Position.objects.filter(account=account)
         
     def perform_update(self, serializer):
-        position = serializer.save()
-        TradingOrderService.sync_position_sl_tp_orders(position)
+        serializer.save()
 
 class HistoricalDataPagination(PageNumberPagination):
     page_size = 50
@@ -120,8 +119,7 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Order.objects.filter(account=account, status='OPEN')
 
     def perform_update(self, serializer):
-        order = serializer.save()
-        TradingOrderService.sync_order_to_position(order)
+        serializer.save()
 
     def perform_destroy(self, instance):
         TradingOrderService.cancel_order(instance)

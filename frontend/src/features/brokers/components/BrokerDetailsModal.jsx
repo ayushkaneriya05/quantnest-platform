@@ -1,5 +1,4 @@
-import React from "react";
-import { X, Wallet, ShieldCheck, Mail, User, Hash } from "lucide-react";
+import { Wallet, Mail, User, Hash } from "lucide-react";
 import {
   Dialog,
   DialogContent,

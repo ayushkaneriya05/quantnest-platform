@@ -18,6 +18,32 @@ REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/0")
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CHANNEL_REDIS_URL = config("CHANNEL_REDIS_URL", default=REDIS_URL)
+RUNTIME_REDIS_URL = config("RUNTIME_REDIS_URL", default=REDIS_URL)
+EXECUTION_WORKERS = config("EXECUTION_WORKERS", default=2, cast=int)
+CALCULATION_WORKERS = config("CALCULATION_WORKERS", default=1, cast=int)
+EXECUTION_SHARDS = config("EXECUTION_SHARDS", default=64, cast=int)
+EXECUTION_NODE_INDEX = config("EXECUTION_NODE_INDEX", default=0, cast=int)
+EXECUTION_NODE_COUNT = config("EXECUTION_NODE_COUNT", default=1, cast=int)
+EXECUTION_MAX_ACTORS = config("EXECUTION_MAX_ACTORS", default=200, cast=int)
+EXECUTION_MAX_USER_ACTORS = config("EXECUTION_MAX_USER_ACTORS", default=64, cast=int)
+EXECUTION_ENABLED_SCOPES = set(config("EXECUTION_ENABLED_SCOPES", default="paper,live", cast=Csv()))
+EXECUTION_TASK_TIMEOUT = config("EXECUTION_TASK_TIMEOUT", default=10.0, cast=float)
+EXECUTION_STARTUP_TASK_TIMEOUT = config("EXECUTION_STARTUP_TASK_TIMEOUT", default=60.0, cast=float)
+EXECUTION_TICK_BATCH = config("EXECUTION_TICK_BATCH", default=128, cast=int)
+TERMINAL_MATCH_BATCH = config("TERMINAL_MATCH_BATCH", default=64, cast=int)
+CALCULATION_CACHE_MB = config("CALCULATION_CACHE_MB", default=128, cast=int)
+EXECUTION_NOTIFY_PORT = config("EXECUTION_NOTIFY_PORT", default=19600, cast=int)
+ORDER_PARTITIONS = config("ORDER_PARTITIONS", default=16, cast=int)
+ORDER_WORKERS = config("ORDER_WORKERS", default=2, cast=int)
+ORDER_CONCURRENCY = config("ORDER_CONCURRENCY", default=4, cast=int)
+ORDER_TASK_TIMEOUT = config("ORDER_TASK_TIMEOUT", default=30.0, cast=float)
+TERMINAL_MAX_OPEN_ORDERS = config("TERMINAL_MAX_OPEN_ORDERS", default=200, cast=int)
+MARKET_DATA_PROVIDER = config("MARKET_DATA_PROVIDER", default="fyers")
+RESEARCH_INPUT_TOKEN_BUDGET = config("RESEARCH_INPUT_TOKEN_BUDGET", default=40000, cast=int)
+RESEARCH_OUTPUT_TOKEN_BUDGET = config("RESEARCH_OUTPUT_TOKEN_BUDGET", default=6000, cast=int)
+RESEARCH_CACHE_URL = config("RESEARCH_CACHE_URL", default="redis://localhost:6379/3")
+MARKET_CACHE_URL = config("MARKET_CACHE_URL", default="redis://localhost:6379/2")
+EXECUTION_SCAN_INTERVAL = config("EXECUTION_SCAN_INTERVAL", default=0.005, cast=float)
 USE_IN_MEMORY_CHANNEL_LAYER = config("USE_IN_MEMORY_CHANNEL_LAYER", default=DEBUG, cast=bool)
 RESEARCH_SERVICE_URL = config("RESEARCH_SERVICE_URL", default="http://127.0.0.1:8001")
 RESEARCH_SERVICE_TOKEN = config("RESEARCH_SERVICE_TOKEN", default="")
@@ -258,6 +284,17 @@ else:
         }
     }
 
+CACHES["marketdata"] = {
+    "BACKEND": "django.core.cache.backends.redis.RedisCache",
+    "LOCATION": MARKET_CACHE_URL, "TIMEOUT": 60,
+}
+
+CACHES["research"] = {
+    "BACKEND": "django.core.cache.backends.redis.RedisCache",
+    "LOCATION": RESEARCH_CACHE_URL, "TIMEOUT": 660,
+    "OPTIONS": {"socket_connect_timeout": 3, "socket_timeout": 5},
+}
+
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -296,6 +333,7 @@ CELERY_TASK_ROUTES = {
     "users.*": {"queue": "default"},
 }
 CELERY_BEAT_SCHEDULE = {
+    "runtime-retention": {"task": "common.prune_runtime_records", "schedule": crontab(hour=2, minute=15)},
     "users-cleanup-expired-sessions": {
         "task": "users.cleanup_expired_sessions",
         "schedule": crontab(hour=3, minute=0),

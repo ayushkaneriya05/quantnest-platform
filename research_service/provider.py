@@ -91,10 +91,11 @@ def tool_definitions(schema):
 
 
 async def generate(client, **arguments):
+    output_limit = arguments.pop("output_limit")
     for attempt in range(3):
         try:
             return await client.aio.interactions.create(store=False, timeout=120,
-                                                        generation_config={"max_output_tokens": 8192}, **arguments)
+                                                        generation_config={"max_output_tokens": output_limit}, **arguments)
         except Exception as exc:
             code = getattr(exc, "code", getattr(exc, "status_code", None))
             if attempt == 2 or code not in (429, 500, 502, 503, 504):
@@ -117,6 +118,17 @@ async def research_events(request, client):
     calls, usage = 0, {"requests": 0, "total_input_tokens": 0, "total_output_tokens": 0,
                        "total_thought_tokens": 0, "total_tokens": 0}
     budget = min(8, max(0, request.context.get("tool_budget", 8)))
+    async def bounded_generate(**arguments):
+        remaining_output = request.output_token_budget - usage["total_output_tokens"] - usage["total_thought_tokens"]
+        if remaining_output < 512:
+            raise ResearchError("Research output budget exhausted. Start a more focused research turn.")
+        # Count a serialized envelope conservatively before each generation,
+        # including the tool declarations and system instructions.
+        counted = await client.aio.models.count_tokens(
+            model=model, contents=json.dumps(arguments, default=str))
+        if int(counted.total_tokens or 0) + usage["total_input_tokens"] > request.input_token_budget:
+            raise ResearchError("Research context exceeds the input budget. Reduce attachments or start a new conversation.")
+        return await generate(client, output_limit=remaining_output, **arguments)
     def add_usage(interaction):
         usage["requests"] += 1
         for key in ("total_input_tokens", "total_output_tokens", "total_thought_tokens", "total_tokens"):
@@ -125,7 +137,7 @@ async def research_events(request, client):
     async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=10)) as gateway:
         while calls < budget:
             yield {"type": "progress", "message": "Planning research and choosing evidence"}
-            interaction = await generate(client, model=model, input=history, tools=tools, system_instruction=SYSTEM_INSTRUCTION)
+            interaction = await bounded_generate(model=model, input=history, tools=tools, system_instruction=SYSTEM_INSTRUCTION)
             add_usage(interaction)
             for step in interaction.steps or []:
                 # Preserve the complete model steps, including thought signatures.
@@ -150,7 +162,7 @@ async def research_events(request, client):
                 history.append({"type": "function_result", "name": function.name, "call_id": function.id,
                                 "result": [{"type": "text", "text": json.dumps(data)}]})
         yield {"type": "progress", "message": "Writing the research summary from calculated evidence"}
-        final = await generate(client, model=model, input=history, system_instruction=SYSTEM_INSTRUCTION,
+        final = await bounded_generate(model=model, input=history, system_instruction=SYSTEM_INSTRUCTION,
                                response_format={"type": "text", "mime_type": "application/json", "schema": ResearchResult.model_json_schema()})
         add_usage(final)
         text = final.output_text or "".join(

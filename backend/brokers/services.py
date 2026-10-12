@@ -15,13 +15,12 @@ from common.enums import BrokerName, FyersOrderSide, FyersOrderType, OrderStatus
 from common.cache_keys import CacheKeys
 from notifications.services import NotificationService
 
-from .models import BrokerAPILog, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderSettings
+from .models import BrokerAPILog, BrokerCredential, BrokerFundsSnapshot, BrokerSession
 
 try:
     from fyers_apiv3 import fyersModel
 except Exception:
     fyersModel = None
-
 
 
 logger = logging.getLogger(__name__)
@@ -319,7 +318,6 @@ class FyersAdapter(BaseBrokerAdapter):
                 row.get("tradedPrice")
                 or row.get("avgPrice")
                 or row.get("avg_fill_price")
-                or row.get("price")
                 or 0
             )
             order_type = row.get("order_type") or row.get("type")
@@ -333,6 +331,7 @@ class FyersAdapter(BaseBrokerAdapter):
             normalized.append({
                 "broker_order_id": str(row.get("id") or row.get("orderid") or row.get("broker_order_id") or row.get("orderNumStatus") or ""),
                 "exchange_order_id": str(row.get("exchOrdId") or row.get("exchange_order_id") or ""),
+                "order_tag": str(row.get("order_tag") or row.get("orderTag") or row.get("tag") or ""),
                 "symbol": symbol,
                 "product_type": row.get("productType") or row.get("product_type") or "CNC",
                 "side": self._normalize_side(row.get("side") or row.get("transactiontype") or "BUY"),
@@ -807,14 +806,14 @@ class BrokerService:
             )
         return BrokerService.as_json_safe(catalog)
 
-    @staticmethod
-    def get_order_settings(credential):
-        settings, _ = OrderSettings.objects.get_or_create(broker_credential=credential)
-        return settings
 
     @staticmethod
     def get_adapter(credential):
-        adapter_cls = BROKER_ADAPTERS.get(credential.broker_name, FyersAdapter)
+        adapter_cls = BROKER_ADAPTERS.get(credential.broker_name)
+        if adapter_cls is None:
+            raise ValueError(f"Broker '{credential.broker_name}' is not supported")
+        if adapter_cls in (ZerodhaAdapter, AngelAdapter):
+            raise ValueError(f"Broker '{credential.broker_name}' adapter is not implemented")
         return adapter_cls(credential)
 
     @staticmethod
@@ -870,7 +869,6 @@ class BrokerService:
                 "credential": credential,
                 "auth_url": BrokerService.generate_auth_url(credential),
             }
-
 
 
         raise ValueError(f"{broker_name} connection flow is not implemented yet")
@@ -942,7 +940,7 @@ class BrokerService:
         credential.is_verified = False
         credential.last_verified_at = None
         credential.save(update_fields=["is_active", "is_verified", "last_verified_at", "updated_at"])
-        
+
         # Stop running live strategies associated with this credential
         try:
             from live_trading.models import TradingSession
@@ -952,7 +950,7 @@ class BrokerService:
                 LiveExecutionService.stop_session(session, close_positions=False)
         except Exception as e:
             logger.exception(f"Failed to stop live sessions for disconnected credential {credential.id}: {e}")
-            
+
         NotificationService.notify(
             user=credential.user,
             message=f"Broker account '{credential.label or credential.client_id}' disconnected. Dependent live sessions were stopped.",
@@ -978,17 +976,6 @@ class BrokerService:
             notify_broker_session_expired(credential)
         return BrokerService.get_adapter(credential).create_session()
 
-    @staticmethod
-    def normalize_position_payload(credential, payload):
-        """Delegate to adapter for broker-specific normalization."""
-        adapter = BrokerService.get_adapter(credential)
-        return adapter.normalize_position_payload(payload)
-
-    @staticmethod
-    def normalize_order_payload(credential, payload):
-        """Delegate to adapter for broker-specific normalization."""
-        adapter = BrokerService.get_adapter(credential)
-        return adapter.normalize_order_payload(payload)
 
     @staticmethod
     def generate_auth_url(credential):
@@ -1023,4 +1010,3 @@ class BrokerService:
             dedupe_key=f"broker-connected:{credential.id}:{session.pk}",
         )
         return session
-

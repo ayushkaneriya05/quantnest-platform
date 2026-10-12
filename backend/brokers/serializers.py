@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession, OrderSettings
+from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession
 
 
 class BrokerCredentialSerializer(serializers.ModelSerializer):
@@ -52,15 +52,6 @@ class BrokerSessionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class OrderSettingsSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OrderSettings
-        fields = [
-            "id",
-            "order_timeout_seconds",
-            "updated_at",
-        ]
-        read_only_fields = ["updated_at"]
 
 
 class BrokerAPILogSerializer(serializers.ModelSerializer):

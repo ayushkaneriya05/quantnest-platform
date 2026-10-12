@@ -23,10 +23,9 @@ def refresh_live_market_subscriptions():
 def backfill_missing_candles(symbol, lookback_days=10, timeframe="1m", **_ignored):
     normalized_symbol = MarketDataService.normalize_symbol(symbol)
     lock_key = f"marketdata:backfill:{normalized_symbol}:{timeframe}"
-    if cache.get(lock_key):
+    if not cache.add(lock_key, True, timeout=60 * 5):
         return {"queued": False, "reason": "already_recently_requested"}
 
-    cache.set(lock_key, True, timeout=60 * 5)
     end_dt = timezone.now()
     start_dt = end_dt - timedelta(days=int(lookback_days or 10))
     chunk_days = 90
@@ -79,7 +78,10 @@ def fetch_live_candles_from_broker():
             )
             if fetched:
                 from types import SimpleNamespace
-                latest_candle = fetched[-1]
+                completed = [candle for candle in fetched if candle["time"] + timedelta(minutes=1) <= end_dt]
+                if not completed:
+                    continue
+                latest_candle = completed[-1]
                 candle_obj = SimpleNamespace(**latest_candle)
                 MarketDataStreamer.publish_candle_update(symbol, candle_obj, event_type="candle.closed")
                 
@@ -92,42 +94,24 @@ def fetch_live_candles_from_broker():
 
 @shared_task(name="marketdata.reconcile_daily_market_data")
 def reconcile_daily_market_data():
-    """
-    Runs daily at 23:55 to check if the market was officially open today.
-    If the benchmark index returns no data for the 1D timeframe, it means it was a mock session or holiday.
-    We then safely wipe all fake candles recorded today across ALL symbols.
-    """
-    from .services import MarketDataService
-    from .models import Candle
-    
-    end_dt = timezone.now()
-    start_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    benchmark_symbol = "NSE:NIFTY50-INDEX"
-    
-    try:
-        # Check if the benchmark index has a 1D candle for today
-        fetched = MarketDataService.backfill_candles_from_broker(
-            symbol=benchmark_symbol,
-            date_from=start_dt.isoformat(),
-            date_to=end_dt.isoformat(),
-            timeframe="1D"
-        )
-        
-        # If Fyers returns nothing (or it was an empty day), it's a mock session / holiday
-        if not fetched:
-            logger.info("Daily reconciliation: No valid data found for benchmark index. Wiping today's mock/holiday candles.")
-            
-            # Delete all candles recorded today for ALL symbols
-            deleted, _ = Candle.objects.filter(time__gte=start_dt, time__lt=end_dt).delete()
-            logger.info(f"Deleted {deleted} fake mock candles from database.")
-
-            return {"status": "wiped_mock_data", "deleted": deleted}
-            
-        else:
-            logger.info("Daily reconciliation: Benchmark index traded today. Keeping all recorded candles.")
-            return {"status": "official_session_kept", "deleted": 0}
-            
-    except Exception as exc:
-        logger.exception("Failed running daily reconciliation task: %s", exc)
-        return {"status": "error", "error": str(exc)}
+    """Repair source coverage; an empty provider response never deletes market history."""
+    from marketdata.calendar import MarketSessionCalendar
+    today = timezone.now()
+    results = {"repaired": 0, "failed": []}
+    for symbol in LiveMarketDataRegistry.get_symbols():
+        calendar = MarketSessionCalendar.for_symbol(symbol)
+        day = today.astimezone(calendar.zone).date()
+        calendar.load_holidays(day, day)
+        if not calendar.is_trading_day(day):
+            continue
+        try:
+            candles = MarketDataService.backfill_candles_from_broker(
+                symbol, day.isoformat(), day.isoformat(), "1m")
+            if candles is None:
+                results["failed"].append(symbol)
+            else:
+                results["repaired"] += 1
+        except Exception:
+            logger.exception("Daily data repair failed symbol=%s", symbol)
+            results["failed"].append(symbol)
+    return results

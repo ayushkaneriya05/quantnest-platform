@@ -1,5 +1,5 @@
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
-import React, { useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Mail, ShieldCheck } from "lucide-react";
 

@@ -4,12 +4,7 @@ Serializers for the rules_engine app.
 from rest_framework import serializers
 from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule
 from .math_expressions import is_safe_arithmetic_expression
-from common.enums import (
-    OperandType, ComparisonOperator, CandlePatternType, CandleTimeframe, RuleType,
-    get_math_expression_operand_types, get_operand_parameter_config,
-    get_operand_parameter_defaults,
-    OPERAND_PARAMETER_CONFIG,
-)
+from common.enums import OperandType, ComparisonOperator, CandlePatternType, CandleTimeframe, get_math_expression_operand_types, get_operand_parameter_config, get_operand_parameter_defaults, OPERAND_PARAMETER_CONFIG
 
 
 def _normalize_and_validate_operand_params(operand_type, raw_params, field_name, math_variable_types=None):

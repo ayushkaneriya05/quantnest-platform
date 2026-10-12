@@ -7,7 +7,9 @@ from django.test import TransactionTestCase
 from rest_framework.test import APIClient
 
 from notifications.models import Notification
-from strategies.models import Strategy
+from common.models import RuntimeOutbox
+from strategies.models import Strategy, StrategyVersion
+from instruments.models import Instrument
 from .models import CapitalAllocation, FundTransaction, PaperAccount, PaperTradingSession, Portfolio
 from .services import PaperExecutionService
 
@@ -19,15 +21,21 @@ class PaperAccountTransactionTests(TransactionTestCase):
         self.user = get_user_model().objects.create_user(username="paper-transactions")
         self.strategy = Strategy.objects.create(
             user=self.user, name="Paper strategy", status="ACTIVE", paper_trading_enabled=True,
+            auto_version_enabled=False,
         )
+        instrument = Instrument.objects.create(fy_token="paper-transaction-fixture", symbol="FIXTURE",
+            sym_ticker="NSE:FIXTURE-EQ", name="Fixture", exchange="NSE", instrument_type="STOCK")
+        version = StrategyVersion.objects.get(strategy=self.strategy, version_number=1)
+        version.config_snapshot["watchlist_instruments"] = [{"instrument_id": instrument.pk,
+            "execution_routes": [{"route_type": "DIRECT"}]}]
+        version.save(update_fields=["config_snapshot"])
         self.portfolio = Portfolio.objects.create(user=self.user, current_capital=1000)
         self.allocation = CapitalAllocation.objects.create(
-            portfolio=self.portfolio, strategy=self.strategy, allocated_amount=200,
+            portfolio=self.portfolio, strategy=self.strategy, allocated_amount=200, deployed_version=version,
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
         self.funds = self.enterContext(patch("paper_trading.services.cache_api.update_session_funds"))
-        self.publish = self.enterContext(patch.object(PaperExecutionService, "_publish_execution_event"))
 
     def account(self, linked=True, balance=200):
         return PaperAccount.objects.create(
@@ -50,8 +58,9 @@ class PaperAccountTransactionTests(TransactionTestCase):
         session = PaperTradingSession.objects.get(account=account)
         self.assertEqual(session.status, "STOPPED")
         self.assertEqual(account.current_balance, Decimal("200"))
-        self.funds.assert_called_once()
-        self.publish.assert_not_called()
+        self.funds.assert_not_called()
+        self.assertTrue(RuntimeOutbox.objects.filter(topic="cache", payload__method="update_session_funds").exists())
+        self.assertFalse(RuntimeOutbox.objects.filter(topic="control").exists())
 
     def test_failed_deployment_rolls_back_new_account(self):
         response = self.client.post("/api/v1/portfolio/portfolios/create_paper_account/", {
@@ -64,7 +73,7 @@ class PaperAccountTransactionTests(TransactionTestCase):
         self.portfolio.refresh_from_db()
         self.assertEqual(self.portfolio.current_capital, Decimal("1000"))
         self.funds.assert_not_called()
-        self.publish.assert_not_called()
+        self.assertFalse(RuntimeOutbox.objects.exists())
 
     def test_failed_deployment_rolls_back_existing_account_balance_adjustment(self):
         account = self.account(balance=50)
@@ -80,27 +89,27 @@ class PaperAccountTransactionTests(TransactionTestCase):
 
     def test_direct_deployment_publishes_only_after_commit(self):
         account = self.account()
-        observed = []
-        self.funds.side_effect = lambda *args: observed.append(connection.in_atomic_block)
-        self.publish.side_effect = lambda *args: observed.append(connection.in_atomic_block)
         self.assertFalse(connection.in_atomic_block)
         session = self.deploy(account)
         self.assertTrue(PaperTradingSession.objects.filter(pk=session.pk, status="RUNNING").exists())
-        self.assertEqual(observed, [False, False])
+        self.funds.assert_not_called()
+        self.assertTrue(RuntimeOutbox.objects.filter(topic="control", aggregate_key=f"paper:{session.pk}").exists())
+        self.assertTrue(RuntimeOutbox.objects.filter(topic="cache", payload__method="update_session_funds").exists())
 
     def test_outer_rollback_discards_session_notification_and_runtime_updates(self):
         account = self.account()
         notification_count = Notification.objects.count()
+        outbox_count = RuntimeOutbox.objects.count()
         with self.assertRaisesMessage(ValueError, "cancel transaction"):
             with transaction.atomic():
                 self.deploy(account)
                 self.funds.assert_not_called()
-                self.publish.assert_not_called()
+                self.assertGreater(RuntimeOutbox.objects.count(), outbox_count)
                 raise ValueError("cancel transaction")
         self.assertFalse(PaperTradingSession.objects.exists())
         self.assertEqual(Notification.objects.count(), notification_count)
         self.funds.assert_not_called()
-        self.publish.assert_not_called()
+        self.assertEqual(RuntimeOutbox.objects.count(), outbox_count)
 
     def test_delete_linked_account_returns_capital_once(self):
         account = self.account()

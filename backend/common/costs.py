@@ -6,8 +6,7 @@ Used by both backtesting and paper trading engines.
 """
 import logging
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional, Dict, Tuple
-import datetime
+from typing import Dict, Tuple
 
 from common.enums import ProductType, Side, InstrumentType
 
