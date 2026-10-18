@@ -150,7 +150,6 @@ class BaseBrokerAdapter:
         session = BrokerSession.objects.create(
             credential=self.credential,
             access_token=token,
-            refresh_token=uuid.uuid4().hex,
             token_expiry=timezone.now() + timedelta(hours=12),
             is_valid=True,
         )
@@ -597,7 +596,6 @@ class FyersAdapter(BaseBrokerAdapter):
         session = BrokerSession.objects.create(
             credential=self.credential,
             access_token=access_token,
-            refresh_token=token_resp.get("refresh_token") or token_resp.get("refreshToken") or "",
             token_expiry=expires_at,
             is_valid=True,
             last_used_at=timezone.now(),

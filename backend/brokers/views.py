@@ -1,6 +1,7 @@
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.db import transaction
 from django.core import signing
 from django.http import HttpResponseRedirect
 from django.views.decorators.csrf import csrf_exempt
@@ -68,6 +69,7 @@ class BrokerCredentialViewSet(viewsets.ModelViewSet):
             credential.is_active = False
             credential.save(update_fields=["is_active", "updated_at"])
 
+    @transaction.atomic
     def perform_update(self, serializer):
         serializer.instance._audit_sensitive_fields = tuple(field for field in
             ("client_id", "api_key", "api_secret", "totp_secret", "permissions")
@@ -280,7 +282,7 @@ def fyers_broker_callback(request):
 
 
 class BrokerChargeProfileViewSet(viewsets.ModelViewSet):
-    """CRUD for broker charge profiles with set-default action."""
+    """User-owned simulation charge profiles with a set-default action."""
     serializer_class = BrokerChargeProfileSerializer
     permission_classes = [IsAuthenticated]
 

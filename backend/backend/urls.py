@@ -1,36 +1,29 @@
-"""
-URL configuration for backend project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
-
+"""QuantNest API, administrator and health routes."""
 from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from commercial.views import get_public_catalog
+from customer_support.views import EnquiryView
 
 
 @csrf_exempt
 def health_check(request):
     """Health check endpoint for monitoring."""
-    from quantnest_runtime.health import readiness
-    checks = readiness()
+    from quantnest_runtime.health import get_readiness_status
+    checks = get_readiness_status()
     ready = all(checks.values())
-    return JsonResponse({"status": "healthy" if ready else "unavailable", "checks": checks}, status=200 if ready else 503)
+    response = JsonResponse({"status": "healthy" if ready else "unavailable", "mode": settings.QUANTNEST_DEPLOYMENT_MODE, "checks": checks}, status=200 if ready else 503)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 urlpatterns = [
+    path("api/v1/public/catalog/", get_public_catalog),
+    path("api/v1/public/enquiries/", EnquiryView.as_view()),
+    path("api/v1/billing/", include("commercial.urls")),
+    path("api/v1/support/", include("customer_support.urls")),
+    path("api/v1/installations/", include("installations.urls")),
     path("admin/", admin.site.urls),
     path("api/v1/users/", include("users.urls")),
     path("health/", health_check, name="health_check"),
@@ -41,7 +34,6 @@ urlpatterns = [
     path("api/v1/instruments/", include("instruments.urls")),
     path("api/v1/rules/", include("rules_engine.urls")),
     path("api/v1/risk/", include("risk_management.urls")),
-    path("api/v1/portfolio/", include("paper_trading.urls")),
     path("api/v1/backtest/", include("backtesting.urls")),
     path("api/v1/paper/", include("paper_trading.urls")),
     path("api/v1/brokers/", include("brokers.urls")),

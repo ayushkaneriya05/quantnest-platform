@@ -117,11 +117,6 @@ export const strategyApi = {
     return response.data;
   },
 
-  // Get tunable parameters for optimization
-  getTunableParameters: async (id) => {
-    const response = await api.get(`${STRATEGIES_URL}strategies/${id}/tunable-parameters/`);
-    return response.data;
-  },
 };
 
 // Strategy Tags

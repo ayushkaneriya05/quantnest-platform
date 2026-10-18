@@ -35,7 +35,7 @@ def action_payload(run, action_type, payload):
         if set(payload) - {"instrument_ids"}:
             raise ValidationError("Provide selected instrument IDs.")
         ids = payload.get("instrument_ids", [])
-        if not isinstance(ids, list) or not ids or len(ids) > 50 or any(type(value) is not int for value in ids) or set(ids) - set(research_instrument_ids(run)):
+        if not isinstance(ids, list) or not ids or any(type(value) is not int for value in ids) or set(ids) - set(research_instrument_ids(run)):
             raise ValidationError("Select instruments from this research evidence.")
         return {"instrument_ids": list(dict.fromkeys(ids)), "instruments": active_stocks(ids)}
     if action_type != ResearchAction.Type.START_BACKTEST:
@@ -72,9 +72,11 @@ def action_payload(run, action_type, payload):
         raise ValidationError("Backtest end date cannot be in the future.")
     validated = serializer.validated_data
     profile = validated.get("charge_profile")
+    from commercial.usage import estimate_backtest_workload
+    estimate = estimate_backtest_workload(run.user, snapshot, validated["start_date"], validated["end_date"])
     return json_data({**{key: validated[key] for key in ("name", "start_date", "end_date", "initial_capital", "slippage_pct", "include_charges")},
                       "strategy": strategy.pk, "snapshot": snapshot, "charge_profile": profile.pk if profile else None,
-                      "charge_profile_name": profile.name if profile else None})
+                      "charge_profile_name": profile.name if profile else None, "estimate_token": estimate["token"], "workload_estimate": estimate})
 
 
 @transaction.atomic
@@ -110,20 +112,13 @@ def confirm_action(action_id, user):
                 watchlist.instruments.add(*payload["instrument_ids"])
                 resources = {"watchlist_id": watchlist.pk, "instrument_ids": payload["instrument_ids"]}
             else:
-                settings = {key: value for key, value in payload.items() if key not in {"snapshot", "charge_profile_name"}}
+                settings = {key: value for key, value in payload.items() if key not in {"snapshot", "charge_profile_name", "workload_estimate"}}
                 get_object_or_404(Strategy, pk=settings["strategy"], user=user)
                 serializer = BacktestRunSerializer(data=settings, context={"request": SimpleNamespace(user=user)})
                 serializer.is_valid(raise_exception=True)
                 backtest = create_backtest(serializer, user, approved_snapshot=payload["snapshot"])
                 resources = {"backtest_id": backtest.pk}
-                def dispatched(error):
-                    if error:
-                        ResearchAction.objects.filter(pk=action.pk).update(status=ResearchAction.Status.FAILED, error_message=error)
-                        run.refresh_from_db()
-                        run.revision += 1
-                        run.save(update_fields=["revision", "updated_at"])
-                        publish_run(run)
-                start_backtest(backtest, on_dispatch=dispatched)
+                start_backtest(backtest)
             action.status, action.resource_ids, action.error_message = ResearchAction.Status.COMPLETED, resources, ""
     except (APIException, ValueError) as exc:
         action.status, action.error_message = ResearchAction.Status.FAILED, str(exc)[:2000]

@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useEffect, useMemo, useState } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Calculator, DollarSign, Loader2, ShieldCheck, Zap } from "lucide-react";
@@ -326,3 +327,12 @@ export default function OrderTicket({
     </form>
   );
 }
+
+OrderTicket.propTypes = {
+  ...OrderTicket.propTypes,
+  currentMarketPrice: PropTypes.number,
+  onClose: PropTypes.func,
+  onOrderPlaced: PropTypes.func,
+  symbol: PropTypes.string,
+  transactionType: PropTypes.string,
+};

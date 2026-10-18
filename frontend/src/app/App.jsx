@@ -4,10 +4,12 @@ import { useAuthSession } from "@/shared/hooks/useAuthSession";
 import { useViewportHeight } from "@/shared/hooks/useViewportHeight";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { EnumsProvider } from "@/shared/context/EnumsContext";
+import PlatformProvider from '@/shared/context/PlatformProvider';
 
 import { NotificationContainer } from "@/shared/components/ui/notification";
 
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import {reportClientError} from "@/shared/services/clientErrors";
 
 function AppContent() {
   useViewportHeight();
@@ -17,7 +19,8 @@ function AppContent() {
   // Global error handler for unhandled promise rejections
   useEffect(() => {
     const handleUnhandledRejection = (event) => {
-      console.error("Unhandled promise rejection:", event.reason);
+      if ((import.meta.env || {}).DEV) console.error("Unhandled promise rejection:", event.reason);
+      reportClientError("app_failure");
       notifications.notify.error("An unexpected error occurred");
     };
 
@@ -49,11 +52,13 @@ import { SystemNotificationsProvider } from "@/shared/context/SystemNotification
 function App() {
   return (
     <ErrorBoundary>
+      <PlatformProvider>
       <SystemNotificationsProvider>
         <EnumsProvider>
           <AppContent />
         </EnumsProvider>
       </SystemNotificationsProvider>
+      </PlatformProvider>
     </ErrorBoundary>
   );
 }

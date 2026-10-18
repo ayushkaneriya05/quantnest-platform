@@ -1,3 +1,5 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
+import PropTypes from "prop-types";
 import { useEffect, useMemo, useState } from "react";
 import {
   Card,
@@ -12,7 +14,7 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
 import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
-import PaperTablePagination from "@/features/paper/components/PaperTablePagination.jsx";
+import TablePagination from "@/shared/components/TablePagination";
 
 const ORDER_STATUS_STYLES = {
   PENDING: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
@@ -26,13 +28,7 @@ const ORDER_STATUS_STYLES = {
 const PAGE_SIZE = 10;
 
 export default function PaperOrderBook({ selectedAccountId }) {
-  const { notify } = useNotifications();
-  const lastMessage = usePaperTradingUpdate();
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-
-  const fetchData = async () => {
+  const fetchData = useStableCallback(async () => {
     try {
       const ordersData = await paperApi.getOrders();
       setOrders(ordersData.data || []);
@@ -41,17 +37,25 @@ export default function PaperOrderBook({ selectedAccountId }) {
     } finally {
       setLoading(false);
     }
-  };
+  });
+
+  const { notify } = useNotifications();
+  const lastMessage = usePaperTradingUpdate();
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+
+
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
     if (lastMessage?.event_type === "ORDER_UPDATE") {
       fetchData();
     }
-  }, [lastMessage]);
+  }, [lastMessage, fetchData]);
 
   const filteredOrders = useMemo(
     () =>
@@ -131,8 +135,8 @@ export default function PaperOrderBook({ selectedAccountId }) {
                       <td className="px-4 py-3">
                         <Badge
                           className={`text-[10px] h-5 px-1.5 ${
-                            order.side === "BUY" 
-                              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" 
+                            order.side === "BUY"
+                              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
                               : "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
                           }`}
                         >
@@ -170,9 +174,14 @@ export default function PaperOrderBook({ selectedAccountId }) {
           )}
         </CardContent>
         {filteredOrders.length > 0 && (
-          <PaperTablePagination page={page} count={filteredOrders.length} pageSize={PAGE_SIZE} onPageChange={(nextPage) => setPage(Math.min(nextPage, pageCount))} />
+          <TablePagination page={page} count={filteredOrders.length} pageSize={PAGE_SIZE} onPageChange={(nextPage) => setPage(Math.min(nextPage, pageCount))} />
         )}
       </Card>
     </div>
   );
 }
+
+PaperOrderBook.propTypes = {
+  ...PaperOrderBook.propTypes,
+  selectedAccountId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};

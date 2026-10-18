@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronRight, Circle } from "lucide-react"
@@ -160,3 +161,56 @@ export {
   DropdownMenuSubTrigger,
   DropdownMenuRadioGroup,
 }
+
+DropdownMenuSubTrigger.propTypes = {
+  ...DropdownMenuSubTrigger.propTypes,
+  children: PropTypes.node,
+  className: PropTypes.string,
+  inset: PropTypes.bool,
+};
+
+DropdownMenuSubContent.propTypes = {
+  ...DropdownMenuSubContent.propTypes,
+  className: PropTypes.string,
+};
+
+DropdownMenuContent.propTypes = {
+  ...DropdownMenuContent.propTypes,
+  className: PropTypes.string,
+  sideOffset: PropTypes.number,
+};
+
+DropdownMenuItem.propTypes = {
+  ...DropdownMenuItem.propTypes,
+  className: PropTypes.string,
+  inset: PropTypes.bool,
+};
+
+DropdownMenuCheckboxItem.propTypes = {
+  ...DropdownMenuCheckboxItem.propTypes,
+  checked: PropTypes.bool,
+  children: PropTypes.node,
+  className: PropTypes.string,
+};
+
+DropdownMenuRadioItem.propTypes = {
+  ...DropdownMenuRadioItem.propTypes,
+  children: PropTypes.node,
+  className: PropTypes.string,
+};
+
+DropdownMenuLabel.propTypes = {
+  ...DropdownMenuLabel.propTypes,
+  className: PropTypes.string,
+  inset: PropTypes.bool,
+};
+
+DropdownMenuSeparator.propTypes = {
+  ...DropdownMenuSeparator.propTypes,
+  className: PropTypes.string,
+};
+
+DropdownMenuShortcut.propTypes = {
+  ...DropdownMenuShortcut.propTypes,
+  className: PropTypes.string,
+};

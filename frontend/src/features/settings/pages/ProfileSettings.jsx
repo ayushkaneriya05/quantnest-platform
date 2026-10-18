@@ -1,5 +1,6 @@
 import PageTabs from "@/shared/components/PageTabs";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import ProfileTab from "@/features/settings/components/profile-tab";
 import AccountTab from "@/features/settings/components/account-tab";
 import SecurityTab from "@/features/settings/components/security-tab";
@@ -8,7 +9,13 @@ import { User, CreditCard, Shield, Bell } from "lucide-react";
 import { usePageActions } from "@/shared/context/pageActions";
 
 export default function ProfileSettings() {
-  const [activeTab, setActiveTab] = useState("profile");
+  const [params, setParams] = useSearchParams();
+  const activeTab = ["account", "security", "notifications"].includes(params.get("tab")) ? params.get("tab") : "profile";
+  const setActiveTab = useCallback(value => setParams(current => {
+    const next = new URLSearchParams(current);
+    if (value === "profile") next.delete("tab"); else next.set("tab", value);
+    return next;
+  }, { replace: true }), [setParams]);
   const { setPageHeader, clearPageHeader } = usePageActions();
   
   useEffect(() => {
@@ -25,10 +32,10 @@ export default function ProfileSettings() {
     return () => {
       clearPageHeader();
     };
-  }, [setPageHeader, clearPageHeader, activeTab]);
+  }, [setPageHeader, clearPageHeader, activeTab, setActiveTab]);
 
   return (
-    <div className="container-padding pt-6 pb-20 w-full min-h-dvh">
+    <div className="container-padding py-5 w-full">
       {/* We use standard divs here instead of UI Tabs since the triggers are in the header */}
       <div className="w-full">
         {activeTab === "profile" && (

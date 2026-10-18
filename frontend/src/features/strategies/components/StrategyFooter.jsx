@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 /**
  * StrategyFooter — fixed bottom bar with Save + Cancel for strategy pages.
  */
@@ -41,3 +42,13 @@ export default function StrategyFooter({
     </div>
   );
 }
+
+StrategyFooter.propTypes = {
+  ...StrategyFooter.propTypes,
+  disabled: PropTypes.bool,
+  onCancel: PropTypes.func,
+  onSave: PropTypes.func,
+  saveLabel: PropTypes.string,
+  saving: PropTypes.bool,
+  savingLabel: PropTypes.string,
+};

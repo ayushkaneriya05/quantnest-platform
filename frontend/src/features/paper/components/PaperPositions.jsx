@@ -1,3 +1,5 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
+import PropTypes from "prop-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
@@ -5,7 +7,7 @@ import { Layers, TrendingDown, TrendingUp } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import PaperTablePagination from "@/features/paper/components/PaperTablePagination.jsx";
+import TablePagination from "@/shared/components/TablePagination";
 import { formatCurrency } from "@/shared/utils/formatters";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
@@ -13,14 +15,7 @@ import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
 const PAGE_SIZE = 10;
 
 export default function PaperPositions({ selectedAccountId }) {
-  const { notify } = useNotifications();
-  const lastMessage = usePaperTradingUpdate();
-  const [positions, setPositions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const refreshTimerRef = useRef(null);
-
-  const fetchPositions = async () => {
+  const fetchPositions = useStableCallback(async () => {
     try {
       const positionsRes = await paperApi.getPositions();
       setPositions(positionsRes.data || []);
@@ -29,7 +24,16 @@ export default function PaperPositions({ selectedAccountId }) {
     } finally {
       setLoading(false);
     }
-  };
+  });
+
+  const { notify } = useNotifications();
+  const lastMessage = usePaperTradingUpdate();
+  const [positions, setPositions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const refreshTimerRef = useRef(null);
+
+
 
   useEffect(() => {
     fetchPositions();
@@ -38,13 +42,13 @@ export default function PaperPositions({ selectedAccountId }) {
       clearInterval(interval);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, []);
+  }, [fetchPositions]);
 
   useEffect(() => {
     if (!lastMessage || lastMessage.event_type !== "POSITION_UPDATE") return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(fetchPositions, 150);
-  }, [lastMessage]);
+  }, [lastMessage, fetchPositions]);
 
   const filteredPositions = useMemo(
     () =>
@@ -195,7 +199,7 @@ export default function PaperPositions({ selectedAccountId }) {
               </CardContent>
             </Card>
           ))}
-          <PaperTablePagination
+          <TablePagination
             page={page}
             count={filteredPositions.length}
             pageSize={PAGE_SIZE}
@@ -206,3 +210,8 @@ export default function PaperPositions({ selectedAccountId }) {
     </div>
   );
 }
+
+PaperPositions.propTypes = {
+  ...PaperPositions.propTypes,
+  selectedAccountId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};

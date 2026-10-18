@@ -1,3 +1,5 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
+import PropTypes from "prop-types";
 /**
  * Asset Rules Editor - instrument selection for algo trading
  * Features: dropdown search, filter tabs, enriched watchlist, instrument detail dialog
@@ -191,7 +193,7 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
   const atmStrike = useMemo(() => {
     if (!underlying?.previous_close || chainData.length === 0) return null;
     const spot = parseFloat(underlying.previous_close);
-    return chainData.reduce((prev, curr) => 
+    return chainData.reduce((prev, curr) =>
       Math.abs(curr.strike - spot) < Math.abs(prev.strike - spot) ? curr : prev
     ).strike;
   }, [chainData, underlying?.previous_close]);
@@ -267,10 +269,10 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
                     const spot = parseFloat(underlying.previous_close || 0);
                     const ceITM = row.strike < spot;
                     const peITM = row.strike > spot;
-                    
+
                     return (
-                      <tr 
-                        key={row.strike} 
+                      <tr
+                        key={row.strike}
                         ref={isATM ? atmRowRef : null}
                         className={`group transition-colors ${
                           isATM ? 'bg-indigo-50 dark:bg-indigo-900/30 ring-1 ring-indigo-500/50' : 'hover:bg-card/60'
@@ -291,14 +293,14 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
                         </td>
                         <td className={`py-1 px-2 text-right font-mono text-muted-foreground ${ceITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{formatOI(row.CE?.previous_oi)}</td>
                         <td className={`py-1 px-2 text-right font-mono text-emerald-800 dark:text-emerald-400/90 ${ceITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{fmt(row.CE?.previous_close) || '0.00'}</td>
-                        
+
                         {/* STRIKE */}
                         <td className={`py-1.5 px-2 text-center font-bold font-mono border-l border-r border-border/60 ${
                           isATM ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/40' : 'text-foreground bg-card/50'
                         }`}>
                         {row.strike}
                         </td>
-                        
+
                         {/* PUTS */}
                         <td className={`py-1 px-2 font-mono text-rose-800 dark:text-rose-400/90 ${peITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{fmt(row.PE?.previous_close) || '0.00'}</td>
                         <td className={`py-1 px-2 font-mono text-muted-foreground ${peITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{formatOI(row.PE?.previous_oi)}</td>
@@ -441,8 +443,8 @@ function WatchlistCard({ item, onRemove, onDetail, onOpenOptions, onOpenRouting 
         size="sm"
         onClick={(e) => { e.stopPropagation(); onOpenRouting(item); }}
         className={`absolute top-1.5 right-8 h-5 px-1.5 text-[10px] rounded transition-all ${
-          routesCount > 0 
-            ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 opacity-100 border border-indigo-500/20' 
+          routesCount > 0
+            ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 opacity-100 border border-indigo-500/20'
             : 'text-foreground hover:text-indigo-800 dark:hover:text-indigo-400 hover:bg-indigo-500/10 opacity-100'
         }`}
         title="Execution Routing Settings"
@@ -508,6 +510,19 @@ function WatchlistCard({ item, onRemove, onDetail, onOpenOptions, onOpenRouting 
 
 // ── Main Component ──
 export default function AssetRulesEditor() {
+  const fetchData = useStableCallback(async () => {
+    try {
+      setLoading(true);
+      const [s, w] = await Promise.all([
+        strategyApi.getById(id),
+        watchlistApi.getByStrategy(id)
+      ]);
+      setStrategy(s);
+      setWatchlist(w);
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Failed to load asset settings')); }
+    finally { setLoading(false); }
+  });
+
   const { id } = useParams();
   const navigate = useNavigate();
   const { notify } = useNotifications();
@@ -565,7 +580,7 @@ export default function AssetRulesEditor() {
     });
   }, [watchlist, typeFilter, exchangeFilter]);
 
-  useEffect(() => { if (id) fetchData(); }, [id]);
+  useEffect(() => { if (id) fetchData(); }, [id, fetchData]);
 
   useEffect(() => {
     setPageHeader(<StrategyConfigNav strategy={strategy} />);
@@ -583,18 +598,7 @@ export default function AssetRulesEditor() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [s, w] = await Promise.all([
-        strategyApi.getById(id),
-        watchlistApi.getByStrategy(id)
-      ]);
-      setStrategy(s);
-      setWatchlist(w);
-    } catch (error) { notify.error(getApiErrorMessage(error, 'Failed to load asset settings')); }
-    finally { setLoading(false); }
-  };
+
 
   const handleQueryChange = (value) => { setSearchQuery(value); setShowDropdown(true); };
 
@@ -630,7 +634,7 @@ export default function AssetRulesEditor() {
           <div className="space-y-3">
             {/* Header row with filters */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              
+
               {/* Type filter chips */}
               <div className="flex items-center gap-1 flex-wrap">
                 {typeFilters.map(f => (
@@ -826,3 +830,37 @@ export default function AssetRulesEditor() {
     </div>
   );
 }
+
+DetailDialog.propTypes = {
+  ...DetailDialog.propTypes,
+  instrument: PropTypes.object,
+  onClose: PropTypes.func,
+  open: PropTypes.bool,
+};
+
+OptionChainViewer.propTypes = {
+  ...OptionChainViewer.propTypes,
+  onAdd: PropTypes.func,
+  onClose: PropTypes.func,
+  open: PropTypes.bool,
+  underlying: PropTypes.object,
+  watchlistIds: PropTypes.array,
+};
+
+DropdownItem.propTypes = {
+  ...DropdownItem.propTypes,
+  instrument: PropTypes.object,
+  isInWatchlist: PropTypes.bool,
+  onAdd: PropTypes.func,
+  onDetail: PropTypes.func,
+  onOpenOptions: PropTypes.func,
+};
+
+WatchlistCard.propTypes = {
+  ...WatchlistCard.propTypes,
+  item: PropTypes.object,
+  onDetail: PropTypes.func,
+  onOpenOptions: PropTypes.func,
+  onOpenRouting: PropTypes.func,
+  onRemove: PropTypes.func,
+};

@@ -157,7 +157,7 @@ export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
       clearInterval(pollTimer);
     };
-  }, []);
+  }, [loadData]);
 
   const refresh = useCallback(() => {
     setRefreshing(true);

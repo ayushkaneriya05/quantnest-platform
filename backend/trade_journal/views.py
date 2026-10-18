@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from analytics.views import TradePagination, request_filters
+from analytics.services import SOURCES, trade_queryset
 from .models import JournalEntry
 from .serializers import JournalEntrySerializer
 from .services import journal_summary
@@ -20,7 +21,9 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
         qs = JournalEntry.objects.filter(user=self.request.user)
         if self.action == "list":
             filters = request_filters(self.request)
-            qs = qs.filter(source=filters["source"])
+            relation = SOURCES[filters["source"]]["review"]
+            trades = trade_queryset(self.request.user, filters)
+            qs = qs.filter(source=filters["source"], **{f"{relation}_id__in": trades.values("id")})
         return qs
 
     def create(self, request, *args, **kwargs):

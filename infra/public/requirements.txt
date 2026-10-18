@@ -1,0 +1,5 @@
+oci==2.184.2
+# Signed Private release packaging on the central Oracle host.
+PyJWT==2.12.1
+python-decouple==3.8
+cryptography==45.0.6

@@ -1,27 +1,42 @@
 /* eslint-disable react/prop-types */
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  Brain,
-  BarChart,
-  Code,
-  TestTube,
-  Rocket,
-  Terminal,
-  CreditCard,
-  Plug,
-  Shield,
-  BookOpen,
-  UserCircle,
-  Settings,
-  LogOut,
-  ChevronDown,
-  Activity,
-  Briefcase,
-  Wallet,
+  Beaker,
   Bell,
+  Blocks,
+  BookOpen,
+  Bot,
+  BrainCircuit,
+  BriefcaseBusiness,
+  Cable,
+  CandlestickChart,
+  ChartNoAxesCombined,
+  ChevronDown,
+  CreditCard,
+  FileChartColumn,
+  FileJson2,
+  FlaskConical,
+  Headset,
+  History,
+  Landmark,
+  LayoutDashboard,
+  ListChecks,
+  LogOut,
+  Logs,
+  Network,
+  NotebookPen,
+  NotebookTabs,
+  Radio,
+  ReceiptText,
+  Rocket,
+  ScanSearch,
+  Settings,
+  Wallet,
+  Waypoints,
+  Wrench,
+  X,
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -35,24 +50,86 @@ import { useDispatch, useSelector } from "react-redux";
 import { logoutUser } from "@/shared/store/authSlice";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSystemNotificationsContext } from "@/shared/context/SystemNotificationsContext";
+import UserAvatar from '@/shared/components/UserAvatar';
 
-const SidebarLink = ({ to, icon: Icon, label, currentPath }) => {
-  // Section overview routes (e.g. /portfolio, /paper)
-  // should only match exactly, not via startsWith, to avoid double-active.
-  const isSectionIndex = ["/overview", "/strategies", "/backtests", "/paper", "/brokers", "/journal"].includes(to);
-  const isActive = isSectionIndex
-    ? currentPath === to
-    : currentPath === to ||
-      (to !== "/overview" && currentPath.startsWith(to + "/"));
+const navigationSections = [
+  {
+    id: 'research', label: 'Research & Analysis', icon: BrainCircuit,
+    iconClassName: 'text-purple-700 dark:text-purple-400',
+    links: [
+      { to: '/research', label: 'AI Research Assistant', icon: Bot },
+      { to: '/screener', label: 'Market Screener', icon: ScanSearch },
+    ],
+  },
+  {
+    id: 'strategies', label: 'Strategy Lab', icon: Waypoints,
+    iconClassName: 'text-indigo-700 dark:text-indigo-400',
+    links: [
+      { to: '/strategies', label: 'My Strategies', icon: Blocks },
+      { to: '/backtests', label: 'Backtesting Lab', icon: FlaskConical },
+    ],
+  },
+  {
+    id: 'tools', label: 'Trading Tools', icon: Wrench,
+    iconClassName: 'text-teal-700 dark:text-teal-400',
+    links: [
+      { to: '/terminal', label: 'Trading Terminal', icon: CandlestickChart },
+      { to: '/brokers/charge-profiles', label: 'Charge Profiles', icon: ReceiptText },
+    ],
+  },
+  {
+    id: 'paper', label: 'Paper Trading', icon: Beaker,
+    iconClassName: 'text-green-700 dark:text-green-400',
+    links: [
+      { to: '/paper', label: 'Deployments', icon: ListChecks, exact: true },
+      { to: '/paper/portfolio', label: 'Portfolio', icon: BriefcaseBusiness },
+      { to: '/paper/capital', label: 'Capital & Wallet', icon: Wallet },
+      { to: '/paper/analytics', label: 'Analytics', icon: ChartNoAxesCombined },
+    ],
+  },
+  {
+    id: 'brokers', label: 'Broker Integration', icon: Network,
+    iconClassName: 'text-sky-700 dark:text-sky-400',
+    links: [
+      { to: '/brokers', label: 'Connections', icon: Cable, exact: true },
+      { to: '/brokers/logs', label: 'API Logs', icon: FileJson2 },
+    ],
+  },
+  {
+    id: 'live', label: 'Live Trading', icon: Radio,
+    iconClassName: 'text-rose-700 dark:text-rose-400',
+    links: [
+      { to: '/live/portfolio', label: 'Portfolio', icon: Landmark },
+      { to: '/live/strategies', label: 'Deployments', icon: Rocket },
+      { to: '/live/logs', label: 'Execution Logs', icon: Logs },
+    ],
+  },
+  {
+    id: 'journal', label: 'Journal & Reports', icon: NotebookTabs,
+    iconClassName: 'text-amber-700 dark:text-amber-400',
+    links: [
+      { to: '/journal', label: 'Trade Journal', icon: NotebookPen },
+      { to: '/reports', label: 'Performance Reports', icon: FileChartColumn },
+    ],
+  },
+];
+
+function isNavigationPathActive(currentPath, to, exact = false) {
+  return currentPath === to || (!exact && currentPath.startsWith(`${to}/`));
+}
+
+const SidebarLink = ({ to, icon: Icon, label, currentPath, exact = false }) => {
+  const isActive = isNavigationPathActive(currentPath, to, exact);
   return (
     <Link
       to={to}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-foreground transition-all hover:bg-secondary hover:text-foreground ${
+      aria-current={isActive ? 'page' : undefined}
+      className={`flex min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         isActive ? "bg-secondary text-foreground font-medium" : ""
       }`}
     >
-      <Icon className="h-5 w-5 flex-shrink-0" />
-      <span>{label}</span>
+      <Icon aria-hidden="true" className="h-5 w-5 shrink-0" />
+      <span className="min-w-0 truncate">{label}</span>
     </Link>
   );
 };
@@ -65,27 +142,13 @@ export default function Sidebar() {
   const location = useLocation();
   const pathname = location.pathname;
   const { isOpen, isDesktop, close, closeMobile } = useSidebar();
-  const [openSections, setOpenSections] = useState({
-    analysis: false,
-    strategy: false,
-    trading: true,
-    paperTrading: false,
-    brokers: false,
-    liveOps: false,
-    journal: false,
-  });
+  const [openSections, setOpenSections] = useState({ tools: true });
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const { unreadCount } = useSystemNotificationsContext();
 
   useEffect(() => {
-    const section = pathname.startsWith("/research") || pathname.startsWith("/screener") ? "analysis"
-      : pathname.startsWith("/strategies") || pathname.startsWith("/backtests") ? "strategy"
-      : pathname.startsWith("/terminal") ? "trading"
-      : pathname.startsWith("/paper") ? "paperTrading"
-      : pathname.startsWith("/brokers") ? "brokers"
-      : pathname.startsWith("/live") ? "liveOps"
-      : pathname.startsWith("/journal") || pathname.startsWith("/reports") ? "journal" : null;
-    if (section) setOpenSections((previous) => previous[section] ? previous : { ...previous, [section]: true });
+    const section = navigationSections.find(({ links }) => links.some(({ to, exact }) => isNavigationPathActive(pathname, to, exact)));
+    if (section) setOpenSections((previous) => previous[section.id] ? previous : { ...previous, [section.id]: true });
   }, [pathname]);
 
   const toggleSection = (section) => {
@@ -122,272 +185,38 @@ export default function Sidebar() {
         </Link>
       </div>
 
-      {/* Navigation */}
-      <nav aria-label="Workspace" onClick={(event) => { if (event.target.closest("a")) closeMobile(); }} className="flex-1 overflow-y-auto py-4 px-3 sm:px-4 space-y-1 scrollbar-custom no-horizontal-scroll">
-        {/* Top-Level Static Links */}
-        <div className="space-y-1 mb-4">
-          <SidebarLink
-            to="/overview"
-            icon={BarChart}
-            label="Overview"
-            currentPath={pathname}
-          />
+      {/* Workspace navigation stays visible; execution access is enforced by the route guard. */}
+      <nav aria-label="Workspace" onClick={(event) => { if (event.target.closest("a")) closeMobile(); }} className="flex-1 overflow-y-auto px-3 py-4 sm:px-4 scrollbar-custom no-horizontal-scroll">
+        <div className="mb-3">
+          <SidebarLink to="/overview" icon={LayoutDashboard} label="Overview" currentPath={pathname} exact />
         </div>
-
-        {/* Collapsible Sections */}
         <div className="space-y-1">
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("analysis")}
-            >
-              <div className="flex items-center gap-2">
-                <Brain className="h-4 w-4 flex-shrink-0 text-purple-700 dark:text-purple-400" />
-                <span className="font-medium">Analysis & Research</span>
+          {navigationSections.map(({ id, label, icon: Icon, iconClassName, links }) => {
+            const expanded = Boolean(openSections[id]);
+            return (
+              <div key={id}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-expanded={expanded}
+                  aria-controls={`workspace-navigation-${id}`}
+                  className="w-full justify-between rounded-lg px-3 text-foreground hover:bg-secondary/70"
+                  onClick={() => toggleSection(id)}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Icon aria-hidden="true" className={`h-4 w-4 shrink-0 ${iconClassName}`} />
+                    <span className="truncate font-medium">{label}</span>
+                  </span>
+                  <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+                </Button>
+                {expanded && (
+                  <div id={`workspace-navigation-${id}`} className="ml-4 mt-1 space-y-1 animate-in slide-in-from-top-1 duration-200 motion-reduce:animate-none">
+                    {links.map((link) => <SidebarLink key={link.to} {...link} currentPath={pathname} />)}
+                  </div>
+                )}
               </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  openSections.analysis ? "rotate-180" : ""
-                }`}
-              />
-            </Button>
-            {openSections.analysis && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/research"
-                  icon={Brain}
-                  label="AI Research Assistant"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/screener"
-                  icon={BarChart}
-                  label="Market Screener"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("strategy")}
-            >
-              <div className="flex items-center gap-2">
-                <Code className="h-4 w-4 flex-shrink-0 text-indigo-700 dark:text-indigo-400" />
-                <span className="font-medium">Strategy & Automation</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  openSections.strategy ? "rotate-180" : ""
-                }`}
-              />
-            </Button>
-            {openSections.strategy && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/strategies"
-                  icon={Code}
-                  label="My Strategies"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/backtests"
-                  icon={TestTube}
-                  label="Backtesting Lab"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("trading")}
-            >
-              <div className="flex items-center gap-2">
-                <Terminal className="h-4 w-4 flex-shrink-0 text-emerald-700 dark:text-emerald-400" />
-                <span className="font-medium">Trading & Execution</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  openSections.trading ? "rotate-180" : ""
-                }`}
-              />
-            </Button>
-            {openSections.trading && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/terminal"
-                  icon={CreditCard}
-                  label="Trading Terminal"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("paperTrading")}
-            >
-              <div className="flex items-center gap-2">
-                <CreditCard className="h-4 w-4 flex-shrink-0 text-green-700 dark:text-green-400" />
-                <span className="font-medium">Paper Trading</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  openSections.paperTrading ? "rotate-180" : ""
-                }`}
-              />
-            </Button>
-            {openSections.paperTrading && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/paper"
-                  icon={Activity}
-                  label="Overview"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/paper/portfolio"
-                  icon={Briefcase}
-                  label="Portfolio"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/paper/capital"
-                  icon={Wallet}
-                  label="Capital & Wallet"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/paper/analytics"
-                  icon={BarChart}
-                  label="Analytics"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("brokers")}
-            >
-              <div className="flex items-center gap-2">
-                <Plug className="h-4 w-4 flex-shrink-0 text-sky-700 dark:text-sky-400" />
-                <span className="font-medium">Broker Integration</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${openSections.brokers ? "rotate-180" : ""}`}
-              />
-            </Button>
-            {openSections.brokers && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/brokers"
-                  icon={Plug}
-                  label="Connections"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/brokers/charge-profiles"
-                  icon={CreditCard}
-                  label="Charge Profiles"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/brokers/logs"
-                  icon={Terminal}
-                  label="API Logs"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("liveOps")}
-            >
-              <div className="flex items-center gap-2">
-                <Rocket className="h-4 w-4 flex-shrink-0 text-rose-700 dark:text-rose-400" />
-                <span className="font-medium">Live Trading</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${openSections.liveOps ? "rotate-180" : ""}`}
-              />
-            </Button>
-            {openSections.liveOps && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/live/portfolio"
-                  icon={BarChart}
-                  label="Portfolio"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/live/strategies"
-                  icon={Rocket}
-                  label="Deployments"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/live/logs"
-                  icon={Terminal}
-                  label="Execution Logs"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <Button
-              variant="ghost"
-              className="w-full justify-between text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg"
-              onClick={() => toggleSection("journal")}
-            >
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4 flex-shrink-0 text-lime-700 dark:text-lime-400" />
-                <span className="font-medium">Journal & Reports</span>
-              </div>
-              <ChevronDown
-                className={`h-4 w-4 transition-transform duration-200 ${openSections.journal ? "rotate-180" : ""}`}
-              />
-            </Button>
-            {openSections.journal && (
-              <div className="ml-4 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-200">
-                <SidebarLink
-                  to="/journal"
-                  icon={BookOpen}
-                  label="Trade Journal"
-                  currentPath={pathname}
-                />
-                <SidebarLink
-                  to="/reports"
-                  icon={BarChart}
-                  label="Performance Reports"
-                  currentPath={pathname}
-                />
-              </div>
-            )}
-          </div>
-
-
-
+            );
+          })}
         </div>
       </nav>
 
@@ -399,41 +228,46 @@ export default function Sidebar() {
               variant="ghost"
               className="w-full justify-start text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg p-2 sm:p-3"
             >
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-border/50 shrink-0">
-                <UserCircle className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-700 dark:text-indigo-300" />
-              </div>
+              <UserAvatar className="h-8 w-8 shrink-0 text-xs" />
               <div className="ml-2 sm:ml-3 flex flex-col items-start min-w-0 flex-1">
                 <span className="font-medium text-foreground text-sm sm:text-base truncate w-full">
-                  {user ? user.first_name + " " + user.last_name : "Guest User"}
+                  {[user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || 'Your account'}
                 </span>
                 <span className="text-xs text-muted-foreground truncate w-full">
-                  Starter Plan
+                  {user?.workspace_plan?.name ? `${user.workspace_plan.name} Plan` : 'Loading plan…'}
                 </span>
               </div>
               <ChevronDown className="ml-2 h-4 w-4 shrink-0" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-48 sm:w-56 bg-card border border-border text-foreground shadow-2xl">
-            <DropdownMenuItem className="hover:bg-secondary cursor-pointer transition-colors">
+            <DropdownMenuItem asChild className="hover:bg-secondary cursor-pointer transition-colors">
               <Link
                 to="/settings/profile"
                 className="flex items-center gap-2 w-full"
-                onClick={() => setDropdownOpen(false)}
               >
                 <Settings className="h-4 w-4" />
                 <span className="text-sm">Profile & Settings</span>
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem className="hover:bg-secondary cursor-pointer transition-colors">
-              <Link to="/activity" className="flex items-center gap-2 w-full" onClick={() => setDropdownOpen(false)}>
-                <Shield className="h-4 w-4" /><span className="text-sm">Activity History</span>
+            <DropdownMenuItem asChild className="hover:bg-secondary cursor-pointer transition-colors">
+              <Link to="/settings/billing" className="flex items-center gap-2 w-full"><CreditCard className="h-4 w-4" /><span className="text-sm">Billing and Usage</span></Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild className="hover:bg-secondary cursor-pointer transition-colors">
+              <Link to="/support" className="flex items-center gap-2 w-full"><Headset className="h-4 w-4" /><span className="text-sm">Support</span></Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild className="hover:bg-secondary cursor-pointer transition-colors">
+              <Link to="/docs/getting-started/" className="flex items-center gap-2 w-full"><BookOpen className="h-4 w-4" /><span className="text-sm">User guide</span></Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild className="hover:bg-secondary cursor-pointer transition-colors">
+              <Link to="/activity" className="flex items-center gap-2 w-full">
+                <History className="h-4 w-4" /><span className="text-sm">Activity History</span>
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem className="hover:bg-secondary cursor-pointer transition-colors">
+            <DropdownMenuItem asChild className="hover:bg-secondary cursor-pointer transition-colors">
               <Link
                 to="/notifications"
                 className="flex items-center gap-2 w-full"
-                onClick={() => setDropdownOpen(false)}
               >
                 <Bell className="h-4 w-4" />
                 <span className="text-sm">Notification Center</span>
@@ -445,7 +279,7 @@ export default function Sidebar() {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={handleLogout}
+              onSelect={handleLogout}
               className="hover:bg-secondary cursor-pointer transition-colors text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
             >
               <LogOut className="h-4 w-4 mr-2" />

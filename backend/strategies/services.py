@@ -28,7 +28,7 @@ class StrategySnapshotService:
 
     @staticmethod
     @transaction.atomic
-    def create_snapshot(strategy, user=None, change_notes=None):
+    def create_snapshot(strategy, user=None, change_notes=None, *, config_snapshot=None):
         """
         Creates a new version snapshot of the strategy.
         """
@@ -36,7 +36,8 @@ class StrategySnapshotService:
             # 1. Serialize the full strategy state
             # We use specific serializers or manual dict construction to ensure deep nesting is captured
             strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
-            snapshot = StrategySnapshotService._serialize_strategy(strategy)
+            snapshot = (StrategySnapshotService._serialize_strategy(strategy)
+                        if config_snapshot is None else deepcopy(config_snapshot))
             
             # 2. Validate snapshot completeness
             StrategySnapshotService.validate_config_snapshot(snapshot)
@@ -345,7 +346,8 @@ class StrategyLifecycleService:
             session.status = 'STOPPED'
             session.ended_at = timezone.now()
             session.save(update_fields=['status', 'ended_at', 'updated_at'])
-            LiveExecutionService._publish_execution_event('SESSION_STOP', session, 'live')
+            from core.lifecycle import publish_session_event
+            publish_session_event('live', session, 'SESSION_STOP')
 
         strategy.status = 'ARCHIVED'
         strategy.save(update_fields=['status', 'updated_at'])

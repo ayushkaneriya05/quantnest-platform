@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock3, RefreshCw, ShieldAlert } from "lucide-react";
@@ -11,7 +12,7 @@ import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
 import { formatNumber } from "@/shared/utils/formatters";
-import LiveTablePagination from "@/features/live/components/LiveTablePagination.jsx";
+import TablePagination from "@/shared/components/TablePagination";
 import LiveSyncStatus from "@/features/live/components/LiveSyncStatus.jsx";
 import { formatBrokerAccount, formatDateTime as formatLiveDateTime } from "@/shared/utils/formatters";
 
@@ -125,7 +126,7 @@ export default function ExecutionLogs() {
             </CardHeader>
             {loading ? <CardContent className="py-10 text-center text-muted-foreground">Loading order events…</CardContent> : logs.results.length === 0 ? <CardContent className="py-12 text-center text-muted-foreground">No matching execution events.</CardContent> : <>
               <CardContent className="divide-y divide-border p-0">{logs.results.map((log) => <div key={log.id} className="flex flex-wrap items-start justify-between gap-4 p-4"><div className="min-w-[220px]"><div className="flex items-center gap-2"><span className="font-semibold text-foreground">{log.order_symbol || "Order"}</span><Badge variant="outline" className={eventTone(log.event_type)}>{log.event_type}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{formatBrokerAccount(log.broker_name, log.broker_label)}</p><p className="mt-1 text-sm text-muted-foreground">{log.message || "No additional broker message"}</p></div><div className="flex items-center gap-4 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{Number(log.latency_ms || 0)} ms</span><span>{formatLiveDateTime(log.created_at)}</span><span className="font-mono">Order #{log.order}</span></div></div>)}</CardContent>
-              <LiveTablePagination page={logPage} count={logs.count} onPageChange={(page) => fetchLogs(page).catch((error) => notify.error(getApiErrorMessage(error, "Could not load execution events")))} />
+              <TablePagination page={logPage} count={logs.count} onPageChange={(page) => fetchLogs(page).catch((error) => notify.error(getApiErrorMessage(error, "Could not load execution events")))} />
             </>}
           </Card>
         </TabsContent>
@@ -134,7 +135,7 @@ export default function ExecutionLogs() {
             <CardHeader className="space-y-0 border-b border-border px-4 py-2"><p className="text-xl text-foreground font-semibold">Slippage</p></CardHeader>
             {loading ? <CardContent className="py-10 text-center text-muted-foreground">Loading execution quality…</CardContent> : slippage.results.length === 0 ? <CardContent className="flex items-center justify-center gap-2 py-12 text-muted-foreground"><ShieldAlert className="h-4 w-4 text-cyan-700 dark:text-cyan-300" />No completed slippage records.</CardContent> : <>
               <CardContent className="divide-y divide-border p-0">{slippage.results.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-4 p-4"><div><p className="font-medium text-foreground">{row.order_symbol || "Order"}</p><p className="mt-1 text-xs text-muted-foreground">{formatBrokerAccount(row.broker_name, row.broker_label)}</p><p className="mt-1 text-xs text-muted-foreground">Expected ₹{formatNumber(Number(row.expected_price))} · Actual ₹{formatNumber(Number(row.actual_price))} · {formatLiveDateTime(row.created_at)}</p></div><div className="text-right"><p className="font-semibold text-foreground">{formatNumber(Number(row.slippage_pct))}%</p><p className="text-xs text-muted-foreground">Total impact ₹{formatNumber(Number(row.slippage_amount))}</p></div></div>)}</CardContent>
-              <LiveTablePagination page={slippagePage} count={slippage.count} onPageChange={(page) => fetchSlippage(page).catch((error) => notify.error(getApiErrorMessage(error, "Could not load slippage records")))} />
+              <TablePagination page={slippagePage} count={slippage.count} onPageChange={(page) => fetchSlippage(page).catch((error) => notify.error(getApiErrorMessage(error, "Could not load slippage records")))} />
             </>}
           </Card>
         </TabsContent>
@@ -142,3 +143,11 @@ export default function ExecutionLogs() {
     </div>
   );
 }
+
+Metric.propTypes = {
+  ...Metric.propTypes,
+  color: PropTypes.string,
+  note: PropTypes.string,
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};

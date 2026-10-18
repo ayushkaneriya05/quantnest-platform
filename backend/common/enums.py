@@ -529,6 +529,7 @@ class RebalanceFrequency(models.TextChoices):
 class BacktestStatus(models.TextChoices):
     """Backtest run status."""
     PENDING = 'PENDING', 'Pending'
+    QUEUED = 'QUEUED', 'Queued'
     RUNNING = 'RUNNING', 'Running'
     COMPLETED = 'COMPLETED', 'Completed'
     FAILED = 'FAILED', 'Failed'

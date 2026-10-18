@@ -45,6 +45,7 @@ import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/for
 
 const STATUS_STYLES = {
   PENDING: { bg: "bg-yellow-500/10 text-yellow-800 dark:text-yellow-300", text: "Pending", icon: RefreshCw },
+  QUEUED: { bg: "bg-yellow-500/10 text-yellow-800 dark:text-yellow-300", text: "Queued", icon: RefreshCw },
   RUNNING: { bg: "bg-blue-500/10 text-blue-800 dark:text-blue-300", text: "Running", icon: RefreshCw },
   COMPLETED: { bg: "bg-green-500/10 text-green-800 dark:text-green-300", text: "Completed", icon: CheckCircle2 },
   FAILED: { bg: "bg-red-500/10 text-red-800 dark:text-red-300", text: "Failed", icon: AlertCircle },
@@ -171,7 +172,7 @@ export default function BacktestResults() {
       </div>
 
       <div className="flex items-center gap-2">
-        {run?.status === "RUNNING" && (
+        {["QUEUED", "RUNNING"].includes(run?.status) && (
           <Button
             variant="outline"
             size="sm"
@@ -282,7 +283,7 @@ export default function BacktestResults() {
         </div>
       )}
 
-      {run?.status === "RUNNING" && (
+      {["QUEUED", "RUNNING"].includes(run?.status) && (
         <Card className="bg-indigo-50 dark:bg-indigo-900/10 border-indigo-800/30 overflow-hidden">
           <CardContent className="py-5 px-6">
             <div className="flex items-center gap-5">

@@ -179,9 +179,12 @@ class TradingOrderService:
         return orders.aggregate(total=Sum("reserved_cash"))["total"] or Decimal("0")
 
     @classmethod
-    def reserve_order(cls, order, quote_price=None):
-        """Cold order admission under the account lock; protective exits reserve no capital."""
-        account = Account.objects.select_for_update().get(pk=order.account_id)
+    def reserve_order(cls, order, account, quote_price=None):
+        """Admit a user order using the account already locked by the caller."""
+        if not cls.reduces_exposure(account, order.instrument, order.transaction_type, order.quantity,
+                                    order_id=order.pk, position_link=order.position_link_id):
+            from instruments.services import InstrumentResolver
+            InstrumentResolver.validate_execution_instrument(order.instrument, allow_index=True)
         from trading_domain.contracts import Contract
         spec = Contract(order.instrument_id, order.instrument.exchange, order.instrument.instrument_type,
                         order.instrument.currency_code, order.instrument.tick_size, order.instrument.lot_size or 1,
@@ -209,6 +212,18 @@ class TradingOrderService:
         order.save(update_fields=["reserved_cash"])
 
     @classmethod
+    def reduces_exposure(cls, account, instrument, side, quantity, *, order_id=None, position_link=None):
+        owned = Position.objects.filter(account=account, instrument=instrument).exclude(quantity=0).first()
+        if not owned or (owned.quantity > 0) == (side == "BUY") or quantity > abs(owned.quantity):
+            return False
+        if position_link:
+            return owned.pk == getattr(position_link, "pk", position_link)
+        pending = Order.objects.filter(account=account, instrument=instrument, status="OPEN", transaction_type=side, position_link__isnull=True)
+        if order_id:
+            pending = pending.exclude(pk=order_id)
+        return quantity + (pending.aggregate(total=Sum("quantity"))["total"] or 0) <= abs(owned.quantity)
+
+    @classmethod
     @transaction.atomic
     def create_order(cls, user, validated_data):
         cls.validate_payload(validated_data)
@@ -224,9 +239,9 @@ class TradingOrderService:
             raise ValueError("Instrument symbol was not found.")
 
         account = Account.objects.select_for_update().get(pk=account.pk)
-        if Order.objects.filter(account=account, status="OPEN", position_link__isnull=True).count() >= settings.TERMINAL_MAX_OPEN_ORDERS:
-            raise ValidationError("Open order limit reached. Cancel an order before placing another.")
-
+        from django.contrib.auth import get_user_model
+        if not get_user_model().objects.filter(pk=account.user_id, is_active=True).exists():
+            raise ValidationError("This account is inactive.")
         # Ensure symbol is tracked in live market data
         try:
             LiveMarketDataRegistry.add_symbols([instrument.sym_ticker or instrument.symbol])
@@ -238,7 +253,7 @@ class TradingOrderService:
             fill_price = cls.get_market_fill_price(instrument)
 
         order = Order.objects.create(account=account, instrument=instrument, **validated_data)
-        cls.reserve_order(order, fill_price)
+        cls.reserve_order(order, account, fill_price)
 
         # Add to terminal order cache for matching engine
         if order.status == "OPEN":
@@ -266,7 +281,7 @@ class TradingOrderService:
 
         quantity = order.quantity
         if order.position_link_id:
-            linked = Position.objects.select_for_update().filter(pk=order.position_link_id).first()
+            linked = Position.objects.select_for_update().filter(pk=order.position_link_id, account=account, instrument=order.instrument).first()
             if not linked or linked.quantity == 0 or (linked.quantity > 0) == (order.transaction_type == "BUY"):
                 return cls.cancel_order(order)
             quantity = min(quantity, abs(linked.quantity))
@@ -581,6 +596,7 @@ class TradingOrderService:
         current_price = Decimal(str(price))
         quantity = Decimal(str(position.quantity))
         return (current_price - Decimal(position.average_price)) * quantity, current_price
+
 
 
 class PaperTradingTerminalService:

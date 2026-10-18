@@ -13,7 +13,7 @@ import {
 import StrategyConfigNav from '@/features/strategies/components/StrategyConfigNav.jsx';
 import StrategyFooter from '@/features/strategies/components/StrategyFooter.jsx';
 import { strategyApi, entryConfigApi } from '@/shared/services/strategyApi';
-import { riskApi } from '@/shared/services/portfolioApi';
+import { riskApi } from '@/shared/services/riskApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";

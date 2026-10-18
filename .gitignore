@@ -17,11 +17,7 @@ dist/
 build/
 *.manifest
 *.spec
-*.coverage
-.coverage.*
 .cache
-nosetests.xml
-coverage.xml
 *.mo
 *.env
 .env
@@ -30,10 +26,8 @@ coverage.xml
 .vscode/
 .idea/
 .mypy_cache/
-.pytest_cache/
 pip-log.txt
 pip-delete-this-directory.txt
-.tox/
 .pyre/
 .pytype/
 .DS_Store
@@ -45,11 +39,6 @@ media/
 !**/migrations/__init__.py
 
 # === Node.js / React / Vite ===
-# Temporary browser profiles and UI test captures
-.research-harness-*/
-test-results/
-playwright-report/
-
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -58,14 +47,20 @@ pnpm-debug.log*
 dist/
 build/
 .cache/
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+infra/public/oracle/*.tfvars
+**/*.tfplan
+infra/*/tls/
+infra/private/license/*.json
+infra/backups/
 .vite/
 *.tsbuildinfo
 *.eslintcache
 *.env.local
 *.env.development.local
-*.env.test.local
 *.env.production.local
-coverage/
 # Vite/React static assets
 public/vite.svg
 src/assets/react.svg
@@ -94,6 +89,8 @@ Desktop.ini
 
 # === Logs ===
 *.log
+*.log.*
+**/logs/
 
 # === Others ===
 # Ignore local settings

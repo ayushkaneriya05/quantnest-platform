@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from common.enums import TradePhase
 from rules_engine.utils import compute_sl_distance_from_config, derive_protection_levels
-from core.cache_api import cache_api
+from core.shared_state_store import shared_state_store
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,7 @@ class StrategyRuntimeState:
     def trade_state(cls, scope, session_id, instrument_id):
         """Get trade state for a session-instrument pair."""
         scope = str(scope).lower()
-        from core.cache_view import cache_view
-        return cache_view.get_runtime_state(scope, session_id, instrument_id)
+        return shared_state_store.get_runtime_state(scope, session_id, instrument_id)
 
     @classmethod
     def update_trade_state(cls, scope, session_id, instrument_id, updates):
@@ -353,11 +352,10 @@ class StrategyRuntimeState:
     @classmethod
     def ensure_risk_metrics(cls, scope, session_id):
         """Initialize missing/incomplete projections outside tick evaluation."""
-        from core.cache_view import cache_view
         from risk_management.metrics import metrics_complete
 
         session_id = str(session_id)
-        if metrics_complete(cache_view.get_risk_metrics(scope, session_id)):
+        if metrics_complete(shared_state_store.get_risk_metrics(scope, session_id)):
             return False
         rebuilt = False
 
@@ -368,7 +366,7 @@ class StrategyRuntimeState:
             rebuilt = True
             return cls._rebuild_risk_metrics(scope, session_id, current)
 
-        cache_api.mutate_risk_metrics(scope, session_id, restore)
+        shared_state_store.mutate_risk_metrics(scope, session_id, restore)
         return rebuilt
 
     @classmethod
@@ -396,7 +394,7 @@ class StrategyRuntimeState:
             metrics["last_close_trade_id"] = trade_id
             return metrics
 
-        return cache_api.mutate_risk_metrics(scope, str(session_id), update)
+        return shared_state_store.mutate_risk_metrics(scope, str(session_id), update)
 
     # ------------------------------------------------------------------
     # User cleanup
@@ -420,6 +418,6 @@ class StrategyRuntimeState:
 
         # Clear all session data from unified cache
         for session_id in live_sessions:
-            cache_api.clear_session("live", str(session_id))
+            shared_state_store.clear_session("live", str(session_id))
         for session_id in paper_sessions:
-            cache_api.clear_session("paper", str(session_id))
+            shared_state_store.clear_session("paper", str(session_id))

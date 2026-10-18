@@ -1,0 +1,37 @@
+{$PUBLIC_HOSTNAME} {
+	import /srv/site/security.caddy
+	import /srv/site/routes.caddy
+	encode zstd gzip
+	request_body {
+		max_size 12MB
+	}
+	@internal path /api/v1/research/tools /api/v1/research/tools/*
+	respond @internal "Not found" 404
+	@backend path /api/* /ws/* /health /health/* /admin /admin/* /static/*
+	handle @backend {
+		reverse_proxy api:8000 {
+			header_up X-QuantNest-Proxy-Token {$QUANTNEST_PROXY_TOKEN}
+			header_up X-QuantNest-Client-IP {http.request.remote.host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {$PUBLIC_HOSTNAME}
+		}
+	}
+	handle @frontend {
+		root * /srv/site
+		rewrite * /index.html
+		file_server
+	}
+	handle {
+		root * /srv/site
+		file_server
+	}
+	handle_errors 404 {
+		root * /srv/site
+		rewrite * /404.html
+		file_server
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

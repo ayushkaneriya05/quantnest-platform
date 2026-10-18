@@ -28,7 +28,7 @@ def synchronize(scope, session_id):
     if session.status == "RUNNING" and scope not in settings.EXECUTION_ENABLED_SCOPES:
         raise ValueError(f"{scope.title()} execution is not enabled in this deployment")
     if additions:
-        if RuntimeAssignment.objects.filter(user_id=user_id).count() + len(additions) > settings.EXECUTION_MAX_USER_ACTORS:
+        if settings.QUANTNEST_DEPLOYMENT_MODE != "private" and RuntimeAssignment.objects.filter(user_id=user_id).count() + len(additions) > settings.EXECUTION_MAX_USER_ACTORS:
             raise ValueError("Execution capacity for this account is full. Stop a session before adding instruments.")
         total = settings.EXECUTION_WORKERS * settings.EXECUTION_NODE_COUNT
         counts = [0] * total

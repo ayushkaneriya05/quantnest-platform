@@ -1,3 +1,4 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /**
  * Strategy List Page - displays all user strategies with CRUD actions
@@ -40,6 +41,7 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
 import { customConfirm } from '@/shared/components/ui/custom-dialog';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { usePlatform } from '@/shared/context/platform';
 
 const STATUS_CONFIG = {
   DRAFT: { label: 'Draft', className: 'bg-muted/15 text-muted-foreground border-border/30' },
@@ -63,7 +65,25 @@ const TYPE_COLORS = {
 };
 
 export default function StrategyList() {
+  const handleCreate = useStableCallback(() => {
+    navigate("/strategies/create");
+  });
+
+  const fetchStrategies = useStableCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await strategyApi.getAll();
+      setStrategies(Array.isArray(data) ? data : (data?.results || []));
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load strategies"));
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  });
+
   const navigate = useNavigate();
+  const { executionScopes } = usePlatform();
   const { notify } = useNotifications();
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -91,26 +111,13 @@ export default function StrategyList() {
   const [deleteConflictOpen, setDeleteConflictOpen] = useState(false);
   const [conflictedStrategy, setConflictedStrategy] = useState(null);
 
-  const fetchStrategies = async () => {
-    try {
-      setLoading(true);
-      const data = await strategyApi.getAll();
-      setStrategies(Array.isArray(data) ? data : (data?.results || []));
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load strategies"));
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   useEffect(() => {
     fetchStrategies();
-  }, []);
+  }, [fetchStrategies]);
 
-  const handleCreate = () => {
-    navigate("/strategies/create");
-  };
+
 
   // Set page actions in header
   const pageActions = useMemo(() => (
@@ -118,7 +125,7 @@ export default function StrategyList() {
       <Plus className="h-4 w-4 mr-2" />
       New Strategy
     </Button>
-  ), []);
+  ), [handleCreate]);
 
   useSetPageActions(pageActions);
 
@@ -160,13 +167,13 @@ export default function StrategyList() {
 
       const allocRes = await portfolioApi.getAllocationByStrategy(strategy.id);
       const fetchedAllocations = Array.isArray(allocRes.data) ? allocRes.data : allocRes.data?.results || [];
-      // Filter out allocations that already have an active/running session if needed, 
-      // but for now we just show all allocations that don't have a RUNNING session, 
+      // Filter out allocations that already have an active/running session if needed,
+      // but for now we just show all allocations that don't have a RUNNING session,
       // or we can just show all of them and let the backend throw if they try to reuse.
       // Wait, let's just show all allocations for this strategy so they can reuse STOPPED ones.
       setStrategyAllocations(fetchedAllocations);
       setSelectedAllocation(fetchedAllocations.length > 0 ? String(fetchedAllocations[0].id) : "new");
-      
+
       setPaperDeployStrategy(strategy);
       setPaperDeployOpen(true);
     } catch (error) {
@@ -498,7 +505,7 @@ export default function StrategyList() {
                     >
                       <TestTube className="h-3.5 w-3.5" />
                     </Button>
-                    {strategy.status === 'ACTIVE' && strategy.paper_trading_enabled && (
+                    {executionScopes.includes('paper') && strategy.status === 'ACTIVE' && strategy.paper_trading_enabled && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -510,7 +517,7 @@ export default function StrategyList() {
                         {deployingId === strategy.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
                       </Button>
                     )}
-                    {strategy.status === 'ACTIVE' && strategy.live_trading_enabled && (
+                    {executionScopes.includes('live') && strategy.status === 'ACTIVE' && strategy.live_trading_enabled && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -731,13 +738,13 @@ export default function StrategyList() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               {selectedAllocation === "new" && (
                 <div className="space-y-2">
                   <Label className="text-foreground">Allocation Amount (₹)</Label>
-                  <Input 
-                    type="number" 
-                    value={newAllocationAmount} 
+                  <Input
+                    type="number"
+                    value={newAllocationAmount}
                     onChange={(e) => setNewAllocationAmount(e.target.value)}
                     className="bg-card border-border text-foreground"
                   />
@@ -843,7 +850,7 @@ export default function StrategyList() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              The strategy "{conflictedStrategy?.name}" has active deployment records or associated trade data. Deleting it would break historical consistency.
+              The strategy &quot;{conflictedStrategy?.name}&quot; has active deployment records or associated trade data. Deleting it would break historical consistency.
             </p>
             <p className="text-sm text-muted-foreground">
               Consider archiving this strategy instead to hide it from your main view.

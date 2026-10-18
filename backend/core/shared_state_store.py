@@ -2,7 +2,7 @@
 
 import logging
 from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from django.conf import settings
 from django.core.cache import cache
@@ -32,46 +32,33 @@ class SharedStateStore:
         from core.redis import runtime_redis
         return runtime_redis().lock(lock_key, timeout=30, blocking_timeout=self.LOCK_TIMEOUT)
 
-    @staticmethod
-    def _get(key):
-        return cache.get(key)
+    def get_funds(self, credential_id: int) -> Dict[str, Any]:
+        return deepcopy(cache.get(self._key("funds", "broker", credential_id)) or {})
 
-    @staticmethod
-    def _set(key, value, timeout=None):
-        cache.set(key, value, timeout=timeout)
-
-    @staticmethod
-    def _delete(key):
-        cache.delete(key)
-
-
-    def get_funds(self, credential_id: int) -> Optional[Dict[str, Any]]:
-        return deepcopy(self._get(self._key("funds", "broker", credential_id)) or {})
-
-    def set_funds(self, credential_id: int, funds: Dict[str, Any]) -> None:
+    def update_funds(self, credential_id: int, funds: Dict[str, Any]) -> None:
         key = self._key("funds", "broker", credential_id)
-        self._set(key, deepcopy(funds), timeout=None)
+        cache.set(key, deepcopy(funds), timeout=None)
 
-    def get_session_funds(self, scope: str, session_id: str) -> Optional[Dict[str, Any]]:
-        return deepcopy(self._get(self._key("funds", scope, "session", session_id)) or {})
+    def get_session_funds(self, scope: str, session_id: str) -> Dict[str, Any]:
+        return deepcopy(cache.get(self._key("funds", scope, "session", session_id)) or {})
 
-    def set_session_funds(self, scope: str, session_id: str, funds: Dict[str, Any]) -> None:
+    def update_session_funds(self, scope: str, session_id: str, funds: Dict[str, Any]) -> None:
         key = self._key("funds", scope, "session", session_id)
-        self._set(key, deepcopy(funds), timeout=None)
+        cache.set(key, deepcopy(funds), timeout=None)
 
     def get_runtime_state(self, scope: str, session_id: str, instrument_id: int) -> Dict[str, Any]:
         from core.runtime_projection import get
         return get(scope, session_id, instrument_id)
 
     def get_risk_metrics(self, scope: str, session_id: str) -> Dict[str, Any]:
-        return deepcopy(self._get(self._key("risk", scope, session_id)) or {})
+        return deepcopy(cache.get(self._key("risk", scope, session_id)) or {})
 
     def update_risk_metrics(self, scope: str, session_id: str, updates: Dict[str, Any]) -> None:
         key = self._key("risk", scope, session_id)
         with self._with_lock(self._lock_key("risk", scope, session_id)):
             metrics = self.get_risk_metrics(scope, session_id)
             metrics.update(updates)
-            self._set(key, deepcopy(metrics), timeout=None)
+            cache.set(key, deepcopy(metrics), timeout=None)
 
     def mutate_risk_metrics(self, scope: str, session_id: str, transform) -> Dict[str, Any]:
         """Calculate and publish metrics while holding the existing session lock."""
@@ -82,12 +69,12 @@ class SharedStateStore:
             if updated is None:
                 return current
             result = deepcopy(updated)
-            self._set(key, result, timeout=None)
+            cache.set(key, result, timeout=None)
             return deepcopy(result)
 
     def clear_session(self, scope: str, session_id: str) -> None:
-        self._delete(self._key("funds", scope, "session", session_id))
-        self._delete(self._key("risk", scope, session_id))
+        cache.delete(self._key("funds", scope, "session", session_id))
+        cache.delete(self._key("risk", scope, session_id))
         from core.runtime_projection import reset
         reset(scope, session_id)
 

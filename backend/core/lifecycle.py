@@ -1,6 +1,25 @@
-"""Cold finalization after all owned financial obligations have settled."""
+"""Execution-scope admission, session events and settled-stop finalization."""
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
+
+
+def require_execution_scope(scope):
+    if scope not in settings.EXECUTION_ENABLED_SCOPES:
+        raise PermissionDenied({"code": "execution_scope_disabled",
+                                "message": "This execution scope is disabled in this installation.",
+                                "scope": scope})
+
+
+def publish_session_event(scope, session, action):
+    from core.outbox import enqueue
+    from instruments.services import InstrumentResolver
+    enqueue("control", f"{scope}:{session.pk}", {
+        "action": action, "scope": scope, "session_id": str(session.pk),
+        "strategy_id": str(session.strategy_id),
+        "instrument_ids": InstrumentResolver.execution_instrument_ids(session),
+    })
 
 
 @transaction.atomic

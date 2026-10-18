@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useEffect, useState } from "react";
 import { cn } from "@/shared/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
@@ -103,3 +104,12 @@ export default function OrderModal({
     </Dialog>
   );
 }
+
+OrderModal.propTypes = {
+  ...OrderModal.propTypes,
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
+  onOrderPlaced: PropTypes.func,
+  symbol: PropTypes.string,
+  transactionType: PropTypes.string,
+};

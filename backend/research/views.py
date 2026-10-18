@@ -44,18 +44,40 @@ class ResearchSessionViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        with transaction.atomic():
+            if serializer.validated_data.get("kind") == "SCREEN":
+                from commercial.usage import require_inventory_capacity
+                require_inventory_capacity(self.request.user, saved_screens=1)
+            serializer.save(user=self.request.user)
 
     def perform_destroy(self, instance):
         if instance.runs.filter(status__in=ACTIVE).exists():
             raise ValidationError("Cancel the active turn before deleting this conversation.")
         instance.delete()
 
+    @transaction.atomic
+    def perform_update(self, serializer):
+        if "kind" in serializer.validated_data:
+            get_user_model().objects.select_for_update().get(pk=self.request.user.pk)
+            serializer.instance.refresh_from_db(fields=["kind"])
+        if serializer.instance.kind == "SCREEN" and serializer.validated_data.get("kind") == "CHAT":
+            raise ValidationError("Saved screens keep their type. Delete a screen to release its saved-screen capacity.")
+        if serializer.instance.kind != "SCREEN" and serializer.validated_data.get("kind") == "SCREEN":
+            from commercial.usage import require_inventory_capacity
+            require_inventory_capacity(self.request.user, saved_screens=1)
+        serializer.save()
+
 
 class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ResearchRunSerializer
     pagination_class = ResearchPagination
+
+    def get_throttles(self):
+        if self.action == "create":
+            from .throttles import ResearchAdmissionThrottle
+            return [ResearchAdmissionThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         queryset = ResearchRun.objects.filter(user=self.request.user).prefetch_related("actions")
@@ -75,12 +97,27 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
             get_user_model().objects.select_for_update().get(pk=request.user.pk)
             previous = ResearchRun.objects.filter(user=request.user, request_id=data["request_id"]).first()
             if previous:
+                from commercial.usage import hash_payload, reject_request
+                if previous.request.get("_request_hash") != hash_payload(request.data):
+                    reject_request("idempotency_conflict", "This research request identifier was already used with different inputs.")
                 return Response(ResearchRunSerializer(previous).data)
             if ResearchRun.objects.filter(user=request.user, status__in=ACTIVE).exists():
                 raise ValidationError("Wait for your active research turn or cancel it before starting another.")
             session = get_object_or_404(ResearchSession, pk=data["session"], user=request.user) if data.get("session") else None
             context = resolve_context(request.user, data, session.context if session else None)
             context["refresh"] = data["refresh"]
+            from commercial.usage import hash_payload
+            context["_request_hash"] = hash_payload(request.data)
+            from commercial.usage import (
+                reserve_usage,
+                require_request_limits,
+                require_inventory_capacity,
+            )
+            policy = require_request_limits(request.user, research_instruments=len(context.get("instrument_ids", [])),
+                                            backtest_attachments=len(context.get("backtest_ids", [])))
+            if data["mode"] == "SCREEN" and (not session or session.kind != "SCREEN"):
+                require_inventory_capacity(request.user, policy=policy, saved_screens=1)
+            feature = "screens" if data["mode"] == "SCREEN" else "research_turns"
             if session:
                 previous_draft = session.runs.filter(status="COMPLETED", result__has_key="draft").order_by("-id").first()
                 if previous_draft:
@@ -97,16 +134,17 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
             if not session:
                 session = ResearchSession.objects.create(user=request.user,
                     kind="SCREEN" if data["mode"] == "SCREEN" else "CHAT", title=(data.get("prompt") or "Market screen")[:160])
-            elif data["mode"] == "RESEARCH":
-                session.kind = "CHAT"
+            elif data["mode"] == "SCREEN" and session.kind != "SCREEN":
+                session.kind = "SCREEN"
             run = ResearchRun.objects.create(session=session, user=request.user, request_id=data["request_id"],
                 mode=data["mode"], prompt=data.get("prompt", ""), request=json_data(context), as_of=timezone.now())
+            reserve_usage(request.user, feature, f"research:{data['request_id']}", {"request": request.data}, resource=run, policy=policy)
             session.context = json_data({key: context[key] for key in
                 ("strategy_id", "backtest_ids", "instrument_ids", "instruments", "timeframe", "use_watchlist", "screen", "source_run_id", "execution_review", "execution_evidence") if key in context})
             session.save(update_fields=["context", "kind", "updated_at"])
             publish_run(run)
-            from .tasks import enqueue_research
-            transaction.on_commit(lambda: enqueue_research(run.pk))
+            from commercial.usage import queue_compute_work
+            queue_compute_work("research.start_research", run.pk)
         run.refresh_from_db()
         return Response(ResearchRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
 
@@ -114,7 +152,7 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
     def cancel(self, request, pk=None):
         run = self.get_object()
         run = update_active_run(run.pk, status=ResearchRun.Status.CANCELLED,
-            progress_message="Research cancelled", completed_at=timezone.now()) or self.get_object()
+            progress_message="Research cancelled", completed_at=timezone.now() if not run.started_at else None) or self.get_object()
         return Response(ResearchRunSerializer(run).data)
 
     @action(detail=True, methods=["get"], url_path="evidence/(?P<evidence_id>E[0-9]+)")
@@ -153,8 +191,10 @@ def research_schema(request):
     from strategies.models import Strategy
     from django.db.models import F
     today = timezone.localdate()
+    from commercial.usage import get_account_policy
+    allowances = get_account_policy(request.user)["limits"]
     return Response({"enums": get_enum_metadata(), "presets": screening_presets(),
-        "limits": {"instruments": 50, "backtests": 3, "tool_calls": 8, "timeout_seconds": 600},
+        "limits": {"instruments": allowances.get("research_instruments"), "backtests": allowances.get("backtest_attachments"), "tool_calls": 8, "timeout_seconds": 600},
         "defaults": {"timeframe": "1D"},
         "backtest_defaults": {"name": "Research experiment", "start_date": today.replace(month=1, day=1).isoformat(),
                               "end_date": today.isoformat(), "initial_capital": "100000.00", "slippage_pct": "0.05", "include_charges": True},

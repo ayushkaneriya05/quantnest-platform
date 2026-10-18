@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import * as React from "react"
 import * as SwitchPrimitives from "@radix-ui/react-switch"
 
@@ -22,3 +23,8 @@ const Switch = React.forwardRef(({ className, ...props }, ref) => (
 Switch.displayName = SwitchPrimitives.Root.displayName
 
 export { Switch }
+
+Switch.propTypes = {
+  ...Switch.propTypes,
+  className: PropTypes.string,
+};

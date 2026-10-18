@@ -52,9 +52,11 @@ async def research(payload: ResearchRequest, request: Request, x_research_servic
             except TimeoutError:
                 await queue.put({"type": "error", "message": "Research exceeded its deadline. Narrow your request and retry."})
             except ResearchError as exc:
+                if getattr(exc, "usage", None):
+                    await queue.put({"type": "usage", "usage": exc.usage})
                 await queue.put({"type": "error", "message": str(exc)})
-            except Exception:
-                logger.exception("Research service failed")
+            except Exception as exc:
+                logger.error("Research service failed category=%s", type(exc).__name__)
                 await queue.put({"type": "error", "message": "The research service could not finish. Check the Gemini credentials, quota, and service logs."})
             finally:
                 await queue.put(None)

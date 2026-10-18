@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import PropTypes from "prop-types";
 import { ArrowUpRight, LogOut, Menu } from "lucide-react";
@@ -9,29 +9,24 @@ import { logoutUser } from "@/shared/store/authSlice";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const navItems = [
-  ["Workflow", "workflow"], ["Platform", "platform"],
-  ["Intelligence", "intelligence"], ["Ecosystem", "ecosystem"],
+  ["Product", "/product/"], ["Features", "/features/"], ["Pricing", "/pricing/"],
+  ["Documentation", "/docs/"], ["Services", "/custom-development/"], ["Private", "/private/"],
 ];
 
 export default function MainHeader({ authPage }) {
   const { accessToken } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const location = useLocation();
   const { notify } = useNotifications();
-  const goToSection = (id) => {
-    if (location.pathname === "/") document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-    else navigate(`/#${id}`);
-  };
   const logout = async () => {
     try { await dispatch(logoutUser()).unwrap(); navigate("/"); }
     catch (error) { notify.error(typeof error === "string" ? error : "Could not sign out. Please retry."); }
   };
   return <header className="sticky top-0 z-40 w-full border-b bg-card/95 text-foreground backdrop-blur-xl">
-    <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-2 px-3 sm:px-6 lg:px-8">
+    <div className="mx-auto flex min-h-16 w-[calc(100%_-_2rem)] max-w-7xl items-center justify-between gap-2">
       <Link to="/" aria-label="QuantNest home" className="min-w-0 shrink"><img src="/logo_1-wordmark.png" alt="QuantNest" className="h-auto w-36 max-w-full object-contain sm:w-44" /></Link>
-      <nav aria-label="Primary" className="hidden items-center gap-6 lg:flex">
-        {navItems.map(([label,id]) => <button key={id} onClick={() => goToSection(id)} className="py-3 text-sm text-muted-foreground transition-colors hover:text-brand focus-ring">{label}</button>)}
+      <nav aria-label="Primary" className="hidden items-center gap-6 xl:flex">
+        {navItems.map(([label,id]) => <Link key={id} to={id} className="py-3 text-sm text-muted-foreground transition-colors hover:text-brand focus-ring">{label}</Link>)}
       </nav>
       <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <ThemeSwitch />
@@ -42,9 +37,9 @@ export default function MainHeader({ authPage }) {
           </>}
         </div>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="touch-target lg:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="touch-target xl:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw_-_2rem)]">
-            {navItems.map(([label,id]) => <DropdownMenuItem key={id} onSelect={() => goToSection(id)} className="min-h-11">{label}</DropdownMenuItem>)}
+            {navItems.map(([label,id]) => <DropdownMenuItem key={id} asChild className="min-h-11"><Link to={id}>{label}</Link></DropdownMenuItem>)}
             <DropdownMenuSeparator />
             {accessToken ? <><DropdownMenuItem asChild className="min-h-11"><Link to="/overview">Open workspace</Link></DropdownMenuItem><DropdownMenuItem onSelect={logout} className="min-h-11">Log out</DropdownMenuItem></> : <><DropdownMenuItem asChild className="min-h-11"><Link to="/login">Sign in</Link></DropdownMenuItem><DropdownMenuItem asChild className="min-h-11"><Link to="/register">Create account</Link></DropdownMenuItem></>}
           </DropdownMenuContent>

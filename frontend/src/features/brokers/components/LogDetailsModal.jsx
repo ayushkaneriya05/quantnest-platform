@@ -1,6 +1,11 @@
+import PropTypes from "prop-types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { Badge } from "@/shared/components/ui/badge";
+
+function JsonBlock({ data }) {
+  return <pre className="mt-2 overflow-auto rounded-xl bg-muted p-4 text-xs font-mono text-foreground max-h-[400px] scrollbar-theme">{JSON.stringify(data || {}, null, 2)}</pre>;
+}
 
 export default function LogDetailsModal({ log, open, onOpenChange }) {
   if (!log) return null;
@@ -10,12 +15,6 @@ export default function LogDetailsModal({ log, open, onOpenChange }) {
     if (code >= 400 && code < 500) return "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20";
     return "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20";
   };
-
-  const JsonBlock = ({ data }) => (
-    <pre className="mt-2 overflow-auto rounded-xl bg-muted p-4 text-xs font-mono text-foreground max-h-[400px] scrollbar-theme">
-      {JSON.stringify(data || {}, null, 2)}
-    </pre>
-  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,3 +92,15 @@ export default function LogDetailsModal({ log, open, onOpenChange }) {
     </Dialog>
   );
 }
+
+LogDetailsModal.propTypes = {
+  ...LogDetailsModal.propTypes,
+  log: PropTypes.object,
+  onOpenChange: PropTypes.func,
+  open: PropTypes.bool,
+};
+
+JsonBlock.propTypes = {
+  ...JsonBlock.propTypes,
+  data: PropTypes.object,
+};

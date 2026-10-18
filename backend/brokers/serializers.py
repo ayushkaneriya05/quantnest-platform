@@ -105,7 +105,7 @@ class BrokerChargeProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = BrokerChargeProfile
         fields = [
-            'id', 'name', 'broker_credential',
+            'id', 'name',
             'brokerage_per_order', 'brokerage_pct', 'brokerage_cap',
             'stt_eq_delivery_pct', 'stt_eq_intraday_pct',
             'stt_futures_pct', 'stt_options_sell_pct',

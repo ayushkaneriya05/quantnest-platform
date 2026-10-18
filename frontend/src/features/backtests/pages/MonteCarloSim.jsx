@@ -115,7 +115,7 @@ export default function MonteCarloSim() {
   }, [backtestFilterId]);
 
   // B12: Auto-refresh when any simulation is RUNNING
-  const hasRunning = monteCarloRuns.some((mc) => mc.status === "RUNNING");
+  const hasRunning = monteCarloRuns.some((mc) => ["QUEUED", "RUNNING"].includes(mc.status));
   useEffect(() => {
     if (!hasRunning) return undefined;
     const interval = setInterval(fetchData, 3000);
@@ -230,6 +230,7 @@ export default function MonteCarloSim() {
   const formatPercentile = (value) => Number(value.toFixed(2));
   const selectedRunMessage = selectedRun?.error_message || ({
     FAILED: "The simulation failed.",
+    QUEUED: "Simulation is queued and will start when a worker is available.",
     RUNNING: "Simulation is running. Results will appear here when it completes.",
     PENDING: "This simulation is waiting to start. Use Start simulation in the history list.",
     COMPLETED: resultsLoading
@@ -321,7 +322,6 @@ export default function MonteCarloSim() {
                   <Input
                     type="number"
                     min={100}
-                    max={10000}
                     step={100}
                     value={formData.num_simulations}
                     onChange={(e) =>
@@ -423,7 +423,7 @@ export default function MonteCarloSim() {
                           className={`text-[10px] py-0.5 px-1.5 ${
                             mc.status === "COMPLETED"
                               ? "bg-green-600/15 text-green-800 dark:text-green-400 border-green-500/10"
-                              : mc.status === "RUNNING"
+                              : ["QUEUED", "RUNNING"].includes(mc.status)
                                 ? "bg-blue-600/15 text-blue-700 dark:text-blue-400 border-blue-500/10 animate-pulse"
                                 : mc.status === "FAILED"
                                   ? "bg-red-600/15 text-red-700 dark:text-red-400 border-red-500/10"

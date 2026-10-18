@@ -3,8 +3,10 @@ import os
 from pathlib import Path
 import re
 import sys
+from urllib.parse import urlparse
 
 from celery.schedules import crontab
+from corsheaders.defaults import default_headers
 from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -15,42 +17,47 @@ FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:5173")
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="127.0.0.1,localhost", cast=Csv())
 REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/0")
-CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
-CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
-CHANNEL_REDIS_URL = config("CHANNEL_REDIS_URL", default=REDIS_URL)
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
 RUNTIME_REDIS_URL = config("RUNTIME_REDIS_URL", default=REDIS_URL)
-EXECUTION_WORKERS = config("EXECUTION_WORKERS", default=2, cast=int)
+EXECUTION_WORKERS = config("EXECUTION_WORKERS", default=1, cast=int)
 CALCULATION_WORKERS = config("CALCULATION_WORKERS", default=1, cast=int)
 EXECUTION_SHARDS = config("EXECUTION_SHARDS", default=64, cast=int)
 EXECUTION_NODE_INDEX = config("EXECUTION_NODE_INDEX", default=0, cast=int)
 EXECUTION_NODE_COUNT = config("EXECUTION_NODE_COUNT", default=1, cast=int)
-EXECUTION_MAX_ACTORS = config("EXECUTION_MAX_ACTORS", default=200, cast=int)
-EXECUTION_MAX_USER_ACTORS = config("EXECUTION_MAX_USER_ACTORS", default=64, cast=int)
-EXECUTION_ENABLED_SCOPES = set(config("EXECUTION_ENABLED_SCOPES", default="paper,live", cast=Csv()))
+EXECUTION_MAX_ACTORS = config("EXECUTION_MAX_ACTORS", default=8, cast=int)
+EXECUTION_MAX_USER_ACTORS = config("EXECUTION_MAX_USER_ACTORS", default=4, cast=int)
+EXECUTION_ENABLED_SCOPES = set(config("EXECUTION_ENABLED_SCOPES", default="paper", cast=Csv()))
+if not EXECUTION_ENABLED_SCOPES or not EXECUTION_ENABLED_SCOPES <= {"paper", "live"}:
+    raise ValueError("EXECUTION_ENABLED_SCOPES must contain paper, live or both")
 EXECUTION_TASK_TIMEOUT = config("EXECUTION_TASK_TIMEOUT", default=10.0, cast=float)
 EXECUTION_STARTUP_TASK_TIMEOUT = config("EXECUTION_STARTUP_TASK_TIMEOUT", default=60.0, cast=float)
 EXECUTION_TICK_BATCH = config("EXECUTION_TICK_BATCH", default=128, cast=int)
 TERMINAL_MATCH_BATCH = config("TERMINAL_MATCH_BATCH", default=64, cast=int)
-CALCULATION_CACHE_MB = config("CALCULATION_CACHE_MB", default=128, cast=int)
+CALCULATION_CACHE_MB = config("CALCULATION_CACHE_MB", default=32, cast=int)
 EXECUTION_NOTIFY_PORT = config("EXECUTION_NOTIFY_PORT", default=19600, cast=int)
 ORDER_PARTITIONS = config("ORDER_PARTITIONS", default=16, cast=int)
-ORDER_WORKERS = config("ORDER_WORKERS", default=2, cast=int)
-ORDER_CONCURRENCY = config("ORDER_CONCURRENCY", default=4, cast=int)
+ORDER_WORKERS = config("ORDER_WORKERS", default=1, cast=int)
+ORDER_CONCURRENCY = config("ORDER_CONCURRENCY", default=2, cast=int)
 ORDER_TASK_TIMEOUT = config("ORDER_TASK_TIMEOUT", default=30.0, cast=float)
-TERMINAL_MAX_OPEN_ORDERS = config("TERMINAL_MAX_OPEN_ORDERS", default=200, cast=int)
 MARKET_DATA_PROVIDER = config("MARKET_DATA_PROVIDER", default="fyers")
 RESEARCH_INPUT_TOKEN_BUDGET = config("RESEARCH_INPUT_TOKEN_BUDGET", default=40000, cast=int)
 RESEARCH_OUTPUT_TOKEN_BUDGET = config("RESEARCH_OUTPUT_TOKEN_BUDGET", default=6000, cast=int)
 RESEARCH_CACHE_URL = config("RESEARCH_CACHE_URL", default="redis://localhost:6379/3")
 MARKET_CACHE_URL = config("MARKET_CACHE_URL", default="redis://localhost:6379/2")
 EXECUTION_SCAN_INTERVAL = config("EXECUTION_SCAN_INTERVAL", default=0.005, cast=float)
-USE_IN_MEMORY_CHANNEL_LAYER = config("USE_IN_MEMORY_CHANNEL_LAYER", default=DEBUG, cast=bool)
+EXECUTION_NOTIFY_BIND = config("EXECUTION_NOTIFY_BIND", default="127.0.0.1")
+EXECUTION_NOTIFY_TARGETS = config("EXECUTION_NOTIFY_TARGETS", default="127.0.0.1", cast=Csv())
+from ipaddress import IPv4Address
+for notify_host in [EXECUTION_NOTIFY_BIND, *EXECUTION_NOTIFY_TARGETS]:
+    IPv4Address(notify_host)  # Resolve configured literal addresses once, without tick-path DNS.
+
 RESEARCH_SERVICE_URL = config("RESEARCH_SERVICE_URL", default="http://127.0.0.1:8001")
 RESEARCH_SERVICE_TOKEN = config("RESEARCH_SERVICE_TOKEN", default="")
 
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "backend.admin_config.QuantNestAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -89,12 +96,50 @@ INSTALLED_APPS = [
     "notifications",
     "research",
     "audit",
-    "strategy_engine"
+    "strategy_engine",
+    "commercial",
+    "customer_support",
+    "installations",
 ]
 
+QUANTNEST_DEPLOYMENT_MODE = config("QUANTNEST_DEPLOYMENT_MODE", default="public")
+if QUANTNEST_DEPLOYMENT_MODE not in {"development", "public", "private"}:
+    raise ValueError("QUANTNEST_DEPLOYMENT_MODE must be development, public or private")
+if QUANTNEST_DEPLOYMENT_MODE == "public" and "live" in EXECUTION_ENABLED_SCOPES:
+    raise ValueError("Public deployment requires EXECUTION_ENABLED_SCOPES=paper")
+QUANTNEST_LEGAL_NAME = config("QUANTNEST_LEGAL_NAME", default="QuantNest")
+QUANTNEST_SUPPORT_EMAIL = config("QUANTNEST_SUPPORT_EMAIL", default="ayushkaneriya05@gmail.com")
+QUANTNEST_SUPPORT_HOURS = config("QUANTNEST_SUPPORT_HOURS", default="Monday–Friday, 10:00–18:00 Asia/Kolkata; no response-time SLA")
+PRIVACY_POLICY_REVISION = "2026-10-17"
+BILLING_ENABLED = config("BILLING_ENABLED", default=False, cast=bool)
+BILLING_TAX_BPS = config("BILLING_TAX_BPS", default=0, cast=int)
+BILLING_TAX_ID = config("BILLING_TAX_ID", default="")
+RAZORPAY_KEY_ID = config("RAZORPAY_KEY_ID", default="")
+RAZORPAY_KEY_SECRET = config("RAZORPAY_KEY_SECRET", default="")
+RAZORPAY_WEBHOOK_SECRET = config("RAZORPAY_WEBHOOK_SECRET", default="")
+RAZORPAY_PREVIOUS_WEBHOOK_SECRET = config("RAZORPAY_PREVIOUS_WEBHOOK_SECRET", default="")
+TURNSTILE_SECRET_KEY = config("TURNSTILE_SECRET_KEY", default="")
+TURNSTILE_HOSTNAMES = config("TURNSTILE_HOSTNAMES", default=urlparse(FRONTEND_URL).hostname or "localhost", cast=Csv())
+BREVO_API_KEY = config("BREVO_API_KEY", default="")
+BREVO_WEBHOOK_TOKEN = config("BREVO_WEBHOOK_TOKEN", default="")
+BREVO_NEWSLETTER_LIST_ID = config("BREVO_NEWSLETTER_LIST_ID", default=0, cast=int)
+BREVO_DOI_TEMPLATE_ID = config("BREVO_DOI_TEMPLATE_ID", default=0, cast=int)
+BREVO_INBOUND_DOMAIN = config("BREVO_INBOUND_DOMAIN", default="")
+OCI_LICENSE_KEY_ID = config("OCI_LICENSE_KEY_ID", default="")
+OCI_LICENSE_KEY_VERSION = config("OCI_LICENSE_KEY_VERSION", default="")
+OCI_SIGNING_ENDPOINT = config("OCI_SIGNING_ENDPOINT", default="")
+LICENSE_PUBLIC_KEYS_FILE = config("LICENSE_PUBLIC_KEYS_FILE", default="/etc/quantnest/license/public-keys.json")
+LICENSE_INSTALLATION_ID = config("LICENSE_INSTALLATION_ID", default="")
+LICENSE_ACTIVATION_TOKEN = config("LICENSE_ACTIVATION_TOKEN", default="")
+LICENSE_SERVER_URL = config("LICENSE_SERVER_URL", default="")
+QUANTNEST_PROXY_TOKEN = config("QUANTNEST_PROXY_TOKEN", default="")
+QUANTNEST_RELEASE = config("QUANTNEST_RELEASE", default="development")
+CREDENTIAL_ENCRYPTION_KEYS = config("CREDENTIAL_ENCRYPTION_KEYS", default="", cast=Csv())
+
 MIDDLEWARE = [
-    "audit.middleware.AuditContextMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "backend.middleware.ingress.TrustedIngressMiddleware",
+    "audit.middleware.AuditContextMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "allauth.account.middleware.AccountMiddleware",
@@ -111,8 +156,7 @@ ASGI_APPLICATION = "backend.asgi.application"
 # Fyers market-data config (used by marketdata views/processes)
 FYERS_CLIENT_ID = config("FYERS_CLIENT_ID", default="")
 FYERS_SECRET = config("FYERS_SECRET", default="")
-FYERS_REDIRECT_URI = config("FYERS_REDIRECT_URI", default="http://localhost:8000/api/v1/market/fyers/callback/")
-FYERS_PIN = config("FYERS_PIN", default="")
+FYERS_REDIRECT_URI = config("FYERS_REDIRECT_URI", default=f"{BACKEND_URL.rstrip('/')}/api/v1/market/fyers/callback/")
 
 # Fyers broker-trading config (execution auth/session is isolated from market-data token storage)
 BROKER_FYERS_CLIENT_ID = config("BROKER_FYERS_CLIENT_ID", default=FYERS_CLIENT_ID)
@@ -121,25 +165,13 @@ BROKER_FYERS_REDIRECT_URI = config(
     "BROKER_FYERS_REDIRECT_URI",
     default=f"{BACKEND_URL.rstrip('/')}/api/v1/brokers/credentials/fyers/callback/",
 )
-BROKER_FYERS_PIN = config("BROKER_FYERS_PIN", default=FYERS_PIN)
 
-if USE_IN_MEMORY_CHANNEL_LAYER:
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels.layers.InMemoryChannelLayer",
-        }
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [REDIS_URL], "capacity": 1500, "expiry": 60},
     }
-else:
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [CHANNEL_REDIS_URL],
-                "capacity": 1500,
-                "expiry": 60,
-            },
-        }
-    }
+}
 
 
 SITE_ID = 6
@@ -160,6 +192,7 @@ SOCIALACCOUNT_PROVIDERS = {
 CORS_ALLOWED_ORIGINS = [
     FRONTEND_URL,
 ]
+CORS_ALLOW_HEADERS = [*default_headers, "idempotency-key"]
 
 CSRF_TRUSTED_ORIGINS = [
     FRONTEND_URL,
@@ -167,6 +200,8 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Set these in production to redirect all traffic to HTTPS
 SECURE_SSL_REDIRECT = not DEBUG
+SECURE_REDIRECT_EXEMPT = [r"^api/v1/research/tools/$"]
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if QUANTNEST_PROXY_TOKEN else None
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
@@ -176,7 +211,7 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
 REST_FRAMEWORK = {
-    # The server provides the client IP; untrusted forwarded headers cannot bypass throttling.
+    # TrustedIngress normalizes authenticated gateway addresses; ignore arbitrary XFF chains.
     "NUM_PROXIES": 0,
     "DEFAULT_RENDERER_CLASSES": (
         "backend.middleware.api_responses.APIJSONRenderer",
@@ -242,13 +277,13 @@ ACCOUNT_EMAIL_SUBJECT_PREFIX = "[QuantNest] "
 ACCOUNT_EMAIL_BODY_HTML = True
 LOGIN_URL = FRONTEND_URL + "/login"
 
-EMAIL_BACKEND = config("EMAIL_BACKEND")
-EMAIL_HOST = config("EMAIL_HOST")
-EMAIL_PORT = config("EMAIL_PORT", cast=int)
-EMAIL_HOST_USER = config("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", cast=bool)
-DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL")
+EMAIL_BACKEND = config("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = config("EMAIL_HOST", default="smtp-relay.brevo.com")
+EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
 
 ACCOUNT_ADAPTER = "users.adapters.CustomAccountAdapter"
 SOCIALACCOUNT_ADAPTER = "allauth.socialaccount.adapter.DefaultSocialAccountAdapter"
@@ -263,26 +298,14 @@ SIMPLE_JWT = {
     "TOKEN_OBTAIN_SERIALIZER": "users.serializers.CustomTokenObtainPairSerializer",
 }
 
-if config("USE_LOCMEM_CACHE", default=False, cast=bool):
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "quantnest-local-cache",
-        }
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": config("CACHE_URL", default=REDIS_URL),
+        "TIMEOUT": 300,
+        "OPTIONS": {"socket_connect_timeout": 5, "socket_timeout": 5, "retry_on_timeout": True},
     }
-else:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": config("CACHE_URL", default=REDIS_URL),
-            "TIMEOUT": 300,
-            "OPTIONS": {
-                "socket_connect_timeout": 5,
-                "socket_timeout": 5,
-                "retry_on_timeout": True,
-            },
-        }
-    }
+}
 
 CACHES["marketdata"] = {
     "BACKEND": "django.core.cache.backends.redis.RedisCache",
@@ -307,13 +330,8 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
     "max_retries": 3,
 }
 # ── Use prefork (multi-process) pool to bypass Python GIL for CPU-bound
-# indicator computation. Each live/paper/backtest queue gets its own
-# dedicated worker process via --queues CLI flag when launching Celery.
-# Example launch commands:
-#   celery -A backend worker -Q live      --pool=prefork -c 4 --loglevel=info
-#   celery -A backend worker -Q paper     --pool=prefork -c 4 --loglevel=info
-#   celery -A backend worker -Q backtest  --pool=prefork -c 2 --loglevel=info
-#   celery -A backend worker -Q default,notifications --pool=prefork -c 2
+# historical computation. Live/Paper ticks run in quantnest_runtime, outside Celery.
+# Compose separates the compute queue from background I/O and maintenance queues.
 CELERY_WORKER_POOL = "prefork"
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Prevents long tasks monopolising workers
 CELERY_TASK_ACKS_LATE = True           # Re-queue task if worker dies mid-execution
@@ -322,17 +340,23 @@ CELERY_TASK_SOFT_TIME_LIMIT = 60 * 25
 CELERY_TASK_TIME_LIMIT = 60 * 30
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_TASK_ROUTES = {
-    "backtesting.*": {"queue": "backtesting"},
+    "backtesting.*": {"queue": "compute"},
     "paper_trading.*": {"queue": "paper"},
     "marketdata.*": {"queue": "marketdata"},
     "instruments.*": {"queue": "marketdata"},
     "live_trading.*": {"queue": "live"},
     "notifications.*": {"queue": "notifications"},
-    "research.*": {"queue": "research"},
+    "research.start_research": {"queue": "compute"},
+    "research.*": {"queue": "default"},
+    "commercial.*": {"queue": "default"},
+    "installations.*": {"queue": "default"},
     "common.*": {"queue": "default"},
     "users.*": {"queue": "default"},
 }
 CELERY_BEAT_SCHEDULE = {
+    "customer-content-retention": {"task": "customer_support.retention", "schedule": 300.0},
+    "commercial-reconcile": {"task": "commercial.reconcile", "schedule": 300.0},
+    "private-licence-refresh": {"task": "installations.refresh", "schedule": 21600.0},
     "runtime-retention": {"task": "common.prune_runtime_records", "schedule": crontab(hour=2, minute=15)},
     "users-cleanup-expired-sessions": {
         "task": "users.cleanup_expired_sessions",
@@ -379,6 +403,10 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=0, minute=5),
     },
 }
+if "live" not in EXECUTION_ENABLED_SCOPES:
+    CELERY_BEAT_SCHEDULE.pop("live-trading-reconcile-oms")
+if QUANTNEST_DEPLOYMENT_MODE != "private":
+    CELERY_BEAT_SCHEDULE.pop("private-licence-refresh")
 
 
 TEMPLATES = [
@@ -399,24 +427,17 @@ TEMPLATES = [
 WSGI_APPLICATION = "backend.wsgi.application"
 
 
-if config("USE_SQLITE", default=False, cast=bool):
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": config("DB_NAME"),
+        "USER": config("DB_USER"),
+        "PASSWORD": config("DB_PASSWORD"),
+        "HOST": config("DB_HOST", default="127.0.0.1"),
+        "PORT": config("DB_PORT", default="5432"),
+        "OPTIONS": {"connect_timeout": 5},
     }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": config("DB_NAME"),
-            "USER": config("DB_USER"),
-            "PASSWORD": config("DB_PASSWORD"),
-            "HOST": config("DB_HOST"),
-            "PORT": config("DB_PORT"),
-        }
-    }
+}
 
 # Media Files Configuration
 MEDIA_URL = "/media/"
@@ -502,9 +523,18 @@ LOGGING = {
     },
 }
 
-# Ensure the logs directory exists
-LOGS_DIR = BASE_DIR / "logs"
-LOGS_DIR.mkdir(exist_ok=True)
+# Containers use their supervisor's bounded console logs. Local development also
+# keeps per-process files, with rotation so a long-running worker cannot fill disk.
+if DEBUG and QUANTNEST_DEPLOYMENT_MODE == "development":
+    (BASE_DIR / "logs").mkdir(exist_ok=True)
+    LOGGING["handlers"]["process_file"].update(
+        {"class": "logging.handlers.RotatingFileHandler", "maxBytes": 10 * 1024 * 1024, "backupCount": 2}
+    )
+else:
+    LOGGING["handlers"].pop("process_file")
+    LOGGING["root"]["handlers"] = ["console"]
+    for logger_config in LOGGING["loggers"].values():
+        logger_config["handlers"] = ["console"]
 
 LANGUAGE_CODE = "en-us"
 

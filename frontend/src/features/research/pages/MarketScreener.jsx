@@ -14,10 +14,12 @@ import ResearchEvidence from "@/features/research/components/ResearchEvidence.js
 import ResearchDrawer from "@/features/research/components/ResearchDrawer.jsx";
 import { useResearchData } from "@/features/research/hooks/useResearchData.js";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const theme = { accentBar: "bg-emerald-500", badge: "text-emerald-700 dark:text-emerald-400", comparison: "text-emerald-700 dark:text-emerald-400", switch: "data-[state=checked]:bg-emerald-500" };
 
 export default function MarketScreener() {
+  const { notify } = useNotifications();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const session = params.get("session");
@@ -69,7 +71,8 @@ export default function MarketScreener() {
         await researchApi.createSession({ title: name.trim(), kind: "SCREEN", context: context() });
       setSavedTitle(response.data.title);
       setParams({ session: String(response.data.id) });
-    } catch (error) { setError(getApiErrorMessage(error, "Could not save screen")); }
+      notify.success("Your screen has been saved.");
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not save screen")); }
     finally { setBusy(false); }
   }
   async function execute() {
@@ -79,7 +82,7 @@ export default function MarketScreener() {
       const response = await researchApi.start({ ...context(), request_id: crypto.randomUUID(), mode: "SCREEN", prompt: name,
         ...(session ? { session: Number(session) } : {}) });
       receive([response.data]); setParams({ session: String(response.data.session) }); setSelection([]);
-    } catch (error) { setError(getApiErrorMessage(error, "Could not screen stocks")); }
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not screen stocks")); }
     finally { setBusy(false); }
   }
   function updateCondition(index, field, value) {
@@ -110,14 +113,14 @@ export default function MarketScreener() {
     <Card><CardContent className="space-y-5 p-5">
       <div className="flex flex-wrap gap-3"><Input aria-label="Screen name" className="max-w-sm" value={name} maxLength={160} onChange={(event) => setName(event.target.value)} /><Button variant="outline" disabled={!ready || !name.trim()} onClick={save}>Save named screen</Button></div>
       <div className="grid gap-3 sm:grid-cols-2">{schema?.presets.map((preset) => <button key={preset.id} disabled={!ready} className="rounded-lg border border-border p-3 text-left hover:border-indigo-500/40" onClick={() => setScreen({ timeframe: preset.timeframe, logical_operator: preset.logical_operator, conditions: preset.conditions })}><h3 className="text-sm font-medium">{preset.name}</h3><p className="mt-1 text-xs text-muted-foreground">{preset.description}</p></button>)}</div>
-      <div className="grid gap-4 lg:grid-cols-2"><ResearchUniverse value={universe} onChange={(value) => setUniverse(value)} disabled={!ready} strategies={schema?.strategies} />{screen && <div className="flex items-start gap-3"><Select value={screen.timeframe} onValueChange={(value) => setScreen({ ...screen, timeframe: value })} disabled={!ready}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{schema?.enums.CandleTimeframe.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select><Select value={screen.logical_operator} onValueChange={(value) => setScreen({ ...screen, logical_operator: value })} disabled={!ready}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent>{schema?.enums.LogicalOperator.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>}</div>
+      <div className="grid gap-4 lg:grid-cols-2"><ResearchUniverse value={universe} onChange={(value) => setUniverse(value)} disabled={!ready} strategies={schema?.strategies} maxInstruments={schema?.limits.instruments} />{screen && <div className="flex items-start gap-3"><Select value={screen.timeframe} onValueChange={(value) => setScreen({ ...screen, timeframe: value })} disabled={!ready}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{schema?.enums.CandleTimeframe.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select><Select value={screen.logical_operator} onValueChange={(value) => setScreen({ ...screen, logical_operator: value })} disabled={!ready}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent>{schema?.enums.LogicalOperator.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>}</div>
       <div className={!ready ? "pointer-events-none opacity-60" : ""}>{screen?.conditions.map((rule, index) => <RuleConditionEditor key={index} rule={rule} ruleType="ENTRY" logicalOperator={screen.logical_operator} showOperator={index > 0} theme={theme} deleteTitle="Remove condition" onDelete={() => setScreen({ ...screen, conditions: screen.conditions.filter((_, position) => position !== index) })} onChange={(field, value) => updateCondition(index, field, value)} />)}</div>
       <div className="flex justify-between gap-3"><Button variant="outline" onClick={() => setScreen({ ...screen, conditions: [...screen.conditions, schema.presets[0].conditions[0]] })} disabled={!ready || screen.conditions.length >= 12}>Add condition</Button><Button onClick={execute} disabled={!ready || !screen.conditions.some((item) => item.is_active ?? true) || (!universe.strategy_id && !universe.use_watchlist && !universe.instruments.length)}>Run screen with new observation</Button></div>
       <p className="text-xs text-muted-foreground">Shared strategy evaluator · configured warmup · broker backfill · closed-candle conditions. Saved results retain their original observation time.</p>
       {error && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{error}</p>}
     </CardContent></Card>
     {loading && session && <p className="text-sm text-muted-foreground">Loading saved results…</p>}
-    {run && <Card><CardContent className="space-y-4 p-5"><div className="flex flex-wrap justify-between items-center gap-3"><p role="status" className="text-sm text-muted-foreground">{run.status} · {run.progress_message}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => reload()}>Reload saved result</Button>{["PENDING", "RUNNING"].includes(run.status) && <Button size="sm" variant="outline" onClick={async () => { try { await researchApi.cancel(run.id); await reload(); } catch (error) { setError(getApiErrorMessage(error)); } }}>Cancel</Button>}<Button size="sm" disabled={!selection.length || run.status !== "COMPLETED"} onClick={researchSelected}>Ask AI about selected results</Button></div></div>
+    {run && <Card><CardContent className="space-y-4 p-5"><div className="flex flex-wrap justify-between items-center gap-3"><p role="status" className="text-sm text-muted-foreground">{run.status} · {run.progress_message}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => reload()}>Reload saved result</Button>{["PENDING", "RUNNING"].includes(run.status) && <Button size="sm" variant="outline" onClick={async () => { try { await researchApi.cancel(run.id); notify.success("Screen cancellation requested."); await reload(); } catch (error) { notify.error(getApiErrorMessage(error)); } }}>Cancel</Button>}<Button size="sm" disabled={!selection.length || run.status !== "COMPLETED"} onClick={researchSelected}>Ask AI about selected results</Button></div></div>
       {run.error_message && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{run.error_message}</p>}{run.evidence?.map((item) => <ResearchEvidence key={`${run.id}-${item.evidence_id}`} evidence={item} enums={schema?.enums} selected={selection} onSelect={(id) => setSelection((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])} onDetails={setDetails} />)}
     </CardContent></Card>}
     <ResearchDrawer open={Boolean(details)} onOpenChange={(open) => { if (!open) setDetails(null); }} title="Screen conditions and evidence">{details && <ResearchEvidence evidence={details} detailed enums={schema?.enums} />}</ResearchDrawer>

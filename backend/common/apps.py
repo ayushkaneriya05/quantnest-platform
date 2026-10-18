@@ -5,3 +5,6 @@ class CommonConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'common'
     verbose_name = 'Common Utilities'
+
+    def ready(self):
+        from . import checks  # noqa: F401 - register system deployment checks

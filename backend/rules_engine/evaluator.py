@@ -2,9 +2,6 @@ import logging
 import numpy as np
 import pandas as pd
 
-if not hasattr(np, "NaN"):
-    np.NaN = np.nan
-
 from common.enums import (
     ComparisonOperator,
     OperandType,

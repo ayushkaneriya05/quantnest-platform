@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -118,3 +119,15 @@ export default function RuleConditionEditor({
     </div>
   );
 }
+
+RuleConditionEditor.propTypes = {
+  ...RuleConditionEditor.propTypes,
+  deleteTitle: PropTypes.string,
+  logicalOperator: PropTypes.string,
+  onChange: PropTypes.func,
+  onDelete: PropTypes.func,
+  rule: PropTypes.object,
+  ruleType: PropTypes.string,
+  showOperator: PropTypes.bool,
+  theme: PropTypes.object,
+};

@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/shared/components/ui/button";
@@ -57,7 +58,7 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
 
   const pnlVariant = dayPnl >= 0 ? "positive" : "negative";
 
-  const brokerAccounts = summary?.broker_accounts || [];
+  const brokerAccounts = useMemo(() => summary?.broker_accounts || [], [summary?.broker_accounts]);
 
   const totalEquity = useMemo(() => {
     return brokerAccounts.reduce((sum, acc) => sum + Number(acc.net_equity || 0), 0);
@@ -188,3 +189,18 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
     </div>
   );
 }
+
+StatCard.propTypes = {
+  ...StatCard.propTypes,
+  icon: PropTypes.elementType,
+  subtitle: PropTypes.string,
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  variant: PropTypes.string,
+};
+
+LivePortfolioSummary.propTypes = {
+  ...LivePortfolioSummary.propTypes,
+  sessions: PropTypes.array,
+  summary: PropTypes.object,
+};

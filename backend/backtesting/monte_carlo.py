@@ -40,8 +40,8 @@ class MonteCarloSimulator:
             raise ValueError("Backtest initial capital must be greater than zero.")
 
         iterations = int(self.run.num_simulations)
-        if not 100 <= iterations <= 10000:
-            raise ValueError("Simulation count must be between 100 and 10,000.")
+        if iterations < 100:
+            raise ValueError("Simulation count must be at least 100.")
 
         confidence_level = float(self.run.confidence_level)
         if not 0.90 <= confidence_level <= 0.99:

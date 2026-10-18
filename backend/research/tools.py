@@ -213,8 +213,8 @@ def _calculate_tool(run, name, arguments):
         arguments = dict(arguments)
         ids = arguments.pop("instrument_ids", None)
         allowed = research_instrument_ids(run)
-        if ids is not None and (not isinstance(ids, list) or len(ids) > 50 or any(type(value) is not int for value in ids) or set(ids) - set(allowed)):
-            raise ValidationError("Resolve or attach these instruments before requesting analysis.")
+        if ids is not None and (not isinstance(ids, list) or any(type(value) is not int for value in ids) or set(ids) - set(allowed)):
+            raise ValidationError("Select these instruments in a new research request before analyzing them.")
         if name == "analyze_stock":
             indicators = arguments.pop("indicators", [])
             if not isinstance(indicators, list) or len(indicators) > 8 or len(ids or allowed) > 5:
@@ -234,7 +234,8 @@ def _calculate_tool(run, name, arguments):
                     .values("id", "symbol", "sym_ticker", "name"))
         exact = [row for row in rows if arguments["query"].upper() in {row["symbol"].upper(), row["sym_ticker"].upper(), row["name"].upper()}]
         selected = exact if len(exact) == 1 else rows
-        data = {"instruments": selected, "ambiguous": len(selected) > 1, "query": arguments["query"]}
+        data = {"instruments": selected, "ambiguous": len(selected) > 1, "query": arguments["query"],
+                "selection_required": any(row["id"] not in research_instrument_ids(run) for row in selected)}
     elif name == "get_execution_review":
         if arguments:
             raise ValidationError("This tool reads only the attached execution review.")
@@ -254,7 +255,7 @@ def _calculate_tool(run, name, arguments):
         data = get_backtest_report(run, arguments.get("backtest_id"))
     elif name == "compare_backtests":
         if arguments or len(run.request.get("backtest_ids", [])) < 2:
-            raise ValidationError("Attach two or three completed backtests to compare.")
+            raise ValidationError("Attach at least two completed backtests to compare.")
         reports = [get_backtest_report(run, value) for value in run.request["backtest_ids"]]
         configs = [{key: item[key] for key in ("start_date", "end_date", "initial_capital", "slippage_pct", "include_charges", "charge_profile_id", "snapshot")} for item in reports]
         differences = [key for key in configs[0] if any(item[key] != configs[0][key] for item in configs[1:])]
@@ -275,6 +276,8 @@ def _calculate_tool(run, name, arguments):
     elif name == "validate_strategy_draft":
         if set(arguments) != {"draft"}:
             raise ValidationError("Provide a draft object.")
+        from .policy import validate_customer_rules
+        validate_customer_rules(run, arguments["draft"])
         data = {"valid": True, "draft": validate_draft(arguments["draft"], research_instrument_ids(run))}
     else:
         raise ValidationError("This tool is not allowed.")
@@ -283,7 +286,13 @@ def _calculate_tool(run, name, arguments):
 
 def execute_tool(run, name, arguments):
     """Reserve attempts before work; cache artifacts and frames only for this run."""
+    if not isinstance(arguments, dict):
+        raise ValidationError("Tool arguments must be an object.")
     key = hashlib.sha256(json.dumps([name, arguments], sort_keys=True, default=str).encode()).hexdigest()
+    if name in {"analyze_stock", "compare_instruments", "screen_instruments"}:
+        selected = arguments.get("instrument_ids") or []
+        if not isinstance(selected, list) or any(type(value) is not int for value in selected):
+            raise ValidationError("Choose valid instrument identifiers.")
     with transaction.atomic():
         current = ResearchRun.objects.select_for_update().filter(pk=run.pk).first()
         if not current or current.status not in ACTIVE:

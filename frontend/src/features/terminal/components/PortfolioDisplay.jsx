@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useState } from "react";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/components/ui/button";
@@ -369,3 +370,19 @@ export default function PortfolioDisplay({ positions = [], orders = [], onRefres
     </div>
   );
 }
+
+StatCard.propTypes = {
+  ...StatCard.propTypes,
+  icon: PropTypes.elementType,
+  subtitle: PropTypes.string,
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  variant: PropTypes.string,
+};
+
+PortfolioDisplay.propTypes = {
+  ...PortfolioDisplay.propTypes,
+  onRefresh: PropTypes.func,
+  orders: PropTypes.array,
+  positions: PropTypes.array,
+};

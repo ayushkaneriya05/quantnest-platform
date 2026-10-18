@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import {
@@ -55,7 +56,7 @@ export default function LiveHotSwapModal({
       };
       fetchVersions();
     }
-  }, [open, session]);
+  }, [open, session, notify]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -153,3 +154,11 @@ export default function LiveHotSwapModal({
     </Dialog>
   );
 }
+
+LiveHotSwapModal.propTypes = {
+  ...LiveHotSwapModal.propTypes,
+  onOpenChange: PropTypes.func,
+  onSuccess: PropTypes.func,
+  open: PropTypes.bool,
+  session: PropTypes.object,
+};

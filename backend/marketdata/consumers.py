@@ -88,8 +88,8 @@ class MarketDataConsumer(AuthSessionConsumerMixin, AsyncWebsocketConsumer):
                 await self.send(json.dumps({"status": "unsubscribed", "instrument": normalized_instrument}))
         except json.JSONDecodeError:
             await self.send(json.dumps({"error": "Invalid JSON"}))
-        except Exception as exc:
-            await self.send(json.dumps({"error": str(exc)}))
+        except Exception:
+            await self.send(json.dumps({"error": "The market-data request could not be completed."}))
 
     async def marketdata_message(self, event):
         await self.send(json.dumps(event["message"]))

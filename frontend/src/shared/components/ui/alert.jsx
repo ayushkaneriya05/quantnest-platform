@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import * as React from "react"
 import { cva } from "class-variance-authority"
 
@@ -48,3 +49,19 @@ const AlertDescription = React.forwardRef(({ className, ...props }, ref) => (
 AlertDescription.displayName = "AlertDescription"
 
 export { Alert, AlertTitle, AlertDescription }
+
+Alert.propTypes = {
+  ...Alert.propTypes,
+  className: PropTypes.string,
+  variant: PropTypes.string,
+};
+
+AlertTitle.propTypes = {
+  ...AlertTitle.propTypes,
+  className: PropTypes.string,
+};
+
+AlertDescription.propTypes = {
+  ...AlertDescription.propTypes,
+  className: PropTypes.string,
+};

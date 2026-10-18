@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
@@ -396,3 +397,12 @@ export default function MathExpressionBuilder({
     </div>
   );
 }
+
+MathExpressionBuilder.propTypes = {
+  ...MathExpressionBuilder.propTypes,
+  allowedVariableTypes: PropTypes.array,
+  onChange: PropTypes.func,
+  parameterConfig: PropTypes.object,
+  ruleType: PropTypes.string,
+  value: PropTypes.shape({ expression: PropTypes.string, variables: PropTypes.object }),
+};

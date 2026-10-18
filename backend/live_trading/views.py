@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from brokers.models import BrokerSession
 from .serializers import BrokerAccountObservationSerializer
 from common.enums import OrderStatus
+from core.lifecycle import publish_session_event
 
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
 from .serializers import (
@@ -243,7 +244,9 @@ class LivePositionViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = LiveTradingPagination
 
     def get_queryset(self):
-        queryset = LivePosition.objects.filter(user=self.request.user, quantity__gt=0).select_related("strategy", "instrument", "broker_credential")
+        queryset = LivePosition.objects.filter(user=self.request.user, quantity__gt=0).select_related(
+            "strategy", "instrument", "broker_credential"
+        ).order_by("-opened_at", "-pk")
         for field in ("strategy", "allocation", "broker_credential"):
             value = self.request.query_params.get(field)
             if value:
@@ -347,6 +350,8 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
     def deploy_version(self, request, pk=None):
         """Hot-swap the deployed strategy version on a live allocation."""
         allocation = self.get_object()
+        from installations.licensing import require_broker_access
+        require_broker_access(allocation.broker_credential.broker_name)
         allocation = LiveStrategyAllocation.objects.select_for_update(of=("self",)).get(pk=allocation.pk)
         version_id = request.data.get('version_id')
 
@@ -370,6 +375,11 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
 
         if allocation.deployed_version_id == version.pk:
             return Response(self.get_serializer(allocation).data)
+        from instruments.services import InstrumentResolver
+        try:
+            InstrumentResolver.validate_execution_snapshot(version.config_snapshot)
+        except ValueError as exc:
+            raise ValidationError(str(exc))
         allocation.deployed_version = version
         allocation.save(update_fields=['deployed_version', 'updated_at'])
 
@@ -378,7 +388,7 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
             from risk_management.auto_disable import AutoDisableGate
             AutoDisableGate.version_changed(session)
             if session.status == "RUNNING":
-                LiveExecutionService._publish_execution_event("VERSION_CHANGE", session, "live")
+                publish_session_event("live", session, "VERSION_CHANGE")
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)

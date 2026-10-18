@@ -1,0 +1,4 @@
+# Host installer/release verification only; application dependencies are in images.
+PyJWT==2.12.1
+cryptography==45.0.6
+python-decouple==3.8

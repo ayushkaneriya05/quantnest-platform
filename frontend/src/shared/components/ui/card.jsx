@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import * as React from "react"
 
 import { cn } from "@/shared/lib/utils"
@@ -59,3 +60,33 @@ const CardFooter = React.forwardRef(({ className, ...props }, ref) => (
 CardFooter.displayName = "CardFooter"
 
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+
+Card.propTypes = {
+  ...Card.propTypes,
+  className: PropTypes.string,
+};
+
+CardHeader.propTypes = {
+  ...CardHeader.propTypes,
+  className: PropTypes.string,
+};
+
+CardTitle.propTypes = {
+  ...CardTitle.propTypes,
+  className: PropTypes.string,
+};
+
+CardDescription.propTypes = {
+  ...CardDescription.propTypes,
+  className: PropTypes.string,
+};
+
+CardContent.propTypes = {
+  ...CardContent.propTypes,
+  className: PropTypes.string,
+};
+
+CardFooter.propTypes = {
+  ...CardFooter.propTypes,
+  className: PropTypes.string,
+};

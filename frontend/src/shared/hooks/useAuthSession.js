@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { initializeAuth, logout } from "../store/authSlice";
+import { initializeAuth, logout, fetchUserProfile } from "../store/authSlice";
 import { ensureFreshAccessToken } from "../services/api";
 import { AUTH_EVENT_KEY, invalidateAuthRequests } from "../services/authSession";
 
 export function useAuthSession() {
   const dispatch = useDispatch();
   const accessToken = useSelector((state) => state.auth.accessToken);
+  const signedIn = Boolean(accessToken);
 
   useEffect(() => { dispatch(initializeAuth()); }, [dispatch]);
 
@@ -23,11 +24,16 @@ export function useAuthSession() {
   }, [dispatch]);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!signedIn) return;
+    let profileRefreshedAt = Date.now();
     const refresh = () => {
       if (document.visibilityState === "visible") {
         // Network failures keep the current session; the next interval retries.
         ensureFreshAccessToken().catch(() => {});
+        if (Date.now() - profileRefreshedAt >= 25 * 60000) {
+          profileRefreshedAt = Date.now();
+          dispatch(fetchUserProfile());
+        }
       }
     };
     const timer = setInterval(refresh, 30000);
@@ -38,5 +44,5 @@ export function useAuthSession() {
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener("focus", refresh);
     };
-  }, [accessToken]);
+  }, [signedIn, dispatch]);
 }

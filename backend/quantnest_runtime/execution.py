@@ -15,6 +15,7 @@ from django.conf import settings
 from django.db import close_old_connections
 
 from core.redis import runtime_redis
+from core.shared_state_store import shared_state_store
 from quantnest_runtime.ownership import Lease, partition
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class Actor:
     generation: int = 0
     market_ready: bool = True
     runtime_ready: bool = True
+    account_active: bool = False
     last_entry_candle: str = ""
     last_gap_revision: int = 0
     in_flight: bool = False
@@ -68,6 +70,7 @@ def _apply_controls(actor, row):
     actor.status, actor.events = row["status"], row["events"]
     actor.program.active_event_cache = actor.events
     actor.market_ready, actor.runtime_ready = row["market_ready"], row["runtime_ready"]
+    actor.account_active = row["account_active"]
 
 
 def _snapshot(index, contexts):
@@ -87,12 +90,14 @@ def _snapshot(index, contexts):
     global_index = settings.EXECUTION_NODE_INDEX * settings.EXECUTION_WORKERS + index
     assigned = defaultdict(lambda: defaultdict(list))
     shards = [shard for shard in range(settings.EXECUTION_SHARDS) if shard % total_workers == global_index]
-    for assignment in RuntimeAssignment.objects.filter(shard__in=shards):
+    for assignment in RuntimeAssignment.objects.filter(shard__in=shards, scope__in=settings.EXECUTION_ENABLED_SCOPES):
         assigned[assignment.scope][assignment.session_id].append(assignment.instrument_id)
     for scope, model, context_type in (("live", TradingSession, LiveSessionContext),
                                        ("paper", PaperTradingSession, PaperSessionContext)):
+        if scope not in settings.EXECUTION_ENABLED_SCOPES:
+            continue
         sessions = model.objects.filter(pk__in=assigned[scope], status__in=["RUNNING", "PAUSED", "STOPPING", "ERROR"]).select_related(
-            "allocation__deployed_version")
+            "allocation__deployed_version", "user")
         for session in sessions:
             from core.lifecycle import finalize_stop
             if finalize_stop(scope, session):
@@ -121,8 +126,7 @@ def _snapshot(index, contexts):
                 context = context_type(str(session.pk), str(session.strategy_id))
                 contexts[identity] = context
             if scope == "paper":
-                from core.cache_view import cache_view
-                if not cache_view.get_session_funds(scope, str(session.pk)):
+                if not shared_state_store.get_session_funds(scope, str(session.pk)):
                     from django.db import transaction
                     from paper_trading.models import PaperAccount
                     from paper_trading.services import _refresh_paper_account_funds_after_commit
@@ -156,7 +160,8 @@ def _snapshot(index, contexts):
                              "events": cached["events"],
                              "status": session.status, "configuration_key": f"{version.pk}:{instrument.pk}", "version_id": version.pk,
                              "market_ready": market_ready,
-                             "runtime_ready": runtime_ready,
+                              "runtime_ready": runtime_ready,
+                              "account_active": session.user.is_active,
                              "contract": {"lot_size": instrument.lot_size or 1, "tick_size": str(instrument.tick_size)}})
     return rows
 

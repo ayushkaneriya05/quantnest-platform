@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from core.encryption import EncryptedTextField
 from django.utils import timezone
 
 from common.enums import BrokerName
@@ -16,8 +17,8 @@ class BrokerCredential(BaseTimestampModel):
     label = models.CharField(max_length=80, blank=True)
     client_id = models.CharField(max_length=120)
     api_key = models.TextField(blank=True)
-    api_secret = models.TextField(blank=True)
-    totp_secret = models.CharField(max_length=128, blank=True)
+    api_secret = EncryptedTextField(blank=True)
+    totp_secret = EncryptedTextField(blank=True)
     permissions = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False)
@@ -38,8 +39,7 @@ class BrokerSession(BaseTimestampModel):
         on_delete=models.CASCADE,
         related_name="sessions",
     )
-    access_token = models.TextField()
-    refresh_token = models.TextField(blank=True)
+    access_token = EncryptedTextField()
     token_expiry = models.DateTimeField()
     is_valid = models.BooleanField(default=True)
     last_used_at = models.DateTimeField(default=timezone.now)
@@ -103,25 +103,17 @@ class BrokerFundsSnapshot(BaseTimestampModel):
 
 
 class BrokerChargeProfile(BaseTimestampModel):
-    """Stores a complete brokerage charge profile for realistic cost simulation.
+    """Stores reusable trading costs for backtests and Paper simulation.
 
     Each profile captures all components of Indian market trading costs:
     brokerage, STT, exchange charges, SEBI fees, stamp duty, and GST.
-    Users can create multiple profiles for different brokers/plans.
+    Users can create named profiles without connecting a broker account.
     """
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='charge_profiles',
         help_text='Owner of this charge profile'
-    )
-    broker_credential = models.ForeignKey(
-        'BrokerCredential',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='charge_profiles',
-        help_text='Optional link to a specific broker credential'
     )
     name = models.CharField(
         max_length=100,

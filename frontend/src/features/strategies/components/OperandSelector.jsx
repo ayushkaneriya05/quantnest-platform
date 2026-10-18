@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useState } from "react";
 import {
   Select,
@@ -417,3 +418,17 @@ export default function OperandSelector({
     </div>
   );
 }
+
+OperandSelector.propTypes = {
+  ...OperandSelector.propTypes,
+  allowedValues: PropTypes.array,
+  hideTimeframe: PropTypes.bool,
+  onChangeParams: PropTypes.func,
+  onChangeTimeframe: PropTypes.func,
+  onChangeType: PropTypes.func,
+  params: PropTypes.object,
+  placeholder: PropTypes.string,
+  ruleType: PropTypes.string,
+  timeframe: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};

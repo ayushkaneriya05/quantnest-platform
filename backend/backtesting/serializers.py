@@ -2,11 +2,19 @@
 Serializers for the backtesting app.
 """
 from decimal import Decimal
+import uuid
+from django.db import transaction
 from rest_framework import serializers
+from common.costs import get_charges_breakdown
 from .models import (
     BacktestRun, BacktestTrade, BacktestMetrics, EquityCurvePoint,
     MonteCarloRun, MonteCarloResult
 )
+
+
+class ChargeProfileSummarySerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    name = serializers.CharField(read_only=True)
 
 
 class BacktestRunListSerializer(serializers.ModelSerializer):
@@ -22,7 +30,8 @@ class BacktestRunListSerializer(serializers.ModelSerializer):
 
 class BacktestRunSerializer(serializers.ModelSerializer):
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
-    charge_profile_detail = serializers.SerializerMethodField()
+    charge_profile_detail = ChargeProfileSummarySerializer(source='charge_profile', read_only=True)
+    estimate_token = serializers.CharField(write_only=True, required=False, max_length=32768)
 
     class Meta:
         model = BacktestRun
@@ -30,38 +39,42 @@ class BacktestRunSerializer(serializers.ModelSerializer):
             'id', 'name', 'strategy', 'strategy_name', 'strategy_version', 'start_date', 'end_date',
             'initial_capital', 'slippage_pct',
             'charge_profile', 'charge_profile_detail', 'include_charges',
-            'parameters', 'config_snapshot', 'data_quality', 'diagnostics',
+            'parameters', 'config_snapshot', 'data_quality', 'diagnostics', 'estimate_token',
             'status', 'progress_pct', 'progress_message', 'error_message', 'started_at', 'completed_at', 'created_at'
         ]
         read_only_fields = ['user', 'status', 'progress_pct', 'progress_message', 'data_quality', 'diagnostics', 'config_snapshot', 'strategy_version', 'started_at', 'completed_at']
 
-    def get_charge_profile_detail(self, obj):
-        if obj.charge_profile:
-            return {
-                'id': obj.charge_profile.id,
-                'name': getattr(obj.charge_profile, 'name', str(obj.charge_profile))
-            }
-        return None
-
     def validate(self, attrs):
-        start_date = attrs.get("start_date", getattr(self.instance, "start_date", None))
-        end_date = attrs.get("end_date", getattr(self.instance, "end_date", None))
-        initial_capital = attrs.get("initial_capital", getattr(self.instance, "initial_capital", None))
-        slippage_pct = attrs.get("slippage_pct", getattr(self.instance, "slippage_pct", None))
-        include_charges = attrs.get("include_charges", getattr(self.instance, "include_charges", True))
-        charge_profile = attrs.get("charge_profile", getattr(self.instance, "charge_profile", None))
-        if start_date and end_date and end_date < start_date:
+        """Validate creation inputs; saved backtests have no edit endpoint."""
+        initial_capital = attrs.get("initial_capital")
+        slippage_pct = attrs.get("slippage_pct")
+        charge_profile = attrs.get("charge_profile")
+        if attrs["end_date"] < attrs["start_date"]:
             raise serializers.ValidationError({"end_date": "End date must be on or after start date."})
         if initial_capital is not None and initial_capital <= 0:
             raise serializers.ValidationError({"initial_capital": "Initial capital must be greater than zero."})
         if slippage_pct is not None and slippage_pct < 0:
             raise serializers.ValidationError({"slippage_pct": "Slippage cannot be negative."})
-        if include_charges and charge_profile is None:
+        if attrs.get("include_charges", True) and charge_profile is None:
             raise serializers.ValidationError({"charge_profile": "Select a charge profile or turn off charges."})
         request = self.context.get("request")
         if charge_profile is not None and request and charge_profile.user_id != request.user.id:
             raise serializers.ValidationError({"charge_profile": "Select a charge profile owned by your account."})
         return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        from commercial.usage import reserve_usage
+        from .services import backtest_configuration
+        user = validated_data["user"]
+        request = self.context.get("request")
+        key = getattr(request, "headers", {}).get("Idempotency-Key") or f"backtest:{uuid.uuid4()}"
+        token = validated_data.pop("estimate_token", "")
+        config = backtest_configuration(BacktestRun(**validated_data))
+        payload = {**{key: getattr(value, "pk", value) for key, value in validated_data.items()}, "config": config}
+        run = super().create(validated_data)
+        reserve_usage(user, "backtest_credits", key, payload, resource=run, estimate_token=token)
+        return run
 
 
 class BacktestTradeSerializer(serializers.ModelSerializer):
@@ -78,26 +91,7 @@ class BacktestTradeSerializer(serializers.ModelSerializer):
         ]
 
     def get_charges_breakdown(self, obj):
-        totals = {
-            'brokerage': 0.0,
-            'stt': 0.0,
-            'exchange_txn': 0.0,
-            'sebi': 0.0,
-            'stamp_duty': 0.0,
-            'gst': 0.0,
-            'total': 0.0,
-        }
-        charges = obj.charges_json or {}
-        totals['total'] = float(charges.get('total_charges', 0) or 0)
-        for leg_name in ('entry_charges', 'exit_charges'):
-            leg = charges.get(leg_name) or {}
-            totals['brokerage'] += float(leg.get('brokerage', 0) or 0)
-            totals['stt'] += float(leg.get('stt', 0) or 0)
-            totals['exchange_txn'] += float(leg.get('exchange_charges', leg.get('exchange', 0)) or 0)
-            totals['sebi'] += float(leg.get('sebi_fee', leg.get('sebi', 0)) or 0)
-            totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
-            totals['gst'] += float(leg.get('gst', 0) or 0)
-        return {key: round(value, 2) for key, value in totals.items()}
+        return get_charges_breakdown([obj.charges_json])
 
 
 class BacktestMetricsSerializer(serializers.ModelSerializer):
@@ -119,29 +113,7 @@ class BacktestMetricsSerializer(serializers.ModelSerializer):
         ]
 
     def get_charges_breakdown(self, obj):
-        totals = {
-            'brokerage': 0.0,
-            'stt': 0.0,
-            'exchange_txn': 0.0,
-            'sebi': 0.0,
-            'stamp_duty': 0.0,
-            'gst': 0.0,
-            'total': 0.0,
-        }
-        for trade in obj.run.trades.all():
-            charges = trade.charges_json or {}
-            totals['total'] += float(charges.get('total_charges', 0) or 0)
-            for leg_name in ('entry_charges', 'exit_charges'):
-                leg = charges.get(leg_name) or {}
-                totals['brokerage'] += float(leg.get('brokerage', 0) or 0)
-                totals['stt'] += float(leg.get('stt', 0) or 0)
-                exchange = float(leg.get('exchange_charges', leg.get('exchange', 0)) or 0)
-                sebi = float(leg.get('sebi_fee', leg.get('sebi', 0)) or 0)
-                totals['exchange_txn'] += exchange
-                totals['sebi'] += sebi
-                totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
-                totals['gst'] += float(leg.get('gst', 0) or 0)
-        return {key: round(value, 2) for key, value in totals.items()}
+        return get_charges_breakdown(trade.charges_json for trade in obj.run.trades.all())
 
 
 class EquityCurvePointSerializer(serializers.ModelSerializer):
@@ -154,7 +126,7 @@ class BacktestRunDetailSerializer(serializers.ModelSerializer):
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     metrics = BacktestMetricsSerializer(read_only=True)
     trades_count = serializers.IntegerField(source='trades.count', read_only=True)
-    charge_profile_detail = serializers.SerializerMethodField()
+    charge_profile_detail = ChargeProfileSummarySerializer(source='charge_profile', read_only=True)
 
     class Meta:
         model = BacktestRun
@@ -167,17 +139,9 @@ class BacktestRunDetailSerializer(serializers.ModelSerializer):
             'metrics', 'trades_count'
         ]
 
-    def get_charge_profile_detail(self, obj):
-        if obj.charge_profile:
-            return {
-                'id': obj.charge_profile.id,
-                'name': getattr(obj.charge_profile, 'name', str(obj.charge_profile))
-            }
-        return None
-
 
 class MonteCarloRunSerializer(serializers.ModelSerializer):
-    num_simulations = serializers.IntegerField(min_value=100, max_value=10000)
+    num_simulations = serializers.IntegerField(min_value=100)
     confidence_level = serializers.DecimalField(
         max_digits=4, decimal_places=2, min_value=Decimal("0.90"), max_value=Decimal("0.99"),
     )

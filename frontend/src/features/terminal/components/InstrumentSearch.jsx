@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/shared/lib/utils";
 import { Search, PlusCircle, Loader2 } from "lucide-react";
@@ -112,3 +113,9 @@ export default function InstrumentSearch({
   );
 }
 
+
+InstrumentSearch.propTypes = {
+  ...InstrumentSearch.propTypes,
+  existingWatchlistSymbols: PropTypes.array,
+  onAddToWatchlist: PropTypes.func,
+};

@@ -82,9 +82,12 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({flag: 'Stop all running or paused sessions before disabling this trading mode.'})
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         tags = validated_data.pop('tags', [])
         validated_data['user'] = self.context['request'].user
+        from commercial.usage import require_inventory_capacity
+        require_inventory_capacity(validated_data['user'], strategies=1)
         strategy = Strategy.objects.create(**validated_data)
         strategy.tags.set(tags)
         return strategy
@@ -143,9 +146,8 @@ class StrategyListSerializer(serializers.ModelSerializer):
         ]
 
 
-class StrategyCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating a new strategy."""
-    tag_ids = serializers.PrimaryKeyRelatedField(queryset=StrategyTag.objects.all(), many=True, write_only=True, required=False, source='tags')
+class StrategyCreateSerializer(StrategyDetailSerializer):
+    """Creation fields sharing the transactional save and inventory admission."""
     
     class Meta:
         model = Strategy
@@ -160,10 +162,5 @@ class StrategyCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'status', 'created_at', 'updated_at']
 
     def create(self, validated_data):
-        tags = validated_data.pop('tags', [])
-        validated_data['user'] = self.context['request'].user
         validated_data['status'] = 'DRAFT'
-        with transaction.atomic():
-            strategy = Strategy.objects.create(**validated_data)
-            strategy.tags.set(tags)
-            return strategy
+        return super().create(validated_data)

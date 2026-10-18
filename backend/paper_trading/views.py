@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
 from common.enums import CapitalAllocationType
+from core.lifecycle import publish_session_event
 from .models import (
     PaperAccount, PaperPosition, PaperOrder, PaperTrade,
     Portfolio, CapitalAllocation, FundTransaction, DailyPerformance,
@@ -55,6 +56,8 @@ class PortfolioViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
+                from django.contrib.auth import get_user_model
+                get_user_model().objects.select_for_update().get(pk=request.user.pk)
                 paper_account = PortfolioService.ensure_paper_account_for_allocation(allocation, name=name)
                 PaperExecutionService.deploy_session(
                     user=request.user,
@@ -115,7 +118,8 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         portfolio = serializer.validated_data['portfolio']
         strategy = serializer.validated_data['strategy']
         alloc_type = serializer.validated_data['allocation_type']
-        deployed_version_id = request.data.get('deployed_version_id')
+        version = serializer.validated_data.get('deployed_version')
+        deployed_version_id = version.pk if version else None
 
         val = serializer.validated_data['allocated_amount'] if alloc_type == 'FIXED' else serializer.validated_data['allocated_percentage']
 
@@ -125,8 +129,11 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @transaction.atomic
     def update(self, request, *args, **kwargs):
         """Update allocation using service logic."""
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -135,7 +142,12 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         portfolio = instance.portfolio
         strategy = instance.strategy
         alloc_type = serializer.validated_data.get('allocation_type', instance.allocation_type)
-        deployed_version_id = request.data.get('deployed_version_id')
+        version = serializer.validated_data.get('deployed_version')
+        deployed_version_id = version.pk if version else None
+        if version and instance.deployed_version_id != version.pk:
+            from commercial.usage import require_inventory_capacity
+            require_inventory_capacity(request.user, paper_snapshot=version.config_snapshot, paper_allocation=instance)
+
 
         if alloc_type == CapitalAllocationType.FIXED:
             val = serializer.validated_data.get('allocated_amount', instance.allocated_amount)
@@ -200,6 +212,8 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def deploy_version(self, request, pk=None):
         """Hot-swap the deployed strategy version on a paper allocation."""
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
         allocation = self.get_object()
         allocation = CapitalAllocation.objects.select_for_update(of=("self",)).get(pk=allocation.pk)
         version_id = request.data.get('version_id')
@@ -224,6 +238,8 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
 
         if allocation.deployed_version_id == version.pk:
             return Response(self.get_serializer(allocation).data)
+        from commercial.usage import require_inventory_capacity
+        require_inventory_capacity(request.user, paper_snapshot=version.config_snapshot, paper_allocation=allocation)
         allocation.deployed_version = version
         allocation.save(update_fields=['deployed_version', 'updated_at'])
 
@@ -231,7 +247,7 @@ class CapitalAllocationViewSet(viewsets.ModelViewSet):
         for session in allocation.paper_sessions.all():
             AutoDisableGate.version_changed(session)
             if session.status == "RUNNING":
-                PaperExecutionService._publish_execution_event("VERSION_CHANGE", session, "paper")
+                publish_session_event("paper", session, "VERSION_CHANGE")
 
         serializer = self.get_serializer(allocation)
         return Response(serializer.data)
@@ -310,11 +326,17 @@ class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({"status": "Stopped", "remaining_positions": remaining_positions})
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def resume(self, request, pk=None):
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
         session = self.get_object()
         if session.status == "RUNNING":
             return Response({"error": "Session is already RUNNING"}, status=status.HTTP_400_BAD_REQUEST)
         try:
+            from commercial.usage import require_inventory_capacity
+            require_inventory_capacity(request.user, paper_snapshot=session.allocation.deployed_version.config_snapshot,
+                                       paper_session_id=session.pk)
             PaperExecutionService.resume_session(session)
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)

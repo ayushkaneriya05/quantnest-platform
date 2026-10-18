@@ -37,8 +37,11 @@ redis
 fyers-apiv3
 python-dateutil
 
-pandas-ta
+pandas-ta==0.4.71b0
+TA-Lib
 numba 
 
 pandas_market_calendars
 httpx
+cryptography
+oci

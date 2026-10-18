@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { cn } from "@/shared/lib/utils";
 import {
   Table,
@@ -150,3 +151,12 @@ export default function OrderHistoryTable({
     </div>
   );
 }
+
+OrderHistoryTable.propTypes = {
+  ...OrderHistoryTable.propTypes,
+  loading: PropTypes.bool,
+  onPageChange: PropTypes.func,
+  orders: PropTypes.array,
+  page: PropTypes.number,
+  totalCount: PropTypes.number,
+};

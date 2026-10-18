@@ -2,9 +2,10 @@ import axios from "axios";
 import { tokenRefreshed, logout } from "../store/authSlice";
 import { store } from "../store/index";
 import { AuthChangedError, SessionEndedError, getAuthGeneration, readAccessToken, withAuthLock } from "./authSession";
+import { getApiErrorMessage } from '../utils/apiErrors';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_REACT_APP_API_URL,
+  baseURL: "/api/v1/",
   withCredentials: true,
   timeout: 30000,
   headers: { "Content-Type": "application/json" },
@@ -15,10 +16,15 @@ let hasRefreshCookie = false;
 let csrfPromise = null;
 let refreshPromise = null;
 let refreshGeneration = null;
-const authUrl = (path) => `${(api.defaults.baseURL || "").replace(/\/$/, "")}/users/auth/${path}/`;
+const authUrl = (path) => `${api.defaults.baseURL}users/auth/${path}/`;
 const isAuthAction = (url = "") => /users\/(?:auth\/(?:login\/|google\/|verify-2fa\/|registration\/|logout\/|password\/)|2fa\/backup-codes\/verify\/)/.test(url);
 const isPublicAuth = (url = "") => isAuthAction(url) && !url.includes("password/change/");
-export const isAuthFailure = (error) => error instanceof SessionEndedError || [401, 403].includes(error.response?.status);
+export const isAuthFailure = (error) => error instanceof SessionEndedError || error.response?.status === 401 ||
+  (error.response?.status === 403 && error.response.data?.code !== 'untrusted_ingress');
+export function getApiAssetUrl(path) {
+  if (!path) return undefined;
+  return new URL(path, window.location.origin).href;
+}
 
 async function loadCSRFToken(force = false) {
   if (force) csrfToken = null;
@@ -69,11 +75,8 @@ export async function ensureFreshAccessToken() {
 }
 
 export function getWebSocketUrl(path) {
-  const url = new URL(api.defaults.baseURL || "/api/v1/", window.location.origin);
+  const url = new URL(path, window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = path;
-  url.search = "";
-  url.hash = "";
   return url.toString();
 }
 
@@ -121,5 +124,17 @@ api.interceptors.response.use(
     return Promise.reject(error);
   },
 );
+
+export async function requestPublicApi(url, payload, signal) {
+  try {
+    const { data } = await api.request({
+      url, method: payload === undefined ? 'get' : 'post', data: payload,
+      publicRequest: true, timeout: 20000, signal,
+    });
+    return data?.data ?? data;
+  } catch (error) {
+    throw new Error(getApiErrorMessage(error));
+  }
+}
 
 export default api;

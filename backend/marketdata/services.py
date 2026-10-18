@@ -677,5 +677,3 @@ class ChartDataService:
             return 0
 
         return fetched_total
-
-

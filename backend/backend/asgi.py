@@ -13,14 +13,14 @@ import backtesting.routing
 import notifications.routing
 import research.routing
 from .middleware.jwt_auth import JWTAuthMiddleware
-
+from backend.middleware.ingress import TrustedWebSocketIngress
 
 
 django_asgi_app = get_asgi_application()
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
-    "websocket": OriginValidator(JWTAuthMiddleware(
+    "websocket": TrustedWebSocketIngress(OriginValidator(JWTAuthMiddleware(
         URLRouter(
             marketdata.routing.websocket_urlpatterns + 
             live_trading.routing.websocket_urlpatterns +
@@ -29,5 +29,5 @@ application = ProtocolTypeRouter({
             notifications.routing.websocket_urlpatterns +
             research.routing.websocket_urlpatterns
         )
-    ), settings.CORS_ALLOWED_ORIGINS),
+    ), settings.CORS_ALLOWED_ORIGINS)),
 })

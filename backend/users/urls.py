@@ -7,6 +7,7 @@ from .auth_views import (
     LogoutAllView, RevokeSessionView, TwoFactorVerifyView, TwoStepLoginView,
 )
 from .google_auth import GoogleCallbackView, GoogleCompleteView, GoogleStartView
+from .avatar import AvatarView
 from .views import (
     AccountPreflightView,
     AccountDeactivateView,
@@ -16,7 +17,6 @@ from .views import (
     DeleteAvatarView,
     Get2FAStatusView,
     ResendVerificationEmailView,
-    SubscriptionStatusView,
     TOTPCreateView,
     TOTPDisableView,
     TOTPVerifyView,
@@ -50,9 +50,9 @@ urlpatterns = [
     path("2fa/backup-codes/verify/", BackupCodeVerifyView.as_view(), name="backup-code-verify"),
     # Profile
     path("profile/", UserProfileView.as_view(), name="user_profile"),
+    path("avatar/", AvatarView.as_view(), name="avatar-content"),
     path("avatar/delete/", DeleteAvatarView.as_view(), name="avatar-delete"),
     # Account management
-    path("subscription/", SubscriptionStatusView.as_view(), name="subscription-status"),
     path("account/preflight/", AccountPreflightView.as_view(), name="account-preflight"),
     path("account/deactivate/", AccountDeactivateView.as_view(), name="account-deactivate"),
     path("account/", AccountDeleteView.as_view(), name="account-delete"),

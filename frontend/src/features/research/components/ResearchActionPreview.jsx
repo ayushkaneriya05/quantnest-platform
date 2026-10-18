@@ -8,10 +8,12 @@ import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { researchApi } from "@/shared/services/researchApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import WorkspaceState from "@/shared/components/WorkspaceState";
 import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
 import ResearchStrategyPreview from "@/features/research/components/ResearchStrategyPreview.jsx";
 
-export const actionLabel = { CREATE_DRAFT: "Create strategy draft", ADD_TO_WATCHLIST: "Add to terminal watchlist", START_BACKTEST: "Start one backtest" };
+import { actionLabel } from "@/features/research/researchActions";
 
 export function ResearchActionLinks({ action }) {
   return <div className="flex flex-wrap gap-3 text-sm text-indigo-700 dark:text-indigo-300">
@@ -23,6 +25,7 @@ export function ResearchActionLinks({ action }) {
 ResearchActionLinks.propTypes = { action: PropTypes.object.isRequired };
 
 export default function ResearchActionPreview({ target, schema, onClose, onComplete }) {
+  const { notify } = useNotifications();
   const [preview, setPreview] = useState(target.action || null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -30,14 +33,18 @@ export default function ResearchActionPreview({ target, schema, onClose, onCompl
     charge_profile: schema.charge_profiles.find((value) => value.is_default)?.id || "",
     ...(target.run.request.backtest_ids?.length ? { source_backtest_id: target.run.request.backtest_ids[0] } : {}), ...target.payload }));
   const run = target.run;
-  const propose = async (payload) => {
+  const propose = async (payload, automatic = false) => {
     setBusy(true); setError("");
     try { const response = await researchApi.proposeAction(run.id, target.type, payload); setPreview(response.data); await onComplete(); }
-    catch (error) { setError(getApiErrorMessage(error, "Could not validate this action")); }
+    catch (error) {
+      const message = getApiErrorMessage(error, "Could not validate this action");
+      if (automatic) setError(message);
+      else notify.error(message);
+    }
     finally { setBusy(false); }
   };
   useEffect(() => {
-    if (!target.action && target.type !== "START_BACKTEST") propose(target.payload || {});
+    if (!target.action && target.type !== "START_BACKTEST") propose(target.payload || {}, true);
     // The parent mounts a fresh preview for each target; edits never change a validated preview.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -48,8 +55,9 @@ export default function ResearchActionPreview({ target, schema, onClose, onCompl
       const response = await researchApi.confirmAction(preview.id);
       setPreview(response.data);
       await onComplete();
-      if (response.data.status === "FAILED") setError(response.data.error_message);
-    } catch (error) { setError(getApiErrorMessage(error, "Could not confirm this action")); }
+      if (response.data.status === "FAILED") notify.error(response.data.error_message || "The action could not complete.");
+      else if (response.data.status === "COMPLETED") notify.success("Your action has completed.");
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not confirm this action")); }
     finally { setBusy(false); }
   }
   const payload = preview?.payload;
@@ -65,7 +73,7 @@ export default function ResearchActionPreview({ target, schema, onClose, onCompl
       {payload?.instruments && <ul className="space-y-2 text-sm">{payload.instruments.map((item) => <li key={item.id}>{item.symbol} · {item.name}</li>)}</ul>}
       {payload?.snapshot && <div className="space-y-2 rounded-lg bg-card p-4 text-sm"><p>{payload.start_date} – {payload.end_date}</p><p>Capital {formatCurrency(payload.initial_capital)} · slippage {formatNumber(payload.slippage_pct)}%</p><p>{payload.include_charges ? `Charges: ${payload.charge_profile_name}` : "Charges excluded"}</p><p className="text-xs text-muted-foreground">Next-candle-open fills. Auto-disable rules are not simulated.</p></div>}
       {(payload?.draft || payload?.snapshot) && <ResearchStrategyPreview snapshot={payload.draft || payload.snapshot} enums={schema.enums} />}
-      {error && <p role="alert" className="rounded-lg bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">{error}</p>}
+      {error && <WorkspaceState error={error} onRetry={() => propose(target.payload || {}, true)} />}
       {preview && preview.status !== "PROPOSED" && <><p className="text-sm">{preview.status === "COMPLETED" ? "Action completed." : "Action failed. Any created resource is linked below."}</p><ResearchActionLinks action={preview} /></>}
     </div>
     <div className="flex shrink-0 justify-end gap-3"><Button variant="outline" disabled={busy} onClick={onClose}>{preview?.status === "COMPLETED" ? "Close" : "Cancel"}</Button>{!preview && target.type === "START_BACKTEST" ? <Button type="submit" form="research-backtest-settings" disabled={busy}>{busy ? "Validating…" : "Preview exact configuration"}</Button> : preview?.status === "PROPOSED" && <Button disabled={busy} onClick={confirm}>{busy ? "Executing…" : "Confirm action"}</Button>}</div>

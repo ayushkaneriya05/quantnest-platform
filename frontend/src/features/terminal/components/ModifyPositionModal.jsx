@@ -1,3 +1,5 @@
+import PropTypes from "prop-types";
+import { useStableCallback } from "@/shared/hooks/useStableCallback";
 import { useState, useEffect } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { cn } from "@/shared/lib/utils";
@@ -113,7 +115,7 @@ export default function ModifyPositionModal({
     }
   }, [position, currentMarketPrice]);
 
-  useEffect(() => {
+  const resetPositionForm = useStableCallback(() => {
     if (position) {
       setFormData({
         action: "",
@@ -125,7 +127,8 @@ export default function ModifyPositionModal({
       });
       setErrors({});
     }
-  }, [position?.id]);
+  });
+  useEffect(() => resetPositionForm(), [position?.id, resetPositionForm]);
 
   // Calculate risk/reward for the proposed position changes.
   useEffect(() => {
@@ -480,3 +483,11 @@ export default function ModifyPositionModal({
     </Dialog>
   );
 }
+
+ModifyPositionModal.propTypes = {
+  ...ModifyPositionModal.propTypes,
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
+  onPositionModified: PropTypes.func,
+  position: PropTypes.object,
+};

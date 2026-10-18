@@ -233,7 +233,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         response = super().update(request, *args, **kwargs)
         if old_avatar and old_avatar != user.avatar:
             try:
-                old_avatar.delete(save=False)
+                transaction.on_commit(lambda: old_avatar.storage.delete(old_avatar.name))
             except OSError:
                 logger.exception("Failed to delete replaced avatar")
         return response
@@ -266,53 +266,11 @@ class DeleteAvatarView(APIView):
 # ──────────────────────────────────────────────
 
 
-class SubscriptionStatusView(APIView):
-    """Returns user's subscription status. Stub: always returns Starter plan."""
-
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        return Response(
-            {
-                "plan_name": "Starter",
-                "is_pro": False,
-                "expires_at": None,
-                "usage": None,
-            }
-        )
 
 
 # ──────────────────────────────────────────────
 # Account Management
 # ──────────────────────────────────────────────
-
-def _graceful_shutdown_user(user):
-    """Stop all active trading operations for a user."""
-    from paper_trading.models import PaperOrder, PaperAccount
-    from brokers.models import BrokerCredential
-    from backtesting.models import BacktestRun
-    from live_trading.services import LiveExecutionService
-    from strategy_engine.runtime import StrategyRuntimeState
-    
-    # 1. Stop all live trading sessions (cancel pending orders, optionally close positions)
-    LiveExecutionService.stop_all_sessions(user, close_positions=False)
-    
-    # 3. Cancel all pending paper orders
-    PaperOrder.objects.filter(account__user=user,  status='PENDING').update(status='CANCELLED')
-    
-    # 4. Deactivate paper accounts
-    PaperAccount.objects.filter(user=user, is_active=True).update(is_active=False)
-    
-    # 5. Deactivate broker credentials
-    BrokerCredential.objects.filter(user=user, is_active=True).update(is_active=False)
-    
-    # 6. Stop running backtests
-    BacktestRun.objects.filter(user=user, status__in=['PENDING', 'RUNNING']).update(status='CANCELLED')
-    
-    
-    # 8. Clean up Redis runtime state
-    StrategyRuntimeState.clear_all_for_user(user.id)
-
 
 class AccountPreflightView(APIView):
     """Returns a summary of active resources that will be affected."""
@@ -321,19 +279,22 @@ class AccountPreflightView(APIView):
     def get(self, request):
         user = request.user
         from strategies.models import Strategy
-        from live_trading.models import TradingSession, LivePosition, LiveOrder
-        from paper_trading.models import PaperAccount, PaperOrder, PaperPosition
+        from live_trading.models import TradingSession
+        from paper_trading.models import PaperAccount
         from brokers.models import BrokerCredential
         from backtesting.models import BacktestRun
+        from .privacy import get_account_exposure
+        from commercial.models import Subscription
+        exposure = get_account_exposure(user)
+        automatic_renewal = Subscription.objects.filter(user=user, cancel_at_end=False).exclude(provider_id__isnull=True).exclude(provider_id='').exists()
         
         return Response({
             "active_strategies": Strategy.objects.filter(user=user, status='ACTIVE').count(),
             "running_live_sessions": TradingSession.objects.filter(user=user, status='RUNNING').count(),
-            "open_live_positions": LivePosition.objects.filter(user=user).count(),
-            "pending_live_orders": LiveOrder.objects.filter(user=user, status__in=['PENDING', 'PLACED', 'MODIFIED']).count(),
-            "active_paper_accounts": PaperAccount.objects.filter(user=user, is_active=True).count(),
-            "pending_paper_orders": PaperOrder.objects.filter(account__user=user, status='PENDING').count(),
-            "open_paper_positions": PaperPosition.objects.filter(account__user=user).count(),
+            "exposure": exposure,
+            "automatic_renewal": automatic_renewal,
+            "can_shutdown": not any(exposure.values()) and not automatic_renewal,
+            "active_paper_accounts": PaperAccount.objects.filter(user=user, sessions__status__in=['RUNNING', 'PAUSED', 'STOPPING']).distinct().count(),
             "active_broker_connections": BrokerCredential.objects.filter(user=user, is_active=True).count(),
             "running_backtests": BacktestRun.objects.filter(user=user, status__in=['PENDING', 'RUNNING']).count(),
         })
@@ -345,13 +306,8 @@ class AccountDeactivateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        user = request.user
-        _graceful_shutdown_user(user)
-        user.is_active = False
-        user.save(update_fields=["is_active"])
-
-        # Blacklist all tokens
-        revoke_sessions(user)
+        from users.privacy import shutdown_account
+        shutdown_account(request.user)
 
         response = Response(
             {"detail": "Account deactivated successfully."},
@@ -367,41 +323,11 @@ class AccountDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request):
-        user = request.user
+        from users.privacy import shutdown_account
+        shutdown_account(request.user, erase=True)
 
-        from live_trading.models import LivePosition
-        # Block deletion if user has open live positions
-        open_live = LivePosition.objects.filter(user=user).exists()
-        if open_live:
-            return Response(
-                {"error": "You have open live positions. Please close all live positions before deleting your account."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        _graceful_shutdown_user(user)
-
-        # Blacklist all tokens first
-        revoke_sessions(user)
-
-        # Soft delete user (keep data but deactivate and anonymize)
-        user.is_active = False
-        user.email = f"deleted_{user.id}@example.com"
-        user.username = f"deleted_user_{user.id}"
-        user.first_name = ""
-        user.last_name = ""
-        user.bio = ""
-        
-        # If there's an avatar, we should probably delete the file to save space and remove PII
-        if user.avatar:
-            user.avatar.delete(save=False)
-            
-        user.save(update_fields=["is_active", "email", "username", "first_name", "last_name", "bio", "avatar"])
-
-        # Also delete personal specific related objects like BackupCodes and UserSessions
-        BackupCode.objects.filter(user=user).delete()
-        
         response = Response(
-            {"detail": "Account soft deleted and anonymized."},
+            {"detail": "Account disabled and sign-in identity erased. Required payment and execution records are retained."},
             status=status.HTTP_200_OK,
         )
         # Clear the HTTP-only JWT cookies to prevent phantom session errors

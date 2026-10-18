@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { DayPicker } from "react-day-picker"
 
@@ -69,3 +70,13 @@ function Calendar({
 Calendar.displayName = "Calendar"
 
 export { Calendar }
+
+Calendar.propTypes = {
+  ...Calendar.propTypes,
+  className: PropTypes.string,
+  classNames: PropTypes.object,
+  components: PropTypes.array,
+  hideHeader: PropTypes.bool,
+  orientation: PropTypes.string,
+  showOutsideDays: PropTypes.bool,
+};

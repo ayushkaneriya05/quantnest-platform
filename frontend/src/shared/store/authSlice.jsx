@@ -17,6 +17,7 @@ export const fetchUserProfile = createAsyncThunk(
       return rejectWithValue(getApiErrorMessage(error, "Could not load your profile."));
     }
   },
+  { condition: (_, { getState }) => !getState().auth.profileLoading },
 );
 
 export const initializeAuth = createAsyncThunk(
@@ -52,6 +53,7 @@ const initialState = {
   isLoading: false, isInitializing: false, initialized: false,
   error: null, isAuthenticated: false,
   initializationRequestId: null,
+  profileLoading: false,
 };
 
 const authSlice = createSlice({
@@ -106,9 +108,11 @@ const authSlice = createSlice({
         state.error = payload;
       })
       .addCase(fetchUserProfile.fulfilled, (state, { payload }) => {
+        state.profileLoading = false;
         if (payload && state.accessToken) state.user = payload;
       })
-      .addCase(fetchUserProfile.rejected, (state, { payload }) => { state.error = payload; });
+      .addCase(fetchUserProfile.pending, state => { state.profileLoading = true; })
+      .addCase(fetchUserProfile.rejected, (state, { payload }) => { state.profileLoading = false; state.error = payload; });
   },
 });
 

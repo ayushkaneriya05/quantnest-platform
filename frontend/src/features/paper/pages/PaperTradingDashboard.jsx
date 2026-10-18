@@ -1,3 +1,5 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
+import PropTypes from "prop-types";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -49,6 +51,28 @@ import { formatCurrency } from "@/shared/utils/formatters";
 import { usePaperTradingUpdate, usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
 
 export default function PaperTradingDashboard({ selectedAccountId, setActiveTab, paperUpdatesManaged = false }) {
+  const fetchData = useStableCallback(async () => {
+    try {
+      const [
+        accountsRes,
+        positionsRes,
+        tradesRes,
+      ] = await Promise.all([
+        paperApi.getAccounts(),
+        paperApi.getPositions(),
+        paperApi.getTrades(),
+      ]);
+      setAccounts(accountsRes.data || []);
+      setPositions(positionsRes.data || []);
+      setTrades(tradesRes.data || []);
+
+    } catch (error) {
+      if (loading) notify.error(getApiErrorMessage(error, "Failed to load paper account data"));
+    } finally {
+      setLoading(false);
+    }
+  });
+
   const { notify } = useNotifications();
   const { connectionStatus } = useWebSocket();
   usePaperTradingWebSocket({ enabled: !paperUpdatesManaged });
@@ -74,27 +98,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
     include_charges: true,
   });
 
-  const fetchData = async () => {
-    try {
-      const [
-        accountsRes,
-        positionsRes,
-        tradesRes,
-      ] = await Promise.all([
-        paperApi.getAccounts(),
-        paperApi.getPositions(),
-        paperApi.getTrades(),
-      ]);
-      setAccounts(accountsRes.data || []);
-      setPositions(positionsRes.data || []);
-      setTrades(tradesRes.data || []);
 
-    } catch (error) {
-      if (loading) notify.error(getApiErrorMessage(error, "Failed to load paper account data"));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     fetchData();
@@ -104,7 +108,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
     return () => {
       window.removeEventListener('open-new-paper-account', handleOpenCreate);
     };
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
     brokersApi.getChargeProfiles()
@@ -121,7 +125,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = setTimeout(fetchData, 150);
     }
-  }, [lastMessage]);
+  }, [lastMessage, fetchData]);
 
   const selectedAccountData = useMemo(
     () => accounts.find((a) => String(a.id) === String(selectedAccountId)),
@@ -300,19 +304,19 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
   const globalStats = useMemo(() => {
     let totalBalance = 0;
     let totalPnl = 0;
-    
+
     accounts.forEach(account => {
       const accountPositions = positions.filter(p => String(p.account) === String(account.id));
       const dynamicUnrealizedPnl = accountPositions.reduce((sum, p) => sum + (livePnLByPositionId[p.id]?.pnl ?? Number(p.unrealized_pnl || 0)), 0);
-      
+
       const serverUnrealizedPnl = Number(account.unrealized_pnl || 0);
       const realizedPnl = Number(account.realized_pnl !== undefined ? account.realized_pnl : (Number(account.total_pnl || 0) - serverUnrealizedPnl));
       const accountLiveTotalPnl = realizedPnl + dynamicUnrealizedPnl;
-      
+
       totalBalance += Number(account.current_balance || 0) + dynamicUnrealizedPnl;
       totalPnl += accountLiveTotalPnl;
     });
-    
+
     return { totalBalance, totalPnl };
   }, [accounts, positions, livePnLByPositionId]);
 
@@ -409,7 +413,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-foreground text-base font-bold">{account.name}</CardTitle>
-                      <Badge 
+                      <Badge
                         className={`transition-all duration-200 ${
                             account.session_status === 'RUNNING' ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30' :
                             account.session_status === 'PAUSED' ? 'bg-amber-500/20 text-amber-800 dark:text-amber-400 border border-amber-500/30' :
@@ -522,8 +526,8 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
               </div>
               <div className="space-y-2">
                 <Label>Account Name</Label>
-                <Input 
-                  value={createForm.name} 
+                <Input
+                  value={createForm.name}
                   onChange={(e) => setCreateForm({...createForm, name: e.target.value})}
                   placeholder="e.g., My Aggressive Account"
                   className="bg-secondary border-border"
@@ -673,7 +677,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
           </CardContent>
         </Card>
 
-       
+
 
         <Card className="bg-card/50 border-border hover:border-border transition-colors">
           <CardContent className="py-4">
@@ -779,7 +783,7 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
                 </div>
               );
             })}
-            
+
             <div className="pt-4 grid grid-cols-2 gap-2">
               <Button variant="outline" size="sm" className="border-border text-foreground h-9" onClick={handleReset} disabled={busy}>
                 <RotateCcw className="h-3.5 w-3.5 mr-2" /> Reset
@@ -855,3 +859,10 @@ export default function PaperTradingDashboard({ selectedAccountId, setActiveTab,
     </div>
   );
 }
+
+PaperTradingDashboard.propTypes = {
+  ...PaperTradingDashboard.propTypes,
+  paperUpdatesManaged: PropTypes.bool,
+  selectedAccountId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  setActiveTab: PropTypes.func,
+};

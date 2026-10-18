@@ -1,27 +1,27 @@
 import { getApiErrorDetails, getApiErrorMessage } from "@/shared/utils/apiErrors";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useDispatch } from "react-redux";
 import { Button } from "@/shared/components/ui/button";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Badge } from "@/shared/components/ui/badge";
 import {
-  Key,
   ShieldCheck,
   LogOut,
-  Wifi,
-  CheckCircle,
-  AlertCircle,
+  Monitor,
+  Smartphone,
+  Tablet,
   Loader2,
   Eye,
   EyeOff,
-  Unlock,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui/dialog";
@@ -36,10 +36,11 @@ import {
   CardDescription,
   CardContent,
 } from "@/shared/components/ui/card";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import WorkspaceState from '@/shared/components/WorkspaceState';
 
 export default function SecurityTab() {
   const dispatch = useDispatch();
+  const { notify } = useNotifications();
 
   const [passwordData, setPasswordData] = useState({
     current_password: "",
@@ -48,9 +49,9 @@ export default function SecurityTab() {
   });
 
   const [showPassword, setShowPassword] = useState({
-    current_password: "",
-    new_password: "",
-    confirm_password: "",
+    current_password: false,
+    new_password: false,
+    confirm_password: false,
   });
 
   const togglePasswordVisibility = (field) => {
@@ -66,34 +67,23 @@ export default function SecurityTab() {
   const [isLoadingPassword, setIsLoadingPassword] = useState(false);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [isLoading2FA, setIsLoading2FA] = useState(false);
+  const [securityError, setSecurityError] = useState('');
+  const [statusKnown, setStatusKnown] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const passwordLock = useRef(false), twoFALock = useRef(false), sessionLock = useRef(false);
 
-  const [message, setMessage] = useState(null);
   const [passwordErrors, setPasswordErrors] = useState({});
 
-  // Load security data on component mount
-  useEffect(() => {
-    loadSecurityData();
+  const loadSecurityData = useCallback(async () => {
+    setIsLoadingSessions(true); setStatusKnown(false); setSecurityError('');
+    const [status, sessions] = await Promise.allSettled([api.get('/users/auth/2fa/status/'), api.get('/users/auth/sessions/')]);
+    if (status.status === 'fulfilled') { setIsTwoFAEnabled(status.value.data.is_2fa_enabled); setStatusKnown(true); }
+    if (sessions.status === 'fulfilled') setActiveSessions(sessions.value.data.sessions || []);
+    const errors = [status, sessions].filter(result => result.status === 'rejected');
+    if (errors.length) setSecurityError(errors.map(result => getApiErrorMessage(result.reason)).join(' '));
+    setIsLoadingSessions(false);
   }, []);
-
-  const loadSecurityData = async () => {
-    try {
-      // Load 2FA status
-      const twoFAResponse = await api.get("/users/auth/2fa/status/");
-      setIsTwoFAEnabled(twoFAResponse.data.is_2fa_enabled);
-
-      // Load active sessions
-      const sessionsResponse = await api.get("/users/auth/sessions/");
-      setActiveSessions(sessionsResponse.data.sessions || []);
-    } catch (err) {
-      console.error("Failed to load security data:", err);
-      setMessage({
-        type: "error",
-        text: getApiErrorMessage(err, "Failed to load security information"),
-      });
-    } finally {
-      setIsLoadingSessions(false);
-    }
-  };
+  useEffect(() => { loadSecurityData(); }, [loadSecurityData]);
 
   const handlePasswordInputChange = (e) => {
     const { name, value } = e.target;
@@ -113,8 +103,8 @@ export default function SecurityTab() {
 
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
+    if (passwordLock.current) return;
     setIsLoadingPassword(true);
-    setMessage(null);
     setPasswordErrors({});
 
     // Client-side validation
@@ -134,6 +124,7 @@ export default function SecurityTab() {
       return;
     }
 
+    passwordLock.current = true;
     try {
       const { data } = await api.post("/users/auth/password/change/", {
         old_password: passwordData.current_password,
@@ -142,10 +133,7 @@ export default function SecurityTab() {
       });
       dispatch(loginSuccess(data));
       await loadSecurityData();
-      setMessage({
-        type: "success",
-        text: data.message,
-      });
+      notify.success(data.message || "Your password has been changed.");
 
       // Clear form
       setPasswordData({
@@ -156,30 +144,20 @@ export default function SecurityTab() {
     } catch (err) {
       console.error("Password change error:", err);
 
-      if (err.response?.data) {
-        const serverErrors = getApiErrorDetails(err);
-        if (Object.keys(serverErrors).length) {
-          setPasswordErrors({
-            current_password: serverErrors.old_password,
-            new_password: serverErrors.new_password1,
-            confirm_password: serverErrors.new_password2,
-          });
-          setMessage({ type: "error", text: getApiErrorMessage(err, "Failed to change password") });
-        } else {
-          setMessage({ type: "error", text: getApiErrorMessage(err, "Failed to change password") });
-        }
-      } else {
-        setMessage({
-          type: "error",
-          text: getApiErrorMessage(err, "Network error. Please try again."),
-        });
-      }
+      const serverErrors = getApiErrorDetails(err);
+      setPasswordErrors({
+        current_password: serverErrors.old_password,
+        new_password: serverErrors.new_password1,
+        confirm_password: serverErrors.new_password2,
+      });
+      notify.error(getApiErrorMessage(err, "Failed to change password"));
     } finally {
+      passwordLock.current = false;
       setIsLoadingPassword(false);
     }
   };
 
-  const handleToggle2FA = async () => {
+  const handleToggle2FA = () => {
     if (isTwoFAEnabled) {
       setIsTwoFADisableModalOpen(true);
     } else {
@@ -189,8 +167,9 @@ export default function SecurityTab() {
 
   const handleDisable2FA = async (e) => {
     e.preventDefault();
+    if (twoFALock.current) return;
+    twoFALock.current = true;
     setIsLoading2FA(true);
-    setMessage(null);
     try {
       await api.post("/users/2fa/disable/", {
         password: disablePassword,
@@ -199,17 +178,12 @@ export default function SecurityTab() {
       setIsTwoFADisableModalOpen(false);
       setDisablePassword("");
       await dispatch(fetchUserProfile());
-      setMessage({
-        type: "success",
-        text: "Two-factor authentication disabled successfully",
-      });
+      notify.success("Two-factor authentication disabled successfully");
     } catch (err) {
       console.error("Failed to disable 2FA:", err);
-      setMessage({
-        type: "error",
-        text: getApiErrorMessage(err, "Failed to disable 2FA. Please check your password."),
-      });
+      notify.error(getApiErrorMessage(err, "Failed to disable 2FA. Please check your password."));
     } finally {
+      twoFALock.current = false;
       setIsLoading2FA(false);
     }
   };
@@ -218,45 +192,34 @@ export default function SecurityTab() {
     setIsTwoFAEnabled(true);
     setIsTwoFASetupModalOpen(false);
     await dispatch(fetchUserProfile());
-    setMessage({
-      type: "success",
-      text: "Two-factor authentication enabled successfully",
-    });
+    notify.success("Two-factor authentication enabled successfully");
   };
 
   const handleRevokeSession = async (sessionId) => {
+    if (sessionLock.current) return;
+    sessionLock.current = true; setSessionBusy(true);
     try {
       await api.delete(`/users/auth/sessions/${sessionId}/`);
       setActiveSessions((prev) => prev.filter((s) => s.id !== sessionId));
       
-      setMessage({
-        type: "success",
-        text: "Session revoked successfully",
-      });
+      notify.success("Session revoked successfully");
     } catch (err) {
       console.error("Failed to revoke session:", err);
-      setMessage({
-        type: "error",
-        text: getApiErrorMessage(err, "Failed to revoke session"),
-      });
-    }
+      notify.error(getApiErrorMessage(err, "Failed to revoke session"));
+    } finally { sessionLock.current = false; setSessionBusy(false); }
   };
 
   const handleLogoutEverywhere = async () => {
+    if (sessionLock.current) return;
+    sessionLock.current = true; setSessionBusy(true);
     try {
       await api.post("/users/auth/logout-all/");
       await loadSecurityData();
-      setMessage({
-        type: "success",
-        text: "Logged out from all other devices successfully.",
-      });
+      notify.success("Logged out from all other devices successfully.");
     } catch (err) {
       console.error("Failed to logout everywhere:", err);
-      setMessage({
-        type: "error",
-        text: getApiErrorMessage(err, "Failed to end other sessions."),
-      });
-    }
+      notify.error(getApiErrorMessage(err, "Failed to end other sessions."));
+    } finally { sessionLock.current = false; setSessionBusy(false); }
   };
 
   const getPasswordFieldError = (fieldName) => {
@@ -270,265 +233,184 @@ export default function SecurityTab() {
   };
 
   return (
-    <div className="w-full space-y-6 max-w-full overflow-hidden">
-      {/* Dynamic Status Message - Top-level alert */}
-      {message && (
-        <div
-          className={`px-4 py-3 rounded-2xl border ${
-            message.type === "success"
-              ? "bg-green-50 dark:bg-green-900/40 border-green-800/50 text-green-700 dark:text-green-300"
-              : "bg-red-50 dark:bg-red-900/40 border-red-800/50 text-red-700 dark:text-red-300"
-          } flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-4 duration-300 shadow-lg mb-2`}
-        >
-          {message.type === "success" ? (
-            <CheckCircle className="h-5 w-5 shrink-0" />
-          ) : (
-            <AlertCircle className="h-5 w-5 shrink-0" />
-          )}
-          <span className="font-medium">{message.text}</span>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-10">
-        {/* Password Change - Left Column */}
-        <div className="lg:col-span-12 xl:col-span-7">
-          <Card className="bg-card/50 border-border/50 h-full">
-            <CardHeader className="border-b border-border/50">
-              <div className="flex items-center gap-2">
-                <Key className="h-5 w-5 text-purple-700 dark:text-purple-400" />
-                <CardTitle className="text-lg font-semibold text-foreground">Update Password</CardTitle>
+    <div className="min-w-0 space-y-5">
+      {securityError && <WorkspaceState error={securityError} onRetry={loadSecurityData} />}
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+        <Card className="min-w-0">
+          <CardHeader className="p-5 pb-4">
+            <CardTitle className="text-lg">Change password</CardTitle>
+            <CardDescription>Update your password. Other signed-in sessions will be ended.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5 px-5 pb-5">
+            <form onSubmit={handlePasswordSubmit} className="space-y-5" aria-busy={isLoadingPassword}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[
+                  ["current_password", "Current password", "current-password"],
+                  ["new_password", "New password", "new-password"],
+                  ["confirm_password", "Confirm new password", "new-password"],
+                ].map(([field, label, autoComplete]) => {
+                  const error = getPasswordFieldError(field);
+                  return (
+                    <div key={field} className={`min-w-0 space-y-2 ${field === "current_password" ? "sm:col-span-2" : ""}`}>
+                      <Label htmlFor={field}>{label}</Label>
+                      <div className="relative">
+                        <Input
+                          id={field}
+                          name={field}
+                          type={showPassword[field] ? "text" : "password"}
+                          value={passwordData[field]}
+                          onChange={handlePasswordInputChange}
+                          autoComplete={autoComplete}
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          disabled={isLoadingPassword}
+                          aria-invalid={Boolean(error)}
+                          aria-describedby={error ? `${field}-error` : field === "new_password" ? "security-password-help" : undefined}
+                          className="pr-10"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => togglePasswordVisibility(field)}
+                          aria-label={`${showPassword[field] ? "Hide" : "Show"} ${label.toLowerCase()}`}
+                          aria-pressed={showPassword[field]}
+                          disabled={isLoadingPassword}
+                          className="focus-ring absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        >
+                          {showPassword[field]
+                            ? <EyeOff aria-hidden="true" className="h-4 w-4" />
+                            : <Eye aria-hidden="true" className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      {error && <p id={`${field}-error`} role="alert" className="text-xs text-destructive-text">{error}</p>}
+                    </div>
+                  );
+                })}
               </div>
-              <CardDescription className="text-muted-foreground">Ensure your account is using a long, random password to stay secure.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <form onSubmit={handlePasswordSubmit} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="current_password">Current Password</Label>
-                    <div className="relative group">
-                      <Input
-                        id="current_password"
-                        name="current_password"
-                        type={showPassword.current_password ? "text" : "password"}
-                        value={passwordData.current_password}
-                        onChange={handlePasswordInputChange}
-                        placeholder="••••••••"
-                        className="bg-secondary/40 border-border/50 focus:border-purple-500/50 text-foreground pr-10"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => togglePasswordVisibility("current_password")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {showPassword.current_password ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    {getPasswordFieldError("current_password") && <p className="text-red-700 dark:text-red-400 text-xs">{getPasswordFieldError("current_password")}</p>}
-                  </div>
-                  <div className="hidden md:block"></div> {/* Spacer */}
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="new_password">New Password</Label>
-                    <div className="relative group">
-                      <Input
-                        id="new_password"
-                        name="new_password"
-                        type={showPassword.new_password ? "text" : "password"}
-                        value={passwordData.new_password}
-                        onChange={handlePasswordInputChange}
-                        placeholder="••••••••"
-                        className="bg-secondary/40 border-border/50 focus:border-purple-500/50 text-foreground pr-10"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => togglePasswordVisibility("new_password")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {showPassword.new_password ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    {getPasswordFieldError("new_password") && <p className="text-red-700 dark:text-red-400 text-xs">{getPasswordFieldError("new_password")}</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirm_password">Confirm New Password</Label>
-                    <div className="relative group">
-                      <Input
-                        id="confirm_password"
-                        name="confirm_password"
-                        type={showPassword.confirm_password ? "text" : "password"}
-                        value={passwordData.confirm_password}
-                        onChange={handlePasswordInputChange}
-                        placeholder="••••••••"
-                        className="bg-secondary/40 border-border/50 focus:border-purple-500/50 text-foreground pr-10"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => togglePasswordVisibility("confirm_password")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {showPassword.confirm_password ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    {getPasswordFieldError("confirm_password") && <p className="text-red-700 dark:text-red-400 text-xs">{getPasswordFieldError("confirm_password")}</p>}
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button
-                    type="submit"
-                    disabled={isLoadingPassword}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white min-w-[160px] rounded-xl border-0 shadow-lg shadow-indigo-500/10 transition-all active:scale-95"
-                  >
-                    {isLoadingPassword ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Updating...
-                      </>
-                    ) : (
-                      "Change Password"
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* 2FA Status - Right Column */}
-        <div className="lg:col-span-12 xl:col-span-5">
-          <Card className="bg-card/50 border-border/50 h-full">
-            <CardHeader className="border-b border-border/50">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-indigo-700 dark:text-indigo-400" />
-                <CardTitle className="text-lg font-semibold text-foreground">Multi-Factor Security</CardTitle>
+              <p id="security-password-help" className="text-xs leading-5 text-muted-foreground">
+                Use at least 8 characters. Avoid common passwords, only numbers, and personal details.
+              </p>
+              <div className="flex justify-end border-t pt-4">
+                <Button type="submit" disabled={isLoadingPassword} className="w-full sm:w-auto">
+                  {isLoadingPassword && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
+                  {isLoadingPassword ? "Updating…" : "Change password"}
+                </Button>
               </div>
-              <CardDescription className="text-muted-foreground">Add an extra layer of protection to your account by requiring a code from your mobile device.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-6 h-full flex flex-col justify-between">
-              <div className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-secondary/30 border border-border/30 rounded-xl transition-all hover:bg-secondary/50">
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-lg ${isTwoFAEnabled ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-orange-500/10 text-orange-700 dark:text-orange-400'}`}>
-                      <ShieldCheck className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-foreground">Authenticator App</h4>
-                      <Badge variant="outline" className={`mt-1 py-0 px-2 text-[10px] ${isTwoFAEnabled ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20' : 'bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/20'}`}>
-                        {isTwoFAEnabled ? "Active & Protected" : "Security Recommended"}
-                      </Badge>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleToggle2FA}
-                    disabled={isLoading2FA}
-                    variant={isTwoFAEnabled ? "ghost" : "default"}
-                    className={`rounded-lg ${
-                      isTwoFAEnabled 
-                        ? "text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-900/20" 
-                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                    }`}
-                  >
-                    {isTwoFAEnabled ? "Disable" : "Enable 2FA"}
-                  </Button>
-                </div>
+            </form>
+          </CardContent>
+        </Card>
 
-                <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl">
-                  <p className="text-xs text-indigo-700 dark:text-indigo-300/80 leading-relaxed italic">
-                    Use an authenticator app to protect your account if your password is compromised.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Active Sessions - Bottom Row */}
-        <div className="lg:col-span-12">
-          <Card className="bg-card/50 border-border/50">
-            <CardHeader className="border-b border-border/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Wifi className="h-5 w-5 text-cyan-700 dark:text-cyan-400" />
-                  <CardTitle className="text-lg font-semibold text-foreground">Authorized Sessions</CardTitle>
-                </div>
-                <CardDescription className="text-muted-foreground">Active browser sessions. Tabs in the same browser profile share one session.</CardDescription>
-              </div>
-              <Button
-                onClick={handleLogoutEverywhere}
-                disabled={!activeSessions.some((session) => !session.is_current)}
+        <Card className="min-w-0">
+          <CardHeader className="p-5 pb-4">
+            <CardTitle className="text-lg">Two-factor authentication</CardTitle>
+            <CardDescription>Require a code from your authenticator app when signing in.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 px-5 pb-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <ShieldCheck aria-hidden="true" className="h-4 w-4 text-brand" />
+                Authenticator app
+              </span>
+              <Badge
                 variant="outline"
-                className="bg-red-50 dark:bg-red-950/20 border-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-800 dark:hover:text-red-300 rounded-xl"
+                className={statusKnown && isTwoFAEnabled ? "border-success/25 bg-success/5 text-success" : "text-muted-foreground"}
               >
-                <LogOut className="h-4 w-4 mr-2" /> 
-                End All Other Sessions
+                {!statusKnown ? (isLoadingSessions ? "Loading…" : "Unavailable") : isTwoFAEnabled ? "Enabled" : "Not enabled"}
+              </Badge>
+            </div>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {statusKnown && isTwoFAEnabled
+                ? "Keep the backup codes from setup somewhere safe. Each code can be used once if you lose access to your app."
+                : "Set up an authenticator app and save your backup codes to help protect access to your account."}
+            </p>
+            <div className="flex justify-end border-t pt-4">
+              <Button
+                type="button"
+                onClick={handleToggle2FA}
+                disabled={isLoading2FA || !statusKnown}
+                variant={isTwoFAEnabled ? "outline" : "default"}
+                className="w-full sm:w-auto"
+              >
+                {isTwoFAEnabled ? "Disable 2FA" : "Set up 2FA"}
               </Button>
-            </CardHeader>
-            <CardContent className="p-0">
-              {isLoadingSessions ? (
-                <GlobalLoader />
-              ) : activeSessions.length === 0 ? (
-                <div className="p-12 text-center text-muted-foreground">No active sessions to display.</div>
-              ) : (
-                <div className="overflow-x-auto scrollbar-thin-theme">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-border/50 bg-secondary/20">
-                        <th className="px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Device & IP</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Browser / OS</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Last Activity</th>
-                        <th className="px-6 py-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-right">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {activeSessions.map((session) => (
-                        <tr key={session.id} className={`hover:bg-secondary/20 transition-colors group ${session.is_current ? 'bg-indigo-500/5' : ''}`}>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className={`p-2 rounded-lg bg-secondary/50 ${session.is_current ? 'text-indigo-700 dark:text-indigo-400' : 'text-muted-foreground'}`}>
-                                <Wifi className="h-5 w-5" />
-                              </div>
-                              <div>
-                                <p className="text-foreground text-sm font-medium">{session.device || "Generic Device"}</p>
-                                <p className="text-xs text-muted-foreground font-mono italic">{session.ip_address}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col">
-                              <span className="text-foreground text-sm font-medium">{session.browser}</span>
-                              <span className="text-xs text-muted-foreground uppercase tracking-tighter">{session.os}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-muted-foreground text-xs">{formatDateTime(session.last_activity)}</span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            {session.is_current ? (
-                              <Badge className="bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 text-[10px]">Current Session</Badge>
-                            ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleRevokeSession(session.id)}
-                                className="border-red-500/30 text-red-700 dark:text-red-400 hover:bg-red-900/20 hover:text-red-800 dark:hover:text-red-300 text-xs h-8 px-3 transition-colors"
-                              >
-                                Revoke Access
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      <Card className="min-w-0">
+        <CardHeader className="gap-3 p-5 pb-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <div className="min-w-0 space-y-1.5">
+            <CardTitle className="text-lg">Authorized sessions</CardTitle>
+            <CardDescription>Active browser sessions. Tabs in the same browser profile share one session.</CardDescription>
+          </div>
+          <Button
+            type="button"
+            onClick={handleLogoutEverywhere}
+            disabled={sessionBusy || isLoadingSessions || !activeSessions.some((session) => !session.is_current)}
+            variant="outline"
+            size="sm"
+            className="min-h-10 w-full shrink-0 sm:w-auto"
+          >
+            <LogOut aria-hidden="true" className="h-4 w-4" />
+            End other sessions
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoadingSessions ? (
+            <div className="p-5"><WorkspaceState loading title="Loading browser sessions" /></div>
+          ) : activeSessions.length === 0 ? (
+            <p className="px-5 pb-5 text-sm text-muted-foreground">
+              {securityError ? "Session details could not be loaded. Retry using the message above." : "No active sessions to display."}
+            </p>
+          ) : (
+            <ul role="list" aria-label="Authorized browser sessions" className="divide-y border-t">
+              {activeSessions.map((session) => {
+                const DeviceIcon = session.device === "Mobile" ? Smartphone : session.device === "Tablet" ? Tablet : Monitor;
+                return (
+                  <li key={session.id} className="grid items-center gap-4 p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                        <DeviceIcon aria-hidden="true" className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{session.device || "Browser"}</p>
+                        <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{session.ip_address || "IP unavailable"}</p>
+                      </div>
+                    </div>
+                    <dl className="grid min-w-0 gap-3 sm:grid-cols-2">
+                      <div className="min-w-0">
+                        <dt className="text-xs text-muted-foreground">Browser / OS</dt>
+                        <dd className="mt-1 break-words text-sm">{session.browser || "Unknown"} · {session.os || "Unknown"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-muted-foreground">Last active</dt>
+                        <dd className="mt-1 text-sm">{formatDateTime(session.last_activity)}</dd>
+                      </div>
+                    </dl>
+                    <div className="flex sm:justify-end">
+                      {session.is_current ? (
+                        <Badge variant="outline" className="border-brand/25 bg-brand/5 text-brand">Current session</Badge>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRevokeSession(session.id)}
+                          disabled={sessionBusy || isLoadingSessions}
+                          className="min-h-10 w-full sm:w-auto"
+                        >
+                          End session
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <TwoFASetupModal
         isOpen={isTwoFASetupModalOpen}
@@ -536,49 +418,39 @@ export default function SecurityTab() {
         onSetupComplete={handle2FASetupComplete}
       />
 
-      <Dialog open={isTwoFADisableModalOpen} onOpenChange={setIsTwoFADisableModalOpen}>
-        <DialogContent className="sm:max-w-[425px] bg-card border border-border text-foreground rounded-2xl p-8">
+      <Dialog open={isTwoFADisableModalOpen} onOpenChange={open => { if (!isLoading2FA) { setIsTwoFADisableModalOpen(open); if (!open) setDisablePassword(""); } }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <div className="flex justify-center mb-6">
-              <div className="p-4 bg-red-500/10 rounded-full border-2 border-red-500/20">
-                <Unlock className="h-10 w-10 text-loss" />
-              </div>
-            </div>
-            <DialogTitle className="text-2xl font-bold text-center">Disable Security Layer</DialogTitle>
-            <DialogDescription className="text-muted-foreground text-center pt-2">
-              To proceed with disabling Two-Factor Authentication, please provide your account password for verification.
-            </DialogDescription>
+            <DialogTitle>Disable two-factor authentication?</DialogTitle>
+            <DialogDescription>Confirm your account password to turn off authenticator verification when signing in.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleDisable2FA} className="space-y-6 py-4">
+          <form onSubmit={handleDisable2FA} className="space-y-4" aria-busy={isLoading2FA}>
             <div className="space-y-2">
-              <Label htmlFor="disable-password">Account Password</Label>
+              <Label htmlFor="disable-password">Account password</Label>
               <Input
                 id="disable-password"
                 type="password"
                 value={disablePassword}
-                onChange={(e) => setDisablePassword(e.target.value)}
-                placeholder="Enter your password"
-                className="bg-secondary/40 border-border/50 focus:border-red-500/50 text-foreground h-12"
+                onChange={(event) => setDisablePassword(event.target.value)}
+                autoComplete="current-password"
+                disabled={isLoading2FA}
                 required
               />
             </div>
-            <div className="flex gap-3">
+            <DialogFooter>
               <Button
                 type="button"
-                variant="ghost"
-                onClick={() => setIsTwoFADisableModalOpen(false)}
-                className="flex-1 text-muted-foreground"
+                variant="outline"
+                onClick={() => { setIsTwoFADisableModalOpen(false); setDisablePassword(""); }}
+                disabled={isLoading2FA}
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={isLoading2FA}
-                className="flex-2 bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/10 border-0 h-12 px-8"
-              >
-                {isLoading2FA ? <Loader2 className="h-4 w-4 animate-spin" /> : "Disable MFA"}
+              <Button type="submit" variant="destructive" disabled={isLoading2FA}>
+                {isLoading2FA && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
+                {isLoading2FA ? "Disabling…" : "Disable 2FA"}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

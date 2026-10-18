@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
 from strategy_engine.runtime import StrategyRuntimeState
-from core.cache_view import cache_view
+from core.shared_state_store import shared_state_store
 
 class SessionContext(ABC):
     """
@@ -40,12 +40,12 @@ class SessionContext(ABC):
 
     def refresh_execution_context(self):
         """Refresh slow-changing funds and risk inputs outside signal evaluation."""
-        funds = cache_view.get_session_funds(self.scope, self.session_id)
-        risk = cache_view.get_risk_metrics(self.scope, self.session_id) or {}
+        funds = shared_state_store.get_session_funds(self.scope, self.session_id)
+        risk = shared_state_store.get_risk_metrics(self.scope, self.session_id) or {}
         from risk_management.metrics import metrics_complete
         if not metrics_complete(risk):
             StrategyRuntimeState.ensure_risk_metrics(self.scope, self.session_id)
-            risk = cache_view.get_risk_metrics(self.scope, self.session_id)
+            risk = shared_state_store.get_risk_metrics(self.scope, self.session_id)
         capital = 0.0
         if funds:
             available = next((funds[key] for key in ("available_margin", "cash_balance", "net_equity")

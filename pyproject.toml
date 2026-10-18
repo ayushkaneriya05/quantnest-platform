@@ -1,0 +1,3 @@
+[tool.uv]
+# Bound universal dependency resolution to the supported application runtimes.
+environments = ["python_version >= '3.12' and python_version < '3.14'"]

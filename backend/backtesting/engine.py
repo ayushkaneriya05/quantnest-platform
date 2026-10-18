@@ -18,7 +18,7 @@ from .execution_service import BacktestExecutionService
 from .executor import BacktestStrategyExecutor
 from trading_domain.exit_actions import process_exit_action
 from .models import BacktestMetrics, BacktestRun, BacktestTrade, EquityCurvePoint
-from .services import backtest_configuration
+from .services import backtest_configuration, publish_backtest_update
 
 logger = logging.getLogger(__name__)
 
@@ -82,46 +82,17 @@ class BacktestEngine:
         Uses time-based throttling to avoid database hammering.
         """
         import time
-        from asgiref.sync import async_to_sync
-        from channels.layers import get_channel_layer
-        from django.utils import timezone as dj_timezone
-
-        current_time = time.time()
+        current_time = time.monotonic()
         progress_pct = min(max(int(progress_pct), self.run.progress_pct), 100)
         self.run.progress_pct = progress_pct
         self.run.progress_message = message
-        # Only update database every 0.5 seconds or on significant progress changes
         message_changed = message != self._last_progress_message
-        should_update_db = (
-            (current_time - self._last_progress_update_time >= 0.5) or
-            (progress_pct % 10 == 0) or
-            (progress_pct == 100)
-            or message_changed
-        )
-
-        if should_update_db:
-            self.run.save(update_fields=["progress_pct", "progress_message"])
-            self._last_progress_update_time = current_time
-            self._last_progress_message = message
-
-        # Broadcast via WebSocket
-        try:
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                group_name = f"user_{self.user.id}_backtest"
-                message_data = {
-                    "type": "backtest.progress",
-                    "message": {
-                        "run_id": self.run.id,
-                        "status": self.run.status,
-                        "progress_pct": progress_pct,
-                        "message": message,
-                        "timestamp": dj_timezone.now().isoformat(),
-                    }
-                }
-                async_to_sync(channel_layer.group_send)(group_name, message_data)
-        except Exception as e:
-            logger.warning(f"Failed to broadcast progress update: {e}")
+        if not message_changed and progress_pct < 100 and current_time - self._last_progress_update_time < 0.5:
+            return
+        self.run.save(update_fields=["progress_pct", "progress_message"])
+        self._last_progress_update_time = current_time
+        self._last_progress_message = message
+        publish_backtest_update(self.run)
 
     def load_data(self):
         watchlist = self.watchlist_by_instrument_id
@@ -153,7 +124,7 @@ class BacktestEngine:
         for idx, instrument in enumerate(instruments_to_fetch):
             load_progress = 1 + int(idx / max(total_instruments, 1) * 13)
             self._broadcast_progress_update(load_progress, f"Loading historical candles for {instrument.sym_ticker}...")
-            
+
             calendar = MarketSessionCalendar.for_instrument(instrument)
             required_1m_candles = MarketDataService.required_1m_candles(self.config, session_minutes=calendar.session_minutes)
             start_dt = datetime.combine(self.run.start_date, datetime.min.time(), tzinfo=calendar.zone)
@@ -489,50 +460,18 @@ class BacktestEngine:
 
             return self._finalize_run()
         except BacktestCancelled:
-            from django.core.exceptions import ObjectDoesNotExist
-            from django.db.utils import DatabaseError
-            try:
-                self.run.refresh_from_db(fields=["status"])
-                self.run.completed_at = timezone.now()
-                self.run.save(update_fields=["completed_at"])
-            except (ObjectDoesNotExist, self.run.DoesNotExist, DatabaseError):
-                pass
+            self.run.refresh_from_db(fields=["status"])
+            self.run.completed_at = timezone.now()
+            self.run.save(update_fields=["completed_at"])
             return None
         except Exception as exc:
             logger.exception("Backtest failed: %s", exc)
-            from django.core.exceptions import ObjectDoesNotExist
-            from django.db.utils import DatabaseError
-            try:
-                self.run.status = BacktestStatus.FAILED
-                self.run.error_message = str(exc)
-                self.run.progress_message = f"Backtest failed: {exc}"[:255]
-                self.run.completed_at = timezone.now()
-                self.run.save(update_fields=["status", "error_message", "progress_message", "completed_at"])
-
-                # Broadcast error via WebSocket
-                try:
-                    from asgiref.sync import async_to_sync
-                    from channels.layers import get_channel_layer
-
-                    channel_layer = get_channel_layer()
-                    if channel_layer:
-                        group_name = f"user_{self.user.id}_backtest"
-                        message_data = {
-                            "type": "backtest.error",
-                            "message": {
-                                "run_id": self.run.id,
-                                "status": "FAILED",
-                                "progress_pct": self.run.progress_pct,
-                                "error": str(exc),
-                                "message": self.run.progress_message,
-                                "timestamp": timezone.now().isoformat(),
-                            }
-                        }
-                        async_to_sync(channel_layer.group_send)(group_name, message_data)
-                except Exception as e:
-                    logger.warning(f"Failed to broadcast error message: {e}")
-            except (ObjectDoesNotExist, self.run.DoesNotExist, DatabaseError):
-                pass
+            self.run.status = BacktestStatus.FAILED
+            self.run.error_message = str(exc)
+            self.run.progress_message = f"Backtest failed: {exc}"[:255]
+            self.run.completed_at = timezone.now()
+            self.run.save(update_fields=["status", "error_message", "progress_message", "completed_at"])
+            publish_backtest_update(self.run)
             return None
 
 
@@ -599,29 +538,7 @@ class BacktestEngine:
         self.run.diagnostics = dict(self.context.diagnostics)
         self.run.save(update_fields=["status", "completed_at", "progress_pct", "progress_message", "diagnostics"])
 
-        # Broadcast completion via WebSocket
-        try:
-            from asgiref.sync import async_to_sync
-            from channels.layers import get_channel_layer
-
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                group_name = f"user_{self.user.id}_backtest"
-                trades_count = BacktestTrade.objects.filter(run=self.run).count()
-                message_data = {
-                    "type": "backtest.completed",
-                    "message": {
-                        "run_id": self.run.id,
-                        "status": "COMPLETED",
-                        "progress_pct": 100,
-                        "trades_count": trades_count,
-                        "message": self.run.progress_message,
-                        "timestamp": timezone.now().isoformat(),
-                    }
-                }
-                async_to_sync(channel_layer.group_send)(group_name, message_data)
-        except Exception as e:
-            logger.warning(f"Failed to broadcast completion message: {e}")
+        publish_backtest_update(self.run, trades_count=len(self.trades_to_create))
 
     def _calculate_metrics(self):
         metrics, _ = BacktestMetrics.objects.get_or_create(run=self.run)

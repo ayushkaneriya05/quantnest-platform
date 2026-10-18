@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { cn } from "@/shared/lib/utils";
 import {
   Table,
@@ -150,3 +151,12 @@ export default function PnLReportTable({
     </div>
   );
 }
+
+PnLReportTable.propTypes = {
+  ...PnLReportTable.propTypes,
+  loading: PropTypes.bool,
+  logs: PropTypes.array,
+  onPageChange: PropTypes.func,
+  page: PropTypes.number,
+  totalCount: PropTypes.number,
+};

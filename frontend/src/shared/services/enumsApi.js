@@ -11,7 +11,7 @@ export const enumsApi = {
    * Returns { EnumName: [{value, label}, ...], ... }
    */
   getAll: async () => {
-    const response = await api.get(`${COMMON_URL}enums/`);
+    const response = await api.get(`${COMMON_URL}enums/`, { publicRequest: true });
     return response.data;
   },
 };

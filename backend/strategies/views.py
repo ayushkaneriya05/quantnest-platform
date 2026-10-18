@@ -85,6 +85,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
     def clone(self, request, pk=None):
         """Clone an existing strategy."""
         original = self.get_object()
+        from commercial.usage import require_inventory_capacity
+        require_inventory_capacity(request.user, strategies=1)
 
         # Create new strategy with copied data
         new_strategy = Strategy.objects.create(
@@ -193,7 +195,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
 
         serializer = StrategyDetailSerializer(new_strategy, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-    
+
     @action(detail=True, methods=['post'])
     @transaction.atomic
     def activate(self, request, pk=None):
@@ -214,6 +216,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='deploy-paper')
     @transaction.atomic
     def deploy_paper(self, request, pk=None):
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
         strategy = self.get_object()
         allocation_id = request.data.get('allocation_id')
         allocation_amount = request.data.get('allocation_amount')
@@ -271,8 +275,12 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'allocation_id or allocation_amount is required'}, status=status.HTTP_400_BAD_REQUEST)
 
             account = PortfolioService.ensure_paper_account_for_allocation(allocation)
-            
 
+
+            from commercial.usage import require_inventory_capacity
+            existing_session = account.sessions.filter(strategy=strategy).first()
+            require_inventory_capacity(request.user, paper_snapshot=allocation.deployed_version.config_snapshot,
+                                       paper_session_id=existing_session.pk if existing_session else None)
             session = PaperExecutionService.deploy_session(
                 user=request.user,
                 strategy=strategy,
@@ -282,7 +290,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 charge_profile_id=request.data.get('charge_profile'),
                 include_charges=request.data.get('include_charges', True),
             )
-            
+
             from paper_trading.serializers import PaperAccountSerializer
             return Response(
                 {
@@ -355,7 +363,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Selected broker account is not available'}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @action(detail=True, methods=['post'])
     @transaction.atomic
     def pause(self, request, pk=None):

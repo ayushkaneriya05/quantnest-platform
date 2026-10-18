@@ -1,11 +1,13 @@
 from decimal import Decimal
 from rest_framework import serializers
+from common.costs import get_charges_breakdown
 from .models import (
     PaperAccount, PaperPosition, PaperOrder, PaperTrade,
     Portfolio, CapitalAllocation, FundTransaction,
     DailyPerformance, PaperTradingSession
 )
 from strategies.models import StrategyVersion
+from strategies.serializers import StrategyVersionListSerializer
 
 
 class PortfolioSerializer(serializers.ModelSerializer):
@@ -78,10 +80,9 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
     deployed_version = serializers.PrimaryKeyRelatedField(
         queryset=StrategyVersion.objects.all(),
         required=False,
-        allow_null=True,
         help_text='Pinned strategy version ID'
     )
-    deployed_version_detail = serializers.SerializerMethodField()
+    deployed_version_detail = StrategyVersionListSerializer(source='deployed_version', read_only=True)
     
     class Meta:
         model = CapitalAllocation
@@ -103,16 +104,6 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
     def get_today_pnl(self, obj):
         return obj.today_pnl
 
-    def get_deployed_version_detail(self, obj):
-        if obj.deployed_version:
-            return {
-                'id': obj.deployed_version.id,
-                'version_number': obj.deployed_version.version_number,
-                'change_notes': obj.deployed_version.change_notes,
-                'created_at': obj.deployed_version.created_at.isoformat(),
-            }
-        return None
-
     def _get_effective_amount(self, alloc, portfolio_equity):
         if alloc.allocation_type == 'PERCENTAGE':
             return (Decimal(str(alloc.allocated_percentage or 0)) / 100) * portfolio_equity
@@ -128,9 +119,16 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
         if not portfolio:
             raise serializers.ValidationError("Portfolio is required")
 
-        strategy = attrs.get('strategy')
+        strategy = attrs.get('strategy') or (self.instance.strategy if self.instance else None)
         if not strategy:
             raise serializers.ValidationError("Strategy is required")
+
+        request = self.context.get('request')
+        if request and (portfolio.user_id != request.user.pk or strategy.user_id != request.user.pk):
+            raise serializers.ValidationError("Select your own portfolio and strategy.")
+        version = attrs.get('deployed_version')
+        if version and version.strategy_id != strategy.pk:
+            raise serializers.ValidationError({"deployed_version": "Select a version of this strategy."})
 
         portfolio_equity = portfolio.total_value
         if portfolio_equity <= 0:
@@ -139,13 +137,13 @@ class CapitalAllocationSerializer(serializers.ModelSerializer):
         alloc_type = attrs.get('allocation_type', getattr(self.instance, 'allocation_type', 'FIXED'))
 
         if alloc_type == 'PERCENTAGE':
-            pct = Decimal(str(attrs.get('allocated_percentage') or 0))
+            pct = Decimal(str(attrs.get('allocated_percentage', getattr(self.instance, 'allocated_percentage', 0)) or 0))
             if pct <= 0 or pct > 100:
                 raise serializers.ValidationError("Percentage must be between 1 and 100")
             attrs['allocated_amount'] = 0
             this_amount = (pct / 100) * portfolio_equity
         else:
-            amt = Decimal(str(attrs.get('allocated_amount') or 0))
+            amt = Decimal(str(attrs.get('allocated_amount', getattr(self.instance, 'allocated_amount', 0)) or 0))
             if amt <= 0:
                 raise serializers.ValidationError("Amount must be greater than 0")
             attrs['allocated_percentage'] = 0
@@ -385,23 +383,4 @@ class PaperTradeSerializer(serializers.ModelSerializer):
         ]
 
     def get_charges_breakdown(self, obj):
-        totals = {
-            'brokerage': 0.0,
-            'stt': 0.0,
-            'exchange_txn': 0.0,
-            'sebi': 0.0,
-            'stamp_duty': 0.0,
-            'gst': 0.0,
-            'total': 0.0,
-        }
-        charges = obj.charges_json or {}
-        totals['total'] = float(charges.get('total_charges', 0) or 0)
-        for leg_name in ('entry_charges', 'exit_charges'):
-            leg = charges.get(leg_name) or {}
-            totals['brokerage'] += float(leg.get('brokerage', 0) or 0)
-            totals['stt'] += float(leg.get('stt', 0) or 0)
-            totals['exchange_txn'] += float(leg.get('exchange_charges', leg.get('exchange', 0)) or 0)
-            totals['sebi'] += float(leg.get('sebi_fee', leg.get('sebi', 0)) or 0)
-            totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
-            totals['gst'] += float(leg.get('gst', 0) or 0)
-        return {key: round(value, 2) for key, value in totals.items()}
+        return get_charges_breakdown([obj.charges_json])

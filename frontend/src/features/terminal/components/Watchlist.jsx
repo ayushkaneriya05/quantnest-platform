@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import React, { useEffect, useMemo } from "react";
 import { Trash2, RefreshCw, Star } from "lucide-react";
 import { GlobalLoader } from "@/shared/components/ui/global-loader";
@@ -173,3 +174,15 @@ function Watchlist({
 }
 
 export default React.memo(Watchlist);
+
+Watchlist.propTypes = {
+  ...Watchlist.propTypes,
+  activeSymbol: PropTypes.string,
+  className: PropTypes.string,
+  items: PropTypes.array,
+  loading: PropTypes.bool,
+  onAddToWatchlist: PropTypes.func,
+  onRefresh: PropTypes.func,
+  onRemoveFromWatchlist: PropTypes.func,
+  onSymbolSelect: PropTypes.func,
+};

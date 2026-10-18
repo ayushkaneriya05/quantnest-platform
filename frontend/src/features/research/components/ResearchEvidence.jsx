@@ -1,3 +1,4 @@
+import { describeRule } from "@/features/research/researchDescriptions";
 import { chartTooltipProps } from "@/shared/lib/chartTheme";
 import { useState } from "react";
 import PropTypes from "prop-types";
@@ -6,7 +7,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
-import ResearchStrategyPreview, { describeRule, ConfigFields } from "@/features/research/components/ResearchStrategyPreview.jsx";
+import ResearchStrategyPreview, { ConfigFields } from "@/features/research/components/ResearchStrategyPreview.jsx";
 
 const number = (value) => value == null ? "N/A" : formatNumber(value);
 const pct = (value) => value == null ? "N/A" : `${formatNumber(value)}%`;
@@ -75,7 +76,7 @@ export default function ResearchEvidence({ evidence, enums = {}, detailed = fals
   } else if (evidence.tool === "validate_strategy_draft" || evidence.tool === "get_strategy_snapshot") {
     content = detailed ? <ResearchStrategyPreview snapshot={data.draft || data} enums={enums} /> : <><h4 className="font-medium">{(data.draft || data).name}</h4><p className="text-sm text-muted-foreground">{(data.draft || data).rule_groups?.length || 0} rule groups · {(data.draft || data).time_rule?.candle_timeframe} · {evidence.tool === "validate_strategy_draft" ? "Validated draft" : "Saved configuration"}</p>{onDetails && <Button size="sm" variant="outline" onClick={() => onDetails(evidence)}>Review rules and settings</Button>}</>;
   } else if (evidence.tool === "resolve_instruments") {
-    content = <><p className="text-sm">{data.ambiguous ? "Choose a stock before continuing." : data.instruments.length ? "Resolved stock" : "No active NSE stock matched."}</p>{data.instruments.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-sm text-muted-foreground"><p>{item.symbol} · {item.name}</p>{onChoose && <Button size="sm" variant="outline" onClick={() => onChoose(item)}>Use {item.symbol}</Button>}</div>)}</>;
+    content = <><p className="text-sm">{data.selection_required ? "Select a stock for your next research request." : data.ambiguous ? "Choose a stock before continuing." : data.instruments.length ? "Resolved stock" : "No active NSE stock matched."}</p>{data.instruments.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-sm text-muted-foreground"><p>{item.symbol} · {item.name}</p>{onChoose && <Button size="sm" variant="outline" onClick={() => onChoose(item)}>Use {item.symbol}</Button>}</div>)}</>;
   }
   return <div className="space-y-3 rounded-xl border border-border bg-background/40 p-4">
     <p className="text-xs text-indigo-700 dark:text-indigo-300">{evidence.evidence_id} · {evidence.tool.replaceAll("_", " ")} · observed {formatDateTime(evidence.source_as_of || data.as_of)}{evidence.source_run_id ? ` · source turn #${evidence.source_run_id}` : ""}</p>

@@ -145,7 +145,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        Account.objects.select_for_update().get(pk=instance.account_id)
+        account = Account.objects.select_for_update().get(pk=instance.account_id)
         instance = Order.objects.select_for_update().get(pk=instance.pk)
         if instance.status != "OPEN":
             raise serializers.ValidationError({"detail": "Only open orders can be modified."})
@@ -156,7 +156,7 @@ class OrderSerializer(serializers.ModelSerializer):
             fill_price = TradingOrderService.get_market_fill_price(instance.instrument)
 
         order = super().update(instance, validated_data)
-        TradingOrderService.reserve_order(order, fill_price)
+        TradingOrderService.reserve_order(order, account, fill_price)
         from .services import TerminalOrderCache
         TerminalOrderCache.update_order(order)
         if order.order_type == "MARKET":

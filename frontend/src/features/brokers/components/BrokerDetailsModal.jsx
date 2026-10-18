@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { Wallet, Mail, User, Hash } from "lucide-react";
 import {
   Dialog,
@@ -108,3 +109,12 @@ export function BrokerDetailsModal({ isOpen, onClose, provider, profile, funds }
     </Dialog>
   );
 }
+
+BrokerDetailsModal.propTypes = {
+  ...BrokerDetailsModal.propTypes,
+  funds: PropTypes.array,
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
+  profile: PropTypes.object,
+  provider: PropTypes.object,
+};

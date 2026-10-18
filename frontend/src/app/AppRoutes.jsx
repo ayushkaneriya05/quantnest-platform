@@ -36,8 +36,8 @@ const AIResearchAssistant = lazy(() => import("@/features/research/pages/AIResea
 const MarketScreener = lazy(() => import("@/features/research/pages/MarketScreener"));
 const ProfileSettings = lazy(() => import("@/features/settings/pages/ProfileSettings"));
 const NotificationCenter = lazy(() => import("@/features/notifications/pages/NotificationCenter"));
-const PrivacyPolicy = lazy(() => import("@/pages/PrivacyPolicy"));
-const TermsOfService = lazy(() => import("@/pages/TermsOfService"));
+const SiteLayout = lazy(() => import("@/features/site/SiteLayout"));
+const CustomerPages = lazy(() => import("@/features/site/CustomerPages"));
 const StrategyList = lazy(() => import("@/features/strategies/pages/StrategyList"));
 const StrategyWizard = lazy(() => import("@/features/strategies/pages/StrategyWizard"));
 const EntryRulesBuilder = lazy(() => import("@/features/strategies/pages/EntryRulesBuilder"));
@@ -49,6 +49,8 @@ const StrategyAutoDisableConfig = lazy(() => import("@/features/strategies/pages
 const VersionHistory = lazy(() => import("@/features/strategies/pages/VersionHistory"));
 const StrategyPermissions = lazy(() => import("@/features/strategies/pages/StrategyPermissions"));
 const TradingTerminal = lazy(() => import("@/features/terminal/pages/TradingTerminal"));
+const BillingUsage = lazy(() => import("@/features/billing/pages/BillingUsage"));
+const SupportPage = lazy(() => import("@/features/support/pages/SupportPage"));
 
 export default function AppRoutes() {
   return <Suspense fallback={<RouteLoading />}>
@@ -60,12 +62,36 @@ export default function AppRoutes() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/password-reset" element={<PasswordResetRequestPage />} />
           <Route path="/password-reset/confirm/:uid/:token" element={<PasswordResetConfirmPage />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="/terms-of-service" element={<TermsOfService />} />
+      <Route element={<SiteLayout />}>
+        <Route path="/product" element={<CustomerPages />} />
+        <Route path="/features" element={<CustomerPages />} />
+        <Route path="/features/:slug" element={<CustomerPages />} />
+        <Route path="/pricing" element={<CustomerPages />} />
+        <Route path="/private" element={<CustomerPages />} />
+        <Route path="/custom-development" element={<CustomerPages />} />
+        <Route path="/docs" element={<CustomerPages />} />
+        <Route path="/docs/:document" element={<CustomerPages />} />
+        <Route path="/about" element={<CustomerPages />} />
+        <Route path="/contact" element={<CustomerPages />} />
+        <Route path="/feedback" element={<CustomerPages />} />
+        <Route path="/faq" element={<CustomerPages />} />
+        <Route path="/changelog" element={<CustomerPages />} />
+        <Route path="/status" element={<CustomerPages />} />
+        <Route path="/trust" element={<CustomerPages />} />
+        <Route path="/privacy-policy" element={<CustomerPages />} />
+        <Route path="/terms-of-service" element={<CustomerPages />} />
+        <Route path="/refunds" element={<CustomerPages />} />
+        <Route path="/methodology" element={<CustomerPages />} />
+        <Route path="/security" element={<CustomerPages />} />
+        <Route path="/newsletter" element={<CustomerPages />} />
+        <Route path="/newsletter/confirmed" element={<CustomerPages />} />
+      </Route>
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/settings/profile" element={<ProfileSettings />} />
+          <Route path="/settings/billing" element={<BillingUsage />} />
+          <Route path="/support" element={<SupportPage />} />
           <Route path="/notifications" element={<NotificationCenter />} />
           <Route path="/backtests" element={<BacktestList />} />
           <Route path="/backtests/setup" element={<BacktestSetup />} />

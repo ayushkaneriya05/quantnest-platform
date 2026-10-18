@@ -1,7 +1,8 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 /**
  * Time Rules Editor - trading hours and session configuration
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { TimePicker } from "@/shared/components/ui/time-picker";
@@ -23,53 +24,7 @@ import { usePageActions } from '@/shared/context/pageActions'; // Added import
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function TimeRulesEditor() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const { notify } = useNotifications();
-  const { enums } = useEnums();
-  const DAYS = (enums.TradingDay || []).map(({ value }) => value);
-  const dayChoiceCount = DAYS.length;
-  const DAY_SHORT = Object.fromEntries((enums.TradingDay || []).map(({ value, label }) => [value, label.slice(0, 3)]));
-  const timeDefaults = enums.StrategyBuilderDefaults?.time_rule || {};
-  const { setPageHeader } = usePageActions(); // Use context
-  
-  const [strategy, setStrategy] = useState(null);
-  const [timeRule, setTimeRule] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [eventFilter, setEventFilter] = useState(null);
-  
-  const [formData, setFormData] = useState({
-    trading_days: timeDefaults.trading_days || [],
-    market_session: timeDefaults.market_session || 'ALL',
-    start_time: timeDefaults.start_time || '',
-    end_time: timeDefaults.end_time || '',
-    candle_timeframe: timeDefaults.candle_timeframe || '5m',
-    timezone: timeDefaults.timezone || 'Asia/Kolkata',
-    avoid_earnings: false,
-    avoid_news: false,
-    avoid_rbi_policy: false,
-    custom_avoid_dates: '',
-    no_trade_windows: [],
-  });
-
-  useEffect(() => {
-    if (id) fetchData();
-  }, [id]);
-
-  useEffect(() => {
-    if (!loading && timeRule && dayChoiceCount && !timeRule.trading_days?.length) {
-      setFormData((prev) => ({ ...prev, trading_days: DAYS }));
-    }
-  }, [dayChoiceCount, loading, timeRule]);
-
-  // Set Navigation in Header
-  useEffect(() => {
-    setPageHeader(<StrategyConfigNav strategy={strategy} />);
-    return () => setPageHeader(null);
-  }, [strategy, setPageHeader]);
-
-  const fetchData = async () => {
+  const fetchData = useStableCallback(async () => {
     try {
       setLoading(true);
       const [strategyData, rules, events] = await Promise.all([
@@ -78,7 +33,7 @@ export default function TimeRulesEditor() {
         specialEventApi.getByStrategy(id).catch(() => []),
       ]);
       setStrategy(strategyData);
-      
+
       if (rules.length > 0) {
         const rule = rules[0];
         setTimeRule(rule);
@@ -112,7 +67,55 @@ export default function TimeRulesEditor() {
     } finally {
       setLoading(false);
     }
-  };
+  });
+
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { notify } = useNotifications();
+  const { enums } = useEnums();
+  const DAYS = useMemo(() => (enums.TradingDay || []).map(({ value }) => value), [enums.TradingDay]);
+  const dayChoiceCount = DAYS.length;
+  const DAY_SHORT = Object.fromEntries((enums.TradingDay || []).map(({ value, label }) => [value, label.slice(0, 3)]));
+  const timeDefaults = enums.StrategyBuilderDefaults?.time_rule || {};
+  const { setPageHeader } = usePageActions(); // Use context
+
+  const [strategy, setStrategy] = useState(null);
+  const [timeRule, setTimeRule] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [eventFilter, setEventFilter] = useState(null);
+
+  const [formData, setFormData] = useState({
+    trading_days: timeDefaults.trading_days || [],
+    market_session: timeDefaults.market_session || 'ALL',
+    start_time: timeDefaults.start_time || '',
+    end_time: timeDefaults.end_time || '',
+    candle_timeframe: timeDefaults.candle_timeframe || '5m',
+    timezone: timeDefaults.timezone || 'Asia/Kolkata',
+    avoid_earnings: false,
+    avoid_news: false,
+    avoid_rbi_policy: false,
+    custom_avoid_dates: '',
+    no_trade_windows: [],
+  });
+
+  useEffect(() => {
+    if (id) fetchData();
+  }, [id, fetchData]);
+
+  useEffect(() => {
+    if (!loading && timeRule && dayChoiceCount && !timeRule.trading_days?.length) {
+      setFormData((prev) => ({ ...prev, trading_days: DAYS }));
+    }
+  }, [DAYS, dayChoiceCount, loading, timeRule]);
+
+  // Set Navigation in Header
+  useEffect(() => {
+    setPageHeader(<StrategyConfigNav strategy={strategy} />);
+    return () => setPageHeader(null);
+  }, [strategy, setPageHeader]);
+
+
 
   const handleDayToggle = (day) => {
     const days = formData.trading_days.includes(day)
@@ -170,7 +173,7 @@ export default function TimeRulesEditor() {
       const [eh, em] = formData.end_time.split(':').map(Number);
       let mins = (eh * 60 + em) - (sh * 60 + sm);
       if (mins <= 0) return null;
-      
+
       // Subtract exclusion zones
       formData.no_trade_windows.forEach(w => {
         if (!w.start || !w.end) return;
@@ -179,27 +182,27 @@ export default function TimeRulesEditor() {
         const exclMins = (weh * 60 + wem) - (wsh * 60 + wsm);
         if (exclMins > 0) mins -= exclMins;
       });
-      
+
       if (mins <= 0) return '0h';
       const hours = Math.floor(mins / 60);
       const remainMins = mins % 60;
       return `${hours}h ${remainMins > 0 ? `${remainMins}m` : ''}`.trim();
     } catch { return null; }
   };
-  
+
   const handleAddWindow = () => {
     setFormData({
       ...formData,
       no_trade_windows: [...formData.no_trade_windows, { start: '', end: '' }]
     });
   };
-  
+
   const handleUpdateWindow = (index, field, value) => {
     const windows = [...formData.no_trade_windows];
     windows[index] = { ...windows[index], [field]: value };
     setFormData({ ...formData, no_trade_windows: windows });
   };
-  
+
   const handleRemoveWindow = (index) => {
     const windows = [...formData.no_trade_windows];
     windows.splice(index, 1);
@@ -238,8 +241,8 @@ export default function TimeRulesEditor() {
                   key={day}
                   onClick={() => handleDayToggle(day)}
                   className={`flex-1 py-3 rounded-lg text-sm font-medium transition-all duration-200 border ${
-                    isActive 
-                      ? 'bg-amber-500/15 text-amber-800 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20' 
+                    isActive
+                      ? 'bg-amber-500/15 text-amber-800 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
                       : 'bg-secondary/30 text-muted-foreground border-border/50 hover:text-muted-foreground hover:border-border'
                   }`}
                 >
@@ -289,8 +292,8 @@ export default function TimeRulesEditor() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Session</Label>
-              <Select 
-                value={formData.market_session} 
+              <Select
+                value={formData.market_session}
                 onValueChange={(v) => setFormData({
                   ...formData,
                   market_session: v,
@@ -310,8 +313,8 @@ export default function TimeRulesEditor() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Candle Timeframe</Label>
-              <Select 
-                value={formData.candle_timeframe} 
+              <Select
+                value={formData.candle_timeframe}
                 onValueChange={(v) => setFormData({ ...formData, candle_timeframe: v })}
               >
                 <SelectTrigger className="bg-secondary/60 border-border h-9 text-sm">
@@ -325,14 +328,14 @@ export default function TimeRulesEditor() {
               </Select>
             </div>
           </div>
-          
+
           {/* timezone row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Timezone</Label>
-              <Select 
-                value={formData.timezone} 
+              <Select
+                value={formData.timezone}
                 onValueChange={(v) => setFormData({ ...formData, timezone: v })}
               >
                 <SelectTrigger className="bg-secondary/60 border-border h-9 text-sm">
@@ -360,11 +363,11 @@ export default function TimeRulesEditor() {
                 const endPercent = ((eh * 60 + em) / 1440 * 100);
                 const left = Math.max(0, Math.min(100, startPercent));
                 const width = Math.max(0, Math.min(100 - left, endPercent - startPercent));
-                
+
                 return (
                   <>
                     {/* Active Window */}
-                    <div 
+                    <div
                       className="absolute top-0 bottom-0 bg-amber-500/30 rounded-full"
                       style={{ left: `${left}%`, width: `${width}%` }}
                     />
@@ -374,14 +377,14 @@ export default function TimeRulesEditor() {
                       const [wsh, wsm] = w.start.split(':').map(Number);
                       const [weh, wem] = w.end.split(':').map(Number);
                       if (isNaN(wsh) || isNaN(weh)) return null;
-                      
+
                       const wStartPercent = ((wsh * 60 + wsm) / 1440 * 100);
                       const wEndPercent = ((weh * 60 + wem) / 1440 * 100);
                       const wLeft = Math.max(0, Math.min(100, wStartPercent));
                       const wWidth = Math.max(0, Math.min(100 - wLeft, wEndPercent - wStartPercent));
-                      
+
                       return (
-                        <div 
+                        <div
                           key={idx}
                           className="absolute top-0 bottom-0 bg-red-500/80 rounded-full border-x border-border z-10"
                           style={{ left: `${wLeft}%`, width: `${wWidth}%` }}
@@ -400,7 +403,7 @@ export default function TimeRulesEditor() {
               <span className="text-[10px] text-muted-foreground">23:59</span>
             </div>
           </div>}
-          
+
           {/* No Trade Windows Builder */}
           <div className="pt-4 border-t border-border/80">
             <div className="flex items-center justify-between mb-3">
@@ -426,9 +429,9 @@ export default function TimeRulesEditor() {
                       onChange={(e) => handleUpdateWindow(index, 'end', e.target.value)}
                       className="bg-secondary/60 border-border text-foreground h-8 font-mono text-xs w-28"
                     />
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-red-800 dark:hover:text-red-400 hover:bg-red-500/10"
                       onClick={() => handleRemoveWindow(index)}
                     >
@@ -463,16 +466,16 @@ export default function TimeRulesEditor() {
                 <p className="text-sm text-foreground font-medium">{event.label}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{event.desc}</p>
               </div>
-              <Switch 
+              <Switch
                 checked={formData[event.key]}
                 onCheckedChange={(v) => setFormData({ ...formData, [event.key]: v })}
               />
             </div>
           ))}
-          
+
           <div className="pt-3 px-3">
             <Label className="text-xs text-muted-foreground mb-1.5 block">Custom Avoid Dates</Label>
-            <Input 
+            <Input
               value={formData.custom_avoid_dates}
               onChange={(e) => setFormData({ ...formData, custom_avoid_dates: e.target.value })}
               placeholder="e.g. 2024-01-26, 2024-08-15"

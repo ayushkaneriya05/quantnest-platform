@@ -213,6 +213,7 @@ export function usePaperTradingTerminal(initialSymbol = null) {
       terminalMetrics,
       selectedSymbol,
       watchlistWidth,
+      selectedInstrumentId,
       isOrderModalOpen,
       transactionType,
       openOrderModal,

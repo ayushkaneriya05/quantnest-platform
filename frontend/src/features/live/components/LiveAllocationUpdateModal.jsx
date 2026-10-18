@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useState, useEffect, useMemo } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
@@ -151,3 +152,11 @@ export default function LiveAllocationUpdateModal({
     </Dialog>
   );
 }
+
+LiveAllocationUpdateModal.propTypes = {
+  ...LiveAllocationUpdateModal.propTypes,
+  onOpenChange: PropTypes.func,
+  onSuccess: PropTypes.func,
+  open: PropTypes.bool,
+  session: PropTypes.object,
+};

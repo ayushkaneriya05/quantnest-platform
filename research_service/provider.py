@@ -29,8 +29,15 @@ only to the ID of a successful validate_strategy_draft result. Recorded evidence
 valid evidence for this run; describe its original as_of and do not present it as a newer observation.
 Provide useful next steps and limitations. Use clear plain text with evidence references; tables are displayed separately."""
 SYSTEM_INSTRUCTION += """
+QuantNest supplies software for CUSTOMER-DEFINED logic. Explain indicators and recorded results;
+do not supply autonomous securities recommendations, portfolio suitability advice, price targets,
+profit promises or independently invented deployable strategies. Preserve the customer's chosen
+conditions. Ask for absent entry/exit, timeframe, sizing and risk choices. Technical schema defaults
+may be disclosed; they are not a licence to invent the trading hypothesis.
 General explanations need no instruments or tools. Resolve named stocks with resolve_instruments; if ambiguous, ask the
-user to choose and do not guess. Use analyze_stock for bounded charts and configured indicators, compare_backtests for
+user to choose and do not guess. Analysis and drafts may use only the instruments frozen in selected_context for this
+run. If a resolved stock was not selected, ask the user to select it and send a new request; resolution does not expand
+the current run's admitted universe. Use analyze_stock for bounded charts and configured indicators, compare_backtests for
 multiple attached experiments. Treat timeframe in selected_context as the default; use another only when asked.
 Previous answers' citations belong to their source run. Retrieve older evidence using get_conversation_evidence before
 citing it with its new evidence ID; preserve its original observation time. The latest validated draft is supplied in
@@ -67,19 +74,19 @@ def tool_definitions(schema):
         "logical_operator": {"type": "string", "enum": ["AND", "OR"]},
         "conditions": {"type": "array", "items": rule, "minItems": 1, "maxItems": 12}},
         "required": ["timeframe", "conditions"]}
-    screen["properties"]["instrument_ids"] = {"type": "array", "items": {"type": "integer"}, "maxItems": 50}
+    screen["properties"]["instrument_ids"] = {"type": "array", "items": {"type": "integer"}}
     definitions = [
         ("screen_instruments", "Evaluate entry rules on the latest completed candles for the selected universe; returns matches and exclusions.", screen),
         ("compare_instruments", "Return all evaluated instruments with rule values, 20-bar return and 20-bar volatility. To compare without filtering use CLOSE > CONSTANT 0.", screen),
         ("get_strategy_snapshot", "Read the strategy configuration frozen at request creation. No other strategy IDs are accepted.", {"type": "object", "properties": {}}),
         ("get_execution_review", "Read the attached owned execution report or selected close, with its original time, P&L basis and optional user assessments.", {"type": "object", "properties": {}}),
         ("get_backtest_report", "Read actual metrics, diagnostics, costs and saved snapshot for an attached completed backtest.", {"type": "object", "properties": {"backtest_id": {"type": "integer"}}}),
-        ("compare_backtests", "Compare the two or three attached completed backtests and their saved configurations.", {"type": "object", "properties": {}}),
-        ("resolve_instruments", "Find an active NSE stock by symbol or name. Ask for selection when ambiguous.",
+        ("compare_backtests", "Compare the attached completed backtests and their saved configurations. At least two are required.", {"type": "object", "properties": {}}),
+        ("resolve_instruments", "Find an active NSE stock by symbol or name. Ask the user to select new stocks for a new request; the current analysis universe is fixed.",
          {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}),
         ("get_conversation_evidence", "Retrieve an earlier artifact in this conversation and preserve its observation time.",
          {"type": "object", "properties": {"run_id": {"type": "integer"}, "evidence_id": {"type": "string"}}, "required": ["run_id", "evidence_id"]}),
-        ("analyze_stock", "Analyze up to five attached or uniquely resolved stocks with configured indicators and bounded charts.",
+        ("analyze_stock", "Analyze up to five stocks selected in this run's frozen context with configured indicators and bounded charts.",
          {"type": "object", "properties": {"instrument_ids": {"type": "array", "items": {"type": "integer"}, "maxItems": 5},
           "timeframe": {"type": "string", "enum": enum("CandleTimeframe")},
           "indicators": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {"type": {"type": "string", "enum": enum("OperandType")}, "params": {"type": "object"}}, "required": ["type"]}}}}),
@@ -90,12 +97,17 @@ def tool_definitions(schema):
             for name, description, parameters in definitions]
 
 
-async def generate(client, **arguments):
+async def generate(client, *, reserve_attempt=None, observe_attempt=None, **arguments):
     output_limit = arguments.pop("output_limit")
     for attempt in range(3):
+        if reserve_attempt:
+            output_limit = reserve_attempt(output_limit)
         try:
-            return await client.aio.interactions.create(store=False, timeout=120,
+            interaction = await client.aio.interactions.create(store=False, timeout=120,
                                                         generation_config={"max_output_tokens": output_limit}, **arguments)
+            if observe_attempt:
+                observe_attempt(interaction, output_limit)
+            return interaction
         except Exception as exc:
             code = getattr(exc, "code", getattr(exc, "status_code", None))
             if attempt == 2 or code not in (429, 500, 502, 503, 504):
@@ -117,6 +129,7 @@ async def research_events(request, client):
                                                        {"type": "text", "text": request.prompt}]})
     calls, usage = 0, {"requests": 0, "total_input_tokens": 0, "total_output_tokens": 0,
                        "total_thought_tokens": 0, "total_tokens": 0}
+    accounting = {"input_reserved": 0, "output_reserved": 0, "attempts": 0, "unmetered_successes": 0}
     budget = min(8, max(0, request.context.get("tool_budget", 8)))
     async def bounded_generate(**arguments):
         remaining_output = request.output_token_budget - usage["total_output_tokens"] - usage["total_thought_tokens"]
@@ -126,9 +139,36 @@ async def research_events(request, client):
         # including the tool declarations and system instructions.
         counted = await client.aio.models.count_tokens(
             model=model, contents=json.dumps(arguments, default=str))
-        if int(counted.total_tokens or 0) + usage["total_input_tokens"] > request.input_token_budget:
+        estimate = int(counted.total_tokens or 0)
+        if estimate + accounting["input_reserved"] > request.input_token_budget:
             raise ResearchError("Research context exceeds the input budget. Reduce attachments or start a new conversation.")
-        return await generate(client, output_limit=remaining_output, **arguments)
+        def reserve_attempt(maximum):
+            remaining = request.output_token_budget - accounting["output_reserved"]
+            # Unknown failed attempts keep their reserved upper bound. Never
+            # assume a provider timeout or retry was free.
+            if accounting["input_reserved"] + estimate > request.input_token_budget or remaining < 512:
+                raise ResearchError("The aggregate research budget is exhausted, including retries.")
+            limit = min(maximum, remaining, 2000)
+            accounting["input_reserved"] += estimate
+            accounting["output_reserved"] += limit
+            accounting["attempts"] += 1
+            return limit
+        def observe_attempt(interaction, reserved):
+            actual_input = int(getattr(interaction.usage, "total_input_tokens", 0) or 0)
+            actual_output = int(getattr(interaction.usage, "total_output_tokens", 0) or 0) + int(getattr(interaction.usage, "total_thought_tokens", 0) or 0)
+            if actual_input > 0:
+                accounting["input_reserved"] += actual_input - estimate
+                accounting["output_reserved"] += actual_output - reserved
+            else:
+                accounting["unmetered_successes"] += 1
+            if accounting["input_reserved"] > request.input_token_budget or accounting["output_reserved"] > request.output_token_budget:
+                raise ResearchError("The provider exceeded its configured token ceiling.")
+        try:
+            return await generate(client, output_limit=remaining_output, reserve_attempt=reserve_attempt, observe_attempt=observe_attempt, **arguments)
+        except Exception as exc:
+            error = exc if isinstance(exc, ResearchError) else ResearchError("The provider call failed. Check service availability and retry a focused request.")
+            error.usage = {"model": model, "tool_calls": calls, "provider": dict(usage), "budget": dict(accounting)}
+            raise error from None
     def add_usage(interaction):
         usage["requests"] += 1
         for key in ("total_input_tokens", "total_output_tokens", "total_thought_tokens", "total_tokens"):
@@ -139,6 +179,7 @@ async def research_events(request, client):
             yield {"type": "progress", "message": "Planning research and choosing evidence"}
             interaction = await bounded_generate(model=model, input=history, tools=tools, system_instruction=SYSTEM_INSTRUCTION)
             add_usage(interaction)
+            yield {"type": "usage", "usage": {"model": model, "tool_calls": calls, "provider": dict(usage), "budget": dict(accounting)}}
             for step in interaction.steps or []:
                 # Preserve the complete model steps, including thought signatures.
                 history.append(step.model_dump(mode="json", exclude_none=True))
@@ -165,8 +206,9 @@ async def research_events(request, client):
         final = await bounded_generate(model=model, input=history, system_instruction=SYSTEM_INSTRUCTION,
                                response_format={"type": "text", "mime_type": "application/json", "schema": ResearchResult.model_json_schema()})
         add_usage(final)
+        yield {"type": "usage", "usage": {"model": model, "tool_calls": calls, "provider": dict(usage), "budget": dict(accounting)}}
         text = final.output_text or "".join(
             content.text for step in final.steps or [] if step.type == "model_output"
             for content in step.content if content.type == "text")
         result = ResearchResult.model_validate_json(text)
-        yield {"type": "result", "result": result.model_dump(), "usage": {"model": model, "tool_calls": calls, "provider": usage}}
+        yield {"type": "result", "result": result.model_dump(), "usage": {"model": model, "tool_calls": calls, "provider": usage, "budget": accounting}}

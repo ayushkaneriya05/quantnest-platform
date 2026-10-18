@@ -1,5 +1,6 @@
 # backend/marketdata/models.py
 from django.db import models
+from core.encryption import EncryptedTextField
 from django.utils import timezone
 
 from common.enums import Severity
@@ -7,13 +8,9 @@ from common.models import BaseTimestampModel
 from instruments.models import Instrument
 
 class MarketDataToken(models.Model):
-    """
-    Singleton-like model to store the Fyers market-data access token and refresh token.
-    You can keep one row per token (we will use get_or_create(pk=1) in views).
-    """
+    """Singleton storing the market-data access token from admin sign-in."""
     id = models.PositiveSmallIntegerField(primary_key=True, default=1)
-    access_token = models.TextField(null=True, blank=True)
-    refresh_token = models.TextField(null=True, blank=True)
+    access_token = EncryptedTextField(null=True, blank=True)
     token_type = models.CharField(max_length=32, default="Bearer", blank=True)
     expires_at = models.DateTimeField(null=True, blank=True,)  # UTC
     created_at = models.DateTimeField(auto_now_add=True)
@@ -25,7 +22,7 @@ class MarketDataToken(models.Model):
         verbose_name_plural = "Market Data Tokens"
 
     def is_valid(self):
-        if not self.access_token:
+        if not self.is_active or not self.access_token:
             return False
         if self.expires_at is None:
             return False

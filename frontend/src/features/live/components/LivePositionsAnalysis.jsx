@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useMemo } from "react";
 import { AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
@@ -6,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
-import LiveTablePagination from "@/features/live/components/LiveTablePagination.jsx";
+import TablePagination from "@/shared/components/TablePagination";
 
 function Metric({ title, value, note, color = "text-foreground" }) {
   return <Card className="border-border bg-card/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p><p className={`mt-2 text-2xl font-semibold ${color}`}>{value}</p>{note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}</CardContent></Card>;
@@ -81,10 +82,29 @@ export default function LivePositionsAnalysis({ positions = [], positionsForPnL,
                 </Table>
               </div>
             </CardContent>
-            <LiveTablePagination page={pagination?.page || 1} count={pagination?.count || 0} onPageChange={onPageChange} />
+            <TablePagination page={pagination?.page || 1} count={pagination?.count || 0} onPageChange={onPageChange} />
           </>
         )}
       </Card>
     </div>
   );
 }
+
+Metric.propTypes = {
+  ...Metric.propTypes,
+  color: PropTypes.string,
+  note: PropTypes.string,
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};
+
+LivePositionsAnalysis.propTypes = {
+  ...LivePositionsAnalysis.propTypes,
+  allocationFilter: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onAllocationChange: PropTypes.func,
+  onPageChange: PropTypes.func,
+  pagination: PropTypes.object,
+  positions: PropTypes.array,
+  positionsForPnL: PropTypes.array,
+  summary: PropTypes.object,
+};

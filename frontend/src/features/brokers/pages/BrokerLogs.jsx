@@ -59,7 +59,7 @@ export default function BrokerLogs() {
     } finally {
       setLoading(false);
     }
-  }, [endpointFilter, statusFilter]);
+  }, [endpointFilter, statusFilter, notify]);
 
   useEffect(() => {
     fetchLogs(page);

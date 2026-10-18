@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
+from django.contrib.auth import get_user_model
 from instruments.models import WatchlistInstrument, ExecutionRoute
 from rules_engine.models import RuleGroup, Rule
 from risk_management.models import StrategyAutoDisable
@@ -46,6 +47,7 @@ def update_active_run(run_id, *, expected_status=None, **changes):
 
 @transaction.atomic
 def create_strategy_draft(run_id, user, draft):
+    get_user_model().objects.select_for_update().get(pk=user.pk)
     run = ResearchRun.objects.select_for_update().get(pk=run_id, user=user)
     if run.created_strategy_id:
         return run.created_strategy

@@ -61,8 +61,12 @@ def run_child(service, index, stop):
                 method(stop_event=stop, worker_index=index)
             except Exception as exc:
                 failures.append(exc)
-        threads = [threading.Thread(target=consume, args=(method,)) for method in (
-            LiveExecutionService.run_order_stream_consumer, PaperExecutionService.run_order_stream_consumer)]
+        from django.conf import settings
+        consumers = {"live": LiveExecutionService.run_order_stream_consumer, "paper": PaperExecutionService.run_order_stream_consumer}
+        threads = [threading.Thread(target=consume, args=(method,)) for scope, method in consumers.items()
+                   if scope in settings.EXECUTION_ENABLED_SCOPES]
+        if not threads:
+            raise ValueError("Order gateway requires an enabled execution scope")
         for thread in threads:
             thread.start()
         while not stop.wait(0.2):
@@ -80,6 +84,8 @@ def run_child(service, index, stop):
 def singleton(service, stop):
     from quantnest_runtime.ownership import Lease
     from django.conf import settings
+    if service == "broker-events" and "live" not in settings.EXECUTION_ENABLED_SCOPES:
+        raise ValueError("Broker events require Live execution in this deployment")
     lease_name = f"{service}:{settings.EXECUTION_NODE_INDEX}" if service == "market-data" else service
     lease = Lease(lease_name, ttl=30)
     if not lease.acquire():

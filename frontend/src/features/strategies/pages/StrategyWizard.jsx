@@ -1,3 +1,4 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 /**
  * Strategy Editor - unified create/edit page
  * Create mode: shows basic info form → creates strategy → transitions to edit mode
@@ -23,67 +24,13 @@ import StrategyConfigNav from '@/features/strategies/components/StrategyConfigNa
 import StrategyFooter from '@/features/strategies/components/StrategyFooter.jsx';
 import TagInput from '@/features/strategies/components/TagInput.jsx';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import { usePlatform } from '@/shared/context/platform';
 
 
 
 export default function StrategyWizard() {
-  const navigate = useNavigate();
-  const { id } = useParams();
-  const { notify } = useNotifications();
-  const { enums } = useEnums();
-  const { setPageHeader } = usePageActions(); // Use context
-  const isEdit = Boolean(id);
-  
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState({});
-  const [touched, setTouched] = useState({});
-  
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    strategy_type: 'INTRADAY',
-    market_type: 'EQUITY',
-    exchange: 'NSE',
-    instrument_type: 'STOCK',
-    visibility: 'PRIVATE',
-    status: 'DRAFT',
-    paper_trading_enabled: true,
-    live_trading_enabled: false,
-    tags: [], // Array of tag objects {id, name}
-  });
-
-  usePageTitle({
-    title: isEdit ? 'Edit Strategy' : 'Create Strategy',
-    subtitle: isEdit ? formData.name || 'Loading...' : 'Build your algorithmic trading strategy',
-  });
-
-  useEffect(() => {
-    if (isEdit) fetchStrategy();
-  }, [id]);
-
-  // Set Navigation in Header (Edit Mode Only)
-  // StrategyConfigNav only reads strategy.status — no need to re-render on every keystroke
-  useEffect(() => {
-    if (isEdit) {
-      setPageHeader(<StrategyConfigNav strategy={{ id, status: formData.status }} />);
-    }
-    return () => setPageHeader(null);
-  }, [isEdit, id, setPageHeader, formData.status]);
-
-  const handleCreateTag = async (tagName) => {
-      try {
-          const newTag = await strategyApi.createTag({ name: tagName });
-          // Auto select
-          setFormData(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
-          notify.success(`Tag "${tagName}" created`);
-      } catch (e) {
-          notify.error(getApiErrorMessage(e, 'Failed to create tag'));
-      }
-  };
-    
-  const fetchStrategy = async () => {
+  const { executionScopes } = usePlatform();
+  const fetchStrategy = useStableCallback(async () => {
     try {
       setLoading(true);
       const data = await strategyApi.getById(id);
@@ -106,7 +53,65 @@ export default function StrategyWizard() {
     } finally {
       setLoading(false);
     }
+  });
+
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const { notify } = useNotifications();
+  const { enums } = useEnums();
+  const { setPageHeader } = usePageActions(); // Use context
+  const isEdit = Boolean(id);
+
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [touched, setTouched] = useState({});
+
+
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    strategy_type: 'INTRADAY',
+    market_type: 'EQUITY',
+    exchange: 'NSE',
+    instrument_type: 'STOCK',
+    visibility: 'PRIVATE',
+    status: 'DRAFT',
+    paper_trading_enabled: true,
+    live_trading_enabled: false,
+    tags: [], // Array of tag objects {id, name}
+  });
+
+  usePageTitle({
+    title: isEdit ? 'Edit Strategy' : 'Create Strategy',
+    subtitle: isEdit ? formData.name || 'Loading...' : 'Build your algorithmic trading strategy',
+  });
+
+  useEffect(() => {
+    if (isEdit) fetchStrategy();
+  }, [id, isEdit, fetchStrategy]);
+
+  // Set Navigation in Header (Edit Mode Only)
+  // StrategyConfigNav only reads strategy.status — no need to re-render on every keystroke
+  useEffect(() => {
+    if (isEdit) {
+      setPageHeader(<StrategyConfigNav strategy={{ id, status: formData.status }} />);
+    }
+    return () => setPageHeader(null);
+  }, [isEdit, id, setPageHeader, formData.status]);
+
+  const handleCreateTag = async (tagName) => {
+      try {
+          const newTag = await strategyApi.createTag({ name: tagName });
+          // Auto select
+          setFormData(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
+          notify.success(`Tag "${tagName}" created`);
+      } catch (e) {
+          notify.error(getApiErrorMessage(e, 'Failed to create tag'));
+      }
   };
+
+
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -146,7 +151,7 @@ export default function StrategyWizard() {
     if (!validateForm()) return;
     try {
       setSaving(true);
-      
+
       const payload = {
           ...formData,
           tag_ids: formData.tags.map(t => t.id)
@@ -211,7 +216,7 @@ export default function StrategyWizard() {
                   </p>
                 )}
               </div>
-              
+
               {/* Type */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Strategy Type</Label>
@@ -231,7 +236,7 @@ export default function StrategyWizard() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               {/* Market */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Market Type</Label>
@@ -246,7 +251,7 @@ export default function StrategyWizard() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               {/* Exchange */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Exchange</Label>
@@ -261,7 +266,7 @@ export default function StrategyWizard() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               {/* Instrument */}
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Instrument Type</Label>
@@ -277,19 +282,19 @@ export default function StrategyWizard() {
                 </Select>
               </div>
             </div>
-            
+
 
 
             {/* Tags */}
             <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Tags</Label>
-                <TagInput 
+                <TagInput
                     value={formData.tags}
                     onChange={(tags) => handleChange('tags', tags)}
                     onCreateTag={handleCreateTag}
                 />
             </div>
-            
+
             {/* Description */}
             <div className="space-y-1.5">
               <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
@@ -306,7 +311,7 @@ export default function StrategyWizard() {
             {/* Trading Toggles (edit mode only) */}
             {isEdit && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="flex items-center justify-between p-3 bg-secondary/40 rounded-lg border border-border/40">
+                {executionScopes.includes('paper') && <div className="flex items-center justify-between p-3 bg-secondary/40 rounded-lg border border-border/40">
                   <div>
                     <Label className="text-sm text-foreground">Paper Trading</Label>
                     <p className="text-xs text-muted-foreground mt-0.5">Enable simulated trading</p>
@@ -315,8 +320,8 @@ export default function StrategyWizard() {
                     checked={formData.paper_trading_enabled}
                     onCheckedChange={(v) => handleChange('paper_trading_enabled', v)}
                   />
-                </div>
-                <div className="flex items-center justify-between p-3 bg-secondary/40 rounded-lg border border-border/40">
+                </div>}
+                {executionScopes.includes('live') && <div className="flex items-center justify-between p-3 bg-secondary/40 rounded-lg border border-border/40">
                   <div>
                     <Label className="text-sm text-foreground">Live Trading</Label>
                     <p className="text-xs text-muted-foreground mt-0.5">Enable real market orders</p>
@@ -325,7 +330,7 @@ export default function StrategyWizard() {
                     checked={formData.live_trading_enabled}
                     onCheckedChange={(v) => handleChange('live_trading_enabled', v)}
                   />
-                </div>
+                </div>}
               </div>
             )}
 
@@ -333,7 +338,7 @@ export default function StrategyWizard() {
           {!isEdit && (
             <div className="text-center py-6">
               <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-                After creating your strategy, you'll be able to configure entry rules, exit rules, 
+                After creating your strategy, you can configure entry rules, exit rules,
                 trading hours, assets, and risk settings.
               </p>
             </div>

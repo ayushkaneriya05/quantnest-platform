@@ -7,6 +7,7 @@ import { TooltipHint } from "@/shared/components/ui/tooltip";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { researchApi } from "@/shared/services/researchApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const groupName = (date) => {
   const day = new Date(date).toDateString();
@@ -15,6 +16,7 @@ const groupName = (date) => {
 };
 
 export default function ResearchConversations({ session, onSelect, onDelete, refreshKey }) {
+  const { notify } = useNotifications();
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -42,13 +44,13 @@ export default function ResearchConversations({ session, onSelect, onDelete, ref
   async function rename(item) {
     try {
       const response = await researchApi.updateSession(item.id, { title });
-      setItems((previous) => previous.map((value) => value.id === item.id ? response.data : value)); setEditing(null);
-    } catch (error) { setError(getApiErrorMessage(error, "Could not rename conversation")); }
+      setItems((previous) => previous.map((value) => value.id === item.id ? response.data : value)); setEditing(null); notify.success("Conversation renamed.");
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not rename conversation")); }
   }
   async function remove(item) {
     if (!await customConfirm(`Delete “${item.title}” and its research evidence?`, "Delete conversation")) return;
-    try { await researchApi.deleteSession(item.id); setItems((previous) => previous.filter((value) => value.id !== item.id)); onDelete(item.id); }
-    catch (error) { setError(getApiErrorMessage(error, "Could not delete conversation")); }
+    try { await researchApi.deleteSession(item.id); setItems((previous) => previous.filter((value) => value.id !== item.id)); onDelete(item.id); notify.success("Conversation deleted."); }
+    catch (error) { notify.error(getApiErrorMessage(error, "Could not delete conversation")); }
   }
   return <div className="flex h-full min-h-0 flex-col gap-3">
     <Input className="h-9 text-xs" aria-label="Search conversations" placeholder="Search conversations" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />

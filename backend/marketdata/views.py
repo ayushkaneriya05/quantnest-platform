@@ -1,20 +1,15 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
-from decouple import config
-from django.conf import settings
 from django.http import JsonResponse
-from django.shortcuts import redirect
-from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 
 from .calendar_service import EventCalendarService
 from .live_feed import LiveMarketDataRegistry
 from .models import MarketEvent
 from .services import ChartDataService, MarketDataService
 from .quote_store import QuoteStore
-from .utils import refresh_fyers_token, _get_token_row, _get_today_eod
 from instruments.models import Instrument
 from backend.middleware.api_responses import api_json_error
 
@@ -130,7 +125,7 @@ def market_events(request):
 
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def ohlc_data(request):
     symbol = request.query_params.get("instrument")
     resolution = request.query_params.get("resolution", "1D")
@@ -189,112 +184,3 @@ def candles(request):
         return api_json_error("Unable to load candles", status_code=500)
 
     return JsonResponse(payload)
-
-
-try:
-    from fyers_apiv3 import fyersModel
-except Exception as exc:
-    logger.exception("fyers_apiv3.accessToken import failed: %s", exc)
-    fyersModel = None
-
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def fyers_login(request):
-    if fyersModel is None:
-        return api_json_error("fyers_apiv3 not installed on server", status_code=500)
-
-    client_id = getattr(settings, "FYERS_CLIENT_ID", None)
-    secret_key = getattr(settings, "FYERS_SECRET", None)
-    redirect_uri = getattr(settings, "FYERS_REDIRECT_URI", None)
-    if not client_id or not secret_key or not redirect_uri:
-        return api_json_error("FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured", status_code=500)
-
-    session = fyersModel.SessionModel(
-        client_id=client_id,
-        secret_key=secret_key,
-        redirect_uri=redirect_uri,
-        response_type="code",
-        grant_type="authorization_code",
-    )
-    return redirect(session.generate_authcode())
-
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-@csrf_exempt
-def fyers_callback(request):
-    if fyersModel is None:
-        return api_json_error("fyers_apiv3 not installed on server", status_code=500)
-
-    auth_code = request.GET.get("auth_code") or request.GET.get("authCode")
-    if not auth_code:
-        return api_json_error("Missing auth_code in callback query params", status_code=400)
-
-    client_id = getattr(settings, "FYERS_CLIENT_ID", None)
-    secret_key = getattr(settings, "FYERS_SECRET", None)
-    redirect_uri = getattr(settings, "FYERS_REDIRECT_URI", None)
-    if not client_id or not secret_key or not redirect_uri:
-        return api_json_error("FYERS_CLIENT_ID / FYERS_SECRET / FYERS_REDIRECT_URI not configured", status_code=500)
-
-    session = fyersModel.SessionModel(
-        client_id=client_id,
-        secret_key=secret_key,
-        redirect_uri=redirect_uri,
-        response_type="code",
-        grant_type="authorization_code",
-    )
-
-    try:
-        session.set_token(auth_code)
-        token_resp = session.generate_token()
-    except Exception as exc:
-        logger.exception("Error exchanging auth_code for token: %s", exc)
-        return api_json_error("Token exchange failed", status_code=500)
-
-    access_token = token_resp.get("access_token") or token_resp.get("accessToken")
-    refresh_token = token_resp.get("refresh_token") or token_resp.get("refreshToken")
-    expires_in = token_resp.get("expires_in") or token_resp.get("expiresIn") or None
-
-    token_row = _get_token_row()
-    token_row.access_token = access_token
-    token_row.refresh_token = refresh_token
-    token_row.token_type = token_resp.get("token_type", token_row.token_type)
-    token_row.expires_at = _get_today_eod()
-    if expires_in:
-        try:
-            token_row.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
-        except Exception:
-            token_row.expires_at = None
-    token_row.save()
-
-    if request.headers.get("Accept", "").startswith("application/json") or request.GET.get("json"):
-        return JsonResponse({"status": "ok", "token_saved": True})
-    return redirect(config("FRONTEND_URL"))
-
-
-@api_view(["GET"])
-@permission_classes([IsAdminUser])
-def fyers_token_status(request):
-    token_row = _get_token_row()
-    return JsonResponse(
-        {
-            "has_token": bool(token_row.access_token),
-            "is_valid": token_row.is_valid(),
-            "expires_at": token_row.expires_at,
-            "updated_at": token_row.updated_at,
-        }
-    )
-
-
-@api_view(["POST"])
-@permission_classes([IsAdminUser])
-def fyers_token_refresh(request):
-    token_row = _get_token_row()
-    if not token_row:
-        return api_json_error("No active token row", status_code=400)
-
-    refreshed = refresh_fyers_token(token_row)
-    if not refreshed:
-        return api_json_error("Token refresh failed", status_code=500)
-    return JsonResponse({"status": "ok", "expires_at": token_row.expires_at})

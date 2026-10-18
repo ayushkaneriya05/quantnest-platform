@@ -35,16 +35,6 @@ def normalize_citations(text, evidence, references):
     return re.sub(r"\[(E\d+\b[^\[\]\n]*)\](?:\([^\)\n]*\))?", replace, text)
 
 
-def enqueue_research(run_id):
-    try:
-        start_research.delay(run_id)
-    except Exception:
-        logger.exception("Could not enqueue research %s", run_id)
-        update_active_run(run_id, status=ResearchRun.Status.FAILED, progress_message="Could not queue research",
-                          error_message="The research queue is unavailable. Check Redis and the research worker, then retry.",
-                          completed_at=timezone.now())
-
-
 @shared_task(name="research.expire_runs")
 def expire_runs():
     from datetime import timedelta
@@ -105,6 +95,8 @@ def finalize_result(run, result):
             raise ValueError("Invalid proposed action.")
         resolved.append({"action_type": item["action_type"], "payload": action_payload(ready, item["action_type"], item["payload"])})
     result["_actions"] = resolved
+    from .policy import validate_written_result
+    validate_written_result(result)
     return result
 
 
@@ -137,7 +129,7 @@ def start_research(run_id):
                     run = update_active_run(run_id, evidence=[{**{key: value for key, value in source.items() if key != "cache_key"}, "evidence_id": "E1", "source_run_id": source.get("source_run_id", previous_screen.pk),
                                                              "source_as_of": source.get("source_as_of", previous_screen.as_of.isoformat())}])
                     if not run:
-                        return
+                        return run_id
             if run.request.get("execution_evidence"):
                 execute_tool(run, "get_execution_review", {})
                 run.refresh_from_db()
@@ -168,12 +160,15 @@ def start_research(run_id):
                         if time.monotonic() > deadline:
                             raise TimeoutError("Research exceeded its ten-minute deadline.")
                         if not ResearchRun.objects.filter(pk=run_id, status__in=ACTIVE).exists():
-                            return
+                            return run_id
                         if not line:
                             continue
                         event = json.loads(line)
                         if event["type"] == "progress":
                             update_active_run(run_id, progress_message=str(event["message"])[:255])
+                        elif event["type"] == "usage":
+                            usage = event.get("usage", {})
+                            update_active_run(run_id, usage=usage)
                         elif event["type"] == "result":
                             result, usage = event["result"], event.get("usage", {})
                         elif event["type"] == "error":
@@ -199,3 +194,4 @@ def start_research(run_id):
             NotificationService.notify(user_id=run.user_id, title="Research failed", message=failed.error_message,
                                        type="WARNING", data={"module": "research", "research_session_id": run.session_id},
                                        dedupe_key=f"research:{run.pk}:failed")
+    return run_id

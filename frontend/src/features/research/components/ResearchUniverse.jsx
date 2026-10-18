@@ -6,7 +6,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { useInstrumentSearch } from "@/shared/hooks/useInstrumentSearch";
 
-export default function ResearchUniverse({ value, onChange, disabled, strategies = [] }) {
+export default function ResearchUniverse({ value, onChange, disabled, strategies = [], maxInstruments }) {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const { results: instruments, loading, error } = useInstrumentSearch(query,
@@ -27,11 +27,11 @@ export default function ResearchUniverse({ value, onChange, disabled, strategies
       {loading && <p role="status" className="text-xs text-muted-foreground">Loading instruments…</p>}
       {error && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{error}</p>}
       {instruments.length > 0 && <div className="scrollbar-thin-theme max-h-52 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-        {instruments.map((item) => <Button key={item.id} variant="ghost" className="w-full justify-start" disabled={disabled || selected.length >= 50 || selected.some((value) => value.id === item.id)} onClick={() => { onChange({ ...value, instruments: [...selected, item] }); setQuery(""); setSearchOpen(false); }}>{item.symbol} · {item.name}</Button>)}
+        {instruments.map((item) => <Button key={item.id} variant="ghost" className="w-full justify-start" disabled={disabled || (maxInstruments != null && selected.length >= maxInstruments) || selected.some((value) => value.id === item.id)} onClick={() => { onChange({ ...value, instruments: [...selected, item] }); setQuery(""); setSearchOpen(false); }}>{item.symbol} · {item.name}</Button>)}
       </div>}
       <div className="flex flex-wrap gap-2">{selected.map((item) => <Badge key={item.id} variant="outline"><button type="button" disabled={disabled} aria-label={`Remove ${item.symbol}`} onClick={() => onChange({ ...value, instruments: selected.filter((value) => value.id !== item.id) })}>{item.symbol} ×</button></Badge>)}</div>
     </div>}
-    <p className="text-xs text-muted-foreground">NSE stocks · up to 50 instruments · calculations use completed candles.</p>
+    <p className="text-xs text-muted-foreground">NSE stocks{maxInstruments != null ? ` · up to ${maxInstruments} per request` : ''} · calculations use completed candles.</p>
   </div>;
 }
-ResearchUniverse.propTypes = { value: PropTypes.object.isRequired, onChange: PropTypes.func.isRequired, disabled: PropTypes.bool, strategies: PropTypes.array };
+ResearchUniverse.propTypes = { value: PropTypes.object.isRequired, onChange: PropTypes.func.isRequired, disabled: PropTypes.bool, strategies: PropTypes.array, maxInstruments: PropTypes.number };

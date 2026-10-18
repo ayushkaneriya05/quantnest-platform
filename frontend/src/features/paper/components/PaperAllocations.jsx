@@ -1,3 +1,4 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
@@ -44,6 +45,29 @@ const INITIAL_FORM = {
 };
 
 export default function PaperAllocations() {
+  const fetchData = useStableCallback(async () => {
+    try {
+      setLoading(true);
+      const [portfolioData, allocData] = await Promise.all([
+        portfolioApi.getMyPortfolio(),
+        portfolioApi.getAllocations(),
+      ]);
+      setPortfolio(portfolioData.data);
+
+      const allocArr = allocData.data;
+      const allAllocations = Array.isArray(allocArr) ? allocArr : allocArr?.results || [];
+
+      // If selectedAccountId is provided, we might want to filter or highlight.
+      // But typically allocations are global to the vault.
+      setAllocations(allAllocations);
+
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load allocation data"));
+    } finally {
+      setLoading(false);
+    }
+  });
+
   const { notify } = useNotifications();
   const [portfolio, setPortfolio] = useState(null);
   const [allocations, setAllocations] = useState([]);
@@ -70,39 +94,18 @@ export default function PaperAllocations() {
     }
   }, [form.strategy, editingId]);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [portfolioData, allocData] = await Promise.all([
-        portfolioApi.getMyPortfolio(),
-        portfolioApi.getAllocations(),
-      ]);
-      setPortfolio(portfolioData.data);
-      
-      const allocArr = allocData.data;
-      const allAllocations = Array.isArray(allocArr) ? allocArr : allocArr?.results || [];
-      
-      // If selectedAccountId is provided, we might want to filter or highlight.
-      // But typically allocations are global to the vault.
-      setAllocations(allAllocations);
-      
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load allocation data"));
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   useEffect(() => {
     fetchData();
-    
+
     const handleOpenAdd = () => openAddModal();
     window.addEventListener('open-new-allocation', handleOpenAdd);
 
     return () => {
       window.removeEventListener('open-new-allocation', handleOpenAdd);
     };
-  }, []);
+  }, [fetchData]);
 
   const openAddModal = () => {
     setEditingId(null);
@@ -178,7 +181,7 @@ export default function PaperAllocations() {
         rebalance_frequency: form.rebalance_frequency,
       };
       if (form.deployed_version_id) {
-        data.deployed_version_id = form.deployed_version_id;
+        data.deployed_version = form.deployed_version_id;
       }
 
       if (editingId) {
@@ -252,10 +255,10 @@ export default function PaperAllocations() {
                   </Badge>
                 </div>
                 <div className="flex gap-1">
-                                    <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-8 w-8 text-indigo-700 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:bg-indigo-500/10" 
+                                    <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-indigo-700 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:bg-indigo-500/10"
                     onClick={() => setHotSwapModal({ open: true, session: alloc })}
                     title="Hot-Swap Version"
                   >
@@ -269,7 +272,7 @@ export default function PaperAllocations() {
                   </Button>
                 </div>
               </div>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Allocated</span>
@@ -339,9 +342,9 @@ export default function PaperAllocations() {
               </div>
               <div className="space-y-2">
                 <Label>{form.allocation_type === 'FIXED' ? 'Amount (₹)' : 'Percentage (%)'}</Label>
-                <Input 
-                  type="number" 
-                  value={form.allocation_type === 'FIXED' ? form.allocated_amount : form.allocated_percentage} 
+                <Input
+                  type="number"
+                  value={form.allocation_type === 'FIXED' ? form.allocated_amount : form.allocated_percentage}
                   onChange={(e) => setForm({...form, [form.allocation_type === 'FIXED' ? 'allocated_amount' : 'allocated_percentage']: parseFloat(e.target.value) || 0})}
                   className="bg-secondary border-border"
                 />

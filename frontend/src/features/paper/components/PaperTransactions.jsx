@@ -1,3 +1,4 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect } from "react";
 import {
   Card,
@@ -27,12 +28,7 @@ const TYPE_STYLES = {
 };
 
 export default function PaperTransactions() {
-  const { notify } = useNotifications();
-  const [transactions, setTransactions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-
-  const fetchData = async () => {
+  const fetchData = useStableCallback(async () => {
     try {
       setLoading(true);
       const txData = await portfolioApi.getTransactions();
@@ -42,13 +38,20 @@ export default function PaperTransactions() {
     } finally {
       setLoading(false);
     }
-  };
+  });
+
+  const { notify } = useNotifications();
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
-  const filteredTransactions = transactions.filter(tx => 
+  const filteredTransactions = transactions.filter(tx =>
     tx.transaction_type.toLowerCase().includes(search.toLowerCase()) ||
     (tx.notes && tx.notes.toLowerCase().includes(search.toLowerCase()))
   );
@@ -61,8 +64,8 @@ export default function PaperTransactions() {
         <h3 className="text-lg font-semibold text-foreground">Capital Movement Logs</h3>
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search logs..." 
+          <Input
+            placeholder="Search logs..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 bg-card/50 border-border h-9 text-sm"

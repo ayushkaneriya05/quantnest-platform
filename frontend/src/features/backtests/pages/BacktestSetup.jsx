@@ -94,6 +94,7 @@ export default function BacktestSetup() {
   const { notify } = useNotifications();
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [estimate, setEstimate] = useState(null);
 
   const preSelectedStrategy = searchParams.get("strategy") || "";
 
@@ -183,7 +184,12 @@ export default function BacktestSetup() {
             ? chargeProfileId
             : null,
       };
-      const response = await backtestApi.createRun(payload);
+      if (!estimate) {
+        const preview = await backtestApi.estimateRun(payload);
+        setEstimate(preview.data);
+        return;
+      }
+      const response = await backtestApi.createRun({...payload, estimate_token:estimate.token});
       notify.success("Backtest created! Initializing simulation…");
       await backtestApi.startRun(response.data.id);
       navigate(`/backtests/results/${response.data.id}`);
@@ -195,6 +201,7 @@ export default function BacktestSetup() {
   };
 
   const handleChange = (field, value) => {
+    setEstimate(null);
     setFormData((current) => ({ ...current, [field]: value }));
   };
 
@@ -232,6 +239,7 @@ export default function BacktestSetup() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {estimate && <Card><CardHeader><CardTitle>Review workload before confirming</CardTitle></CardHeader><CardContent className="space-y-2"><p>{estimate.instrument_candles.toLocaleString('en-IN')} instrument-candles including warmup · {estimate.credits === null ? 'Unlimited Private usage' : <>{estimate.credits} credit{estimate.credits === 1 ? '' : 's'}</>}</p><p className="text-sm text-muted-foreground">{estimate.definition} For public plans, successful runs use the reviewed credits; failed or cancelled runs restore them automatically.</p><Button variant="outline" type="button" onClick={()=>setEstimate(null)}>Recalculate preview</Button></CardContent></Card>}
         {/* ── STEP 1: Strategy & Period ── */}
         <div className="grid md:grid-cols-2 gap-6">
           <Card className="bg-card/50 border-border backdrop-blur-sm">
@@ -484,7 +492,7 @@ export default function BacktestSetup() {
             ) : (
               <>
                 <Play className="h-4 w-4 mr-2 fill-current" />
-                Launch Simulation
+                {estimate ? "Confirm and start simulation" : "Preview workload and credits"}
               </>
             )}
           </Button>

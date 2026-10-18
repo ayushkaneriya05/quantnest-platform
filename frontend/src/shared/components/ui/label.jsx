@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import * as React from "react"
 import * as LabelPrimitive from "@radix-ui/react-label"
 import { cva } from "class-variance-authority"
@@ -18,3 +19,8 @@ const Label = React.forwardRef(({ className, ...props }, ref) => (
 Label.displayName = LabelPrimitive.Root.displayName
 
 export { Label }
+
+Label.propTypes = {
+  ...Label.propTypes,
+  className: PropTypes.string,
+};

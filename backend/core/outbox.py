@@ -39,11 +39,9 @@ def deliver(event):
         runtime_redis().xadd("quantnest:terminal:commands", {"payload": json.dumps(event.payload),
                                                             "revision": event.pk})
     elif event.topic == "cache":
-        from core.cache_api import cache_api
+        from core.shared_state_store import shared_state_store
         value = event.payload
-        result = getattr(cache_api, value["method"])(*value["args"], **value["kwargs"])
-        if result is False:
-            raise RuntimeError(f"Projection {value['method']} failed")
+        getattr(shared_state_store, value["method"])(*value["args"], **value["kwargs"])
     elif event.topic == "risk":
         from decimal import Decimal
         from django.utils.dateparse import parse_datetime

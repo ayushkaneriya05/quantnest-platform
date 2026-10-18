@@ -27,23 +27,22 @@ export default function TradeReviewDialog({ trade, filters, tags = [], onClose, 
   const [customTag, setCustomTag] = useState("");
   const [includeNotes, setIncludeNotes] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const set = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
   async function save() {
-    setBusy(true); setError("");
+    setBusy(true);
     try {
       if (review) await journalApi.update(review.id, form);
       else await journalApi.create({ ...form, source: trade.source, [tradeFields[trade.source]]: trade.id });
       notify.success("Trade review saved"); onSaved(); onClose();
-    } catch (error) { setError(getApiErrorMessage(error, "Could not save the review")); }
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not save the review")); }
     finally { setBusy(false); }
   }
   async function research() {
-    setBusy(true); setError("");
+    setBusy(true);
     try {
       const { data } = await executionReportsApi.researchContext({ filters, trade_id: trade.id, include_notes: includeNotes });
       navigate(`/research?session=${data.id}&review=1`);
-    } catch (error) { setError(getApiErrorMessage(error, "Could not attach this trade to research")); }
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not attach this trade to research")); }
     finally { setBusy(false); }
   }
   return <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}><DialogContent className="flex max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-3xl">
@@ -75,7 +74,6 @@ export default function TradeReviewDialog({ trade, filters, tags = [], onClose, 
         <Button variant="ghost" className="mt-2 text-indigo-700 dark:text-indigo-300" onClick={research} disabled={busy}><Sparkles size={15} className="mr-2" />Ask AI about this trade</Button>
         <p className="text-xs text-muted-foreground">Opens a conversation with recorded evidence. Sending the question starts research.</p>
       </div>
-      {error && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">{error}</p>}
     </div>
     <div className="flex shrink-0 justify-end gap-3 border-t border-border bg-background px-5 py-4"><Button variant="outline" onClick={onClose} disabled={busy}>Close</Button><Button disabled={busy || !form.title.trim()} onClick={save}>{busy && <Loader2 size={15} className="mr-2 animate-spin" />}Save review</Button></div>
   </DialogContent></Dialog>;

@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { cn } from "@/shared/lib/utils";
 import {
   Table,
@@ -130,3 +131,12 @@ export default function TradeHistoryTable({
     </div>
   );
 }
+
+TradeHistoryTable.propTypes = {
+  ...TradeHistoryTable.propTypes,
+  loading: PropTypes.bool,
+  onPageChange: PropTypes.func,
+  page: PropTypes.number,
+  totalCount: PropTypes.number,
+  trades: PropTypes.array,
+};

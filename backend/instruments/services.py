@@ -2,6 +2,25 @@ class InstrumentResolver:
     """Resolves the actual execution instrument from a signal instrument + route config."""
 
     @staticmethod
+    def validate_execution_instrument(instrument, *, allow_index=False):
+        supported = {"STOCK", "INDEX"} if allow_index else {"STOCK"}
+        if instrument.exchange != "NSE" or instrument.instrument_type not in supported or not instrument.is_active:
+            raise ValueError("Execution currently supports active NSE stocks. Futures, options and other markets are not enabled.")
+
+    @staticmethod
+    def validate_execution_snapshot(snapshot):
+        from .models import Instrument
+        watchlist = snapshot.get("watchlist_instruments", [])
+        ids = {int(item["instrument_id"]) for item in watchlist}
+        instruments = Instrument.objects.in_bulk(ids)
+        if not ids or set(instruments) != ids:
+            raise ValueError("The execution version must contain available instruments.")
+        for instrument in instruments.values():
+            InstrumentResolver.validate_execution_instrument(instrument)
+        if any(route.get("route_type") != "DIRECT" for item in watchlist for route in item.get("execution_routes", [])):
+            raise ValueError("Execution currently supports Direct instrument routing only.")
+
+    @staticmethod
     def validate_strategy_for_first_release(strategy):
         """Validate that every watchlist instrument uses direct routing."""
         for watch in strategy.watchlist_instruments.all():

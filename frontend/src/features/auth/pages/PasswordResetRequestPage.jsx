@@ -1,39 +1,28 @@
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Mail, ShieldCheck } from "lucide-react";
-
-import MainHeader from "@/shared/components/layout/main-header";
+import { ArrowRight, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/components/ui/card";
-import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
 import api from "@/shared/services/api";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import AuthLayout from "../components/AuthLayout";
+import { AuthField } from "../components/AuthFields";
 
 export default function PasswordResetRequestPage() {
+  const { notify } = useNotifications();
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
-    setMessage("");
     setIsLoading(true);
 
     try {
       await api.post("users/auth/password/reset/", { email });
-      setMessage("Password reset email sent. Please check your inbox.");
+      notify.success("If this email is linked to an active account, you will receive a password reset link. Check your inbox and spam folder.");
     } catch (err) {
-      setError(
-        getApiErrorMessage(err, "Failed to send password reset email."),
+      notify.error(
+        getApiErrorMessage(err, "Could not request a password reset link. Please try again."),
       );
     } finally {
       setIsLoading(false);
@@ -41,100 +30,20 @@ export default function PasswordResetRequestPage() {
   };
 
   return (
-    <div className="relative flex h-[var(--viewport-height)] flex-col overflow-hidden bg-card text-foreground">
-      <div className="landing-market-animation absolute inset-0 opacity-70" />
-      <div className="landing-grid absolute inset-0 opacity-25" />
-      <MainHeader />
-
-      <div className="scrollbar-theme relative flex min-h-0 flex-1 items-start justify-center overflow-y-auto px-4 py-4">
-        <Card className="my-auto shrink-0 w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card/90 p-5 shadow-card backdrop-blur-xl">
-          <CardHeader className="px-0 pb-5 text-center">
-            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
-              <Mail className="h-5 w-5 text-brand" />
-            </div>
-            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-foreground">
-              Reset your password
-            </CardTitle>
-            <CardDescription className="mt-2 text-sm leading-6 text-muted-foreground">
-              Enter your account email and we will send a secure reset link.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="px-0">
-            <div className="mb-5 rounded-2xl border border-[#e5c461]/15 bg-[#e5c461]/[0.06] p-4">
-              <div className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
-                <p className="text-sm leading-6 text-foreground">
-                  Use this when you cannot access your QuantNest workspace. The
-                  link will let you choose a new password.
-                </p>
-              </div>
-            </div>
-
-            {message && (
-              <div className="mb-4 rounded-lg border border-green-800 bg-green-50 dark:bg-green-900/50 p-3 text-sm text-green-700 dark:text-green-300">
-                {message}
-              </div>
-            )}
-
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="email"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Email address
-                </Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    className="h-11 border-border bg-muted/50 pl-10 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <div className="rounded-lg border border-red-800 bg-red-50 dark:bg-red-900/50 p-3 text-sm text-red-700 dark:text-red-300">
-                  {error}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={isLoading}
-                className="h-11 w-full rounded-xl bg-[#e5c461] font-semibold text-black shadow-[0_12px_40px_rgba(229,196,97,0.18)] hover:bg-[#f2da8e] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isLoading ? "Sending..." : "Send reset email"}
-                {!isLoading && <ArrowRight className="h-4 w-4" />}
-              </Button>
-            </form>
-
-            <div className="mt-5 border-t border-border pt-5 text-center text-sm text-muted-foreground">
-              Remember your password?{" "}
-              <Link
-                to="/login"
-                className="font-medium text-brand underline hover:text-brand"
-              >
-                Back to login
-              </Link>
-            </div>
-            <Link
-              to="/"
-              className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground transition-colors hover:text-brand"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to landing page
-            </Link>
-          </CardContent>
-        </Card>
+    <AuthLayout title="Reset your password" description="Enter the email address you use for QuantNest to request a password reset link." icon={Mail}>
+      <div className="space-y-4">
+        <form className="space-y-4" onSubmit={handleSubmit} aria-busy={isLoading}>
+          <AuthField id="email" label="Email address" icon={Mail} type="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+          <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-full">
+            {isLoading ? "Requesting..." : "Request reset link"}
+            {!isLoading && <ArrowRight aria-hidden="true" className="h-4 w-4" />}
+          </Button>
+        </form>
+        <p className="flex items-start gap-2 text-xs leading-6 text-muted-foreground"><ShieldCheck aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-brand" />Two-factor authentication stays enabled if you have set it up.</p>
       </div>
-    </div>
+      <p className="mt-5 border-t pt-5 text-center text-sm text-muted-foreground">
+        Remember your password?{" "}<Link to="/login" className="focus-ring rounded-sm font-medium text-brand underline underline-offset-4">Sign in</Link>
+      </p>
+    </AuthLayout>
   );
 }

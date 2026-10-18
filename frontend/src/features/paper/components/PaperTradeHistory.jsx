@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
+import PropTypes from "prop-types";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
@@ -15,11 +17,23 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
 import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
-import PaperTablePagination from "@/features/paper/components/PaperTablePagination.jsx";
+import TablePagination from "@/shared/components/TablePagination";
 
 const PAGE_SIZE = 10;
+const totalCharges = (trade) => Number(trade.charges_breakdown?.total ?? trade.charges_json?.total_charges ?? 0);
 
 export default function PaperTradeHistory({ selectedAccountId }) {
+  const fetchData = useStableCallback(async () => {
+    try {
+      const tradesRes = await paperApi.getTrades();
+      setTrades(tradesRes.data || []);
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, "Failed to load trades"));
+    } finally {
+      setLoading(false);
+    }
+  });
+
   const { notify } = useNotifications();
   const lastMessage = usePaperTradingUpdate();
   const [trades, setTrades] = useState([]);
@@ -29,37 +43,25 @@ export default function PaperTradeHistory({ selectedAccountId }) {
   const [pnlMode, setPnlMode] = useState("net");
   const [page, setPage] = useState(1);
 
-  const totalCharges = (trade) =>
-    Number(trade.charges_breakdown?.total ?? trade.charges_json?.total_charges ?? 0);
-
-  const displayPnl = (trade) =>
-    pnlMode === "net" ? Number(trade.net_pnl || 0) : Number(trade.net_pnl || 0) + totalCharges(trade);
+  const displayPnl = useCallback((trade) =>
+    pnlMode === "net" ? Number(trade.net_pnl || 0) : Number(trade.net_pnl || 0) + totalCharges(trade), [pnlMode]);
 
   const displayPnlPercent = (trade) => {
     const entryValue = Number(trade.entry_price || 0) * Number(trade.quantity || 0);
     return entryValue ? (displayPnl(trade) / entryValue) * 100 : 0;
   };
 
-  const fetchData = async () => {
-    try {
-      const tradesRes = await paperApi.getTrades();
-      setTrades(tradesRes.data || []);
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load trades"));
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
     if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(lastMessage?.event_type)) {
       fetchData();
     }
-  }, [lastMessage]);
+  }, [lastMessage, fetchData]);
 
   const filteredTrades = useMemo(
     () =>
@@ -74,7 +76,7 @@ export default function PaperTradeHistory({ selectedAccountId }) {
           return false;
         return true;
       }),
-    [filter, pnlMode, search, selectedAccountId, trades],
+    [filter, displayPnl, search, selectedAccountId, trades],
   );
 
   useEffect(() => setPage(1), [filter, pnlMode, search, selectedAccountId]);
@@ -103,7 +105,7 @@ export default function PaperTradeHistory({ selectedAccountId }) {
       winning_trades: winners.length,
       losing_trades: losers.length,
     };
-  }, [filteredTrades, pnlMode]);
+  }, [filteredTrades, displayPnl]);
 
   const formatDuration = (seconds) => {
     if (seconds < 60) return `${seconds}s`;
@@ -188,8 +190,8 @@ export default function PaperTradeHistory({ selectedAccountId }) {
               size="sm"
               onClick={() => setFilter(value)}
               className={`text-xs h-8 px-4 ${
-                filter === value 
-                  ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400" 
+                filter === value
+                  ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -311,7 +313,7 @@ export default function PaperTradeHistory({ selectedAccountId }) {
               </CardContent>
             </Card>
           ))}
-          <PaperTablePagination
+          <TablePagination
             page={page}
             count={filteredTrades.length}
             pageSize={PAGE_SIZE}
@@ -322,3 +324,8 @@ export default function PaperTradeHistory({ selectedAccountId }) {
     </div>
   );
 }
+
+PaperTradeHistory.propTypes = {
+  ...PaperTradeHistory.propTypes,
+  selectedAccountId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};

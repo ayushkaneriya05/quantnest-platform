@@ -14,7 +14,9 @@ from brokers.services import BrokerService
 from common.enums import CapitalAllocationType, OrderStatus, OrderType, ProductType, Side, NotificationType
 from marketdata.quote_store import QuoteStore
 from notifications.services import NotificationService
-from core.cache_api import cache_api
+from core.shared_state_store import shared_state_store
+from core.outbox import cache_event
+from core.lifecycle import publish_session_event
 
 from strategy_engine.runtime import StrategyRuntimeState
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
@@ -22,26 +24,12 @@ from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocatio
 logger = logging.getLogger(__name__)
 
 
-def _publish_cache_after_commit(method_name, *args, **kwargs):
-    from core.outbox import cache_event
-    cache_event(method_name, *args, **kwargs)
-
 class LiveExecutionService:
     """Service to handle Live Trading Strategy execution - broker-agnostic."""
 
     ACTIVE_ORDER_STATUSES = {OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, "UNKNOWN"}
     FILLED_ORDER_STATUSES = {OrderStatus.PARTIAL_FILL, OrderStatus.FILLED}
     TERMINAL_ORDER_STATUSES = {OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.EXPIRED}
-
-    @staticmethod
-    def _publish_execution_event(action: str, session, scope: str = "live"):
-        from core.outbox import enqueue
-        from instruments.services import InstrumentResolver
-        enqueue("control", f"{scope}:{session.pk}", {
-            "action": action, "scope": scope, "session_id": str(session.pk),
-            "strategy_id": str(session.strategy_id),
-            "instrument_ids": InstrumentResolver.execution_instrument_ids(session),
-        })
 
     @staticmethod
     @transaction.atomic
@@ -121,8 +109,7 @@ class LiveExecutionService:
             )
 
         # Use unified cache for funds state
-        from core.cache_view import cache_view
-        funds_data = cache_view.get_funds(credential)
+        funds_data = shared_state_store.get_funds(credential)
         broker_equity = BrokerService.to_decimal(
             funds_data.get("net_equity") or funds_data.get("available_margin") or funds_data.get("cash_balance") or 0
         )
@@ -175,6 +162,10 @@ class LiveExecutionService:
     @staticmethod
     @transaction.atomic
     def deploy_session(user, strategy, allocation, broker_credential):
+        from installations.licensing import require_broker_access
+        require_broker_access(broker_credential.broker_name)
+        from instruments.services import InstrumentResolver
+        InstrumentResolver.validate_execution_snapshot(allocation.deployed_version.config_snapshot)
         from strategies.models import Strategy
         strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
         if strategy.status != 'ACTIVE':
@@ -201,10 +192,10 @@ class LiveExecutionService:
         )
 
         # Initialize funds in unified cache for live trading
-        _publish_cache_after_commit("update_risk_metrics", "live", str(session.id), {"auto_disable_release": {}})
+        cache_event("update_risk_metrics", "live", str(session.id), {"auto_disable_release": {}})
         LiveExecutionService.sync_funds(broker_credential)
 
-        LiveExecutionService._publish_execution_event("SESSION_START", session, "live")
+        publish_session_event("live", session, "SESSION_START")
 
         NotificationService.notify(
             user=user,
@@ -232,7 +223,7 @@ class LiveExecutionService:
             data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "live"},
             dedupe_key=f"live-session:{session.id}:PAUSED:{session.updated_at.isoformat()}"
         )
-        LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
+        publish_session_event("live", session, "SESSION_PAUSE")
         return session
 
 
@@ -244,7 +235,7 @@ class LiveExecutionService:
             session = TradingSession.objects.select_for_update().get(pk=session.pk)
             session.status = "STOPPING"
             session.save(update_fields=["status", "updated_at"])
-            LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
+            publish_session_event("live", session, "SESSION_PAUSE")
         if close_positions:
             position_query = LivePosition.objects.filter(allocation=session.allocation)
             for position in position_query:
@@ -283,6 +274,8 @@ class LiveExecutionService:
     @staticmethod
     @transaction.atomic
     def resume_session(session):
+        from installations.licensing import require_broker_access
+        require_broker_access(session.broker_credential.broker_name)
         if session.strategy.status != 'ACTIVE' or not session.strategy.live_trading_enabled:
             raise ValueError('Activate the strategy and enable live trading before resuming this session.')
         was_stopped = session.status == "STOPPED"
@@ -309,7 +302,7 @@ class LiveExecutionService:
             data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "live"},
             dedupe_key=f"live-session:{session.id}:RUNNING:{session.updated_at.isoformat()}"
         )
-        LiveExecutionService._publish_execution_event("SESSION_START", session, "live")
+        publish_session_event("live", session, "SESSION_START")
         return session
 
     @staticmethod
@@ -342,16 +335,15 @@ class LiveExecutionService:
     def _validate_auto_disable(session, raise_on_trigger=True, stats=None, config=None):
         """Use the complete risk projection and the deployed rule configuration."""
         from risk_management.auto_disable import AutoDisableGate
-        from core.cache_view import cache_view
         if stats is None:
             StrategyRuntimeState.ensure_risk_metrics("live", session.id)
-            stats = cache_view.get_risk_metrics("live", session.id)
+            stats = shared_state_store.get_risk_metrics("live", session.id)
 
         allocation = session.allocation
         capital = allocation.allocated_capital if allocation else Decimal("0")
         match = AutoDisableGate.evaluate(session, stats, capital, config=config)
         if match and match.get("paused_now"):
-            LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
+            publish_session_event("live", session, "SESSION_PAUSE")
         if match and raise_on_trigger:
             raise ValueError(f"Strategy auto-disable triggered: {match.get('message', 'Strategy auto-disable triggered')}")
         return bool(match)
@@ -382,7 +374,7 @@ class LiveExecutionService:
     @staticmethod
     def _place_order_internal(session, instrument, side, quantity, price=None, reason="", request_id=None, intent="ENTRY", expected_version_id=None):
         from django.conf import settings as runtime_settings
-        if intent == "ENTRY" and "live" not in runtime_settings.EXECUTION_ENABLED_SCOPES:
+        if "live" not in runtime_settings.EXECUTION_ENABLED_SCOPES:
             raise ValueError("Live execution is not enabled in this deployment")
         broker_session = BrokerService.ensure_session(session.broker_credential)
 
@@ -390,8 +382,7 @@ class LiveExecutionService:
         # Avoid a synchronous funds REST request on this order-dispatch path.
         # Keep the refresh fallback for direct/manual calls without a request ID.
         if request_id is None:
-            from core.cache_view import cache_view
-            funds_data = cache_view.get_funds(session.broker_credential_id)
+            funds_data = shared_state_store.get_funds(session.broker_credential_id)
             if not funds_data:
                 LiveExecutionService.sync_funds(session.broker_credential)
 
@@ -443,9 +434,8 @@ class LiveExecutionService:
             if intent == "ENTRY" and current_status != "RUNNING":
                 capital_rejection = "Session stopped or paused before order submission"
             if str(intent).upper() == "ENTRY" and capital_rejection is None:
-                from core.cache_view import cache_view
                 from django.utils.dateparse import parse_datetime
-                funds = cache_view.get_funds(session.broker_credential_id) or {}
+                funds = shared_state_store.get_funds(session.broker_credential_id) or {}
                 observed = parse_datetime(funds.get("snapshot_time") or "")
                 if expected_price <= 0 or observed is None or not 0 <= (timezone.now() - observed).total_seconds() <= 90:
                     capital_rejection = "Fresh broker funds and reference price are required"
@@ -689,7 +679,7 @@ class LiveExecutionService:
                     execution_instrument_id=position.instrument_id,
                 )
             if order.session_id:
-                _publish_cache_after_commit("update_risk_metrics", "live", order.session_id, {"last_entry_time": order.executed_at or timezone.now()})
+                cache_event("update_risk_metrics", "live", order.session_id, {"last_entry_time": order.executed_at or timezone.now()})
 
         LiveExecutionService._record_slippage(order, order.avg_fill_price)
 
@@ -786,8 +776,7 @@ class LiveExecutionService:
             return
 
         # Use unified cache for funds state
-        from core.cache_view import cache_view
-        funds_data = cache_view.get_funds(credential.id)
+        funds_data = shared_state_store.get_funds(credential.id)
         broker_equity = BrokerService.to_decimal(funds_data.get("net_equity") or funds_data.get("cash_balance") or 0)
 
         # Get all allocations for this broker credential, ordered by creation time
@@ -862,12 +851,12 @@ class LiveExecutionService:
             "snapshot_time": snapshot.snapshot_time.isoformat(),
         }
         # Update unified cache
-        cache_api.update_funds(credential.id, payload)
+        shared_state_store.update_funds(credential.id, payload)
 
         for session in TradingSession.objects.filter(broker_credential=credential, status__in=["RUNNING", "PAUSED", "STOPPING", "ERROR"]).select_related("allocation"):
             session_payload = dict(payload)
             session_payload["allocation_available_capital"] = str(session.allocation.available_capital if session.allocation else 0)
-            cache_api.update_session_funds("live", str(session.id), session_payload)
+            shared_state_store.update_session_funds("live", str(session.id), session_payload)
         return payload
 
 

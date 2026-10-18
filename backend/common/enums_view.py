@@ -2,7 +2,7 @@
 Common app - view to serve all enum choices as a JSON API.
 Used by the frontend to avoid hardcoding choice values.
 """
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
@@ -144,5 +144,6 @@ def get_enum_metadata():
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@authentication_classes([])
 def enum_choices(request):
     return Response(get_enum_metadata())

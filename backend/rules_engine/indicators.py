@@ -3,9 +3,6 @@ import logging
 import pandas as pd
 import numpy as np
 
-if not hasattr(np, "NaN"):
-    np.NaN = np.nan
-
 import pandas_ta as ta
 from common.enums import OperandType, get_operand_parameter_config, get_operand_parameter_defaults
 from common.trading_utils import to_float
@@ -89,7 +86,7 @@ class IndicatorEngine:
                         cols = [c for c in macd_df.columns if c.startswith("MACD_")]
                         series = macd_df[cols[0]] if cols else None
             elif indicator_type == OperandType.BOLLINGER_BANDS:
-                bb_df = ta.bbands(close, length=p["period"], std=p["std_dev"])
+                bb_df = ta.bbands(close, length=p["period"], lower_std=p["std_dev"], upper_std=p["std_dev"])
                 if bb_df is not None:
                     output_line = str(p.get("output_line", "UPPER")).upper()
                     if output_line == "LOWER":
@@ -176,21 +173,22 @@ class IndicatorEngine:
                 if kc_df is not None:
                     output_line = str(p.get("output_line", "UPPER")).upper()
                     if output_line == "LOWER":
-                        cols = [c for c in kc_df.columns if c.startswith("KCLe_")]
+                        cols = [c for c in kc_df.columns if c.startswith("KCL")]
                         series = kc_df[cols[0]] if cols else None
                     elif output_line == "MIDDLE":
-                        cols = [c for c in kc_df.columns if c.startswith("KCBs_")]
+                        cols = [c for c in kc_df.columns if c.startswith("KCB")]
                         series = kc_df[cols[0]] if cols else None
                     else:  # UPPER
-                        cols = [c for c in kc_df.columns if c.startswith("KCUe_")]
+                        cols = [c for c in kc_df.columns if c.startswith("KCU")]
                         series = kc_df[cols[0]] if cols else None
             elif indicator_type == OperandType.PARABOLIC_SAR:
                 af = to_float(p.get("af"), 0.02)
                 max_af = to_float(p.get("max_af"), 0.2)
                 psar_df = ta.psar(high, low, close, af0=af, af=af, max_af=max_af)
                 if psar_df is not None:
-                    cols = [c for c in psar_df.columns if c.startswith("PSARl_") or c.startswith("PSARs_") or c.startswith("PSAR_")]
-                    series = psar_df[cols[0]] if cols else None
+                    long = next(c for c in psar_df.columns if c.startswith("PSARl_"))
+                    short = next(c for c in psar_df.columns if c.startswith("PSARs_"))
+                    series = psar_df[long].combine_first(psar_df[short])
             elif indicator_type == OperandType.ICHIMOKU_CLOUD:
                 tenkan = int(p.get("tenkan", 9))
                 kijun = int(p.get("kijun", 26))
@@ -235,7 +233,7 @@ class IndicatorEngine:
                 pattern_df = ta.cdl_pattern(open_, high, low, close, name=pattern_name)
                 if pattern_df is not None and not pattern_df.empty:
                     cols = pattern_df.columns
-                    if cols:
+                    if len(cols):
                         raw_series = pattern_df[cols[0]]
                         if pattern_enum in ["ENGULFING_BULLISH", "HARAMI_BULLISH"]:
                             series = raw_series == 100

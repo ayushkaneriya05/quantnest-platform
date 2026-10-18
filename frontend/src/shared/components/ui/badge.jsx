@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { cva } from "class-variance-authority"
 
 import { cn } from "@/shared/lib/utils"
@@ -29,3 +30,9 @@ function Badge({ className, variant, ...props }) {
 }
 
 export { Badge, badgeVariants }
+
+Badge.propTypes = {
+  ...Badge.propTypes,
+  className: PropTypes.string,
+  variant: PropTypes.string,
+};

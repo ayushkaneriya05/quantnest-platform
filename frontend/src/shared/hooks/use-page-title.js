@@ -3,6 +3,8 @@ import { useLocation, matchPath } from "react-router-dom";
 const pages = [
   ["/overview", "Overview", "Your trading overview and quick actions"],
   ["/settings/profile", "Profile & Settings", "Manage your account, security, and preferences"],
+  ["/settings/billing", "Billing and Usage", "Plans, allowances, invoices and renewal"],
+  ["/support", "Support", "Your requests, feedback and replies"],
   ["/notifications", "Notification Center", "Manage alerts and notification history"],
   ["/research", "AI Research Assistant", "Research ideas, review evidence, and develop strategy rules"],
   ["/screener", "Market Screener", "Screen stocks using your conditions"],
@@ -29,7 +31,7 @@ const pages = [
   ["/paper/capital", "Paper Capital", "Manage capital and strategy allocations"],
   ["/paper/analytics", "Paper Analytics", "Review simulated performance"],
   ["/brokers", "Broker Connections", "Connect and manage broker accounts"],
-  ["/brokers/charge-profiles", "Broker Charge Profiles", "Configure execution costs"],
+  ["/brokers/charge-profiles", "Charge Profiles", "Reusable transaction costs for backtests and Paper trading"],
   ["/brokers/logs", "Broker API Logs", "Review broker requests and responses"],
   ["/live/portfolio", "Live Portfolio", "Review live positions, orders, and trades"],
   ["/live/strategies", "Live Strategies", "Manage live deployments"],

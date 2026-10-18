@@ -1,3 +1,4 @@
+import { actionLabel } from "@/features/research/researchActions";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Brain, Plus, Send, Paperclip, PanelLeft, X, Loader2 } from "lucide-react";
@@ -10,6 +11,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/shared/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import Markdown from "@/shared/components/ui/markdown";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
+import { useNotifications } from "@/shared/hooks/useNotifications";
 import { researchApi } from "@/shared/services/researchApi";
 import { backtestApi } from "@/shared/services/backtestApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -19,7 +21,7 @@ import ResearchUniverse from "@/features/research/components/ResearchUniverse.js
 import ResearchEvidence from "@/features/research/components/ResearchEvidence.jsx";
 import ResearchDrawer from "@/features/research/components/ResearchDrawer.jsx";
 import ResearchConversations from "@/features/research/components/ResearchConversations.jsx";
-import ResearchActionPreview, { actionLabel, ResearchActionLinks } from "@/features/research/components/ResearchActionPreview.jsx";
+import ResearchActionPreview, { ResearchActionLinks } from "@/features/research/components/ResearchActionPreview.jsx";
 
 const starters = [
   { title: "Explore the market", prompts: [
@@ -43,6 +45,7 @@ function CitedText({ text, evidence, onEvidence }) {
 CitedText.propTypes = { text: PropTypes.string.isRequired, evidence: PropTypes.array.isRequired, onEvidence: PropTypes.func.isRequired };
 
 export default function AIResearchAssistant() {
+  const { notify } = useNotifications();
   const [params, setParams] = useSearchParams();
   const session = params.get("session");
   const [schema, setSchema] = useState(null);
@@ -157,12 +160,12 @@ export default function AIResearchAssistant() {
       const response = await researchApi.start(payload); receive([response.data]);
       setParams({ session: String(response.data.session) }); setPrompt("");
       requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; });
-    } catch (error) { setError(getApiErrorMessage(error, "Could not start research")); }
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not start research")); }
     finally { submitting.current = false; setBusy(false); }
   }
   async function cancel(run) {
     try { setBusy(true); const response = await researchApi.cancel(run.id); receive([response.data]); await reload(true); }
-    catch (error) { setError(getApiErrorMessage(error, "Could not cancel research")); }
+    catch (error) { notify.error(getApiErrorMessage(error, "Could not cancel research")); }
     finally { setBusy(false); }
   }
   async function loadBacktests() {
@@ -171,7 +174,7 @@ export default function AIResearchAssistant() {
       const response = await backtestApi.getRuns({ status: "COMPLETED", page: backtestPage + 1 });
       setBacktests((previous) => [...new Map([...previous, ...response.data.results].map((item) => [item.id, item])).values()]);
       setBacktestPage((previous) => previous + 1); setMoreBacktests(Boolean(response.data.next));
-    } catch (error) { setError(getApiErrorMessage(error, "Could not load more backtests")); }
+    } catch (error) { notify.error(getApiErrorMessage(error, "Could not load more backtests")); }
     finally { setBusy(false); }
   }
   function followUp(text) { setPrompt(text); inputRef.current?.focus(); }
@@ -182,10 +185,10 @@ export default function AIResearchAssistant() {
   function toggleSelected(runId, id) { setSelected((previous) => ({ ...previous, [runId]: (previous[runId] || []).includes(id) ? previous[runId].filter((item) => item !== id) : [...previous[runId] || [], id] })); }
   const conversations = <ResearchConversations session={session} refreshKey={`${latest?.id || ""}-${latest?.status || ""}`} onSelect={(id) => { setParams({ session: String(id) }); setPrompt(""); setSidebar(false); setError(""); }} onDelete={(id) => { if (String(id) === session) newChat(); }} />;
 
-  return <div className="flex min-h-0 flex-1 overflow-hidden bg-background/40 text-foreground" data-testid="research-workspace">
+  return <div className="flex min-h-0 flex-1 overflow-hidden bg-background/40 text-foreground">
     <aside className={`hidden w-60 shrink-0 border-r border-border p-3 ${sidebarCollapsed ? "" : "lg:block"}`}>{conversations}</aside>
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div ref={scrollRef} className="scrollbar-theme min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="research-messages">
+      <div ref={scrollRef} className="scrollbar-theme min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className={`mx-auto w-full max-w-[1040px] space-y-6 px-4 py-5 sm:px-6 ${!session ? "flex min-h-full flex-col justify-center" : ""}`}>
           {loading && session && <p className="text-sm text-muted-foreground">Loading conversation…</p>}
           {!session && <div className="space-y-5 py-3"><div className="flex items-start gap-3"><Brain className="mt-1 h-7 w-7 shrink-0 text-indigo-700 dark:text-indigo-400" /><div><h2 className="text-xl font-semibold sm:text-2xl">What would you like to investigate?</h2><p className="mt-2 text-sm text-muted-foreground">Explore stocks, develop rules, and learn from real backtests. Attach context when it helps.</p></div></div><div className="grid gap-4 sm:grid-cols-2">{starters.map((group) => <section key={group.title} className="rounded-xl border border-border p-4"><h3 className="mb-3 text-sm font-semibold text-indigo-700 dark:text-indigo-300">{group.title}</h3><div className="space-y-2">{group.prompts.map(([label, text]) => <button key={label} onClick={() => followUp(text)} className="block w-full rounded-lg bg-card/60 p-3 text-left text-sm hover:bg-secondary">{label}</button>)}</div></section>)}</div></div>}
@@ -207,7 +210,7 @@ export default function AIResearchAssistant() {
           </article>)}
         </div>
       </div>
-      <div className="safe-bottom shrink-0 border-t border-border bg-background px-3 py-2 sm:px-6 sm:py-3" data-testid="research-composer"><div className="mx-auto w-full max-w-[1040px] space-y-2">
+      <div className="safe-bottom shrink-0 border-t border-border bg-background px-3 py-2 sm:px-6 sm:py-3"><div className="mx-auto w-full max-w-[1040px] space-y-2">
         <div className="scrollbar-thin-theme flex max-h-20 flex-wrap items-center gap-2 overflow-y-auto text-xs">
           {universe.instruments.map((item) => <button key={item.id} className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5" aria-label={`Remove ${item.symbol}`} disabled={active} onClick={() => setUniverse({ ...universe, instruments: universe.instruments.filter((value) => value.id !== item.id) })}>{item.symbol}<X size={12} /></button>)}
           {(universe.strategy_id || universe.use_watchlist) && <button className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5" disabled={active} onClick={() => setUniverse({ strategy_id: null, instruments: [], use_watchlist: false })} aria-label="Remove watchlist context">{universe.use_watchlist ? "Terminal watchlist" : "Strategy"}<X size={12} /></button>}
@@ -229,15 +232,15 @@ export default function AIResearchAssistant() {
       <DialogContent style={{ "--tw-enter-scale": 1, "--tw-exit-scale": 1 }} className="flex max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-xl flex-col border-border bg-background p-5 text-foreground">
         <div className="space-y-2 pr-7">
         <DialogTitle>Attach research context</DialogTitle>
-        <DialogDescription>Optional stocks, a watchlist, a strategy, or up to three completed backtests.</DialogDescription>
+        <DialogDescription>Optional stocks, a watchlist, a strategy, or completed backtests within your allowance.</DialogDescription>
         </div>
         <div className="scrollbar-theme min-h-0 space-y-5 overflow-y-auto pr-1">
-        <ResearchUniverse value={universe} onChange={(value, preferredTimeframe) => { setUniverse(value); if (preferredTimeframe) setTimeframe(preferredTimeframe); }} disabled={active} strategies={schema?.strategies} />
+        <ResearchUniverse value={universe} onChange={(value, preferredTimeframe) => { setUniverse(value); if (preferredTimeframe) setTimeframe(preferredTimeframe); }} disabled={active} strategies={schema?.strategies} maxInstruments={schema?.limits.instruments} />
         <section>
-          <h3 className="mb-3 text-sm">Completed backtests ({attached.length}/3)</h3>
+          <h3 className="mb-3 text-sm">Completed backtests ({attached.length}{schema?.limits.backtests != null ? `/${schema.limits.backtests}` : ''})</h3>
           <div className="scrollbar-thin-theme max-h-52 space-y-1 overflow-y-auto pr-1">
             {backtests.map((item) => <label key={item.id} htmlFor={`research-backtest-${item.id}`} className="flex cursor-pointer items-start gap-3 rounded-lg p-2.5 text-sm text-foreground hover:bg-card has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
-              <Checkbox id={`research-backtest-${item.id}`} className="mt-0.5" checked={attached.includes(item.id)} disabled={active || attached.length >= 3 && !attached.includes(item.id)}
+              <Checkbox id={`research-backtest-${item.id}`} className="mt-0.5" checked={attached.includes(item.id)} disabled={active || (schema?.limits.backtests != null && attached.length >= schema.limits.backtests && !attached.includes(item.id))}
                 onCheckedChange={(checked) => setAttached((previous) => checked === true ? [...previous, item.id] : previous.filter((id) => id !== item.id))} /><span className="min-w-0 break-words">{item.name}</span>
             </label>)}
             {!backtests.length && <p className="text-xs text-muted-foreground">Completed backtests will appear here.</p>}

@@ -1,0 +1,78 @@
+// Customer explanations share the authoritative catalog's identifiers and links.
+export const featureDetails = {
+  research: {
+    task: 'Ask a question. Understand the evidence. Decide what to investigate next.',
+    summary: 'Explore stocks, refine your ideas and understand your recorded results in a conversation.',
+    steps: ['Ask a general question, select stocks or attach a watchlist, strategy or completed backtest.', 'Read the answer alongside its sources, observation times and calculations. Open the evidence for a closer look.', 'Ask a follow-up to compare alternatives or revise your idea. Review and confirm any proposed strategy, watchlist change or backtest.'],
+    capabilities: [['Stock research', 'Investigate trend, momentum and volatility on your selected timeframe.'], ['Connected conversations', 'Continue your investigation with saved questions, answers and context.'], ['Strategy development', 'Describe your own idea, clarify its rules and review a readable draft before saving it.'], ['Results review', 'Attach completed backtests within your request allowance or selected execution reports to investigate costs, losses and differences.']],
+    inputs: 'Your question and optional stocks, watchlist, strategy, backtests or recorded execution results.',
+    outputs: 'An explanation, clickable sources, calculation cards and follow-up questions. Proposed changes need your confirmation.',
+    limitations: 'AI can make mistakes. This is a research tool, not buy/sell advice or a prediction of future returns. Check the evidence and its date.',
+  },
+  screener: {
+    task: 'Find stocks that match the conditions you choose.',
+    summary: 'Compare selected stocks against your technical filters and see why each result matches.',
+    steps: ['Select stocks, a watchlist or instruments from a saved strategy.', 'Choose a preset or build your own conditions. Set the timeframe and whether all or any conditions must pass.', 'Review matches, condition values and observation times. Save a named screen or send selected results to AI research.'],
+    capabilities: [['Your own filters', 'Combine supported indicators, price conditions and crossovers. Presets are editable starting points.'], ['Readable results', 'See the conditions behind a match and exclusions caused by missing data.'], ['Saved screens', 'Name your configuration and return to it without rebuilding filters.'], ['Research handoff', 'Take the exact screening result into a conversation for further investigation.']],
+    inputs: 'A selected stock list, technical conditions and timeframe. Screen your selected universe, up to 50 stocks and within your plan limits.',
+    outputs: 'A sortable table with condition values, candle times and explanations of exclusions.',
+    limitations: 'A match means your conditions passed at the recorded observation. It is not a recommendation. This is not an exchange-wide scanner.',
+  },
+  builder: {
+    task: 'Turn your trading idea into rules you can read and test.',
+    summary: 'Define entries, exits, position size and safeguards without writing an execution program.',
+    steps: ['Choose instruments and a default timeframe. Define entry and exit conditions.', 'Set fixed-quantity or capital-based sizing, stop-loss, target, trading windows and relevant restrictions.', 'Save a version with notes. Inspect changes, backtest it and explicitly select a version when deploying to Paper.'],
+    capabilities: [['Visual rules', 'Combine indicator and price conditions using AND/OR groups, supported operators and configurable parameters.'], ['Sizing and exits', 'Choose how much to trade and describe stop-loss, target and supported exit actions separately.'], ['Version history', 'Keep saved configurations with notes and readable changes. Review a version before restoring it.'], ['Read-only sharing', 'Share a public configuration link when you choose. Account and execution records stay private.']],
+    inputs: 'Your instruments, conditions, parameters, timeframe, sizing and execution restrictions.',
+    outputs: 'A saved strategy and version history preserving the rules behind tests and deployments.',
+    limitations: 'Saving does not start execution. You supply the logic; QuantNest does not sell profitable strategies. Current strategy execution supports NSE cash stocks.',
+  },
+  backtesting: {
+    task: 'Test your rules on historical prices before practising execution.',
+    summary: 'Inspect trades, costs and drawdowns with the exact configuration behind each test.',
+    steps: ['Choose a strategy, dates, initial capital, slippage and a charge profile.', 'Review the estimated workload and credit requirement, then confirm the test.', 'Inspect trades, costs, performance and diagnostics. Compare completed tests or run a bounded Monte Carlo analysis of recorded outcomes.'],
+    capabilities: [['Repeatable tests', 'Preserve the strategy and settings used, so later edits do not change a saved result.'], ['Trade-level inspection', 'Review entries, exits, charges and instrument-level outcomes.'], ['Compare assumptions', 'Ask AI to compare your attached completed tests, including dates, sizing, costs and rules.'], ['Investigate inactivity', 'Read available entry diagnostics when a test produces no trades.']],
+    inputs: 'Your strategy configuration, instruments, dates, capital and cost assumptions.',
+    outputs: 'Recorded trades, equity/drawdown views, metrics and available decision diagnostics. Monte Carlo explores selected trade history.',
+    limitations: 'Candles cannot reproduce every price sequence, exchange queue or live fill. Results depend on coverage and assumptions; past results do not establish future returns.',
+  },
+  terminal: {
+    task: 'Practise manual trading in a separate simulated account.',
+    summary: 'Use watchlists, charts and order tickets to practise your own decisions with simulated capital.',
+    steps: ['Build a watchlist, select a stock and inspect its chart and timeframe.', 'Review side, quantity, order type and prices before submitting a simulated order.', 'Monitor positions and eligible pending orders, then review closes in Terminal journal and reports.'],
+    capabilities: [['Charts and watchlists', 'Organise stocks and inspect candles with dates, timeframes and price observations.'], ['Order practice', 'Submit supported simulated order types; modify or cancel eligible pending orders.'], ['Position management', 'Follow simulated holdings and balances separately from automated Paper strategies.'], ['Review decisions', 'Add private notes to recorded closes and inspect Terminal-specific results.']],
+    inputs: 'Your stock selection, manual order instructions and available simulated capital.',
+    outputs: 'A separate Terminal account with order status, positions, close history and summaries.',
+    limitations: 'Terminal does not place real broker orders or reproduce exchange depth, queue position or all live fill conditions.',
+  },
+  paper: {
+    task: 'Practise automated execution without committing real trading capital.',
+    summary: 'Run a saved version of your own strategy and follow its simulated orders and positions.',
+    steps: ['Select an active strategy and the saved version you want to run.', 'Allocate simulated capital, review instruments, slippage and charges, then confirm deployment.', 'Monitor the Paper account. Pause or stop explicitly, review remaining positions and examine recorded results.'],
+    capabilities: [['Version-specific deployment', 'Know which saved rules are running, rather than assuming the latest edit is active.'], ['Capital allocation', 'Manage simulated capital available to each strategy and inspect allocation changes.'], ['Execution visibility', 'Follow sessions, orders, positions, trade history and costs as the strategy runs.'], ['Separate controls', 'Use pause/stop and configured safeguards, then review Paper-only reports and notes.']],
+    inputs: 'An owned active strategy version, instruments, simulated capital and cost settings.',
+    outputs: 'Automated Paper sessions with simulated orders, positions and recorded results.',
+    limitations: 'Paper fills are simulations, not broker fills. Liquidity, impact and latency differ. Paused deployments use plan capacity until stopped and settled.',
+  },
+  journal: {
+    task: 'Understand your decisions and learn from recorded outcomes.',
+    summary: 'Keep private trade reviews and examine performance without mixing execution environments.',
+    steps: ['Choose Terminal, Paper or available Private Live records, then select dates.', 'Review a close and save context, lessons, mistake tags and your execution rating.', 'Use Reports for realised summaries. Optionally attach results and selected notes to AI research.'],
+    capabilities: [['Private reviews', 'Record why you acted, what went as expected and what you would change.'], ['Separate reports', 'Keep manual Terminal, automated Paper and Private Live outcomes clearly separated.'], ['Realised summaries', 'Inspect recorded P&L, charges and available breakdowns for selected dates.'], ['Connected research', 'Ask AI about a trade or results, choosing whether saved notes are included.']],
+    inputs: 'Recorded closes, an execution source, dates and your private review notes.',
+    outputs: 'Saved reviews, source-specific realised summaries and an optional research handoff.',
+    limitations: 'Partial exits count separately. Ratings are self-reported. Equity metrics are unavailable when the necessary historical equity series is not recorded.',
+  },
+  controls: {
+    task: 'Keep your account and execution settings under your control.',
+    summary: 'Protect access, review activity and understand which configuration is in use.',
+    steps: ['Enable two-factor authentication and keep recovery codes private.', 'Review active sign-in sessions, strategy versions and account activity.', 'Inspect plan usage and use explicit controls when changing or stopping a deployment.'],
+    capabilities: [['Account protection', 'Enable 2FA, review sessions and revoke access you do not recognise.'], ['Activity history', 'Inspect recorded configuration, account and deployment actions.'], ['Configuration visibility', 'Read version notes and changes before testing or updating a deployment.'], ['Usage and support', 'See remaining allowances, billing records and support requests in the workspace.']],
+    inputs: 'Your security preferences, control actions and saved configurations.',
+    outputs: 'Account state, activity records, version history and plan usage.',
+    limitations: 'Controls depend on functioning services. Manual pauses, strategy restrictions and subscription limits are separate; renewal does not automatically resume a strategy.',
+  },
+};
+export function getFeaturePages(features = []) {
+  return features.filter(feature => featureDetails[feature.code]).map(feature => ({ ...feature, ...featureDetails[feature.code] }));
+}

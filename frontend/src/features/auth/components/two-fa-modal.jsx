@@ -1,6 +1,6 @@
-/* eslint-disable react/prop-types */
 import { useState } from "react";
-import { AlertCircle, KeyRound, ShieldCheck } from "lucide-react";
+import PropTypes from "prop-types";
+import { KeyRound, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -18,7 +18,6 @@ export default function TwoFAModal({
   onClose,
   onVerify,
   isLoading = false,
-  error = null,
 }) {
   const [token, setToken] = useState("");
   const [useBackupCode, setUseBackupCode] = useState(false);
@@ -63,34 +62,27 @@ export default function TwoFAModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent onPointerDownOutside={(event) => event.preventDefault()} className="overflow-y-auto rounded-[2rem] border border-border bg-card/95 p-0 text-foreground shadow-card backdrop-blur-2xl sm:max-w-[430px]">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(229,196,97,0.18),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,0.16),transparent_34%)]" />
-        <div className="relative p-6">
-          <DialogHeader className="items-center text-center">
-            <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#e5c461]/30 bg-[#e5c461]/10 shadow-[0_18px_42px_rgba(229,196,97,0.16)]">
+      <DialogContent onPointerDownOutside={(event) => event.preventDefault()} className="overflow-y-auto rounded-3xl border-border bg-card p-0 text-foreground shadow-xl sm:max-w-[430px] sm:rounded-3xl sm:p-0">
+        <div className="p-5 sm:p-7">
+          <DialogHeader className="items-center text-center sm:text-center">
+            <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl border border-brand/20 bg-brand/10">
               {useBackupCode ? (
-                <KeyRound className="h-7 w-7 text-brand" />
+                <KeyRound aria-hidden="true" className="h-6 w-6 text-brand" />
               ) : (
-                <ShieldCheck className="h-7 w-7 text-brand" />
+                <ShieldCheck aria-hidden="true" className="h-6 w-6 text-brand" />
               )}
             </div>
             <DialogTitle className="text-2xl font-semibold tracking-[-0.03em] text-foreground">
-              {useBackupCode ? "Use backup code" : "Secure your sign in"}
+              {useBackupCode ? "Use a backup code" : "Verify your sign-in"}
             </DialogTitle>
             <DialogDescription className="max-w-sm pt-1 text-sm leading-6 text-muted-foreground">
               {useBackupCode
-                ? "Enter one of your saved backup codes to continue into QuantNest."
-                : "Enter the 6 digit code from your authenticator app to finish signing in."}
+                ? "Enter an unused backup code from your security settings. Each code can be used once."
+                : "Enter the current 6 digit code from the authenticator app linked to your account."}
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
-            {error && (
-              <div className="flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-200">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
+          <form onSubmit={handleSubmit} className="mt-6 grid gap-4" aria-busy={isLoading}>
 
             <div className="space-y-2">
               <Label
@@ -102,25 +94,26 @@ export default function TwoFAModal({
               <Input
                 id="2fa-token"
                 type="text"
+                inputMode="numeric"
                 placeholder={useBackupCode ? "1234-5678" : "000000"}
                 value={token}
                 onChange={handleTokenChange}
                 maxLength={useBackupCode ? 16 : 6}
-                className="h-14 rounded-2xl border-border bg-muted/50 text-center font-mono text-2xl tracking-[0.32em] text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
+                className="h-14 rounded-xl border-input bg-background text-center font-mono text-xl tracking-[0.14em] sm:text-2xl sm:tracking-[0.2em]"
                 required
                 autoComplete="one-time-code"
               />
-              <p className="text-center text-xs text-muted-foreground">
+              <p className="text-center text-xs leading-5 text-muted-foreground">
                 {useBackupCode
-                  ? "Use an unused backup code from your security setup."
-                  : "Codes refresh often, so enter the latest one."}
+                  ? "Your backup code has 8 digits, usually shown as 1234-5678."
+                  : "If a code expires, enter the next code shown in your app."}
               </p>
             </div>
 
             <button
               type="button"
               onClick={handleToggleMode}
-              className="justify-self-center text-sm font-medium text-brand transition hover:text-foreground focus:outline-none"
+              className="focus-ring min-h-11 justify-self-center rounded-sm text-sm font-medium text-brand transition hover:text-foreground"
             >
               {useBackupCode
                 ? "Use authenticator app instead"
@@ -132,7 +125,7 @@ export default function TwoFAModal({
                 type="button"
                 onClick={resetAndClose}
                 variant="outline"
-                className="h-11 rounded-full border-border bg-muted/50 text-foreground hover:bg-muted/50 hover:text-foreground"
+                className="h-11 rounded-full"
                 disabled={isLoading}
               >
                 Cancel
@@ -140,7 +133,7 @@ export default function TwoFAModal({
               <Button
                 type="submit"
                 disabled={isSubmitDisabled}
-                className="h-11 rounded-full bg-[#e5c461] text-sm font-semibold text-black shadow-[0_16px_34px_rgba(229,196,97,0.26)] hover:bg-[#f0d676] disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-11 rounded-full"
               >
                 {isLoading ? "Verifying..." : "Verify"}
               </Button>
@@ -151,3 +144,5 @@ export default function TwoFAModal({
     </Dialog>
   );
 }
+
+TwoFAModal.propTypes = { isOpen: PropTypes.bool.isRequired, onClose: PropTypes.func.isRequired, onVerify: PropTypes.func.isRequired, isLoading: PropTypes.bool };

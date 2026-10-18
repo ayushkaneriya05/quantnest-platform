@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { Loader2 } from 'lucide-react';
 
 export function GlobalLoader({ text = "Loading...", fullHeight = true }) {
@@ -8,3 +9,9 @@ export function GlobalLoader({ text = "Loading...", fullHeight = true }) {
     </div>
   );
 }
+
+GlobalLoader.propTypes = {
+  ...GlobalLoader.propTypes,
+  fullHeight: PropTypes.bool,
+  text: PropTypes.string,
+};

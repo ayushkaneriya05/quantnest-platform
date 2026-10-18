@@ -1,9 +1,10 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useMemo } from "react";
-import { 
-  Card, 
-  CardContent, 
-  CardHeader, 
-  CardTitle 
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle
 } from "@/shared/components/ui/card";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -24,12 +25,24 @@ import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 
 export default function BrokerChargeProfiles() {
+  const fetchProfiles = useStableCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await brokersApi.getChargeProfiles();
+      setProfiles(res.data || []);
+    } catch (error) {
+      notify.error("Failed to load charge profiles");
+    } finally {
+      setLoading(false);
+    }
+  });
+
   const { notify } = useNotifications();
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
-  
+
   const [formData, setFormData] = useState({
     name: "",
     brokerage_per_order: 20,
@@ -48,19 +61,9 @@ export default function BrokerChargeProfiles() {
 
   useEffect(() => {
     fetchProfiles();
-  }, []);
+  }, [fetchProfiles]);
 
-  const fetchProfiles = async () => {
-    try {
-      setLoading(true);
-      const res = await brokersApi.getChargeProfiles();
-      setProfiles(res.data || []);
-    } catch (error) {
-      notify.error("Failed to load charge profiles");
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   const handleOpenModal = (profile = null) => {
     if (profile) {
@@ -189,29 +192,29 @@ export default function BrokerChargeProfiles() {
                 <div className="font-mono text-right">
                   {profile.brokerage_pct}% or ₹{profile.brokerage_per_order} (Cap: ₹{profile.brokerage_cap || 0})
                 </div>
-                
+
                 <div className="text-muted-foreground">STT (Eq Del | Intraday)</div>
                 <div className="font-mono text-right">{profile.stt_eq_delivery_pct || 0}% | {profile.stt_eq_intraday_pct || 0}%</div>
-                
+
                 <div className="text-muted-foreground">STT (Fut | Opt)</div>
                 <div className="font-mono text-right">{profile.stt_futures_pct || 0}% | {profile.stt_options_sell_pct || 0}%</div>
-                
+
                 <div className="text-muted-foreground">Exchange Txn (Eq | F&O)</div>
                 <div className="font-mono text-right">{profile.exchange_txn_pct || 0}% | {profile.exchange_txn_fo_pct || 0}%</div>
-                
+
                 <div className="text-muted-foreground">SEBI</div>
                 <div className="font-mono text-right">{profile.sebi_turnover_pct}%</div>
-                
+
                 <div className="text-muted-foreground">Stamp Duty</div>
                 <div className="font-mono text-right">{profile.stamp_duty_pct}%</div>
-                
+
                 <div className="text-muted-foreground">GST</div>
                 <div className="font-mono text-right">{profile.gst_pct}%</div>
               </div>
 
               {!profile.is_default && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="w-full border-border text-foreground hover:bg-secondary"
                   onClick={() => handleSetDefault(profile.id)}
                 >
@@ -232,7 +235,7 @@ export default function BrokerChargeProfiles() {
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
               <Label>Profile Name</Label>
-              <Input 
+              <Input
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
                 className="bg-secondary border-border"
@@ -242,7 +245,7 @@ export default function BrokerChargeProfiles() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Brokerage Flat (₹/order)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.01"
                   value={formData.brokerage_per_order}
@@ -252,7 +255,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>Brokerage Percent (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.brokerage_pct}
@@ -262,7 +265,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>Brokerage Cap (₹)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="1"
                   value={formData.brokerage_cap}
@@ -272,7 +275,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>STT Eq Delivery (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.stt_eq_delivery_pct}
@@ -282,7 +285,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>STT Eq Intraday (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.stt_eq_intraday_pct}
@@ -292,7 +295,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>STT Futures (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.stt_futures_pct}
@@ -302,7 +305,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>STT Options (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.stt_options_sell_pct}
@@ -312,7 +315,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>Exchange Txn Eq (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.exchange_txn_pct}
@@ -322,7 +325,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>Exchange Txn F&O (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.exchange_txn_fo_pct}
@@ -330,10 +333,10 @@ export default function BrokerChargeProfiles() {
                   className="bg-secondary border-border font-mono"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label>SEBI (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.sebi_turnover_pct}
@@ -343,7 +346,7 @@ export default function BrokerChargeProfiles() {
               </div>
               <div className="space-y-2">
                 <Label>Stamp Duty (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.0001"
                   value={formData.stamp_duty_pct}
@@ -351,10 +354,10 @@ export default function BrokerChargeProfiles() {
                   className="bg-secondary border-border font-mono"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label>GST (%)</Label>
-                <Input 
+                <Input
                   type="number"
                   step="0.01"
                   value={formData.gst_pct}

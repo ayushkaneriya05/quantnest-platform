@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import * as React from "react"
 import { format, setMonth, setYear, setDate as setDayOfMonth } from "date-fns"
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react"
@@ -24,9 +25,10 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
     "July", "August", "September", "October", "November", "December"
   ]
 
+  const dateTime = date?.getTime()
   React.useEffect(() => {
-    if (date) setDisplayMonth(date)
-  }, [date?.getTime()])
+    if (dateTime != null) setDisplayMonth(new Date(dateTime))
+  }, [dateTime])
 
   React.useEffect(() => {
     if (open) setView("days")
@@ -190,3 +192,11 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
     </Popover>
   )
 }
+
+DatePicker.propTypes = {
+  ...DatePicker.propTypes,
+  className: PropTypes.string,
+  date: PropTypes.instanceOf(Date),
+  placeholder: PropTypes.string,
+  setDate: PropTypes.func,
+};

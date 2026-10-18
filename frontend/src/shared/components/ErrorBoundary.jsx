@@ -3,12 +3,14 @@ import PropTypes from "prop-types";
 import { useLocation } from "react-router-dom";
 import { AlertTriangle, RefreshCw, Home, RotateCcw } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
+import { reportClientError } from "@/shared/services/clientErrors";
 
 class PageErrorBoundary extends React.Component {
   state = { hasError: false, error: null, componentStack: "" };
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
   componentDidCatch(error, info) {
-    console.error("Page rendering failed:", error, info);
+    if ((import.meta.env || {}).DEV) console.error("Page rendering failed:", error, info);
+    reportClientError("render_failure");
     this.setState({ componentStack: info.componentStack });
   }
   componentDidUpdate(previous) {
@@ -28,7 +30,7 @@ class PageErrorBoundary extends React.Component {
           <Button variant="outline" onClick={() => window.location.reload()}><RefreshCw />Reload page</Button>
           <Button variant="outline" onClick={() => window.location.assign("/")}><Home />Home</Button>
         </div>
-        {import.meta.env.DEV && <details className="mt-6 rounded-lg border border-border p-3">
+        {(import.meta.env || {}).DEV && <details className="mt-6 rounded-lg border border-border p-3">
           <summary className="cursor-pointer text-sm text-muted-foreground">Development error details</summary>
           <pre className="scrollbar-theme mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">{this.state.error?.stack || String(this.state.error)}{"\n"}{this.state.componentStack}</pre>
         </details>}

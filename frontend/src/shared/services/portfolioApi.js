@@ -3,14 +3,11 @@
  */
 import axiosInstance from "./api";
 
-const BASE_URL = "/portfolio";
+const BASE_URL = "/paper";
 
 export const portfolioApi = {
   // Portfolio
   getMyPortfolio: () => axiosInstance.get(`${BASE_URL}/portfolios/me/`),
-  getPortfolio: (id) => axiosInstance.get(`${BASE_URL}/portfolios/${id}/`),
-  updatePortfolio: (id, data) =>
-    axiosInstance.patch(`${BASE_URL}/portfolios/${id}/`, data),
   deposit: (id, amount, notes = "") =>
     axiosInstance.post(`${BASE_URL}/portfolios/${id}/deposit/`, {
       amount,
@@ -42,17 +39,6 @@ export const portfolioApi = {
   // Transactions
   getTransactions: () => axiosInstance.get(`${BASE_URL}/transactions/`),
 
-  // Performance
-  getPerformanceHistory: (startDate, endDate) => {
-    let url = `${BASE_URL}/performance/range/?`;
-    if (startDate) url += `start=${startDate}&`;
-    if (endDate) url += `end=${endDate}`;
-    return axiosInstance.get(url);
-  },
-  getDailyPerformance: () => axiosInstance.get(`${BASE_URL}/performance/`),
-  getPortfolioPerformance: () =>
-    axiosInstance.get(`${BASE_URL}/portfolios/performance/`),
-
   // Paper account support from portfolio allocation
   createPaperAccount: (allocationId, name, executionCosts = {}) =>
     axiosInstance.post(`${BASE_URL}/portfolios/create_paper_account/`, {
@@ -63,24 +49,3 @@ export const portfolioApi = {
       include_charges: executionCosts.include_charges ?? true,
     }),
 };
-
-export const riskApi = {
-  // Position Sizing
-  getSizingRules: (params) => axiosInstance.get("/risk/sizing/", { params }),
-  getSizingRule: (id) => axiosInstance.get(`/risk/sizing/${id}/`),
-  createSizingRule: (data) => axiosInstance.post("/risk/sizing/", data),
-  updateSizingRule: (id, data) =>
-    axiosInstance.patch(`/risk/sizing/${id}/`, data),
-
-  // Auto-disable
-  getAutoDisableRules: (params) => axiosInstance.get("/risk/auto-disable/", { params }),
-  createAutoDisableRule: (data) =>
-    axiosInstance.post("/risk/auto-disable/", data),
-  updateAutoDisableRule: (id, data) =>
-    axiosInstance.patch(`/risk/auto-disable/${id}/`, data),
-  deleteAutoDisableRule: (id) =>
-    axiosInstance.delete(`/risk/auto-disable/${id}/`),
-
-};
-
-export default { portfolioApi, riskApi };

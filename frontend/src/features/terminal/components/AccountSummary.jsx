@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import {
@@ -222,3 +223,20 @@ export default function AccountSummary({ account, trades = [], positions = [], m
     </div>
   );
 }
+
+StatCard.propTypes = {
+  ...StatCard.propTypes,
+  icon: PropTypes.elementType,
+  subtitle: PropTypes.string,
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  variant: PropTypes.string,
+};
+
+AccountSummary.propTypes = {
+  ...AccountSummary.propTypes,
+  account: PropTypes.object,
+  metrics: PropTypes.array,
+  positions: PropTypes.array,
+  trades: PropTypes.array,
+};

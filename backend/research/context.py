@@ -11,8 +11,6 @@ from backtesting.services import backtest_configuration
 
 def active_stocks(ids):
     ids = list(dict.fromkeys(ids))
-    if len(ids) > 50:
-        raise ValidationError("Select at most 50 instruments.")
     rows = list(Instrument.objects.filter(pk__in=ids, is_active=True, exchange="NSE", instrument_type="STOCK")
                 .values("id", "symbol", "name", "sym_ticker"))
     if len(rows) != len(ids):
@@ -37,8 +35,8 @@ def resolve_context(user, data, saved=None):
         snapshot = StrategySnapshotService._serialize_strategy(strategy)
     ids = list(dict.fromkeys(context.get("backtest_ids", [])))
     backtests = list(BacktestRun.objects.filter(pk__in=ids, user=user, status="COMPLETED"))
-    if len(backtests) != len(ids) or len(ids) > 3:
-        raise ValidationError("Attach up to three of your completed backtests.")
+    if len(backtests) != len(ids):
+        raise ValidationError("Attach only your completed backtests.")
     context["backtest_ids"] = ids
     context["backtests"] = [{"id": item.pk, "name": item.name, "snapshot": backtest_configuration(item)} for item in backtests]
     snapshot = snapshot or (context["backtests"][0]["snapshot"] if len(backtests) == 1 else None)
@@ -65,13 +63,5 @@ def resolve_context(user, data, saved=None):
 
 
 def research_instrument_ids(run):
-    ids = set(run.request.get("instrument_ids", []))
-    ids.update(item["instrument_id"] for item in run.request.get("draft_context", {}).get("draft", {}).get("watchlist_instruments", []))
-    for item in run.evidence:
-        data = item.get("data", {})
-        if item.get("tool") == "resolve_instruments" and not data.get("ambiguous"):
-            ids.update(row["id"] for row in data.get("instruments", []))
-        ids.update(row["instrument_id"] for row in data.get("rows", []))
-        if item.get("tool") == "validate_strategy_draft":
-            ids.update(row["instrument_id"] for row in data.get("draft", {}).get("watchlist_instruments", []))
-    return sorted(ids)
+    """Tools use only the universe accepted at this run's user-action boundary."""
+    return sorted(set(run.request.get("instrument_ids", [])))

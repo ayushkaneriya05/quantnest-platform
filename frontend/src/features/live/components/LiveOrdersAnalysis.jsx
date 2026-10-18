@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useMemo } from "react";
 import { Activity } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
@@ -5,7 +6,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
-import LiveTablePagination from "@/features/live/components/LiveTablePagination.jsx";
+import TablePagination from "@/shared/components/TablePagination";
 
 const ACTIVE = new Set(["PENDING", "PLACED", "PARTIAL_FILL", "UNKNOWN"]);
 const tone = (status) => {
@@ -55,10 +56,30 @@ export default function LiveOrdersAnalysis({ orders = [], pagination, summary = 
                 <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(order.placed_at)}</TableCell>
               </TableRow>)}</TableBody>
             </Table></div></CardContent>
-            <LiveTablePagination page={pagination?.page || 1} count={pagination?.count || 0} onPageChange={onPageChange} />
+            <TablePagination page={pagination?.page || 1} count={pagination?.count || 0} onPageChange={onPageChange} />
           </>
         )}
       </Card>
     </div>
   );
 }
+
+Metric.propTypes = {
+  ...Metric.propTypes,
+  color: PropTypes.string,
+  note: PropTypes.string,
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};
+
+LiveOrdersAnalysis.propTypes = {
+  ...LiveOrdersAnalysis.propTypes,
+  allocationFilter: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onAllocationChange: PropTypes.func,
+  onPageChange: PropTypes.func,
+  onStatusChange: PropTypes.func,
+  orders: PropTypes.array,
+  pagination: PropTypes.object,
+  statusFilter: PropTypes.string,
+  summary: PropTypes.object,
+};

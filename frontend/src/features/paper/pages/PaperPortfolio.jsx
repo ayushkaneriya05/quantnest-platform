@@ -1,3 +1,4 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   TrendingUp,
@@ -24,6 +25,11 @@ import { formatCurrency } from "@/shared/utils/formatters";
 import { usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
 
 export default function PaperPortfolio() {
+  const handleRefresh = useStableCallback(async () => {
+    await fetchData();
+    notify.success("Data refreshed");
+  });
+
   usePaperTradingWebSocket();
   const { notify } = useNotifications();
   const { setPageHeader, clearPageHeader } = usePageActions();
@@ -41,21 +47,21 @@ export default function PaperPortfolio() {
         paperApi.getAccounts(),
         paperApi.getActiveAccount(),
       ]);
-      
+
       const loadedAccounts = accountsRes.data || [];
       const accountIdFromUrl = searchParams.get("account_id");
-      
+
       let active;
       if (accountIdFromUrl) {
         active = loadedAccounts.find(a => String(a.id) === String(accountIdFromUrl));
       }
-      
+
       if (!active) {
         active = activeRes.data?.id
           ? activeRes.data
           : loadedAccounts[0];
       }
-        
+
       setAccounts(loadedAccounts);
       if (active?.id) {
         setSelectedAccount(String(active.id));
@@ -190,12 +196,9 @@ export default function PaperPortfolio() {
     return () => {
       clearPageHeader();
     };
-  }, [activeTab, selectedAccount, accounts, loading, setPageHeader, clearPageHeader]);
+  }, [activeTab, selectedAccount, accounts, loading, setPageHeader, clearPageHeader, handleRefresh]);
 
-  const handleRefresh = async () => {
-    await fetchData();
-    notify.success("Data refreshed");
-  };
+
 
   if (loading) {
     return (

@@ -42,7 +42,7 @@ def _request_metadata(request):
         ("Windows", "Windows"), ("Macintosh", "macOS"), ("Linux", "Linux"),
     ) if marker in agent), "Unknown")
     device = "Tablet" if "iPad" in agent or "Tablet" in agent else "Mobile" if "Mobile" in agent else "Desktop"
-    # REMOTE_ADDR is supplied by the server; do not trust arbitrary forwarded headers.
+    # TrustedIngress normalizes verified gateway metadata into REMOTE_ADDR.
     try:
         ip = str(ipaddress.ip_address(request.META.get("REMOTE_ADDR", "")))
     except ValueError:
@@ -129,6 +129,8 @@ def issue_login_response(user, request, *, refresh=None, status=200):
         setattr(session, field, value)
     session.save()
     get_user_model().objects.filter(pk=user.pk).update(last_login=now)
+    from customer_support.services import link_verified_customer_records
+    link_verified_customer_records(user)
     from audit.services import AuditService
     AuditService.log_action(user, "LOGIN", user, request=request, actor_name=user.get_username(), reason="Signed in successfully")
     rotate_token(request)
@@ -162,4 +164,6 @@ def refresh_session(request, raw_token):
     session.refresh_jti = refresh["jti"]
     session.expires_at = datetime_from_epoch(refresh["exp"])
     session.save(update_fields=["refresh_jti", "expires_at", "last_activity"])
+    from customer_support.services import link_verified_customer_records
+    link_verified_customer_records(user)
     return _token_response(request, refresh)

@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { BarChart3, CheckCircle2, TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { formatNumber } from "@/shared/utils/formatters";
@@ -44,3 +45,18 @@ export default function LivePerformance({ summary = {}, positions = [] }) {
     </div>
   );
 }
+
+Metric.propTypes = {
+  ...Metric.propTypes,
+  detail: PropTypes.string,
+  icon: PropTypes.elementType,
+  title: PropTypes.string,
+  tone: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};
+
+LivePerformance.propTypes = {
+  ...LivePerformance.propTypes,
+  positions: PropTypes.array,
+  summary: PropTypes.object,
+};

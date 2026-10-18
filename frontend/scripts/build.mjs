@@ -1,0 +1,35 @@
+import { build, loadEnv } from 'vite';
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { featureDetails } from '../src/features/site/content/features.js';
+
+const frontend = resolve(import.meta.dirname, '..');
+const environment = { ...loadEnv('production', frontend, ''), ...process.env };
+await build({ root: frontend });
+const output = join(frontend, 'dist');
+const routeSource = readFileSync(join(frontend, 'src/app/AppRoutes.jsx'), 'utf8');
+const routes = [...routeSource.matchAll(/<Route\s+path="([^"]+)"/g)].map(match => match[1]).filter(path => path !== '*');
+const publicRoutes = [...routeSource.matchAll(/<Route\s+path="([^"]+)"\s+element=\{<CustomerPages\s*\/>\}/g)].map(match => match[1]);
+if (!routes.length || !publicRoutes.length) throw new Error('Could not read frontend routes from AppRoutes.jsx');
+const shell = readFileSync(join(output, 'index.html'), 'utf8');
+writeFileSync(join(output, '404.html'), shell);
+// React owns both customer pages and workspace pages. Functions are restricted to backend paths.
+const docs = readdirSync(join(frontend, 'src/features/site/content/docs')).filter(name => name.endsWith('.md')).map(name => `/docs/${name.slice(0, -3)}/`);
+const featurePaths = Object.keys(featureDetails).map(code => `/features/${code}`);
+const frontendPaths = [...new Set([...routes.filter(path => !['/', '/features/:slug', '/docs/:document'].includes(path)), ...featurePaths, ...docs.map(path => path.replace(/\/$/, '')), '/docs/reference'])];
+writeFileSync(join(output, '_redirects'), frontendPaths.flatMap(path => [`${path} /index.html 200`, `${path}/ /index.html 200`]).join('\n') + '\n');
+writeFileSync(join(output, 'routes.caddy'), `@frontend path / ${frontendPaths.flatMap(path => [path, path + '/']).map(path => path.replace(/:[A-Za-z_]+/g, '*')).join(' ')}\n`);
+writeFileSync(join(output, '_routes.json'), JSON.stringify({ version: 1, include: ['/api/*', '/ws/*', '/admin', '/admin/*', '/health', '/health/*', '/static/*'], exclude: [] }, null, 2));
+const publicSite = new URL(environment.VITE_SITE_URL || 'https://quantnest.site');
+if (publicSite.protocol !== 'https:') throw new Error('Production VITE_SITE_URL must use HTTPS');
+const hashes = [...shell.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)].filter(match => !/\bsrc\s*=/i.test(match[1]) && match[2]).map(match => `'sha256-${createHash('sha256').update(match[2]).digest('base64')}'`);
+const csp = `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' ${hashes.join(' ')} https://challenges.cloudflare.com https://checkout.razorpay.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.razorpay.com; font-src 'self'; connect-src 'self' wss://${publicSite.host} https://*.razorpay.com https://challenges.cloudflare.com; frame-src https://*.razorpay.com https://challenges.cloudflare.com; media-src 'self'; form-action 'self'; upgrade-insecure-requests`;
+writeFileSync(join(output, 'security.caddy'), `header Content-Security-Policy ${JSON.stringify(csp)}\n`);
+writeFileSync(join(output, '_headers'), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/fonts/*\n  Cache-Control: public, max-age=604800\n/*\n  Content-Security-Policy: ${csp}\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n`);
+const pages = [...new Set(['/', ...publicRoutes.filter(path => !path.includes(':') && !path.endsWith('/confirmed')).map(path => `${path}/`), ...featurePaths.map(path => `${path}/`), ...docs, '/docs/reference/'])];
+const xmlEscape = value => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+writeFileSync(join(output, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map(path => `<url><loc>${xmlEscape(new URL(path, publicSite).href)}</loc></url>`).join('')}</urlset>`);
+writeFileSync(join(output, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin/\nDisallow: /settings/\nDisallow: /strategy/view/\nSitemap: ${publicSite.origin}/sitemap.xml\n`);
+for (const asset of ['logo_1-wordmark.png', 'fonts/poppins-400.woff2']) if (!existsSync(join(output, asset))) throw new Error(`Required frontend asset missing: ${asset}`);
+console.log('React customer site and workspace built:', output);

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import { Link, useNavigate } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { KeyRound, Loader2 } from "lucide-react";
 import LoginPage from "./LoginPage";
+import AuthLayout from "../components/AuthLayout";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import { Button } from "@/shared/components/ui/button";
 import api from "@/shared/services/api";
 import { loginSuccess } from "@/shared/store/authSlice";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -30,17 +33,16 @@ export default function GoogleCallbackPage() {
   if (twoFactorChallenge) return <LoginPage twoFactorChallenge={twoFactorChallenge} />;
 
   return (
-    <main className="flex min-h-[var(--viewport-height)] items-center justify-center bg-card px-4 text-foreground">
-      <div className="w-full max-w-md space-y-4 rounded-3xl border border-border bg-card p-8 text-center">
-        <h1 className="text-xl font-semibold">Google sign-in</h1>
-        {error ? <p role="alert" className="text-red-700 dark:text-red-300">{error}</p> : (
-          <p className="flex items-center justify-center gap-2 text-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
+    <AuthLayout authPage="login" title="Google sign-in" description={error ? "Your sign-in could not be completed. Return to sign in and try again." : "Connecting your Google account to your QuantNest workspace."} icon={KeyRound}>
+      <div className="space-y-5">
+        {error ? <WorkspaceState error={error} title="Google sign-in unavailable" /> : (
+          <p role="status" className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin motion-reduce:animate-none" />
             Completing your sign-in…
           </p>
         )}
-        <Link to="/login" className="inline-block text-brand hover:underline">Back to login</Link>
+        <Button asChild variant="outline" className="h-11 w-full rounded-full"><Link to="/login">Back to sign in</Link></Button>
       </div>
-    </main>
+    </AuthLayout>
   );
 }

@@ -1,58 +1,22 @@
-/* eslint-disable react/prop-types */
 import { useState } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
-
-import MainHeader from "@/shared/components/layout/main-header";
+import { ArrowRight, Lock, ShieldCheck } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/components/ui/card";
-import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
 import api from "@/shared/services/api";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import AuthLayout from "../components/AuthLayout";
+import { AuthField, PasswordGuidance } from "../components/AuthFields";
 
 export default function PasswordResetConfirmPage() {
   const { uid, token } = useParams();
   const navigate = useNavigate();
+  const { notify } = useNotifications();
   const [formData, setFormData] = useState({
     new_password1: "",
     new_password2: "",
   });
-  const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-
-  const getPasswordStrength = (pwd) => {
-    let strength = 0;
-    if (pwd.length >= 8) strength += 25;
-    if (/[A-Z]/.test(pwd)) strength += 25;
-    if (/[a-z]/.test(pwd)) strength += 25;
-    if (/[0-9]/.test(pwd) || /[^A-Za-z0-9]/.test(pwd)) strength += 25;
-    return strength;
-  };
-
-  const passwordStrength = getPasswordStrength(formData.new_password1);
-
-  const getStrengthColor = () => {
-    if (passwordStrength < 50) return "bg-red-500";
-    if (passwordStrength < 75) return "bg-amber-400";
-    if (passwordStrength < 100) return "bg-blue-400";
-    return "bg-emerald-500";
-  };
-
-  const getStrengthText = () => {
-    if (formData.new_password1.length === 0) return "";
-    if (passwordStrength < 50) return "Weak";
-    if (passwordStrength < 75) return "Fair";
-    if (passwordStrength < 100) return "Good";
-    return "Strong";
-  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -60,15 +24,14 @@ export default function PasswordResetConfirmPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
 
     if (formData.new_password1 !== formData.new_password2) {
-      setError("Passwords do not match.");
+      notify.error("Passwords do not match.");
       return;
     }
 
     if (formData.new_password1.length < 8) {
-      setError("Password must be at least 8 characters long.");
+      notify.error("Password must be at least 8 characters long.");
       return;
     }
 
@@ -81,169 +44,30 @@ export default function PasswordResetConfirmPage() {
         new_password2: formData.new_password2,
       });
 
-      navigate("/login", {
-        state: {
-          message:
-            "Password reset successful. Please log in with your new password.",
-        },
-      });
+      notify.success("Your password has been reset and existing sessions have ended. Sign in with your new password.");
+      navigate("/login", { replace: true });
     } catch (err) {
-      setError(getApiErrorMessage(err, "Password reset failed. The link may be expired or invalid."));
+      notify.error(getApiErrorMessage(err, "Password reset failed. The link may be expired or invalid."));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="relative flex h-[var(--viewport-height)] flex-col overflow-hidden bg-card text-foreground">
-      <div className="landing-market-animation absolute inset-0 opacity-70" />
-      <div className="landing-grid absolute inset-0 opacity-25" />
-      <MainHeader />
-
-      <div className="scrollbar-theme relative flex min-h-0 flex-1 items-start justify-center overflow-y-auto px-4 py-4">
-        <Card className="my-auto shrink-0 w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card/90 p-5 shadow-card backdrop-blur-xl">
-          <CardHeader className="px-0 pb-4 text-center">
-            <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e5c461]/25 bg-[#e5c461]/10">
-              <ShieldCheck className="h-5 w-5 text-brand" />
-            </div>
-            <CardTitle className="text-2xl font-semibold tracking-[-0.035em] text-foreground">
-              Set a new password
-            </CardTitle>
-            <CardDescription className="mt-2 text-sm leading-6 text-muted-foreground">
-              Choose a strong password to protect your QuantNest workspace.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="px-0">
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <PasswordInput
-                id="new_password1"
-                name="new_password1"
-                label="New password"
-                value={formData.new_password1}
-                onChange={handleChange}
-                showPassword={showPassword}
-                setShowPassword={setShowPassword}
-              />
-
-              {formData.new_password1.length > 0 && (
-                <div className="rounded-2xl border border-border bg-muted/50 p-3">
-                  <div className="mb-2 flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Password strength</span>
-                    <span
-                      className={`font-medium ${
-                        passwordStrength < 50
-                          ? "text-red-700 dark:text-red-400"
-                          : passwordStrength < 75
-                            ? "text-amber-700 dark:text-amber-400"
-                            : passwordStrength < 100
-                              ? "text-blue-700 dark:text-blue-400"
-                              : "text-emerald-700 dark:text-emerald-400"
-                      }`}
-                    >
-                      {getStrengthText()}
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                    <div
-                      className={`h-full transition-all duration-300 ${getStrengthColor()}`}
-                      style={{ width: `${passwordStrength}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    Use at least 8 characters with uppercase, lowercase,
-                    number, or symbol.
-                  </p>
-                </div>
-              )}
-
-              <PasswordInput
-                id="new_password2"
-                name="new_password2"
-                label="Confirm new password"
-                value={formData.new_password2}
-                onChange={handleChange}
-                showPassword={showPassword}
-                setShowPassword={setShowPassword}
-              />
-
-              {error && (
-                <div className="rounded-lg border border-red-800 bg-red-50 dark:bg-red-900/50 p-3 text-sm text-red-700 dark:text-red-300">
-                  {error}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={isLoading}
-                className="h-11 w-full rounded-xl bg-[#e5c461] font-semibold text-black shadow-[0_12px_40px_rgba(229,196,97,0.18)] hover:bg-[#f2da8e] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isLoading ? "Resetting..." : "Reset password"}
-                {!isLoading && <ArrowRight className="h-4 w-4" />}
-              </Button>
-            </form>
-
-            <div className="mt-5 border-t border-border pt-5 text-center text-sm text-muted-foreground">
-              <Link
-                to="/login"
-                className="font-medium text-brand underline hover:text-brand"
-              >
-                Back to login
-              </Link>
-            </div>
-            <Link
-              to="/"
-              className="mt-3 flex items-center justify-center gap-2 text-sm text-muted-foreground transition-colors hover:text-brand"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to landing page
-            </Link>
-          </CardContent>
-        </Card>
+    <AuthLayout title="Set a new password" description="Choose a new password. This ends existing sessions, so you will need to sign in again." icon={ShieldCheck}>
+      <form className="space-y-4" onSubmit={handleSubmit} aria-busy={isLoading}>
+        <AuthField id="new_password1" label="New password" icon={Lock} type="password" placeholder="Create a new password" value={formData.new_password1} onChange={handleChange} autoComplete="new-password" aria-describedby="password-guidance" required />
+        <PasswordGuidance value={formData.new_password1} />
+        <AuthField id="new_password2" label="Confirm new password" icon={Lock} type="password" placeholder="Repeat your new password" value={formData.new_password2} onChange={handleChange} autoComplete="new-password" required />
+        <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-full">
+          {isLoading ? "Resetting..." : "Reset password"}
+          {!isLoading && <ArrowRight aria-hidden="true" className="h-4 w-4" />}
+        </Button>
+      </form>
+      <div className="mt-5 space-y-3 border-t pt-5 text-center text-sm text-muted-foreground">
+        <p>Link expired or already used?{" "}<Link to="/password-reset" className="focus-ring rounded-sm font-medium text-brand underline underline-offset-4">Request a new reset link</Link></p>
+        <Link to="/login" className="focus-ring inline-flex min-h-9 items-center rounded-sm font-medium text-brand underline underline-offset-4">Back to sign in</Link>
       </div>
-    </div>
-  );
-}
-
-function PasswordInput({
-  id,
-  name,
-  label,
-  value,
-  onChange,
-  showPassword,
-  setShowPassword,
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-sm font-medium text-foreground">
-        {label}
-      </Label>
-      <div className="relative">
-        <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          id={id}
-          name={name}
-          type={showPassword ? "text" : "password"}
-          placeholder="Enter password"
-          className="h-11 border-border bg-muted/50 pl-10 pr-10 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
-          value={value}
-          onChange={onChange}
-          required
-        />
-        <button
-          type="button"
-          onClick={() => setShowPassword(!showPassword)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground focus:outline-none"
-          aria-label={showPassword ? "Hide password" : "Show password"}
-        >
-          {showPassword ? (
-            <EyeOff className="h-4 w-4" />
-          ) : (
-            <Eye className="h-4 w-4" />
-          )}
-        </button>
-      </div>
-    </div>
+    </AuthLayout>
   );
 }

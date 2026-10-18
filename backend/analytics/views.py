@@ -58,6 +58,8 @@ class ExecutionReportViewSet(ViewSet):
         fields = ("symbol", "strategy_name", "account_name", "side", "quantity", "entry_price", "exit_price", "entry_time", "exit_time", "pnl", "charges")
         for row in qs.values_list(*fields).iterator(chunk_size=1000):
             values = [value.isoformat() if hasattr(value, "isoformat") else value for value in row]
-            values = ["'" + value if isinstance(value, str) and value[:1] in {"=", "+", "-", "@"} else value for value in values]
+            values = ["'" + value if isinstance(value, str) and (
+                value.lstrip(" \t\r\n")[:1] in {"=", "+", "-", "@"} or value[:1] in {"\t", "\r", "\n"}
+            ) else value for value in values]
             writer.writerow([filters["source"], SOURCES[filters["source"]]["basis"], *values])
         return response

@@ -18,18 +18,20 @@ export const backtestApi = {
   getRuns: (params = {}) => axiosInstance.get(`${BASE_URL}/runs/`, { params }),
   getRun: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/`),
   createRun: (data) => axiosInstance.post(`${BASE_URL}/runs/`, normalizeRunPayload(data)),
+  estimateRun: (data) => axiosInstance.post(`${BASE_URL}/runs/estimate/`, normalizeRunPayload(data)),
+  estimateRerun: (id) => axiosInstance.post(`${BASE_URL}/runs/${id}/estimate-rerun/`),
   deleteRun: (id) => axiosInstance.delete(`${BASE_URL}/runs/${id}/`),
-  
+
   // Run actions
   startRun: (id) => axiosInstance.post(`${BASE_URL}/runs/${id}/start/`),
-  rerunRun: (id) => axiosInstance.post(`${BASE_URL}/runs/${id}/rerun/`),
+  rerunRun: (id, estimateToken, key = crypto.randomUUID()) => axiosInstance.post(`${BASE_URL}/runs/${id}/rerun/`, {estimate_token: estimateToken}, {headers:{'Idempotency-Key':key}}),
   cancelRun: (id) => axiosInstance.post(`${BASE_URL}/runs/${id}/cancel/`),
-  
+
   // Run data
   getRunTrades: (id, params) => axiosInstance.get(`${BASE_URL}/runs/${id}/trades/`, { params }),
   getRunMetrics: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/metrics/`),
   getRunEquityCurve: (id) => axiosInstance.get(`${BASE_URL}/runs/${id}/equity_curve/`),
-  
+
   // Monte Carlo
   getMonteCarloRuns: () => axiosInstance.get(`${BASE_URL}/montecarlo/`),
   createMonteCarlo: (data) => axiosInstance.post(`${BASE_URL}/montecarlo/`, data),

@@ -8,11 +8,13 @@ import { DatePicker } from "@/shared/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/shared/components/ui/table";
 import { formatDateTime } from "@/shared/utils/formatters";
-import { modes, displayMoney, pnlTone } from "@/features/journal/hooks/useReviewWorkspace.js";
+import { reviewModes, displayMoney, pnlTone } from "@/features/journal/hooks/useReviewWorkspace.js";
+import { usePlatform } from "@/shared/context/platform";
 
 export function SourceTabs({ source, onChange }) {
+  const { executionScopes } = usePlatform();
   return <div className="inline-flex shrink-0 rounded-lg border border-border bg-background p-1" role="group" aria-label="Execution source">
-      {modes.map(({ value, label, icon: Icon, description }) => <TooltipHint key={value} content={description}><button type="button" aria-pressed={source === value} onClick={() => onChange(value)}
+      {reviewModes(executionScopes).map(({ value, label, icon: Icon, description }) => <TooltipHint key={value} content={description}><button type="button" aria-pressed={source === value} onClick={() => onChange(value)}
         className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${source === value ? "bg-indigo-500/20 text-indigo-700 dark:text-indigo-200" : "text-muted-foreground hover:bg-card hover:text-foreground"}`}>
         <Icon size={14} />{label}
       </button></TooltipHint>)}

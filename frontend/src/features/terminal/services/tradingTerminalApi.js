@@ -13,10 +13,6 @@ export const tradingTerminalApi = {
       params: { symbol, interval, limit, before },
       signal,
     }),
-  getLatestQuote: (symbol) =>
-    api.get("/market/latest-tick/", {
-      params: { instrument: symbol },
-    }),
   addToWatchlist: (instrumentId) =>
     api.post("/trading/watchlist/", { instrument_id: instrumentId }),
   removeFromWatchlist: (instrumentId) =>

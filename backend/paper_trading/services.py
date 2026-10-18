@@ -4,6 +4,9 @@ from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 from django.db import transaction
 from django.utils import timezone
+from core.outbox import cache_event
+from core.shared_state_store import shared_state_store
+from core.lifecycle import publish_session_event
 
 from common.enums import (
     CapitalAllocationType,
@@ -55,11 +58,6 @@ def _charge_profile_from_snapshot(snapshot):
     return SimpleNamespace(**snapshot)
 
 
-def _publish_cache_after_commit(method_name, *args, **kwargs):
-    from core.outbox import cache_event
-    cache_event(method_name, *args, **kwargs)
-
-
 def _refresh_paper_account_funds_after_commit(account):
     used_margin = account.margin_used
     funds_data = {
@@ -70,7 +68,6 @@ def _refresh_paper_account_funds_after_commit(account):
         "account_id": str(account.id),
     }
     for session_id in account.sessions.values_list("id", flat=True):
-        from core.outbox import cache_event
         cache_event("update_session_funds", "paper", str(session_id), funds_data)
 
 
@@ -169,6 +166,8 @@ class PortfolioService:
         Allocate capital to a strategy.
         """
         from common.enums import StrategyStatus
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.select_for_update().get(pk=portfolio.user_id)
 
         if portfolio.user_id != strategy.user_id:
             raise ValueError('Strategy and portfolio must belong to the same user.')
@@ -583,17 +582,6 @@ class PaperExecutionService:
         return session
 
     @staticmethod
-    def _publish_execution_event(action: str, session, scope: str = "paper"):
-        from core.outbox import enqueue
-        from instruments.services import InstrumentResolver
-        enqueue("control", f"{scope}:{session.pk}", {
-            "action": action, "scope": scope, "session_id": str(session.pk),
-            "strategy_id": str(session.strategy_id),
-            "instrument_ids": InstrumentResolver.execution_instrument_ids(session),
-        })
-
-
-    @staticmethod
     @transaction.atomic
     def deploy_session(
         user,
@@ -607,7 +595,13 @@ class PaperExecutionService:
     ):
         from django.utils import timezone
         from strategies.models import Strategy
+        from django.contrib.auth import get_user_model
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+        if not user.is_active:
+            raise ValueError("This account is inactive.")
         strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
+        from instruments.services import InstrumentResolver
+        InstrumentResolver.validate_execution_snapshot(allocation.deployed_version.config_snapshot)
         if strategy.status != 'ACTIVE':
             raise ValueError('Only active strategies can start paper sessions.')
         if not strategy.paper_trading_enabled:
@@ -661,10 +655,10 @@ class PaperExecutionService:
 
         # Initialize the account projection from actual committed margin.
         _refresh_paper_account_funds_after_commit(account)
-        _publish_cache_after_commit("update_risk_metrics", "paper", str(session.id), {"auto_disable_release": {}})
+        cache_event("update_risk_metrics", "paper", str(session.id), {"auto_disable_release": {}})
 
         if initial_status == "RUNNING":
-            PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
+            publish_session_event("paper", session, "SESSION_START")
 
         NotificationService.notify(
             user=user,
@@ -692,7 +686,7 @@ class PaperExecutionService:
             data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "paper"},
             dedupe_key=f"paper-session:{session.id}:PAUSED:{session.updated_at.isoformat()}"
         )
-        PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
+        publish_session_event("paper", session, "SESSION_PAUSE")
         return session
 
     @staticmethod
@@ -706,7 +700,7 @@ class PaperExecutionService:
         session = PaperTradingSession.objects.select_for_update().get(pk=session.pk)
         session.status, session.ended_at, session.error_message = "STOPPING", None, ""
         session.save(update_fields=["status", "ended_at", "error_message", "updated_at"])
-        PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
+        publish_session_event("paper", session, "SESSION_PAUSE")
         if close_positions:
             open_positions = PaperPosition.objects.filter(
                 account=session.account,
@@ -750,6 +744,10 @@ class PaperExecutionService:
     @transaction.atomic
     def resume_session(session):
         from django.utils import timezone
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.select_for_update().get(pk=session.account.user_id)
+        from instruments.services import InstrumentResolver
+        InstrumentResolver.validate_execution_snapshot(session.allocation.deployed_version.config_snapshot)
         if session.strategy.status != 'ACTIVE' or not session.strategy.paper_trading_enabled:
             raise ValueError('Activate the strategy and enable paper trading before resuming this session.')
 
@@ -772,7 +770,7 @@ class PaperExecutionService:
             data={"session_id": str(session.id), "strategy_id": str(session.strategy_id), "strategy_name": session.strategy.name, "module": "paper"},
             dedupe_key=f"paper-session:{session.id}:RUNNING:{session.updated_at.isoformat()}"
         )
-        PaperExecutionService._publish_execution_event("SESSION_START", session, "paper")
+        publish_session_event("paper", session, "SESSION_START")
         return session
 
     @staticmethod
@@ -797,15 +795,14 @@ class PaperExecutionService:
     @staticmethod
     def _validate_auto_disable(session, account, raise_on_trigger=True, stats=None, config=None):
         from risk_management.auto_disable import AutoDisableGate
-        from core.cache_view import cache_view
 
         if stats is None:
             from strategy_engine.runtime import StrategyRuntimeState
             StrategyRuntimeState.ensure_risk_metrics("paper", session.id)
-            stats = cache_view.get_risk_metrics("paper", session.id)
+            stats = shared_state_store.get_risk_metrics("paper", session.id)
         match = AutoDisableGate.evaluate(session, stats, account.initial_balance, config=config)
         if match and match.get("paused_now"):
-            PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
+            publish_session_event("paper", session, "SESSION_PAUSE")
         if match and raise_on_trigger:
             raise ValueError(f"Strategy auto-disable triggered: {match.get('message', 'Strategy auto-disable triggered')}")
         return bool(match)
@@ -1084,7 +1081,7 @@ class PaperExecutionService:
                     execution_instrument_id=position.instrument_id,
                 )
 
-            _publish_cache_after_commit("update_risk_metrics", "paper", session.id, {"last_entry_time": executed_at})
+            cache_event("update_risk_metrics", "paper", session.id, {"last_entry_time": executed_at})
 
         account.save(update_fields=["current_balance", "updated_at"])
 
@@ -1140,4 +1137,3 @@ class PaperExecutionService:
             )
         logger.info("PaperExecutionService Redis Stream consumer is ready")
         consume_orders("paper", handle, stop_event=stop_event, after_durable=reconcile, worker_index=worker_index)
-

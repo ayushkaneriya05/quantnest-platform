@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useState, useEffect } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { cn } from "@/shared/lib/utils";
@@ -407,3 +408,11 @@ export default function ModifyOrderModal({
   );
 }
 
+
+ModifyOrderModal.propTypes = {
+  ...ModifyOrderModal.propTypes,
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
+  onOrderModified: PropTypes.func,
+  order: PropTypes.object,
+};

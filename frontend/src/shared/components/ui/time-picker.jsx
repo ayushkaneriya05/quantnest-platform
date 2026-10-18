@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import * as React from "react"
 import { cn } from "@/shared/lib/utils"
 
@@ -15,3 +16,8 @@ export const TimePicker = React.forwardRef(({ className, ...props }, ref) => {
   )
 })
 TimePicker.displayName = "TimePicker"
+
+TimePicker.propTypes = {
+  ...TimePicker.propTypes,
+  className: PropTypes.string,
+};

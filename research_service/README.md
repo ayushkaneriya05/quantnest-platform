@@ -8,11 +8,11 @@ order API or strategy activation API.
 
 ## Start locally
 
-From the repository root, install the backend and research dependencies:
+Use the root Python 3.12 environment (see [setup](../README.md)). From the
+repository root, install the backend and research dependencies:
 
 ```powershell
-.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-.venv\Scripts\python.exe -m pip install -r research_service/requirements.txt
+.venv\Scripts\python.exe -m pip install --require-hashes -r backend/requirements.lock -r research_service/requirements.lock
 ```
 
 Set a random `RESEARCH_SERVICE_TOKEN` in `backend/.env` and put the same value in
@@ -49,10 +49,10 @@ jobs. Restart Django/ASGI, Celery and Beat after changing registrations.
 1. Open AI Research Assistant and ask a question. Starter cards fill the composer
    without sending. Stock attachments are optional for general explanations;
    named stocks use the existing instrument search, with explicit selection for
-   ambiguous names. Attach a terminal watchlist, owned strategy, or up to three
-   owned completed backtests when useful.
+   ambiguous names. Attach a terminal watchlist, owned strategy, or owned
+   completed backtests within the request allowance when useful.
 2. Each conversation is a `ResearchSession`; each question is a `ResearchRun`.
-   The worker freezes resolved attachments, effective strategy snapshots and the
+   API admission freezes selected attachments, effective strategy snapshots and the
    observation cutoff. The pending reply displays actual research stages, then
    becomes a complete validated answer. Refresh/reconnect restores saved turns.
 3. Inline citations open a details drawer with backend tables, condition outcomes,
@@ -99,8 +99,11 @@ Alternative Data placeholder is removed from navigation until it has a data sour
   `resolve_instruments`, `get_strategy_snapshot`, `get_backtest_report`,
   `compare_backtests`, `get_conversation_evidence`, `validate_strategy_draft`.
 - One active run per user; eight tool attempts reserved before work, including
-  failed calls; ten-minute deadline; 50 active NSE stocks; 12 conditions/group;
-  three completed backtests; five charted stocks with at most eight indicators.
+   failed calls; ten-minute deadline; 12 conditions/group; five charted stocks
+   per chart tool with at most eight indicators. Public stock/attachment sizes
+   come from catalog allowances; Private/Development have no plan ceilings.
+   Symbol resolution may suggest a stock for a new request but cannot expand
+   the current run's accepted universe.
 - Default timeframe: daily. Intraday warmup is capped at 60,000 source minutes;
   daily/weekly history at 2,000 trading sessions. This permits daily EMA 50 warmup.
   Loaded frames, calculated indicators and identical artifacts are reused within
@@ -141,21 +144,17 @@ has not been run against your trading database by this implementation.
 
 ```powershell
 cd backend
-..\.venv\Scripts\python.exe manage.py test research backtesting --settings=research.test_settings
-..\.venv\Scripts\python.exe manage.py check --settings=research.test_settings
-..\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run --settings=research.test_settings
-cd ..
-.venv\Scripts\python.exe -m unittest research_service.tests -v
-cd frontend
+..\.venv\Scripts\python.exe manage.py check
+..\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
+cd ../frontend
 npx eslint src/features/research src/shared/services/researchApi.js
 npm run build
-node --test --test-concurrency=1 tests/research-workspace.test.mjs tests/auth-session.test.mjs tests/ui-regressions.test.mjs
 ```
 
-Tests use an isolated SQLite database and mocked Gemini/broker responses. A real
-Gemini request requires your service token/API key and running services.
-Browser tests use headless Chrome/Chromium and compiled CSS from the production
-build. Logs record tool latency, provider token usage, failures and action outcomes;
+Test suites and browser harnesses were removed on 2026-10-14. Validate the research
+workflow against your configured deployment before release. A real Gemini request
+requires your service token/API key and running services.
+Logs record tool latency, provider token usage, failures and action outcomes;
 they do not include credentials or request headers.
 
 Provider documentation: [Interactions](https://ai.google.dev/gemini-api/docs/interactions-overview),

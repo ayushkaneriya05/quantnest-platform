@@ -13,6 +13,23 @@ from common.enums import ProductType, Side, InstrumentType
 logger = logging.getLogger(__name__)
 
 
+def get_charges_breakdown(charge_records):
+    """Combine stored entry/exit charges for one trade or a report."""
+    totals = dict.fromkeys(('brokerage', 'stt', 'exchange_txn', 'sebi', 'stamp_duty', 'gst', 'total'), 0.0)
+    for charges in charge_records:
+        charges = charges or {}
+        totals['total'] += float(charges.get('total_charges', 0) or 0)
+        for leg_name in ('entry_charges', 'exit_charges'):
+            leg = charges.get(leg_name) or {}
+            totals['brokerage'] += float(leg.get('brokerage', 0) or 0)
+            totals['stt'] += float(leg.get('stt', 0) or 0)
+            totals['exchange_txn'] += float(leg.get('exchange_charges', leg.get('exchange', 0)) or 0)
+            totals['sebi'] += float(leg.get('sebi_fee', leg.get('sebi', 0)) or 0)
+            totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
+            totals['gst'] += float(leg.get('gst', 0) or 0)
+    return {key: round(value, 2) for key, value in totals.items()}
+
+
 class TradingCostCalculator:
     """Calculates realistic trading costs for Indian markets.
     

@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Badge } from '@/shared/components/ui/badge';
 import {
@@ -66,3 +67,8 @@ export default function StrategyConfigNav({ strategy }) {
     </div>
   );
 }
+
+StrategyConfigNav.propTypes = {
+  ...StrategyConfigNav.propTypes,
+  strategy: PropTypes.object,
+};

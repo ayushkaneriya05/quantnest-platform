@@ -1,3 +1,4 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -16,13 +17,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { formatCurrency } from "@/shared/utils/formatters";
 
 export default function PaperWallet() {
-  const { notify } = useNotifications();
-  const [portfolio, setPortfolio] = useState(null);
-  const [amount, setAmount] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const fetchData = async () => {
+  const fetchData = useStableCallback(async () => {
     try {
       setLoading(true);
       const res = await portfolioApi.getMyPortfolio();
@@ -32,11 +27,19 @@ export default function PaperWallet() {
     } finally {
       setLoading(false);
     }
-  };
+  });
+
+  const { notify } = useNotifications();
+  const [portfolio, setPortfolio] = useState(null);
+  const [amount, setAmount] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleAction = async (type) => {
     if (!amount || parseFloat(amount) <= 0) {

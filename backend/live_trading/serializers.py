@@ -3,6 +3,7 @@ from django.utils import timezone
 
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
 from strategies.models import StrategyVersion
+from strategies.serializers import StrategyVersionListSerializer
 from .models import BrokerAccountObservation
 
 
@@ -237,7 +238,7 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text='Pinned strategy version ID'
     )
-    deployed_version_detail = serializers.SerializerMethodField()
+    deployed_version_detail = StrategyVersionListSerializer(source='deployed_version', read_only=True)
     used_capital = serializers.ReadOnlyField(source="invested_value")
     reserved_capital = serializers.ReadOnlyField()
     available_capital = serializers.ReadOnlyField()
@@ -284,17 +285,6 @@ class LiveStrategyAllocationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-
-    def get_deployed_version_detail(self, obj):
-        if obj.deployed_version:
-            return {
-                'id': obj.deployed_version.id,
-                'version_number': obj.deployed_version.version_number,
-                'change_notes': obj.deployed_version.change_notes,
-                'created_at': obj.deployed_version.created_at.isoformat(),
-            }
-        return None
-
 
 class ExecutionLogSerializer(serializers.ModelSerializer):
     order_symbol = serializers.CharField(source="order.instrument.sym_ticker", read_only=True)

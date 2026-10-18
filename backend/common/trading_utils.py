@@ -1,14 +1,11 @@
 """
 Common trading utilities shared by execution engines.
 
-Eliminates code duplication for time/session checks, price-limit comparisons,
-SL-distance calculation, and app-managed protection extraction from strategy
-configurations.
+Time/session checks, market hours and safe configuration value conversions.
 """
 import logging
 from functools import lru_cache
 from datetime import datetime, time
-from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +16,8 @@ MARKET_CLOSE_TIME = time(15, 30)
 PRE_MARKET_END = time(9, 15)
 MARKET_OPEN_WINDOW_END = time(15, 30)
 MARKET_CLOSE_WINDOW_START = time(15, 30)
-EOD_TIME = time(15, 30)
 
 DEFAULT_SL_FALLBACK_PCT = 0.01  # 1% of entry price
-DEFAULT_SLIPPAGE_PCT = Decimal("0.0005")
-DEFAULT_CAPITAL_PERCENTAGE = 10.0
 
 
 @lru_cache(maxsize=32)
@@ -80,22 +74,6 @@ def matches_market_session(current_time, market_session):
     if market_session == "MARKET_CLOSE":
         return MARKET_CLOSE_WINDOW_START <= current_time <= MARKET_CLOSE_TIME
     return True
-
-
-def minutes_since_session_open(current_time):
-    """Minutes elapsed since market open (09:15)."""
-    session_open = datetime.combine(datetime.today(), MARKET_OPEN_TIME)
-    current_dt = datetime.combine(datetime.today(), current_time)
-    return max(int((current_dt - session_open).total_seconds()) // 60, 0)
-
-
-def minutes_until(current_time, cutoff_time):
-    """Minutes remaining until a cutoff time. Returns -1 if cutoff has passed."""
-    current_dt = datetime.combine(datetime.today(), current_time)
-    cutoff_dt = datetime.combine(datetime.today(), cutoff_time)
-    if cutoff_dt < current_dt:
-        return -1
-    return int((cutoff_dt - current_dt).total_seconds() / 60)
 
 
 # ─── Public Helpers ───────────────────────────────────────────────────

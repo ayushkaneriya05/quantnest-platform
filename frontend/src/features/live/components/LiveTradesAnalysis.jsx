@@ -1,8 +1,9 @@
+import PropTypes from "prop-types";
 import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/ui/table";
 import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
-import LiveTablePagination from "@/features/live/components/LiveTablePagination.jsx";
+import TablePagination from "@/shared/components/TablePagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 
 function Metric({ title, value, detail, color = "text-foreground" }) {
@@ -52,10 +53,28 @@ export default function LiveTradesAnalysis({ trades = [], pagination, summary = 
               </Table>
             </div>
           </CardContent>
-          <LiveTablePagination page={pagination?.page || 1} count={pagination?.count || 0} onPageChange={onPageChange} />
+          <TablePagination page={pagination?.page || 1} count={pagination?.count || 0} onPageChange={onPageChange} />
         </>
       )}
       </Card>
     </div>
   );
 }
+
+Metric.propTypes = {
+  ...Metric.propTypes,
+  color: PropTypes.string,
+  detail: PropTypes.string,
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+};
+
+LiveTradesAnalysis.propTypes = {
+  ...LiveTradesAnalysis.propTypes,
+  allocationFilter: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onAllocationChange: PropTypes.func,
+  onPageChange: PropTypes.func,
+  pagination: PropTypes.object,
+  summary: PropTypes.object,
+  trades: PropTypes.array,
+};

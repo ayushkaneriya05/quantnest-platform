@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components -- Imperative dialog controller mounts its private React view. */
+import PropTypes from "prop-types";
 import { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -166,4 +168,16 @@ export const customWarn = (message, title = "Warning") => {
  */
 export const customPrompt = (message, defaultValue = "", title = "Input Required", confirmText = "Submit") => {
   return createDialog({ type: "prompt", message, title, defaultValue, confirmText });
+};
+
+CustomDialogComponent.propTypes = {
+  ...CustomDialogComponent.propTypes,
+  cancelText: PropTypes.string,
+  confirmText: PropTypes.string,
+  defaultValue: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  message: PropTypes.string,
+  onClose: PropTypes.func,
+  onResolve: PropTypes.func,
+  title: PropTypes.string,
+  type: PropTypes.string,
 };

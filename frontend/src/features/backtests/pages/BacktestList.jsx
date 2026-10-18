@@ -39,6 +39,7 @@ import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
 
 /* ─── Status Badge Config ─── */
 const STATUS_CONFIG = {
+  QUEUED:     { label: "Queued", color: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30", icon: Clock },
   PENDING:    { label: "Pending",    color: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30", icon: Clock },
   RUNNING:    { label: "Running",    color: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",     icon: RefreshCw },
   COMPLETED:  { label: "Completed",  color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30", icon: CheckCircle2 },
@@ -157,12 +158,13 @@ export default function BacktestList() {
 
   const handleRerun = async (e, id) => {
     e.stopPropagation();
-    const confirmed = await customConfirm("Are you sure you want to clone and rerun this backtest?");
-    if (!confirmed) return;
     
     setRerunningId(id);
     try {
-      const response = await backtestApi.rerunRun(id);
+      const {data: estimate} = await backtestApi.estimateRerun(id);
+      const confirmed = await customConfirm(`Rerun this saved configuration? ${estimate.instrument_candles.toLocaleString('en-IN')} instrument-candles including warmup; ${estimate.credits === null ? 'unlimited Private usage' : `${estimate.credits} credits on success`}. Internal failures restore the allowance.`);
+      if (!confirmed) return;
+      const response = await backtestApi.rerunRun(id, estimate.token);
       notify.success("Backtest cloned and started successfully!");
       if (response.data?.run) {
         setRuns((prev) => [response.data.run, ...prev]);
@@ -196,7 +198,7 @@ export default function BacktestList() {
   const kpis = {
     total: runs.length,
     completed: runs.filter((r) => r.status === "COMPLETED").length,
-    running: runs.filter((r) => r.status === "RUNNING").length,
+    running: runs.filter((r) => ["QUEUED", "RUNNING"].includes(r.status)).length,
     failed: runs.filter((r) => r.status === "FAILED").length,
   };
 
@@ -254,6 +256,7 @@ export default function BacktestList() {
         <div className="flex bg-card/60 border border-border p-1 rounded-lg">
           {[
             { key: "all",       label: "All" },
+            { key: "QUEUED", label: "Queued" },
             { key: "RUNNING",   label: "Running" },
             { key: "COMPLETED", label: "Completed" },
             { key: "FAILED",    label: "Failed" },
@@ -360,10 +363,10 @@ export default function BacktestList() {
                               variant="outline"
                               className={`${cfg.color} text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 w-fit flex items-center gap-1`}
                             >
-                              <StatusIcon className={`h-3 w-3 ${run.status === "RUNNING" ? "animate-spin" : ""}`} />
+                              <StatusIcon className={`h-3 w-3 ${["QUEUED", "RUNNING"].includes(run.status) ? "animate-spin" : ""}`} />
                               {cfg.label}
                             </Badge>
-                            {run.status === "RUNNING" && (
+                            {["QUEUED", "RUNNING"].includes(run.status) && (
                               <div className="flex items-center gap-2 w-28">
                                 <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
                                   <div

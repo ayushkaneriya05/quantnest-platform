@@ -1,68 +1,228 @@
-# Authentication and browser sessions
+# Authentication, browser sessions and administrator access
 
-## Login and reload
+**Source review: 16 October 2026.** Customer sign-in, Django Admin sign-in, market
+source authorization and customer broker authorization are separate flows.
+Provider account registration is covered in [Third-party setup](third-party-setup.md).
 
-1. The frontend requests a CSRF token from `GET /api/v1/users/auth/csrf/`.
-2. Password login, Google login and registration use a common session service. If two-factor authentication is enabled, login returns a signed, single-use challenge instead of JWTs.
-3. The server identifies the browser profile using the HttpOnly `quantnest-device` cookie. A repeat login from that browser replaces its refresh token and reuses its active session; another browser profile or incognito window has a separate session.
-4. Access tokens last 15 minutes and stay in Redux memory. Refresh tokens stay in the secure HttpOnly `quantnest-refresh-session` cookie, scoped to `/api/v1/users/`. The distinct name prevents older root-scoped cookies from overriding the current token. The response contains the access token, user and CSRF token, never the refresh token. Profile image URLs are absolute in login and profile responses.
-5. On reload the frontend rotates the refresh cookie and loads the profile before rendering protected pages. CSRF bootstrap reports whether that cookie is present, so signed-out visits skip an unnecessary refresh request. It refreshes access before expiry and when a tab resumes. Concurrent requests share a refresh operation; Web Locks serialize authentication cookie changes across browser tabs.
+## 1. Origins and ingress
 
-Only non-secret login/logout events are written to localStorage. Browser tabs recover the current cookie session when they receive a login event; a logout event clears authentication in the other tabs. Responses started under previous authentication cannot restore it or replace the current user's data.
+React calls `/api/v1/` on the website's origin. Vite handles development proxying;
+Cloudflare Pages handles Public ingress; Private Caddy serves/proxies the deployment.
 
-## Google sign-in redirect
+FRONTEND_URL identifies the browser origin. BACKEND_URL identifies the external
+callback origin. Production examples use the same HTTPS origin. Derived callback
+URLs must exactly match provider registrations.
 
-1. The button calls `POST /api/v1/users/auth/google/start/` with a local return path. Django generates a random state and PKCE verifier, stores them in a signed HttpOnly cookie for five minutes, and returns the Google authorization URL. The browser opens that URL in the same tab.
-2. Google redirects to `GET /api/v1/users/auth/google/callback/`. Django verifies the browser's state cookie, consumes the state once, and exchanges the code using the PKCE verifier and the backend client secret. Existing Google accounts are looked up through allauth; new accounts receive an unusable password and Google's verified email. Existing password accounts are not automatically linked by email.
-3. The callback creates a signed, five-minute, one-use result cookie and redirects to the frontend's `/google-callback` page. No Google or QuantNest tokens are put in the frontend URL. The callback does not create a Django authentication session or issue JWTs.
-4. The frontend calls the CSRF-protected `POST /api/v1/users/auth/google/complete/`. The result cookie is consumed and the shared login service issues session cookies and an access token, or requires local two-factor verification. Inactive accounts and password changes invalidate the pending login. Cancellation, expired state and provider failures show a useful error on the callback page.
+Public HTTP/WebSocket ingress requires the configured trusted gateway token.
+A direct call to the Oracle origin can correctly return 403 even with a valid user
+token. The private research-tools route uses its own internal authentication.
+Do not expose the gateway secret in a VITE variable or browser request code.
 
-Configure the Google **Social application** in Django admin with the web client's ID and secret, and associate it with the configured Django Site. Frontend Google credentials and the Google popup SDK are no longer used.
+Use one hostname consistently during local OAuth/Admin work. localhost and
+127.0.0.1 have different cookies. A source-login start on the wrong hostname
+redirects to its configured callback origin before creating the verification cookie.
 
-Using browser Back before selecting an account returns to an enabled sign-in button and leaves the user signed out. The shared button resets its loading state on a cached `pageshow` restoration. Retrying starts a fresh OAuth flow; the previous state cookie is replaced.
+## 2. Password login and page reload
 
-In Google Cloud Console, add this development URI under **Authorized redirect URIs**:
+1. The frontend calls `GET /api/v1/users/auth/csrf/` to initialize CSRF and learn
+   whether a refresh cookie is available.
+2. Password login calls `POST /api/v1/users/auth/login/`.
+3. If local 2FA is enabled, the response contains a short-lived challenge instead
+   of issuing authenticated tokens. Verification completes the same login service.
+4. The server identifies a browser profile with the HttpOnly quantnest-device
+   cookie and reuses/replaces that browser's owned active session.
+5. The response contains the access token, user and CSRF token. The refresh token
+   is written as an HttpOnly cookie and is not returned to JavaScript.
+6. On reload, the frontend rotates the refresh session and loads the user before
+   protected routes render. Signed-out visitors skip an unnecessary refresh.
 
-```text
-http://localhost:8000/api/v1/users/auth/google/callback/
+| Credential | Current behavior |
+| --- | --- |
+| Access token | 15-minute lifetime; held in Redux memory for bearer requests |
+| quantnest-auth cookie | HttpOnly access credential used by browser socket authentication |
+| quantnest-refresh-session cookie | HttpOnly refresh credential scoped to /api/v1/users/ |
+| quantnest-device cookie | Browser identity, not an authentication credential by itself |
+| UserSession | Server-side owned session identity, expiry, refresh JTI and descriptive metadata |
+
+A different browser profile/incognito window is a separate session. Tabs in one
+browser share cookies. IP/user-agent metadata does not determine session identity.
+
+ACCOUNT_EMAIL_VERIFICATION is currently optional. Mandatory verification would
+require verification and a subsequent sign-in; do not assume creating a user
+proves email ownership for records that explicitly require a verified address.
+
+## 3. Refresh, concurrency and revocation
+
+Refresh calls `POST /api/v1/users/auth/token/refresh/`. Under a database lock the
+service validates the current refresh JTI, blacklists the old token, rotates
+credentials and updates the existing session. Refresh does not create a new session.
+Its seven-day expiry starts from the latest successful rotation.
+
+The frontend shares concurrent refresh work, refreshes before expiry and on tab
+resume, and uses Web Locks where available to serialize cookie-changing actions
+across tabs. Authentication generation checks prevent a stale response from a
+previous login restoring a signed-out user or another user's data.
+
+Only non-secret login/logout signals use localStorage. Access/refresh credentials
+must not be persisted there. Other tabs recover the shared cookie session on a
+login signal and clear authentication on logout.
+
+| Action | Session effect |
+| --- | --- |
+| Logout | Deletes the owned current session, blacklists refresh and clears cookies |
+| Revoke selected session | Ends only the owned selected record |
+| End other sessions | Preserves the authenticated current session |
+| Change password | Requires current password; ends other sessions and rotates current credentials |
+| Reset forgotten password | Revokes sessions; requires fresh sign-in |
+| Deactivate/delete account | Revokes all sessions after account lifecycle validation |
+
+Every REST authentication checks user/session validity and token/password
+invalidation. last_activity updates are bounded rather than written on every call.
+Expired records are hidden/pruned and the daily cleanup removes remaining token history.
+
+Network/server failures during refresh permit retry; invalid authentication ends
+the session. Failed logout stays visible as an error so it can be retried rather
+than pretending the server session ended.
+
+## 4. CSRF and stale administrator forms
+
+Cookie-changing authentication requests use CSRF validation. The frontend obtains
+the token and sends it with unsafe requests. Secure production cookies require
+HTTPS; configure trusted origins from the actual deployment.
+
+Django rotates CSRF state on authentication. A previously rendered Admin form can
+contain an old token after another tab/login, Back navigation or a cached page.
+Open the canonical Admin URL again and use the newly rendered form. Do not disable
+CSRF or make login exempt to work around this.
+
+If a new form still fails, inspect duplicate host/path cookies, blocked cookies,
+canonical URL, gateway headers and the actual Origin. Do not paste cookies/tokens
+into support messages.
+
+## 5. Two-factor authentication
+
+Customer Security settings provide setup, verification, backup-code regeneration
+and disable actions. Setup creates a pending device and displays a QR/manual secret.
+The user confirms a code before relying on it. Setup does not delete an existing
+confirmed device.
+
+Password/Google login for a protected account returns a five-minute, single-use
+challenge bound to the current password state. Verification accepts an eligible
+TOTP or backup code. TOTP replay and reused backup codes are rejected; sensitive
+actions are throttled.
+
+Store recovery codes privately. The login OTP comes from the authenticator to
+which the device was enrolled, not an email or a broker authorization token.
+
+## 6. Django Admin enrolment
+
+Admin uses OTPAdminSite under `/admin/` and is titled **QuantNest Operations**.
+An authenticated customer JWT is not a staff OTP-verified Django session.
+
+For a new installation, from backend/ with the correct environment:
+
+```sh
+python manage.py createsuperuser
+python manage.py enrol_staff_otp --username YOUR_ADMIN_USERNAME
 ```
 
-For deployment, use `BACKEND_URL` plus `/api/v1/users/auth/google/callback/`; it must exactly match Google's registered URI. `FRONTEND_URL` specifies the QuantNest page to return to. Both must use HTTPS in production. The state and result cookies use `SameSite=Lax`, allowing Google's top-level callback navigation; frontend and API domains must support the application's existing cookie authentication configuration.
+The second command prints a secret provisioning URI. Import it privately into
+your authenticator, then sign into Admin with username, password and the current
+code. Do not retain the URI in shared logs, screenshots or tickets.
 
-See [Google's authorization-code flow](https://developers.google.com/identity/protocols/oauth2/web-server).
+The command requires an existing staff user and refuses to replace a confirmed
+device. Existing-device recovery requires an authorized operator procedure on the
+host; creating another secret blindly is not the normal login flow.
 
-## Rotation, revocation and security settings
+Configure the Django Site through `configure_site` as described in the selected
+mode's infrastructure guide. Business actions remain in Admin; routine records
+are created by their services.
 
-- Every REST request validates token signature, expiry, active user, password hash and ownership of a nonexpired session. Refresh also validates the exact current refresh JTI under a database lock, blacklists the old token and updates the existing record. It never creates a session.
-- Refresh expiry is seven days from the latest rotation. Browser metadata is descriptive; IP address or user agent is not used as device identity. `last_activity` updates on login, refresh, WebSocket connection and authenticated API activity, with API writes limited to once per minute.
-- Logout deletes the owned session, blacklists its current refresh token and clears JWT cookies. Ending other sessions uses the authenticated access token's session ID to preserve the current session.
-- Changing a password requires the current password, revokes other sessions, rotates the current credentials and reconnects its streams. Password reset revokes all sessions and requires fresh login. Account deactivation/deletion also revokes all sessions.
-- Two-factor challenges expire after five minutes, are single use and are bound to the user's password. TOTP and backup codes cannot be reused. Setting up two-factor authentication never deletes an already confirmed device. Security actions are throttled.
-- Authentication cookie actions require CSRF validation. Production cookies require HTTPS. WebSockets use HttpOnly access cookies and an allowed frontend Origin, enforce the same authentication checks as REST, close on expiry and receive revocations after database commit. JWTs are not included in WebSocket URLs.
-- Expired sessions are hidden and pruned on session listing/login. The daily `users.cleanup_expired_sessions` Celery task removes remaining expired records and SimpleJWT token history.
-- Network/server failures during refresh retain the current authentication for retry. Invalid authentication ends it. Failed logout keeps the user signed in and shows an error so the server session can be ended on retry.
+## 7. Google sign-in
 
-Email verification follows `ACCOUNT_EMAIL_VERIFICATION` (currently optional). Optional verification preserves the registration session; mandatory verification requires verification and subsequent login.
+1. `POST /api/v1/users/auth/google/start/` accepts an allowed local return path.
+2. Django creates random state and a PKCE verifier in a signed five-minute
+   HttpOnly cookie and returns Google's authorization URL.
+3. Google redirects to `/api/v1/users/auth/google/callback/`.
+4. The backend verifies/consumes state and exchanges the code with the verifier
+   and server-side client secret.
+5. It creates a one-use result cookie and redirects to /google-callback.
+6. The frontend calls the CSRF-protected google/complete/ endpoint.
+7. The shared login service either issues the browser session or asks for local 2FA.
 
-## Migration and checks
+Tokens are not put into the frontend URL. The provider callback does not itself
+create an authenticated Django Admin session.
 
-`users.0006_browser_sessions` expires old session records because they have neither a browser identity nor refresh-token ownership. All users must sign in once after this migration. It does not modify account, strategy, broker or trading data.
+Configure a Google Social application in Admin with its web client credentials,
+associated with the correct Django Site. Register the exact BACKEND_URL callback
+with Google. There is no frontend Google secret or popup SDK.
 
-Run backend verification in the isolated SQLite settings:
+Existing password accounts are not silently linked merely because a Google email
+matches. Provider cancellation, invalid/expired state, inactive accounts and changed
+passwords invalidate the pending result. Retrying starts a fresh flow.
 
-```powershell
-rtk proxy .venv\Scripts\python.exe backend/manage.py test users research --settings=users.test_settings --noinput
-rtk proxy .venv\Scripts\python.exe backend/manage.py makemigrations --check --dry-run --settings=users.test_settings
-```
+## 8. WebSocket authentication
 
-Run frontend authentication checks from `frontend/`:
+Sockets use an HttpOnly access cookie, allowed frontend Origin, active owned
+session, expiry and revocation checks. No JWT appears in a socket query string.
+Public sockets also require trusted gateway ingress.
 
-```powershell
-rtk proxy node --test tests/auth-session.test.mjs
-rtk proxy node --test tests/ui-regressions.test.mjs
-rtk proxy npm run build
-```
+On expiry/revocation, the browser refreshes when appropriate and reconnects its
+streams. Resubscription is not guaranteed replay of all missed market/fill events;
+REST reloads recover current records.
 
-The UI checks use an isolated headless Chrome profile. Set `CHROME_PATH` if the browser is installed outside the standard locations; these checks skip if no supported browser is installed.
+## 9. Market source and broker OAuth
 
-References: [OWASP token storage guidance](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html), [SimpleJWT settings](https://django-rest-framework-simplejwt.readthedocs.io/en/stable/settings.html), [dj-rest-auth settings](https://dj-rest-auth.readthedocs.io/en/latest/configuration.html).
+| Flow | Who starts it | Callback and stored result |
+| --- | --- | --- |
+| Market source | Staff administrator at /api/v1/market/fyers/login/ | /api/v1/market/fyers/callback/; source access token |
+| Broker account | Customer's broker connection workflow | /api/v1/brokers/credentials/fyers/callback/; owned broker session |
+| Workspace refresh | Signed-in customer/browser | users/auth/token/refresh/; QuantNest session rotation |
+
+The source flow checks signed state, same-browser cookie, current staff user and
+one-time nonce within ten minutes. The start canonicalizes to the registered
+callback host before setting its flow cookie. A used/expired callback must be
+replaced by a fresh start, not replayed.
+
+Source and broker access-token expiry require fresh provider sign-in. The removed
+FYERS refresh-token feature is unrelated to required QuantNest account refresh.
+Broker app credentials/callbacks are separate from operator data-source credentials.
+
+Execution scope and applicable Private/data permissions still apply after a
+successful broker authentication.
+
+## 10. Profile images and account records
+
+The profile API returns a signed API-relative avatar URL. It authorizes the current
+active user's current stored image for up to 30 minutes without exposing a public
+media directory. The image view buffers the small file into a regular response;
+it does not use a synchronous streaming iterator under ASGI.
+
+Uploads accept supported JPEG/PNG/WebP images up to 2 MiB. Replacing/removing the
+file invalidates links to the old name. UserAvatar refreshes an expired/failed
+capability with bounded retry. Sidebar and Profile share this behavior.
+
+Verified-email association of guest support/consent records is routine login/
+refresh work. It does not automatically confirm newsletter opt-in.
+
+Account export, consent preferences, deactivation/deletion prerequisites, retained
+financial records and operator recovery are detailed in
+[Commercial operations](commercial-operations.md).
+
+## 11. Source navigation
+
+| Concern | Source |
+| --- | --- |
+| API routes | [users/urls.py](../backend/users/urls.py) |
+| Login/refresh/security views | [auth_views.py](../backend/users/auth_views.py), [views.py](../backend/users/views.py) |
+| Session issue/rotation | [sessions.py](../backend/users/sessions.py), [tokens.py](../backend/users/tokens.py) |
+| REST / sockets | [authentication.py](../backend/users/authentication.py), [websocket.py](../backend/users/websocket.py) |
+| Google state/PKCE | [google_auth.py](../backend/users/google_auth.py) |
+| Admin and initial OTP | [admin.py](../backend/backend/admin.py), [enrol_staff_otp.py](../backend/users/management/commands/enrol_staff_otp.py) |
+| Source OAuth | [marketdata/oauth.py](../backend/marketdata/oauth.py), [views.py](../backend/marketdata/views.py) |
+| Trusted ingress | [ingress.py](../backend/backend/middleware/ingress.py) |
+| Frontend request/session handling | [api.js](../frontend/src/shared/services/api.js), [useAuthSession.js](../frontend/src/shared/hooks/useAuthSession.js), [authSlice.jsx](../frontend/src/shared/store/authSlice.jsx) |
+| Avatar | [avatar.py](../backend/users/avatar.py), [UserAvatar.jsx](../frontend/src/shared/components/UserAvatar.jsx) |
+
+Follow the selected deployment guide for commands/environment. Review sign-in,
+refresh, CSRF, revocation and recovery on the real gateway before accepting users.

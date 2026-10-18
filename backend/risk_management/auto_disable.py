@@ -1,6 +1,8 @@
 from django.db import transaction
 from django.utils import timezone
 from common.enums import NotificationType
+from core.lifecycle import publish_session_event
+from core.shared_state_store import shared_state_store
 from notifications.services import NotificationService
 from .policy import evaluate_configuration, pause_state, release_state
 
@@ -17,30 +19,27 @@ class AutoDisableGate:
 
     @classmethod
     def release(cls, session):
-        from core.cache_view import cache_view
         from strategy_engine.runtime import StrategyRuntimeState
         scope = "live" if session._meta.app_label == "live_trading" else "paper"
         StrategyRuntimeState.ensure_risk_metrics(scope, session.pk)
-        stats = cache_view.get_risk_metrics(scope, session.pk)
+        stats = shared_state_store.get_risk_metrics(scope, session.pk)
         state = session.auto_disable_state
         if state.get("version_id") != session.allocation.deployed_version_id:
             state = {}
         session.auto_disable_state = release_state(state, stats)
         session.auto_disable_state["version_id"] = session.allocation.deployed_version_id
-        from core.cache_api import cache_api
         release = session.auto_disable_state["release"]
-        transaction.on_commit(lambda: cache_api.update_risk_metrics(scope, session.pk, {
-            "auto_disable_release": release}))
+        transaction.on_commit(lambda: shared_state_store.update_risk_metrics(scope, session.pk, {
+            "auto_disable_release": release}), robust=True)
 
     @staticmethod
     def version_changed(session):
         """A resume acknowledgement applies only to the version that was paused."""
-        from core.cache_api import cache_api
         session.auto_disable_state = {}
         session.save(update_fields=["auto_disable_state", "updated_at"])
         scope = "live" if session._meta.app_label == "live_trading" else "paper"
-        transaction.on_commit(lambda: cache_api.update_risk_metrics(scope, session.pk, {
-            "auto_disable_release": {}, "risk_metrics_version": None}))
+        transaction.on_commit(lambda: shared_state_store.update_risk_metrics(scope, session.pk, {
+            "auto_disable_release": {}, "risk_metrics_version": None}), robust=True)
 
     @classmethod
     def record_close(cls, session, trade_id, pnl, timestamp, capital, config=None):
@@ -55,12 +54,8 @@ class AutoDisableGate:
     def after_close(cls, session, stats, capital, config):
         match = cls.evaluate(session, stats, capital, config=config)
         if match and match["paused_now"]:
-            if session._meta.app_label == "live_trading":
-                from live_trading.services import LiveExecutionService
-                LiveExecutionService._publish_execution_event("SESSION_PAUSE", session, "live")
-            else:
-                from paper_trading.services import PaperExecutionService
-                PaperExecutionService._publish_execution_event("SESSION_PAUSE", session, "paper")
+            scope = "live" if session._meta.app_label == "live_trading" else "paper"
+            publish_session_event(scope, session, "SESSION_PAUSE")
 
     @classmethod
     def evaluate(cls, session, stats, capital, config=None):

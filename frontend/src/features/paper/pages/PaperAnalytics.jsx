@@ -1,3 +1,4 @@
+import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useMemo } from "react";
 import {
   Card,
@@ -21,19 +22,7 @@ import { TooltipHint } from "@/shared/components/ui/tooltip";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 
 export default function PaperAnalytics() {
-  const { notify } = useNotifications();
-  const [portfolio, setPortfolio] = useState(null);
-  const [trades, setTrades] = useState([]);
-  const [positions, setPositions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const { livePnLByPositionId } = useLivePositionsPnL(positions);
-
-  usePageTitle({
-    title: "Paper Performance Analytics",
-    subtitle: "Portfolio-wide performance across all paper accounts",
-  });
-
-  const fetchData = async () => {
+  const fetchData = useStableCallback(async () => {
     try {
       setLoading(true);
       const [portRes, tradesRes, positionsRes] = await Promise.all([
@@ -49,11 +38,25 @@ export default function PaperAnalytics() {
     } finally {
       setLoading(false);
     }
-  };
+  });
+
+  const { notify } = useNotifications();
+  const [portfolio, setPortfolio] = useState(null);
+  const [trades, setTrades] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { livePnLByPositionId } = useLivePositionsPnL(positions);
+
+  usePageTitle({
+    title: "Paper Performance Analytics",
+    subtitle: "Portfolio-wide performance across all paper accounts",
+  });
+
+
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const perfStats = useMemo(() => {
     const today = new Date();

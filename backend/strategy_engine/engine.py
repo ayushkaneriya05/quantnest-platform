@@ -55,7 +55,7 @@ def apply_calculation(actor, result):
                                           actor.instrument, position, action, params, reason)
             actor.generation += 1
         return
-    if actor.status != "RUNNING" or actor.gap or not actor.market_ready or not actor.runtime_ready or not actor.market.is_tick_fresh():
+    if actor.status != "RUNNING" or actor.gap or not actor.market_ready or not actor.runtime_ready or not actor.account_active or not actor.market.is_tick_fresh():
         return
     risk = context.get_risk_stats()
     capital = context.get_available_capital()

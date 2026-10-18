@@ -27,11 +27,12 @@ export default function LivePortfolio() {
   const { setPageHeader, clearPageHeader } = usePageActions();
   const [activeTab, setActiveTab] = useState("portfolio");
   const data = useLiveTradingData({ includePortfolio: true, notify });
+  const { refresh } = data;
 
   const handleRefresh = useCallback(async () => {
-    await data.refresh();
+    await refresh();
     notify.success("Live trading data refreshed");
-  }, [data.refresh, notify]);
+  }, [refresh, notify]);
 
   useEffect(() => {
     const HeaderTabs = () => (

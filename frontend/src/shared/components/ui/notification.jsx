@@ -43,13 +43,13 @@ export function Notification({
   }, [duration, handleClose]);
 
   return (
-    <div className={`relative z-[9999] w-full max-w-sm rounded-lg border p-4 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out ${config.className} ${isVisible && !isLeaving ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}>
+    <div role={variant === "error" || type === "CRITICAL" ? "alert" : "status"} aria-atomic="true" className={`relative z-[9999] w-full max-w-sm rounded-lg border p-4 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out motion-reduce:transition-none ${config.className} ${isVisible && !isLeaving ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}>
       <div className="flex items-start gap-3">
         <Icon className="mt-0.5 h-5 w-5 flex-shrink-0" />
         <div className="min-w-0 flex-1">
           <h4 className="mb-0.5 text-xs font-black uppercase tracking-widest">{title || config.label}</h4>
           {message != null && (
-            <p className="break-words text-sm font-medium leading-relaxed opacity-90">
+            <p className="text-sm font-medium leading-relaxed opacity-90 [overflow-wrap:anywhere]">
               {typeof message === "object" ? JSON.stringify(message) : message}
             </p>
           )}
@@ -86,11 +86,11 @@ Notification.propTypes = {
 };
 
 export function NotificationContainer({ notifications = [], onClose }) {
-  if (!notifications.length || typeof document === "undefined") return null;
+  if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="pointer-events-none fixed right-3 top-3 z-[9999] w-[calc(100vw_-_1.5rem)] max-w-sm sm:right-4 sm:top-4 flex flex-col items-end space-y-3 p-0">
+    <div data-ui="notification-viewport" role="region" aria-label="Notifications" aria-live="polite" className="scrollbar-theme pointer-events-none fixed right-3 top-3 z-[9999] flex max-h-[calc(var(--viewport-height)_-_1.5rem)] w-[calc(100vw_-_1.5rem)] max-w-sm flex-col items-end space-y-3 overflow-y-auto overflow-x-hidden overscroll-contain p-0 sm:right-4 sm:top-4">
       {notifications.map((notification) => (
-        <div key={notification.id} className="pointer-events-auto w-full">
+        <div key={notification.id} className="pointer-events-auto w-full shrink-0">
           <Notification {...notification} onClose={onClose} />
         </div>
       ))}
