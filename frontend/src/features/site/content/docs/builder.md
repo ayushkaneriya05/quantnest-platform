@@ -12,8 +12,10 @@ order: 4
 ## Configure sizing and safeguards
 
 - Choose fixed quantity or capital-based sizing.
-- Configure stop-loss, target and supported exit actions separately.
-- Set trading windows, event restrictions, cooldown and auto-disable conditions relevant to your idea.
+- Configure stop-loss, target and exit conditions separately. Each matched exit closes the full position.
+- Set trading days, session hours and no-trade windows relevant to your idea.
+- End time controls when new entries stop for every strategy type. Existing positions continue to follow stop-loss, target and exit rules. The default entry window ends at 15:30 in Asia/Kolkata.
+- NSE stock short entries use Intraday execution. Delivery/Swing stock borrowing is not supported.
 
 ## Save a version
 

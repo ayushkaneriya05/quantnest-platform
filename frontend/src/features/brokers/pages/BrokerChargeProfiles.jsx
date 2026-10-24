@@ -1,3 +1,4 @@
+import { formatCurrency } from "@/shared/utils/formatters";
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useMemo } from "react";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 export default function BrokerChargeProfiles() {
   const fetchProfiles = useStableCallback(async () => {
@@ -31,7 +33,7 @@ export default function BrokerChargeProfiles() {
       const res = await brokersApi.getChargeProfiles();
       setProfiles(res.data || []);
     } catch (error) {
-      notify.error("Failed to load charge profiles");
+      notify.error(getApiErrorMessage(error, "Failed to load charge profiles"));
     } finally {
       setLoading(false);
     }
@@ -50,8 +52,10 @@ export default function BrokerChargeProfiles() {
     brokerage_cap: 20,
     stt_eq_delivery_pct: 0.1,
     stt_eq_intraday_pct: 0.025,
-    stt_futures_pct: 0.0125,
-    stt_options_sell_pct: 0.0625,
+    stt_futures_pct: 0.05,
+    stt_options_sell_pct: 0.15,
+    ctt_futures_sell_pct: 0,
+    ctt_options_sell_pct: 0,
     exchange_txn_pct: 0.00325,
     exchange_txn_fo_pct: 0.002,
     sebi_turnover_pct: 0.0001,
@@ -77,6 +81,8 @@ export default function BrokerChargeProfiles() {
         stt_eq_intraday_pct: profile.stt_eq_intraday_pct || 0,
         stt_futures_pct: profile.stt_futures_pct || 0,
         stt_options_sell_pct: profile.stt_options_sell_pct || 0,
+        ctt_futures_sell_pct: profile.ctt_futures_sell_pct,
+        ctt_options_sell_pct: profile.ctt_options_sell_pct,
         exchange_txn_pct: profile.exchange_txn_pct || 0,
         exchange_txn_fo_pct: profile.exchange_txn_fo_pct || 0,
         sebi_turnover_pct: profile.sebi_turnover_pct,
@@ -92,8 +98,10 @@ export default function BrokerChargeProfiles() {
         brokerage_cap: 20,
         stt_eq_delivery_pct: 0.1,
         stt_eq_intraday_pct: 0.025,
-        stt_futures_pct: 0.0125,
-        stt_options_sell_pct: 0.0625,
+        stt_futures_pct: 0.05,
+        stt_options_sell_pct: 0.15,
+        ctt_futures_sell_pct: 0,
+        ctt_options_sell_pct: 0,
         exchange_txn_pct: 0.00325,
         exchange_txn_fo_pct: 0.002,
         sebi_turnover_pct: 0.0001,
@@ -120,7 +128,7 @@ export default function BrokerChargeProfiles() {
       setIsModalOpen(false);
       fetchProfiles();
     } catch (error) {
-      notify.error("Failed to save charge profile");
+      notify.error(getApiErrorMessage(error, "Failed to save charge profile"));
     }
   };
 
@@ -137,7 +145,7 @@ export default function BrokerChargeProfiles() {
       notify.success("Charge profile deleted");
       fetchProfiles();
     } catch (error) {
-      notify.error("Failed to delete charge profile");
+      notify.error(getApiErrorMessage(error, "Failed to delete charge profile"));
     }
   };
 
@@ -147,7 +155,7 @@ export default function BrokerChargeProfiles() {
       notify.success("Default profile updated");
       fetchProfiles();
     } catch (error) {
-      notify.error("Failed to set default profile");
+      notify.error(getApiErrorMessage(error, "Failed to set default profile"));
     }
   };
 
@@ -163,6 +171,9 @@ export default function BrokerChargeProfiles() {
 
   return (
     <div className="container-padding py-6 lg:py-8 space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Your default profile can be edited. To delete it, first set another profile as default.
+      </p>
       <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         {profiles.map(profile => (
           <Card key={profile.id} className="bg-card/60 border-border">
@@ -180,9 +191,11 @@ export default function BrokerChargeProfiles() {
                   <Button variant="ghost" size="icon" onClick={() => handleOpenModal(profile)} className="h-8 w-8 text-muted-foreground hover:text-foreground">
                     <Edit2 className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(profile.id)} className="h-8 w-8 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {!profile.is_default && (
+                    <Button variant="ghost" size="icon" aria-label={`Delete ${profile.name}`} onClick={() => handleDelete(profile.id)} className="h-8 w-8 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -190,7 +203,7 @@ export default function BrokerChargeProfiles() {
               <div className="grid grid-cols-2 gap-y-2 text-foreground">
                 <div className="text-muted-foreground">Brokerage</div>
                 <div className="font-mono text-right">
-                  {profile.brokerage_pct}% or ₹{profile.brokerage_per_order} (Cap: ₹{profile.brokerage_cap || 0})
+                  {profile.brokerage_pct}% or {formatCurrency(profile.brokerage_per_order)} (Cap: {formatCurrency(profile.brokerage_cap || 0)})
                 </div>
 
                 <div className="text-muted-foreground">STT (Eq Del | Intraday)</div>
@@ -198,6 +211,9 @@ export default function BrokerChargeProfiles() {
 
                 <div className="text-muted-foreground">STT (Fut | Opt)</div>
                 <div className="font-mono text-right">{profile.stt_futures_pct || 0}% | {profile.stt_options_sell_pct || 0}%</div>
+
+                <div className="text-muted-foreground">CTT (Fut | Opt)</div>
+                <div className="font-mono text-right">{profile.ctt_futures_sell_pct}% | {profile.ctt_options_sell_pct}%</div>
 
                 <div className="text-muted-foreground">Exchange Txn (Eq | F&O)</div>
                 <div className="font-mono text-right">{profile.exchange_txn_pct || 0}% | {profile.exchange_txn_fo_pct || 0}%</div>
@@ -313,6 +329,13 @@ export default function BrokerChargeProfiles() {
                   className="bg-secondary border-border font-mono"
                 />
               </div>
+              {['ctt_futures_sell_pct', 'ctt_options_sell_pct'].map((field) => <div key={field} className="space-y-2">
+                <Label htmlFor={field}>{field === 'ctt_futures_sell_pct' ? 'CTT Futures (%)' : 'CTT Options (%)'}</Label>
+                <Input id={field} type="number" min="0" step="0.0001" value={formData[field]}
+                  onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
+                  className="bg-secondary border-border font-mono" />
+              </div>)}
+
               <div className="space-y-2">
                 <Label>Exchange Txn Eq (%)</Label>
                 <Input

@@ -7,15 +7,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { TimePicker } from "@/shared/components/ui/time-picker";
 import { Label } from "@/shared/components/ui/label";
-import { Switch } from "@/shared/components/ui/switch";
 import { Badge } from "@/shared/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { Input } from "@/shared/components/ui/input";
-import { Clock, Calendar, AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { Clock, Calendar, Plus, Trash2 } from 'lucide-react';
 import { Button } from "@/shared/components/ui/button";
 import StrategyConfigNav from '@/features/strategies/components/StrategyConfigNav.jsx';
 import StrategyFooter from '@/features/strategies/components/StrategyFooter.jsx';
-import { timeRuleApi, specialEventApi } from '@/shared/services/rulesApi';
+import { timeRuleApi } from '@/shared/services/rulesApi';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from '@/shared/hooks/useNotifications';
@@ -27,10 +25,9 @@ export default function TimeRulesEditor() {
   const fetchData = useStableCallback(async () => {
     try {
       setLoading(true);
-      const [strategyData, rules, events] = await Promise.all([
+      const [strategyData, rules] = await Promise.all([
         strategyApi.getById(id),
         timeRuleApi.get(id),
-        specialEventApi.getByStrategy(id).catch(() => []),
       ]);
       setStrategy(strategyData);
 
@@ -39,9 +36,7 @@ export default function TimeRulesEditor() {
         setTimeRule(rule);
         setFormData(prev => ({
           ...prev,
-          trading_days: Array.isArray(rule.trading_days)
-            ? (rule.trading_days.length ? rule.trading_days : DAYS)
-            : timeDefaults.trading_days ?? DAYS,
+          trading_days: rule.trading_days,
           market_session: rule.market_session || 'ALL',
           start_time: rule.start_time || '',
           end_time: rule.end_time || '',
@@ -51,17 +46,6 @@ export default function TimeRulesEditor() {
         }));
       }
 
-      if (events.length > 0) {
-        const ef = events[0];
-        setEventFilter(ef);
-        setFormData(prev => ({
-          ...prev,
-          avoid_earnings: ef.avoid_earnings ?? false,
-          avoid_news: ef.avoid_news ?? false,
-          avoid_rbi_policy: ef.avoid_rbi_policy ?? false,
-          custom_avoid_dates: Array.isArray(ef.custom_avoid_dates) ? ef.custom_avoid_dates.join(', ') : (ef.custom_avoid_dates || ''),
-        }));
-      }
     } catch (error) {
       notify.error(getApiErrorMessage(error, 'Failed to load time rules'));
     } finally {
@@ -83,7 +67,6 @@ export default function TimeRulesEditor() {
   const [timeRule, setTimeRule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [eventFilter, setEventFilter] = useState(null);
 
   const [formData, setFormData] = useState({
     trading_days: timeDefaults.trading_days || [],
@@ -92,10 +75,6 @@ export default function TimeRulesEditor() {
     end_time: timeDefaults.end_time || '',
     candle_timeframe: timeDefaults.candle_timeframe || '5m',
     timezone: timeDefaults.timezone || 'Asia/Kolkata',
-    avoid_earnings: false,
-    avoid_news: false,
-    avoid_rbi_policy: false,
-    custom_avoid_dates: '',
     no_trade_windows: [],
   });
 
@@ -136,25 +115,12 @@ export default function TimeRulesEditor() {
         timezone: formData.timezone,
         no_trade_windows: formData.no_trade_windows.filter(w => w.start && w.end),
       };
-      const eventPayload = {
-        avoid_earnings: formData.avoid_earnings,
-        avoid_news: formData.avoid_news,
-        avoid_rbi_policy: formData.avoid_rbi_policy,
-        custom_avoid_dates: formData.custom_avoid_dates ? formData.custom_avoid_dates.split(',').map(d => d.trim()).filter(Boolean) : [],
-      };
 
       // Save time rule
       if (timeRule) {
         await timeRuleApi.update(timeRule.id, timePayload);
       } else {
         await timeRuleApi.create({ strategy: id, ...timePayload });
-      }
-
-      // Save special event filters
-      if (eventFilter) {
-        await specialEventApi.update(eventFilter.id, eventPayload);
-      } else {
-        await specialEventApi.create({ strategy: id, ...eventPayload });
       }
 
       notify.success('Time rules saved');
@@ -330,6 +296,9 @@ export default function TimeRulesEditor() {
           </div>
 
           {/* timezone row */}
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            End time limits new entries. Existing positions continue to follow your stop-loss, target and exit rules.
+          </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 
             <div className="space-y-1.5">
@@ -441,47 +410,6 @@ export default function TimeRulesEditor() {
                 ))}
               </div>
             )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Special Events */}
-      <Card className="bg-card/40 border-border/80">
-        <CardHeader>
-          <CardTitle className="text-foreground flex items-center gap-2 text-base">
-            <div className="p-1.5 rounded-lg bg-amber-500/10">
-              <AlertTriangle className="h-4 w-4 text-amber-800 dark:text-amber-400" />
-            </div>
-            Avoid Special Events
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {[
-            { key: 'avoid_earnings', label: 'Earnings Days', desc: 'Avoid stocks with earnings announcements' },
-            { key: 'avoid_news', label: 'Major News Events', desc: 'Skip budget days, macroeconomic announcements, etc.' },
-            { key: 'avoid_rbi_policy', label: 'RBI Policy Days', desc: 'Avoid trading during RBI rate announcements' },
-          ].map(event => (
-            <div key={event.key} className="flex items-center justify-between py-3 px-3 rounded-lg hover:bg-secondary/30 transition-colors">
-              <div>
-                <p className="text-sm text-foreground font-medium">{event.label}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{event.desc}</p>
-              </div>
-              <Switch
-                checked={formData[event.key]}
-                onCheckedChange={(v) => setFormData({ ...formData, [event.key]: v })}
-              />
-            </div>
-          ))}
-
-          <div className="pt-3 px-3">
-            <Label className="text-xs text-muted-foreground mb-1.5 block">Custom Avoid Dates</Label>
-            <Input
-              value={formData.custom_avoid_dates}
-              onChange={(e) => setFormData({ ...formData, custom_avoid_dates: e.target.value })}
-              placeholder="e.g. 2024-01-26, 2024-08-15"
-              className="bg-secondary/60 border-border/80 text-sm text-foreground h-9"
-            />
-            <p className="text-[10px] text-muted-foreground mt-1.5">Enter dates in YYYY-MM-DD format separated by commas</p>
           </div>
         </CardContent>
       </Card>

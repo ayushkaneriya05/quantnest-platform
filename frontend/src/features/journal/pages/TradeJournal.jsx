@@ -22,7 +22,7 @@ export default function TradeJournal() {
     <div className="xl:hidden"><SourceTabs source={filters.source} onChange={(source) => update({ source })} /></div>
     <ReviewFilters filters={filters} onChange={update} journal />
     <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-      <MetricCard label="Recorded closes" value={details?.closes ?? "—"} hint="Partial exits count separately" />
+      <MetricCard label="Recorded closes" value={details?.closes ?? "—"} hint="Broker partial fills and manual reductions count separately" />
       <MetricCard label="Reviewed" value={details?.reviewed ?? "—"} tone="text-emerald-700 dark:text-emerald-400" hint="Your saved trade reviews" />
       <MetricCard label="To review" value={details?.unreviewed ?? "—"} tone="text-amber-700 dark:text-amber-300" />
       <MetricCard label="Execution rating" value={details?.average_rating == null ? "N/A" : displayNumber(details.average_rating) + " / 5"} hint="Self-reported · rated reviews only" />

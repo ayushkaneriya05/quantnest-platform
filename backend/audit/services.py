@@ -11,14 +11,14 @@ SAFE_FIELDS = {
                  "instrument_type", "paper_trading_enabled", "live_trading_enabled"),
     "BrokerCredential": ("broker_name", "label", "is_active", "is_verified"),
     "PaperAccount": ("name",),
-    "CapitalAllocation": ("strategy_id", "deployed_version_id", "allocation_type", "allocated_amount", "allocated_percentage"),
-    "LiveStrategyAllocation": ("strategy_id", "broker_credential_id", "deployed_version_id", "allocation_type", "allocated_capital", "allocated_percentage"),
+    "CapitalAllocation": ("strategy_id", "deployed_version_id", "allocated_amount"),
+    "LiveStrategyAllocation": ("strategy_id", "broker_credential_id", "deployed_version_id", "allocated_capital"),
     "PaperTradingSession": ("strategy_id", "account_id", "status", "slippage_pct", "include_charges", "charge_profile_id"),
     "TradingSession": ("strategy_id", "broker_credential_id", "allocation_id", "status"),
 }
 CONFIG_FIELDS = ("name", "description", "strategy_type", "market_type", "exchange", "instrument_type",
-                 "time_rule", "special_event_filter", "entry_order_config", "exit_order_config",
-                 "position_sizing_rule", "auto_disable_rules", "watchlist_instruments", "rule_groups")
+                 "time_rule", "entry_order_config", "exit_order_config",
+                 "position_sizing_rule", "watchlist_instruments", "rule_groups")
 
 
 def json_safe(value):

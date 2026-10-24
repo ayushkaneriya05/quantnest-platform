@@ -1,80 +1,25 @@
-import { useState, useEffect } from "react";
-import { Wallet, History, PieChart } from "lucide-react";
-import PaperAllocations from "@/features/paper/components/PaperAllocations.jsx";
+import { useEffect, useState } from "react";
+import { History, Wallet } from "lucide-react";
 import PaperTransactions from "@/features/paper/components/PaperTransactions.jsx";
 import PaperWallet from "@/features/paper/components/PaperWallet.jsx";
-import { Button } from "@/shared/components/ui/button";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
 import { usePageActions } from "@/shared/context/pageActions";
 
 export default function PaperCapital() {
-  const [activeTab, setActiveTab] = useState("allocations");
+  const [activeTab, setActiveTab] = useState("wallet");
   const { setPageHeader, clearPageHeader } = usePageActions();
-
-  usePageTitle({
-    title: "Paper Capital",
-    subtitle: "Manage paper allocations and virtual cash movements",
-  });
-
+  usePageTitle({ title: "Paper wallet", subtitle: "Fund deployments and review virtual cash movements" });
   useEffect(() => {
-    const HeaderContent = () => (
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0 w-full">
-        <div className="flex min-w-0 max-w-full items-center gap-1 bg-card/50 p-1 rounded-xl border border-border backdrop-blur-md overflow-x-auto scrollbar-thin-theme">
-          <button
-            onClick={() => setActiveTab("allocations")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-              activeTab === "allocations"
-                ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.1)]"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-            }`}
-          >
-            <PieChart className="h-4 w-4" />
-            Allocations
-          </button>
-          <button
-            onClick={() => setActiveTab("wallet")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-              activeTab === "wallet"
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-            }`}
-          >
-            <Wallet className="h-4 w-4" />
-            Paper Wallet
-          </button>
-          <button
-            onClick={() => setActiveTab("transactions")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-              activeTab === "transactions"
-                ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.1)]"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-            }`}
-          >
-            <History className="h-4 w-4" />
-            Capital Logs
-          </button>
-        </div>
-
-        {activeTab === "allocations" && (
-          <div className="flex items-center gap-3">
-             <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 h-10 px-4 shadow-lg shadow-indigo-500/20 font-bold text-white" onClick={() => window.dispatchEvent(new CustomEvent('open-new-allocation'))}>
-                <PieChart className="h-4 w-4 mr-2" /> 
-                <span>ADD ALLOCATION</span>
-             </Button>
-          </div>
-        )}
-      </div>
-    );
-
-    setPageHeader(<HeaderContent />);
-    return () => clearPageHeader();
+    setPageHeader(<div className="flex gap-1 rounded-xl border border-border bg-card/50 p-1">
+      {[["wallet", "Wallet", Wallet], ["transactions", "Transactions", History]].map(([key, label, Icon]) =>
+        <button key={key} onClick={() => setActiveTab(key)}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${activeTab === key ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+          <Icon className="h-4 w-4" />{label}
+        </button>)}
+    </div>);
+    return clearPageHeader;
   }, [activeTab, setPageHeader, clearPageHeader]);
-
-  return (
-    <div className="container-padding py-6 lg:py-8 space-y-6 animate-in fade-in duration-500">
-      {activeTab === "allocations" && <PaperAllocations />}
-      {activeTab === "wallet" && <PaperWallet />}
-      {activeTab === "transactions" && <PaperTransactions />}
-    </div>
-  );
+  return <div className="container-padding space-y-6 py-6 lg:py-8">
+    {activeTab === "wallet" ? <PaperWallet /> : <PaperTransactions />}
+  </div>;
 }

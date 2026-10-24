@@ -1,3 +1,4 @@
+import { formatCurrency } from "@/shared/utils/formatters";
 import { Link } from "react-router-dom";
 import { Check, ArrowRight } from "lucide-react";
 import { usePlatform } from "@/shared/context/platform";
@@ -41,7 +42,7 @@ export default function PricingCards() {
             <h3 className="mt-3 text-2xl font-semibold">{plan.name}</h3>
             <p className="mt-4 text-4xl font-semibold">
               {plan.price_minor
-                ? `₹${(plan.price_minor / 100).toLocaleString("en-IN")}`
+                ? `${formatCurrency(plan.price_minor / 100, { minimumFractionDigits: 0 })}`
                 : "Free"}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -102,14 +103,7 @@ export default function PricingCards() {
         paid overages.
       </p>
       <p className="mt-2 text-sm leading-7 text-muted-foreground">
-        <Link
-          className="text-brand font-medium underline underline-offset-4"
-          to="/private/"
-        >
-          Live trading is supported in QuantNest Private
-        </Link>
-        , after the installation and supported broker setup are agreed and
-        activated. Public plans do not include Live execution.
+        Customer Live trading and QuantNest Private are not currently available.
       </p>
     </>
   );

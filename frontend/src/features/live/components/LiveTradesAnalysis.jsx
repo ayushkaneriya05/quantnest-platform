@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/ui/table";
-import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
+import { formatNumber, formatBrokerAccount, formatDateTime, formatCurrency } from "@/shared/utils/formatters";
 import TablePagination from "@/shared/components/TablePagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 
@@ -20,7 +20,7 @@ export default function LiveTradesAnalysis({ trades = [], pagination, summary = 
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric title="Closed trades" value={total} detail="Matching allocation · all pages" />
-        <Metric title="Realized P&L" value={`₹${formatNumber(realized)}`} color={realized >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} />
+        <Metric title="Realized P&L" detail="Before broker charges" value={`${formatCurrency(realized)}`} color={realized >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} />
         <Metric title="Winning trades" value={winners} detail={`${losers} losing trades`} color="text-emerald-700 dark:text-emerald-400" />
         <Metric title="Win rate" value={winRate == null ? "—" : `${winRate.toFixed(2)}%`} detail="Across all closed trades" />
       </div>
@@ -43,9 +43,9 @@ export default function LiveTradesAnalysis({ trades = [], pagination, summary = 
                     <TableCell><div className="text-foreground">{trade.strategy_name || "Unassigned strategy"}</div><div className="text-xs text-muted-foreground">{formatBrokerAccount(trade.broker_name, trade.broker_label)}</div></TableCell>
                     <TableCell><Badge variant="outline" className={trade.side === "BUY" ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300" : "border-rose-500/30 text-rose-700 dark:text-rose-300"}>{trade.side}</Badge></TableCell>
                     <TableCell className="text-right text-foreground">{formatNumber(trade.quantity)}</TableCell>
-                    <TableCell className="text-right text-foreground">₹{formatNumber(trade.entry_price)}</TableCell>
-                    <TableCell className="text-right text-foreground">₹{formatNumber(trade.exit_price)}</TableCell>
-                    <TableCell className={`text-right font-medium ${pnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>₹{formatNumber(pnl)}</TableCell>
+                    <TableCell className="text-right text-foreground">{formatCurrency(trade.entry_price)}</TableCell>
+                    <TableCell className="text-right text-foreground">{formatCurrency(trade.exit_price)}</TableCell>
+                    <TableCell className={`text-right font-medium ${pnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>{formatCurrency(pnl)}</TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(trade.entry_time)}</TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(trade.exit_time)}</TableCell>
                   </TableRow>;

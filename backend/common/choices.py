@@ -9,7 +9,7 @@ from backtesting.models import BacktestRun
 from brokers.models import BrokerChargeProfile, BrokerCredential
 from brokers.services import BROKER_CATALOG
 from live_trading.models import LiveStrategyAllocation
-from paper_trading.models import CapitalAllocation, PaperAccount
+from paper_trading.models import PaperAccount
 from research.models import ResearchSession
 from strategies.models import Strategy, StrategyTag, StrategyVersion
 
@@ -46,12 +46,6 @@ SOURCES = {
         "model": PaperAccount, "owner": "user", "fields": ("name", "current_balance"),
         "search": ("name", "allocation__strategy__name"), "filters": (),
         "label": lambda row: f"{row['name']} · ₹{row['current_balance']:,.2f}",
-    },
-    "paper-allocations": {
-        "model": CapitalAllocation, "owner": "portfolio__user",
-        "fields": ("strategy__name", "allocated_amount"), "search": ("strategy__name",),
-        "filters": ("strategy_id", "strategy__status", "strategy__paper_trading_enabled", "paper_account__isnull"),
-        "label": lambda row: f"{row['strategy__name']} · Allocation #{row['id']} · ₹{row['allocated_amount']:,.2f}",
     },
     "live-allocations": {
         "model": LiveStrategyAllocation, "owner": "user",
@@ -91,9 +85,6 @@ class ChoiceQuerySerializer(serializers.Serializer):
     is_active = serializers.BooleanField(required=False)
 
     is_verified = serializers.BooleanField(required=False)
-    strategy__status = serializers.CharField(required=False, max_length=20)
-    strategy__paper_trading_enabled = serializers.BooleanField(required=False)
-    paper_account__isnull = serializers.BooleanField(required=False)
 
 
 @api_view(["GET"])

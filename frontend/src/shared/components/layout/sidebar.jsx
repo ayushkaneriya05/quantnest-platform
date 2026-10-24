@@ -51,6 +51,7 @@ import { logoutUser } from "@/shared/store/authSlice";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSystemNotificationsContext } from "@/shared/context/SystemNotificationsContext";
 import UserAvatar from '@/shared/components/UserAvatar';
+import { usePlatform } from '@/shared/context/platform';
 
 const navigationSections = [
   {
@@ -73,22 +74,22 @@ const navigationSections = [
     id: 'tools', label: 'Trading Tools', icon: Wrench,
     iconClassName: 'text-teal-700 dark:text-teal-400',
     links: [
-      { to: '/terminal', label: 'Trading Terminal', icon: CandlestickChart },
+      { to: '/terminal', label: 'Trading Terminal', icon: CandlestickChart, scope: 'paper' },
       { to: '/brokers/charge-profiles', label: 'Charge Profiles', icon: ReceiptText },
     ],
   },
   {
-    id: 'paper', label: 'Paper Trading', icon: Beaker,
+    id: 'paper', label: 'Paper Trading', icon: Beaker, scope: 'paper',
     iconClassName: 'text-green-700 dark:text-green-400',
     links: [
       { to: '/paper', label: 'Deployments', icon: ListChecks, exact: true },
       { to: '/paper/portfolio', label: 'Portfolio', icon: BriefcaseBusiness },
-      { to: '/paper/capital', label: 'Capital & Wallet', icon: Wallet },
+      { to: '/paper/capital', label: 'Wallet', icon: Wallet },
       { to: '/paper/analytics', label: 'Analytics', icon: ChartNoAxesCombined },
     ],
   },
   {
-    id: 'brokers', label: 'Broker Integration', icon: Network,
+    id: 'brokers', label: 'Broker Integration', icon: Network, scope: 'live',
     iconClassName: 'text-sky-700 dark:text-sky-400',
     links: [
       { to: '/brokers', label: 'Connections', icon: Cable, exact: true },
@@ -96,7 +97,7 @@ const navigationSections = [
     ],
   },
   {
-    id: 'live', label: 'Live Trading', icon: Radio,
+    id: 'live', label: 'Live Trading', icon: Radio, scope: 'live',
     iconClassName: 'text-rose-700 dark:text-rose-400',
     links: [
       { to: '/live/portfolio', label: 'Portfolio', icon: Landmark },
@@ -135,6 +136,10 @@ const SidebarLink = ({ to, icon: Icon, label, currentPath, exact = false }) => {
 };
 
 export default function Sidebar() {
+  const { executionScopes } = usePlatform();
+  const visibleSections = navigationSections
+    .filter(section => !section.scope || executionScopes.includes(section.scope))
+    .map(section => ({ ...section, links: section.links.filter(link => !link.scope || executionScopes.includes(link.scope)) }));
   const dispatch = useDispatch();
   const { notify } = useNotifications();
   const { user } = useSelector((state) => state.auth);
@@ -191,7 +196,7 @@ export default function Sidebar() {
           <SidebarLink to="/overview" icon={LayoutDashboard} label="Overview" currentPath={pathname} exact />
         </div>
         <div className="space-y-1">
-          {navigationSections.map(({ id, label, icon: Icon, iconClassName, links }) => {
+          {visibleSections.map(({ id, label, icon: Icon, iconClassName, links }) => {
             const expanded = Boolean(openSections[id]);
             return (
               <div key={id}>

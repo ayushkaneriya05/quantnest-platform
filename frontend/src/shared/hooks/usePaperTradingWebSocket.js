@@ -41,7 +41,7 @@ export function usePaperTradingWebSocket({ enabled = true } = {}) {
         if (socketRef.current !== socket) return;
         try {
           const message = JSON.parse(event.data);
-          if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(message?.event_type)) {
+          if (["SESSION_UPDATE", "ORDER_UPDATE", "POSITION_UPDATE"].includes(message?.event_type)) {
             dispatch(setPaperLastMessage(message));
           }
         } catch (error) {

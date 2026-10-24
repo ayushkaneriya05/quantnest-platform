@@ -6,7 +6,6 @@ from django.db import transaction
 from django.contrib.auth import get_user_model
 from instruments.models import WatchlistInstrument, ExecutionRoute
 from rules_engine.models import RuleGroup, Rule
-from risk_management.models import StrategyAutoDisable
 from strategies.serializers import StrategyCreateSerializer
 from strategies.services import StrategySnapshotService
 from .models import ResearchRun
@@ -73,8 +72,6 @@ def create_strategy_draft(run_id, user, draft):
     for item in draft["watchlist_instruments"]:
         watchlist = WatchlistInstrument.objects.create(strategy=strategy, instrument_id=item["instrument_id"])
         ExecutionRoute.objects.create(watchlist_instrument=watchlist, route_type="DIRECT")
-    for item in draft["auto_disable_rules"]:
-        StrategyAutoDisable.objects.create(strategy=strategy, **item)
     StrategySnapshotService.create_snapshot(strategy, user=user, change_notes=f"Reviewed research draft from run {run.pk}")
     run.created_strategy = strategy
     run.revision += 1

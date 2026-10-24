@@ -20,6 +20,7 @@ from .actions import propose_action, confirm_action
 from .validation import json_data
 from .tools import execute_tool, _screen_config
 from .presets import screening_presets
+from .evaluation import SCREEN_OPERAND_TYPES
 
 
 class ResearchPagination(PageNumberPagination):
@@ -194,6 +195,7 @@ def research_schema(request):
     from commercial.usage import get_account_policy
     allowances = get_account_policy(request.user)["limits"]
     return Response({"enums": get_enum_metadata(), "presets": screening_presets(),
+        "screen_operand_types": SCREEN_OPERAND_TYPES,
         "limits": {"instruments": allowances.get("research_instruments"), "backtests": allowances.get("backtest_attachments"), "tool_calls": 8, "timeout_seconds": 600},
         "defaults": {"timeframe": "1D"},
         "backtest_defaults": {"name": "Research experiment", "start_date": today.replace(month=1, day=1).isoformat(),

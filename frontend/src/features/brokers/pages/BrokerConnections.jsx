@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/shared/utils/formatters";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -6,6 +7,7 @@ import {
   Radio,
   RefreshCw,
   ShieldCheck,
+  Settings2,
   Unplug,
   Wallet,
 } from "lucide-react";
@@ -22,9 +24,12 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { brokersApi } from "@/shared/services/brokersApi";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import FyersAppDialog from "@/features/brokers/components/FyersAppDialog.jsx";
 import { BrokerDetailsModal } from "@/features/brokers/components/BrokerDetailsModal.jsx";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 
+
+const brokerSetupDialogs = { FYERS: FyersAppDialog };
 
 const providerTheme = {
   FYERS: {
@@ -53,32 +58,6 @@ function statusLabel(provider) {
   if (provider.configured) return "AUTH REQUIRED";
   if (!provider.enabled) return "COMING SOON";
   return "NOT CONNECTED";
-}
-
-function normalizeProfile(payload) {
-  if (!payload || typeof payload !== "object") return {};
-  const data = payload.data || payload;
-  return {
-    name: data.name || data.display_name || data.fy_id || "Fyers Account",
-    email: data.email_id || data.email || "-",
-    mobile: data.mobile_number || data.mobile || "-",
-    pan: data.PAN || data.pan || "-",
-  };
-}
-
-function normalizeFunds(payload) {
-  const rows = payload?.fund_limit || payload?.data?.fund_limit || [];
-  return Array.isArray(rows) ? rows.slice(0, 10) : [];
-}
-
-function formatDateTime(value) {
-  if (!value) return "Not connected";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }
 
 function getExpiryMeta(provider) {
@@ -117,7 +96,7 @@ export default function BrokerConnections() {
   const { notify } = useNotifications();
   const [searchParams, setSearchParams] = useSearchParams();
   const [catalog, setCatalog] = useState([]);
-  const [sessions, setSessions] = useState([]);
+  const [appProvider, setAppProvider] = useState(null);
   const [profileMap, setProfileMap] = useState({});
   const [fundsMap, setFundsMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -132,22 +111,14 @@ export default function BrokerConnections() {
       if (initial) setLoading(true);
       else setIsRefreshing(true);
       
-      const [catalogRes, sessionsRes] = await Promise.all([
-        brokersApi.getCatalog(),
-        brokersApi.getSessions(),
-      ]);
-      const nextCatalog = Array.isArray(catalogRes.data) ? catalogRes.data : [];
-      const nextSessions = Array.isArray(sessionsRes.data?.results)
-        ? sessionsRes.data.results
-        : Array.isArray(sessionsRes.data)
-          ? sessionsRes.data
-          : [];
+      const { data: nextCatalog } = await brokersApi.getCatalog();
       setCatalog(nextCatalog);
-      setSessions(nextSessions);
+      setProfileMap({});
+      setFundsMap({});
 
       await Promise.all(
         nextCatalog
-          .filter((provider) => provider.credential_id && provider.is_verified)
+          .filter((provider) => provider.credential_id && provider.session_valid)
           .map(async (provider) => {
             try {
               const [profileRes, fundsRes] = await Promise.all([
@@ -156,11 +127,11 @@ export default function BrokerConnections() {
               ]);
               setProfileMap((current) => ({
                 ...current,
-                [provider.broker_name]: normalizeProfile(profileRes.data),
+                [provider.broker_name]: profileRes.data,
               }));
               setFundsMap((current) => ({
                 ...current,
-                [provider.broker_name]: normalizeFunds(fundsRes.data),
+                [provider.broker_name]: fundsRes.data,
               }));
             } catch (error) {
               // Keep page resilient if one broker profile/funds call fails.
@@ -196,37 +167,29 @@ export default function BrokerConnections() {
     setSearchParams({}, { replace: true });
   }, [notify, searchParams, setSearchParams]);
 
-  const activeSessionByCredential = useMemo(() => {
-    const lookup = {};
-    sessions.forEach((session) => {
-      if (session.is_valid) {
-        lookup[String(session.credential)] = session;
-      }
-    });
-    return lookup;
-  }, [sessions]);
+  const startConnection = async (credentialId) => {
+    const { data } = await brokersApi.connectBroker(credentialId);
+    window.location.assign(data.auth_url);
+  };
 
-  const connectBroker = async (brokerName) => {
+  const connectBroker = async (provider) => {
+    if (!provider.enabled || !brokerSetupDialogs[provider.broker_name]) {
+      notify.error("This broker integration is not available yet.");
+      return;
+    }
+    if (!provider.configured) {
+      setAppProvider(provider);
+      return;
+    }
     try {
-      setBusyBroker(brokerName);
-      const response = await brokersApi.connectBroker(brokerName);
-      const authUrl = response.data?.auth_url;
-      if (authUrl) {
-        window.location.assign(authUrl);
-        return;
-      }
-      notify.success(`${brokerName} connection started`);
-      await loadBrokerState();
+      setBusyBroker(provider.broker_name);
+      await startConnection(provider.credential_id);
     } catch (error) {
-      notify.error(
-        getApiErrorMessage(error, `${brokerName} connection failed`),
-      );
+      notify.error(getApiErrorMessage(error, "Broker connection failed."));
     } finally {
       setBusyBroker("");
     }
   };
-
-
 
   const disconnectBroker = async (provider) => {
     if (!provider.credential_id) return;
@@ -270,9 +233,10 @@ export default function BrokerConnections() {
 
   const connectedBrokers = catalog.filter((p) => p.is_verified);
   const availableBrokers = catalog.filter((p) => !p.is_verified);
+  const SetupDialog = appProvider ? brokerSetupDialogs[appProvider.broker_name] : null;
 
   return (
-    <div className="container-padding py-6 lg:py-8 space-y-10">
+    <div className="container-padding py-6 lg:py-8 space-y-6">
       
       {/* My Connections Section */}
       <section className="space-y-4">
@@ -291,7 +255,7 @@ export default function BrokerConnections() {
             {connectedBrokers.map((provider) => {
               const theme = providerTheme[provider.broker_name] || providerTheme.FYERS;
               const status = statusLabel(provider);
-              const session = activeSessionByCredential[String(provider.credential_id)];
+              const session = provider.session_valid;
               const isBusy = busyBroker === provider.broker_name;
               const expiryMeta = getExpiryMeta(provider);
 
@@ -350,11 +314,15 @@ export default function BrokerConnections() {
                         Details
                       </Button>
 
+                      <Button variant="outline" onClick={() => setAppProvider(provider)} disabled={isBusy || !brokerSetupDialogs[provider.broker_name]}>
+                        <Settings2 className="mr-2 h-4 w-4" />Connection settings
+                      </Button>
+
                       {(!session || provider.session_expired) && (
                         <Button
                           variant="ghost"
                           className="text-muted-foreground hover:text-foreground"
-                          onClick={() => connectBroker(provider.broker_name)}
+                          onClick={() => connectBroker(provider)}
                           disabled={isBusy}
                         >
                           <RefreshCw className={`h-4 w-4 mr-2 ${isBusy ? 'animate-spin' : ''}`} />
@@ -399,6 +367,7 @@ export default function BrokerConnections() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {availableBrokers.map((provider) => {
             const isBusy = busyBroker === provider.broker_name;
+            const canConnect = provider.enabled && Boolean(brokerSetupDialogs[provider.broker_name]);
             
             return (
               <div 
@@ -413,17 +382,17 @@ export default function BrokerConnections() {
                     {provider.display_name}
                   </h3>
                   <p className="truncate text-xs text-muted-foreground">
-                    {provider.enabled ? "Ready to connect" : "Coming Soon"}
+                    {canConnect ? provider.configured ? "Credentials saved · ready to connect" : "Set up your connection" : "Coming Soon"}
                   </p>
                 </div>
                 
                 <div className="shrink-0">
-                  {provider.enabled ? (
+                  {canConnect ? (
                     <Button 
                       size="sm" 
                       variant="outline" 
                       className="border-border h-8 px-3 text-xs hover:bg-secondary text-foreground"
-                      onClick={() => connectBroker(provider.broker_name)}
+                      onClick={() => connectBroker(provider)}
                       disabled={isBusy}
                     >
                       Connect
@@ -439,6 +408,10 @@ export default function BrokerConnections() {
           })}
         </div>
       </section>
+
+      {SetupDialog && (
+        <SetupDialog provider={appProvider} onClose={() => setAppProvider(null)} onConnect={startConnection} />
+      )}
 
       <BrokerDetailsModal
         isOpen={detailsModalOpen}

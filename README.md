@@ -2,25 +2,25 @@
 
 QuantNest is software for researching, building, backtesting and running a
 customer's own trading rules. The customer website and workspace share one React
-frontend. Public subscriptions support simulation through Paper; qualified Live
-execution runs in a separate customer-owned Private installation.
+frontend. Public subscriptions support simulation through Paper; personal Live
+execution is retained in a separate personal Private instance; customer Live is not offered.
 
 [Commercial operations](docs/commercial-operations.md) covers no-code plan limits,
-availability, required database setup, billing/support/licensing actions and their
+availability, required database setup, billing/support and personal deployment actions and their
 frontend-to-backend flows.
 
 ## Application workflow
 
 1. Research instruments, screen stocks and review existing strategy/backtest evidence.
-2. Build entry, exit, time, position-sizing and automatic-disable rules. Save strategy versions.
+2. Build entry, full-position exit, time and position-sizing rules. Save strategy versions.
 3. Preview a backtest workload, run the historical simulation and review its results.
 4. Allocate simulated capital and deploy a saved version to Paper.
 5. Use the independent manual Terminal for simulated orders and positions.
 6. Review closes in Journal and compare aggregate results in Reports.
-7. In Private, connect an approved broker account and deploy a qualified Live strategy.
+7. In Private, connect your own authorized broker account and deploy a saved strategy.
 
 Automated execution currently supports active NSE stocks through Direct routing.
-The manual Terminal also supports enabled NSE indices. Futures/options remain
+Index data is for analysis, not direct index orders. Futures/options remain
 coming soon; they are not enabled for strategy orders.
 
 ## Repository structure
@@ -32,8 +32,8 @@ coming soon; they are not enabled for strategy orders.
 | `research_service/` | Private FastAPI provider for bounded AI research |
 | `functions/` | Cloudflare Pages gateway for Public API, WebSocket and administrator access |
 | `infra/development/` | Local stack and environment examples |
-| `infra/public/` | Hosted Paper stack, Oracle provisioning, monitoring and backups |
-| `infra/private/` | Customer-owned execution stack and signed release/install tools |
+| `infra/public/` | Hosted Paper stack and Cloudflare/Caddy configuration |
+| `infra/private/` | Personal Paper/Live stack with Docker-built React/Caddy |
 | `infra/shared/` | Shared images, Redis/PostgreSQL setup and deployment/recovery scripts |
 | `docs/` | Operating guides, execution reference and current business specifications |
 
@@ -43,13 +43,19 @@ coming soon; they are not enabled for strategy orders.
 | --- | --- |
 | Development | Local development; usage is recorded and commercial allowances are bypassed |
 | Public | Explore/Build/Pro allowances; Terminal, research, backtests and Paper; Live execution blocked |
-| Private | Signed contract capabilities and allowances; qualified broker execution on customer infrastructure |
+| Private | Personal production with shared registration/UI, no commercial quotas or billing; owned broker execution |
 
 `QUANTNEST_DEPLOYMENT_MODE` is independent of `DEBUG`. Production requires
-`DEBUG=False`, configured providers, published feature states and the applicable licence. See
+`DEBUG=False`, configured providers, published feature states and enabled execution scopes. See
 [deployment boundaries](infra/README.md) and [allowances](docs/commercial-operations.md).
 
 ## Configure and run
+
+For a beginner walkthrough from the current repository, start with
+[Your deployment checklist](infra/START-HERE.md), then follow
+[Development](infra/development/SETUP.md), [Public](infra/public/SETUP.md) or
+[Personal Private](infra/private/SETUP.md). The guides include tools, external
+accounts, callbacks, first launch, verification and ongoing operations.
 
 Use the [infrastructure guide](infra/README.md) to select one mode. Its Compose
 stack is the deployment entry point and supervises the required services. Follow
@@ -78,8 +84,7 @@ production traffic goes through the Cloudflare gateway. Do not expose the truste
 token as a `VITE_*` browser variable.
 
 Use Python **3.12** for local development, matching Docker and CI. The backend
-installs `pandas-ta==0.4.71b0` directly from PyPI, with compatible Numba/NumPy
-versions in the hashed dependency lock. TA-Lib supplies the advertised candle
+uses shared incremental indicators with locked Numba/NumPy dependencies. TA-Lib supplies the advertised candle
 patterns. No vendored package or legacy NumPy compatibility patch is required.
 
 From the repository root, create the environment with Python 3.12 and install the
@@ -131,35 +136,21 @@ customer broker execution credentials are separate.
 
 ## Execution architecture
 
-The market-data service normalizes observations, publishes shared local market
-buffers and updates quote/chart projections. Execution owners evaluate active
-strategy/instrument actors and send bounded calculation work to separate
-processes. The tick decision path keeps ORM, broker and Redis I/O outside rule
-evaluation. Account-partitioned order gateways perform durable admission and
-financial changes; the transactional outbox publishes committed results.
+The market-data service owns verified history and sequenced local observations.
+Persistent execution workers share numerical features and evaluate each session/instrument independently. One financial owner per account handles reservations and fills. The controller commits financial transitions and performs broker I/O outside the tick path.
 
-Paper and Live use common strategy configuration, rules, sizing and exit actions.
-Backtests use the same domain with historical candle simulation limitations.
-Terminal matching has its own simulated order book. Broker WebSocket observations
-and REST reconciliation share order ownership and cumulative fill accounting.
+Backtesting, Paper, Live and Terminal use the shared evaluator/matcher/ledger where applicable. Live fills come from cumulative broker order reports; historical OHLC fills remain explicitly approximate.
 
 | Process | Purpose |
 | --- | --- |
-| Django ASGI | API, authentication, administration and workspace WebSockets |
-| `market-data` | Source connection, observation normalization and shared market buffers |
-| `execution` | Strategy/instrument ownership, protection and bounded calculation dispatch |
-| `orders` | Enabled Paper/Live gateway streams and account-serialized order work |
-| `terminal` | Manual simulated order matching |
-| `outbox` | Committed event publication and recovery |
-| `broker-events` | Broker execution observations; Private/Development Live only |
-| Celery background | Reconciliation, notifications and maintenance |
-| Celery compute | Bounded backtests and research work |
-| Celery Beat | Exactly one task scheduler per deployment |
-| Research FastAPI | AI provider calls and validated research tool orchestration |
+| Django ASGI | API, authentication, administration and browser sockets |
+| market-data | Source connection, history and shared market buffers |
+| execution | Persistent evaluators and account owners for Paper, Live and Terminal |
+| broker-events | Live broker observations, when enabled |
+| Celery background / compute / Beat | Maintenance, history, backtests, research and scheduling |
+| Research FastAPI | AI provider calls and research tool orchestration |
 
-Runtime targets run as `python -m quantnest_runtime <service>` from `backend`.
-Compose supplies the deployment supervision; one-shot Django commands remain for
-migrations, market history/calendar maintenance and diagnostics.
+Run `python -m execution` from backend. The `python -m quantnest_runtime execution` alias starts the same service. Market-data and broker-events retain their quantnest_runtime commands. Separate orders, terminal and outbox services are removed. See [runtime operations](docs/paper-trading.md).
 
 ## Build and configuration checks
 
@@ -189,22 +180,24 @@ for native setup or after changing the website origin. The mode READMEs cover
 administrator OTP enrolment and first source authorization.
 
 The [infrastructure operations runbook](infra/shared/scripts/README.md) explains
-every deploy/diagnostics/backup/restore command, including earlier-release recovery in isolated
-recovery and session review after updates. Public host tools and Private signed
-installers have their own small hashed dependency locks; application dependencies
-stay in the shared Docker images.
+every deploy/diagnostics/backup/restore command. The scripts need Python 3.12,
+Docker/Compose and age for encrypted backups; no OCI host environment or signed
+Private installer is required. Financial recovery comes from PostgreSQL commands
+and account checkpoints. General Redis DB 3 provides runtime coordination; the
+separate research-cache Redis is disposable.
 
 ## Reference guides
 
 Start with the [documentation index](docs/README.md) to choose the guide for your task.
 
 - [Complete customer and operator workflows](docs/commercial-operations.md)
-- [Runtime services and configuration](docs/backend-runtime.md)
-- [Complete tick and execution lifecycle](docs/execution-technical-reference.md)
+- [Backtesting: complete workflow](docs/backtesting.md)
+- [Paper trading: execution and operations](docs/paper-trading.md)
+- [Live trading: broker orders and recovery](docs/live-trading.md)
+- [Trading Terminal: manual simulation](docs/trading-terminal.md)
 - [Deployment boundaries](infra/README.md)
 - [Strategy configuration](docs/strategy-configuration.md)
 - [Future strategy builder plan](docs/strategy-builder-plan.md)
-- [Journal and execution review](docs/execution-review.md)
 - [Authentication and session lifecycle](docs/authentication.md)
 - [Customer website](docs/customer-site.md)
 - [Research service configuration](research_service/README.md)

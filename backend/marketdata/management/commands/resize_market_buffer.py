@@ -8,24 +8,34 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("symbol")
         parser.add_argument("--capacity", type=int, required=True)
+        parser.add_argument("--timeframe", choices=("1m", "1D"), default="1m")
 
     def handle(self, *args, **options):
-        from core.redis import runtime_redis
-        from marketdata.services import MarketDataService
+        from execution.launcher import execution_ownership
+        from common.redis import runtime_redis
+        from marketdata.contracts import normalize_symbol
+        from instruments.models import Instrument
         from marketdata.shared_memory import SharedMemoryManager
         if any(runtime_redis().scan_iter(match="quantnest:lease:*", count=100)):
             raise CommandError("Stop runtime services and allow leases to expire before resizing buffers.")
         if options["capacity"] < 2:
             raise CommandError("Capacity must be at least two candles.")
-        symbol = MarketDataService.normalize_symbol(options["symbol"])
-        if MarketDataService.get_instrument(symbol) is None:
+        symbol = normalize_symbol(options["symbol"])
+        timeframe = options["timeframe"]
+        if not Instrument.objects.filter(sym_ticker=symbol).exists():
             raise CommandError("Unknown canonical instrument symbol.")
+        # Hold the execution lock throughout maintenance, not just while checking
+        # it. A new worker group must not open this buffer during replacement.
         try:
-            previous = SharedMemoryManager(symbol, "1m")
-        except FileNotFoundError:
-            previous = None
-        if previous:
-            previous.unlink()
-        replacement = SharedMemoryManager(symbol, "1m", create=True, max_size=options["capacity"])
-        replacement.close()
+            with execution_ownership():
+                try:
+                    previous = SharedMemoryManager(symbol, timeframe)
+                except FileNotFoundError:
+                    previous = None
+                if previous:
+                    previous.unlink()
+                replacement = SharedMemoryManager(symbol, timeframe, create=True, max_size=options["capacity"])
+                replacement.close()
+        except RuntimeError as exc:
+            raise CommandError(str(exc)) from exc
         self.stdout.write(self.style.SUCCESS(f"Buffer resized for {symbol}; restart market-data before execution."))

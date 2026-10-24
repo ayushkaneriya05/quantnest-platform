@@ -3,7 +3,6 @@ import logging
 from types import SimpleNamespace
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from rest_framework.exceptions import APIException, ValidationError
 from backtesting.models import BacktestRun
 from backtesting.serializers import BacktestRunSerializer
@@ -46,11 +45,14 @@ def action_payload(run, action_type, payload):
     settings = dict(payload)
     source_id = settings.pop("source_backtest_id", None)
     strategy_id = settings.pop("strategy_id", None) or run.created_strategy_id or run.request.get("strategy_id")
+    saved_costs = None
     if source_id:
         if source_id not in run.request.get("backtest_ids", []):
             raise ValidationError("Attach the backtest before proposing a rerun.")
         source = get_object_or_404(BacktestRun, pk=source_id, user_id=run.user_id, status="COMPLETED")
         strategy_id, snapshot = source.strategy_id, backtest_configuration(source)
+        if 'charge_profile' not in payload:
+            saved_costs = source.charge_profile_snapshot
         settings = {**{key: getattr(source, key) for key in ("name", "start_date", "end_date", "initial_capital", "slippage_pct", "include_charges")},
                     "charge_profile": source.charge_profile_id, **settings}
     elif strategy_id == run.created_strategy_id and strategy_id:
@@ -66,17 +68,19 @@ def action_payload(run, action_type, payload):
     settings.setdefault("initial_capital", 100000)
     settings.setdefault("slippage_pct", "0.05")
     settings.setdefault("name", f"{strategy.name} research experiment")
-    serializer = BacktestRunSerializer(data={**settings, "strategy": strategy.pk}, context={"request": SimpleNamespace(user=run.user)})
+    serializer = BacktestRunSerializer(data={**settings, "strategy": strategy.pk},
+        context={"request": SimpleNamespace(user=run.user, headers={}), 'charge_profile_snapshot': saved_costs or {}})
     serializer.is_valid(raise_exception=True)
-    if serializer.validated_data["end_date"] > timezone.localdate():
-        raise ValidationError("Backtest end date cannot be in the future.")
     validated = serializer.validated_data
     profile = validated.get("charge_profile")
+    from common.costs import snapshot_charge_profile
+    saved_costs = saved_costs if saved_costs is not None else snapshot_charge_profile(profile)
     from commercial.usage import estimate_backtest_workload
     estimate = estimate_backtest_workload(run.user, snapshot, validated["start_date"], validated["end_date"])
     return json_data({**{key: validated[key] for key in ("name", "start_date", "end_date", "initial_capital", "slippage_pct", "include_charges")},
                       "strategy": strategy.pk, "snapshot": snapshot, "charge_profile": profile.pk if profile else None,
-                      "charge_profile_name": profile.name if profile else None, "estimate_token": estimate["token"], "workload_estimate": estimate})
+                      "charge_profile_name": saved_costs.get('name'), 'charge_profile_snapshot': saved_costs,
+                      "estimate_token": estimate["token"], "workload_estimate": estimate})
 
 
 @transaction.atomic
@@ -112,11 +116,13 @@ def confirm_action(action_id, user):
                 watchlist.instruments.add(*payload["instrument_ids"])
                 resources = {"watchlist_id": watchlist.pk, "instrument_ids": payload["instrument_ids"]}
             else:
-                settings = {key: value for key, value in payload.items() if key not in {"snapshot", "charge_profile_name", "workload_estimate"}}
+                settings = {key: value for key, value in payload.items() if key not in {"snapshot", "charge_profile_name", "charge_profile_snapshot", "workload_estimate"}}
                 get_object_or_404(Strategy, pk=settings["strategy"], user=user)
-                serializer = BacktestRunSerializer(data=settings, context={"request": SimpleNamespace(user=user)})
+                serializer = BacktestRunSerializer(data=settings, context={"request": SimpleNamespace(user=user, headers={}),
+                    'charge_profile_snapshot': payload.get('charge_profile_snapshot', {})})
                 serializer.is_valid(raise_exception=True)
-                backtest = create_backtest(serializer, user, approved_snapshot=payload["snapshot"])
+                backtest = create_backtest(serializer, user, approved_snapshot=payload["snapshot"],
+                    charge_profile_snapshot=payload.get('charge_profile_snapshot'))
                 resources = {"backtest_id": backtest.pk}
                 start_backtest(backtest)
             action.status, action.resource_ids, action.error_message = ResearchAction.Status.COMPLETED, resources, ""

@@ -14,7 +14,7 @@ from trading.models import ClosedPositionLog
 
 SOURCES = {
     "TERMINAL": {"model": ClosedPositionLog, "owner": "account__user", "pnl": "realized_pnl",
-                 "account": "account_id", "review": "terminal_trade", "basis": "Before fees · manual simulation"},
+                 "account": "account_id", "review": "terminal_trade", "basis": "Net of recorded charges · manual simulation"},
     "PAPER": {"model": PaperTrade, "owner": "account__user", "pnl": "net_pnl",
               "account": "account_id", "review": "paper_trade", "basis": "Net of recorded simulated charges"},
     "LIVE": {"model": LiveTrade, "owner": "user", "pnl": "realized_pnl",
@@ -61,14 +61,13 @@ def trade_queryset(user, filters):
     if filters.get("reviewed", "all") != "all":
         qs = qs.filter(journal_entry__isnull=filters["reviewed"] == "unreviewed")
     money = DecimalField(max_digits=20, decimal_places=2)
-    annotations = {"pnl": F(source["pnl"]), "symbol": F("instrument__symbol"),
+    annotations = {"pnl": F(source["pnl"]), "symbol": F("instrument__sym_ticker"),
                    "account_key": F(source["account"]),
                    "duration": ExpressionWrapper(F("exit_time") - F("entry_time"), output_field=DurationField())}
     if filters["source"] == "TERMINAL":
         from django.db.models import IntegerField
         annotations.update(strategy_key=Value(None, output_field=IntegerField()), strategy_name=Value("Manual terminal"),
-                           account_name=Value("Terminal account"), charges=Value(None, output_field=money),
-                           exit_reason=Value(""))
+                           account_name=Value("Terminal account"), charges=F('recorded_charges'))
     else:
         annotations.update(strategy_key=F("strategy_id"), strategy_name=F("strategy__name"))
         if filters["source"] == "PAPER":
@@ -101,7 +100,7 @@ def trade_rows(queryset, source, user):
 def execution_report(user, filters):
     qs = trade_queryset(user, filters).order_by()
     source = filters["source"]
-    charges = {"recorded_charges": Sum("charges")} if source == "PAPER" else {}
+    charges = {"recorded_charges": Sum("charges")} if source in ("PAPER", "TERMINAL") else {}
     totals = qs.aggregate(closes=Count("id"), realized_pnl=Sum("pnl"),
                           wins=Count("id", filter=Q(pnl__gt=0)), losses=Count("id", filter=Q(pnl__lt=0)),
                           breakeven=Count("id", filter=Q(pnl=0)), average_pnl=Avg("pnl"),
@@ -112,7 +111,7 @@ def execution_report(user, filters):
     profit = totals.pop("profit") or Decimal("0")
     duration = totals.pop("average_duration")
     totals.update(realized_pnl=totals["realized_pnl"] or Decimal("0"),
-                  recorded_charges=(totals.get("recorded_charges") or Decimal("0")) if source == "PAPER" else None,
+                  recorded_charges=(totals.get("recorded_charges") or Decimal("0")) if source in ("PAPER", "TERMINAL") else None,
                   average_pnl=totals["average_pnl"] if count else None,
                   win_rate=Decimal(totals["wins"]) / count * 100 if count else None,
                   profit_factor=profit / total_loss if total_loss else None,
@@ -133,7 +132,7 @@ def execution_report(user, filters):
         row["cumulative_pnl"] = cumulative
     from trade_journal.services import SUGGESTED_TAGS
     return {"source": source, "filters": filters, "observed_at": timezone.now(), "pnl_basis": SOURCES[source]["basis"],
-            "counting_unit": "Recorded closes; partial exits count separately.", "summary": totals,
+            "counting_unit": "Recorded closes; broker partial fills and manual reductions count separately.", "summary": totals,
             "daily": daily, "instruments": breakdown(("instrument_id", "symbol")),
             "strategies": breakdown(("strategy_key", "strategy_name")) if source != "TERMINAL" else [],
             "suggested_tags": SUGGESTED_TAGS,
@@ -147,7 +146,7 @@ def current_position_marks(user, filters):
     from live_trading.models import LivePosition
     from paper_trading.models import PaperPosition
     from trading.models import Position
-    from marketdata.quote_store import QuoteStore
+    from marketdata.quotes import read_quote
     from redis.exceptions import RedisError
 
     source = filters["source"]
@@ -165,12 +164,12 @@ def current_position_marks(user, filters):
         symbol = position.instrument.sym_ticker
         if symbol not in quotes:
             try:
-                quotes[symbol] = QuoteStore.get_latest(symbol, max_age_seconds=60)
+                quotes[symbol] = read_quote(symbol)
             except (RedisError, OSError):
                 return {"positions": len(qs), "unrealized_pnl": None, "unpriced_positions": len(qs),
                         "oldest_quote_at": None, "basis": "Current marks unavailable because the quote cache could not be reached. Historical closes are unaffected."}
         quote = quotes[symbol]
-        raw_price = quote.get("price", quote.get("ltp")) if quote else None
+        raw_price = quote["price"] if quote["available"] else None
         try:
             price = Decimal(str(raw_price))
         except (InvalidOperation, TypeError, ValueError):
@@ -183,11 +182,11 @@ def current_position_marks(user, filters):
         average = position.average_price if source == "TERMINAL" else position.avg_price
         if source != "TERMINAL" and position.side == "SELL":
             quantity = -quantity
-        total += (price - average) * quantity
+        total += (price - average) * quantity * position.instrument.qty_multiplier
         times.append(quote["updated_at"])
     return {"positions": count, "unrealized_pnl": None if missing else total, "unpriced_positions": missing,
             "oldest_quote_at": min(times) if times else None,
-            "basis": "Current open positions · before exit costs · cached quotes up to 60 seconds old. Date and review-status filters apply only to closed records."}
+            "basis": "Current open positions · before exit costs · latest available quotes. Date and review-status filters apply only to closed records."}
 
 
 class ExecutionReviewSerializer(serializers.Serializer):

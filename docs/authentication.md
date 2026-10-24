@@ -176,7 +176,7 @@ REST reloads recover current records.
 | Flow | Who starts it | Callback and stored result |
 | --- | --- | --- |
 | Market source | Staff administrator at /api/v1/market/fyers/login/ | /api/v1/market/fyers/callback/; source access token |
-| Broker account | Customer's broker connection workflow | /api/v1/brokers/credentials/fyers/callback/; owned broker session |
+| Broker account | Customer saves their own individual App ID and App Secret, then starts Connect | /api/v1/brokers/credentials/fyers/callback/; owned broker session |
 | Workspace refresh | Signed-in customer/browser | users/auth/token/refresh/; QuantNest session rotation |
 
 The source flow checks signed state, same-browser cookie, current staff user and
@@ -184,9 +184,31 @@ one-time nonce within ten minutes. The start canonicalizes to the registered
 callback host before setting its flow cookie. A used/expired callback must be
 replaced by a fresh start, not replayed.
 
+Source login and callback accept GET only. The flow cookie is Secure for an HTTPS
+callback, including HTTPS development. Login validates the callback once and
+passes that address into the staff-authorized step. Successful token exchange
+creates or updates the encrypted source-token singleton; checking token status
+never creates an empty record. Missing-token status returns false flags and null
+timestamps.
+
 Source and broker access-token expiry require fresh provider sign-in. The removed
 FYERS refresh-token feature is unrelated to required QuantNest account refresh.
-Broker app credentials/callbacks are separate from operator data-source credentials.
+Broker App IDs and encrypted App Secrets belong to each customer's connection.
+The installation callback is separate from operator data-source credentials.
+The broker flow signs user/credential ownership, a random nonce and an HMAC of the
+saved app version into state, and requires an HttpOnly browser cookie within
+fifteen minutes. Callbacks verify an active owner, unchanged app credentials and
+a single-use nonce before backend token exchange. They do not depend on the
+workspace access token surviving the FYERS redirect. Changing app credentials
+invalidates old broker sessions and requires a fresh login; account matching
+prevents the connection's historical orders/positions being attached to a different
+broker account. Ordinary reconnect with unchanged credentials remains available.
+
+There is one authenticated `configure` action and one owned `connect` action.
+Raw create/update/delete, manual auth-code exchange and duplicate session-creation
+routes are removed. Use the workspace form; Admin displays connection metadata
+without exposing the App Secret. See the
+[individual-app setup guide](third-party-setup.md#94-individual-app-connection-step-by-step).
 
 Execution scope and applicable Private/data permissions still apply after a
 successful broker authentication.
@@ -202,10 +224,9 @@ Uploads accept supported JPEG/PNG/WebP images up to 2 MiB. Replacing/removing th
 file invalidates links to the old name. UserAvatar refreshes an expired/failed
 capability with bounded retry. Sidebar and Profile share this behavior.
 
-Verified-email association of guest support/consent records is routine login/
-refresh work. It does not automatically confirm newsletter opt-in.
+Verified-email association of guest support tickets is routine login/session-refresh work.
 
-Account export, consent preferences, deactivation/deletion prerequisites, retained
+Account export, deactivation/deletion prerequisites, retained
 financial records and operator recovery are detailed in
 [Commercial operations](commercial-operations.md).
 
@@ -226,3 +247,15 @@ financial records and operator recovery are detailed in
 
 Follow the selected deployment guide for commands/environment. Review sign-in,
 refresh, CSRF, revocation and recovery on the real gateway before accepting users.
+
+## Shared registration and navigation
+
+Public, Development and Private use the same website, registration, password login
+and configured Google login. Registration does not depend on deployment mode or
+on loading the public catalog. Email verification, session/2FA and ownership
+protections apply in every mode. There is no installation licence lookup in signup.
+
+`EXECUTION_ENABLED_SCOPES` controls Paper/Terminal and Live/broker navigation and
+execution access. Deployment mode does not hide site pages or redirect the home
+page. Account and billing screens use the same layout and display the limits and
+checkout availability returned by the API.

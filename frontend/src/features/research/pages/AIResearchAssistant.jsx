@@ -50,8 +50,6 @@ export default function AIResearchAssistant() {
   const session = params.get("session");
   const [schema, setSchema] = useState(null);
   const [backtests, setBacktests] = useState([]);
-  const [backtestPage, setBacktestPage] = useState(1);
-  const [moreBacktests, setMoreBacktests] = useState(false);
   const [universe, setUniverse] = useState({ strategy_id: null, instruments: [], use_watchlist: false });
   const [attached, setAttached] = useState(params.get("backtest") ? [Number(params.get("backtest"))] : []);
   const [source, setSource] = useState(params.get("source") ? Number(params.get("source")) : null);
@@ -80,8 +78,7 @@ export default function AIResearchAssistant() {
     Promise.all([researchApi.schema(), backtestApi.getRuns({ status: "COMPLETED" })]).then(async ([contract, reports]) => {
       if (disposed) return;
       setSchema(contract.data); setTimeframe((previous) => previous || contract.data.defaults.timeframe);
-      const items = reports.data.results || reports.data;
-      setMoreBacktests(Boolean(reports.data.next));
+      const items = [...reports.data];
       const id = params.get("backtest");
       if (id && !items.some((item) => item.id === Number(id))) {
         const report = (await backtestApi.getRun(id)).data;
@@ -168,15 +165,6 @@ export default function AIResearchAssistant() {
     catch (error) { notify.error(getApiErrorMessage(error, "Could not cancel research")); }
     finally { setBusy(false); }
   }
-  async function loadBacktests() {
-    setBusy(true);
-    try {
-      const response = await backtestApi.getRuns({ status: "COMPLETED", page: backtestPage + 1 });
-      setBacktests((previous) => [...new Map([...previous, ...response.data.results].map((item) => [item.id, item])).values()]);
-      setBacktestPage((previous) => previous + 1); setMoreBacktests(Boolean(response.data.next));
-    } catch (error) { notify.error(getApiErrorMessage(error, "Could not load more backtests")); }
-    finally { setBusy(false); }
-  }
   function followUp(text) { setPrompt(text); inputRef.current?.focus(); }
   function chooseInstrument(item) {
     setUniverse({ strategy_id: null, instruments: [item], use_watchlist: false });
@@ -245,7 +233,6 @@ export default function AIResearchAssistant() {
             </label>)}
             {!backtests.length && <p className="text-xs text-muted-foreground">Completed backtests will appear here.</p>}
           </div>
-          {moreBacktests && <Button size="sm" variant="ghost" disabled={busy} onClick={loadBacktests}>Load more backtests</Button>}
         </section>
         <Link to="/screener" className="text-xs text-indigo-700 dark:text-indigo-300">Open the market screener</Link>
         </div>

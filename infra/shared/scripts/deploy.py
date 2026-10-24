@@ -3,10 +3,10 @@ import argparse
 from pathlib import Path
 import subprocess
 
-from compose_config import DEPLOYMENT_MODES, DEVELOPMENT_PROFILES, compose_command, compose_configuration
+from compose_config import DATA_SERVICES, DEPLOYMENT_MODES, DEVELOPMENT_PROFILES, compose_command, compose_configuration
 
 
-def deploy(root, mode, *, build=False, profiles=(), before_migrate=None):
+def deploy(root, mode, *, build=False, profiles=()):
     root = Path(root).resolve()
     command = compose_command(root, mode, profiles=profiles)
     configuration = compose_configuration(root, mode, profiles=profiles)
@@ -25,33 +25,22 @@ def deploy(root, mode, *, build=False, profiles=(), before_migrate=None):
     def run(*values):
         return subprocess.run([*command, *values], cwd=root, check=True)
 
-    if mode == "private":
-        for name in ("index.html", "routes.caddy", "security.caddy"):
-            if not (root / "frontend/dist" / name).is_file():
-                raise ValueError(f"Build the customer's React frontend before deploying Private; missing {name}")
-        if not (root / "infra/private/license/public-keys.json").is_file():
-            raise ValueError("Install infra/private/license/public-keys.json before deploying Private")
-    if mode == "public":
-        for filename in ("origin.pem", "origin-key.pem"):
-            if not (root / "infra/public/tls" / filename).is_file():
-                raise ValueError(f"Install the Cloudflare origin TLS file: {filename}")
     if build:
         run("build")
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "check", *(["--deploy", "--fail-level", "WARNING"] if mode != "development" else []))
-    run("up", "-d", "--wait", "postgres", "redis", "redis-runtime", "redis-cache")
+    run("up", "-d", "--wait", *DATA_SERVICES)
     # Include previously enabled development profiles, even if this run disables them.
     all_services = subprocess.run(
         [*command, "--profile", "*", "config", "--services"],
         cwd=root, capture_output=True, text=True, timeout=30, check=True,
     ).stdout.split()
-    producers = sorted(set(all_services) - {"postgres", "redis", "redis-runtime", "redis-cache"})
+    producers = sorted(set(all_services) - set(DATA_SERVICES))
     run("stop", *producers)
-    if before_migrate:
-        before_migrate()  # Private upgrades back up stopped application state.
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "migrate", "--noinput")
+    run("run", "--rm", "--no-deps", "api", "python", "manage.py", "setup_timescale")
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "configure_site")
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "collectstatic", "--noinput")
-    run("up", "-d", "--wait", "--wait-timeout", "180")
+    run("up", "-d", "--wait", "--wait-timeout", "180", "--remove-orphans")
     print("Stack started. Run diagnostics and review execution sessions.")
 
 

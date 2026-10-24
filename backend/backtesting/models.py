@@ -50,6 +50,7 @@ class BacktestRun(BaseTimestampModel):
         related_name='backtest_runs',
         help_text='Charge profile for realistic cost simulation'
     )
+    charge_profile_snapshot = models.JSONField(default=dict, blank=True)
     include_charges = models.BooleanField(
         default=True,
         help_text='Whether to include realistic charges (STT, stamp duty, etc.) in PnL'

@@ -4,13 +4,11 @@ const BASE_URL = "/brokers";
 
 export const brokersApi = {
   getCatalog: () => api.get(`${BASE_URL}/credentials/catalog/`),
-  connectBroker: (brokerName) =>
-    api.post(`${BASE_URL}/credentials/connect/`, { broker_name: brokerName }),
+  configureBroker: (payload) => api.post(`${BASE_URL}/credentials/configure/`, payload),
+  connectBroker: (id) => api.post(`${BASE_URL}/credentials/${id}/connect/`),
   disconnectCredential: (id) => api.post(`${BASE_URL}/credentials/${id}/disconnect/`),
-  createSession: (id, payload = {}) => api.post(`${BASE_URL}/credentials/${id}/create-session/`, payload),
   getProfile: (id) => api.get(`${BASE_URL}/credentials/${id}/profile/`),
   getFunds: (id) => api.get(`${BASE_URL}/credentials/${id}/funds/`),
-  getSessions: () => api.get(`${BASE_URL}/sessions/`),
   getLogs: (params) => api.get(`${BASE_URL}/logs/`, { params }),
 
   // Charge Profiles

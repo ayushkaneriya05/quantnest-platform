@@ -1,13 +1,21 @@
-from urllib.parse import urlencode
+import hmac
+import logging
+import secrets
+from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.core import signing
+from django.core.cache import cache
+from django.utils.crypto import salted_hmac
 from django.http import HttpResponseRedirect
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from common.enums import NotificationType
@@ -18,12 +26,11 @@ from .serializers import (
     BrokerAPILogSerializer,
     BrokerChargeProfileSerializer,
     BrokerCredentialSerializer,
+    BrokerConfigurationSerializer,
     BrokerFundsSnapshotSerializer,
     BrokerSessionSerializer,
 )
 from .services import BrokerService
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -52,98 +59,46 @@ def broker_json_response(payload, status_code=status.HTTP_200_OK):
     return Response(BrokerService.as_json_safe(payload), status=status_code)
 
 
-class BrokerCredentialViewSet(viewsets.ModelViewSet):
+OAUTH_COOKIE = "quantnest-broker-oauth"
+OAUTH_SECONDS = 900
+
+
+def _connection_version(credential):
+    return salted_hmac("broker-app-version", f"{credential.client_id}:{credential.api_secret}").hexdigest()
+
+
+def _oauth_response(response, *, clear_cookie=False):
+    response["Cache-Control"] = "private, no-store"
+    response["Referrer-Policy"] = "no-referrer"
+    if clear_cookie:
+        response.delete_cookie(OAUTH_COOKIE, path="/api/v1/brokers/", samesite="Lax")
+    return response
+
+
+class BrokerCredentialViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = BrokerCredentialSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return BrokerCredential.objects.filter(user=self.request.user)
 
-    def perform_create(self, serializer):
-        requested_active = bool(serializer.validated_data.get("is_active"))
-        credential = serializer.save(user=self.request.user)
-        BrokerService.verify_credential(credential)
-        if requested_active and credential.is_verified:
-            BrokerService.activate_credential(credential)
-        elif credential.is_active and not credential.is_verified:
-            credential.is_active = False
-            credential.save(update_fields=["is_active", "updated_at"])
-
-    @transaction.atomic
-    def perform_update(self, serializer):
-        serializer.instance._audit_sensitive_fields = tuple(field for field in
-            ("client_id", "api_key", "api_secret", "totp_secret", "permissions")
-            if field in serializer.validated_data and serializer.validated_data[field] != getattr(serializer.instance, field))
-        requested_active = serializer.validated_data.get(
-            "is_active",
-            serializer.instance.is_active,
-        )
-        credential = serializer.save()
-        BrokerService.verify_credential(credential)
-        if requested_active and credential.is_verified:
-            BrokerService.activate_credential(credential)
-        elif credential.is_active and not credential.is_verified:
-            credential.is_active = False
-            credential.save(update_fields=["is_active", "updated_at"])
-
-    @action(detail=True, methods=["post"])
-    def verify(self, request, pk=None):
-        return broker_json_response(BrokerService.verify_credential(self.get_object()))
-
-    @action(detail=True, methods=["post"])
-    def activate(self, request, pk=None):
+    @action(detail=False, methods=["post"])
+    def configure(self, request):
+        serializer = BrokerConfigurationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            credential = BrokerService.activate_credential(self.get_object())
-            return Response(self.get_serializer(credential).data)
+            credential = BrokerService.configure_connection(
+                request.user, serializer.validated_data["broker_name"],
+                serializer.validated_data["client_id"], serializer.validated_data.get("api_secret", ""),
+            )
         except ValueError as exc:
-            return broker_error_response(exc)
+            return _oauth_response(broker_error_response(exc))
+        return broker_json_response(self.get_serializer(credential).data)
 
     @action(detail=True, methods=["post"])
     def disconnect(self, request, pk=None):
         credential = BrokerService.disconnect_credential(self.get_object())
         return Response(self.get_serializer(credential).data)
-
-    @action(detail=True, methods=["post"], url_path="create-session")
-    def create_session(self, request, pk=None):
-        credential = self.get_object()
-        auth_code = request.data.get("auth_code")
-        try:
-            session = (
-                BrokerService.exchange_auth_code(credential, auth_code)
-                if auth_code
-                else BrokerService.ensure_session(credential)
-            )
-            return broker_json_response(BrokerSessionSerializer(session).data, status.HTTP_201_CREATED)
-        except ValueError as exc:
-            if auth_code:
-                notify_broker_auth_failure(credential, f"The broker did not accept the authentication response: {exc}")
-            return broker_error_response(exc)
-        except RuntimeError as exc:
-            if auth_code:
-                notify_broker_auth_failure(credential, f"Authentication could not be completed: {exc}")
-            return broker_error_response(exc)
-
-    @action(detail=True, methods=["get"], url_path="auth-url")
-    def auth_url(self, request, pk=None):
-        try:
-            return broker_json_response({"auth_url": BrokerService.generate_auth_url(self.get_object())})
-        except ValueError as exc:
-            return broker_error_response(exc)
-        except RuntimeError as exc:
-            return broker_error_response(exc)
-
-    @action(detail=True, methods=["post"], url_path="exchange-auth-code")
-    def exchange_auth_code(self, request, pk=None):
-        credential = self.get_object()
-        try:
-            session = BrokerService.exchange_auth_code(credential, request.data.get("auth_code"))
-            return broker_json_response(BrokerSessionSerializer(session).data, status.HTTP_201_CREATED)
-        except ValueError as exc:
-            notify_broker_auth_failure(credential, f"The broker did not accept the authentication response: {exc}")
-            return broker_error_response(exc)
-        except RuntimeError as exc:
-            notify_broker_auth_failure(credential, f"Authentication could not be completed: {exc}")
-            return broker_error_response(exc)
 
     @action(detail=True, methods=["get"])
     def profile(self, request, pk=None):
@@ -195,20 +150,22 @@ class BrokerCredentialViewSet(viewsets.ModelViewSet):
     def catalog(self, request):
         return broker_json_response(BrokerService.get_broker_catalog(request.user))
 
-    @action(detail=False, methods=["post"])
-    def connect(self, request):
+    @action(detail=True, methods=["post"])
+    def connect(self, request, pk=None):
+        credential = self.get_object()
         try:
-            result = BrokerService.prepare_connection(
-                request.user,
-                request.data.get("broker_name"),
+            details = BrokerService.get_adapter(credential).connection_details()
+            state = signing.dumps({
+                "credential_id": credential.pk, "user_id": request.user.pk,
+                "nonce": secrets.token_urlsafe(24), "version": _connection_version(credential),
+            }, salt="broker-oauth-state")
+            response = broker_json_response({"auth_url": BrokerService.generate_auth_url(credential, state)})
+            response.set_cookie(
+                OAUTH_COOKIE, state, max_age=OAUTH_SECONDS,
+                secure=urlsplit(details["redirect_uri"]).scheme == "https",
+                httponly=True, samesite="Lax", path="/api/v1/brokers/",
             )
-            return broker_json_response(
-                {
-                    "credential": BrokerCredentialSerializer(result["credential"]).data,
-                    "auth_url": result.get("auth_url"),
-                },
-                status.HTTP_201_CREATED,
-            )
+            return _oauth_response(response)
         except ValueError as exc:
             return broker_error_response(exc)
 
@@ -222,8 +179,6 @@ class BrokerSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 
-
-from rest_framework.pagination import PageNumberPagination
 
 class BrokerAPILogPagination(PageNumberPagination):
     page_size = 50
@@ -253,32 +208,39 @@ class BrokerAPILogViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset.order_by("-created_at")
 
 
-@csrf_exempt
+@require_GET
 def fyers_broker_callback(request):
-    auth_code = request.GET.get("auth_code") or request.GET.get("authCode")
-    raw_state = request.GET.get("state")
-    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
-    redirect_url = f"{frontend_url}/brokers"
-    if not auth_code or not raw_state:
-        return HttpResponseRedirect(f"{redirect_url}?{urlencode({'broker': 'FYERS', 'status': 'failed', 'message': 'Missing authorization code or state'})}")
-
+    redirect_url = f"{settings.FRONTEND_URL.rstrip('/')}/brokers"
+    credential = None
     try:
-        state_data = signing.loads(raw_state, salt="broker-oauth-state", max_age=900)
-        credential = BrokerCredential.objects.get(
-            id=state_data.get("credential_id"),
-            user_id=state_data.get("user_id"),
-            broker_name=state_data.get("broker_name"),
-        )
-        BrokerService.exchange_auth_code(credential, auth_code)
-        return HttpResponseRedirect(
-            f"{redirect_url}?{urlencode({'broker': credential.broker_name, 'status': 'connected'})}"
-        )
+        state = request.GET.get("state", "")
+        cookie = request.COOKIES.get(OAUTH_COOKIE, "")
+        if not state or not cookie or not hmac.compare_digest(state.encode(), cookie.encode()):
+            raise ValueError("Sign-in verification is missing. Start Connect again on the configured hostname in the same browser.")
+        payload = signing.loads(state, salt="broker-oauth-state", max_age=OAUTH_SECONDS)
+        with transaction.atomic():
+            credential = BrokerCredential.objects.select_for_update().select_related("user").get(
+                pk=payload["credential_id"], user_id=payload["user_id"], broker_name="FYERS", user__is_active=True,
+            )
+            if not hmac.compare_digest(payload["version"], _connection_version(credential)):
+                raise ValueError("The saved app credentials changed. Start Connect again.")
+            if not cache.add("broker-oauth-used:" + payload["nonce"], True, timeout=OAUTH_SECONDS):
+                raise ValueError("This sign-in has already been used. Start Connect again.")
+            auth_code = request.GET.get("auth_code")
+            if not auth_code:
+                raise ValueError("FYERS sign-in did not return an authorization code. Start Connect again.")
+            BrokerService.exchange_auth_code(credential, auth_code)
+        params = {"broker": "FYERS", "status": "connected"}
     except Exception as exc:
-        logger.exception("Fyers broker callback failed: %s", exc)
-        notify_broker_auth_failure(locals().get("credential"), f"The broker callback could not complete authentication: {exc}")
-        return HttpResponseRedirect(
-            f"{redirect_url}?{urlencode({'broker': 'FYERS', 'status': 'failed', 'message': str(exc)})}"
-        )
+        logger.warning("FYERS broker authorization failed credential=%s error=%s",
+                       credential.pk if credential else None, type(exc).__name__)
+        message = str(exc) if isinstance(exc, ValueError) else "Broker sign-in could not complete. Start Connect again."
+        try:
+            notify_broker_auth_failure(credential, message)
+        except Exception:
+            logger.exception("Could not record broker authorization failure")
+        params = {"broker": "FYERS", "status": "failed", "message": message}
+    return _oauth_response(HttpResponseRedirect(f"{redirect_url}?{urlencode(params)}"), clear_cookie=True)
 
 
 class BrokerChargeProfileViewSet(viewsets.ModelViewSet):
@@ -289,14 +251,15 @@ class BrokerChargeProfileViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return BrokerChargeProfile.objects.filter(user=self.request.user)
 
+    def perform_destroy(self, instance):
+        try:
+            instance.delete()
+        except ProtectedError as exc:
+            raise ValidationError({'detail': exc.args[0]}) from exc
+
     @action(detail=True, methods=['post'], url_path='set-default')
     def set_default(self, request, pk=None):
         """Set this profile as the user's default, unsetting others."""
         profile = self.get_object()
-        # Unset all other defaults for this user
-        BrokerChargeProfile.objects.filter(
-            user=request.user, is_default=True
-        ).exclude(pk=profile.pk).update(is_default=False)
-        profile.is_default = True
-        profile.save(update_fields=['is_default', 'updated_at'])
-        return Response(BrokerChargeProfileSerializer(profile, context={'request': request}).data)
+        profile.set_default()
+        return Response(self.get_serializer(profile).data)

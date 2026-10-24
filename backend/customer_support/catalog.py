@@ -18,6 +18,6 @@ TICKET_STATUS_LABELS = {
 
 def get_support_specification():
     return {
-        'request_types': [{'value': value, 'label': label} for value, label in REQUEST_TYPES],
+        'request_types': [{'value': value, 'label': label} for value, label in REQUEST_TYPES if value != "private"],
         'ticket_status_labels': TICKET_STATUS_LABELS,
     }

@@ -68,24 +68,11 @@ export const ruleApi = {
 
 
 
-// Special Event Filters
-export const specialEventApi = {
-  getByStrategy: async (strategyId) => {
-    const response = await api.get(`${RULES_URL}event-filters/`, {
-      params: { strategy: strategyId }
-    });
-    return response.data;
-  },
-
-  create: async (data) => {
-    const response = await api.post(`${RULES_URL}event-filters/`, data);
-    return response.data;
-  },
-
+export const positionSizingApi = {
   update: async (id, data) => {
-    const response = await api.patch(`${RULES_URL}event-filters/${id}/`, data);
+    const response = await api.patch(`${RULES_URL}sizing/${id}/`, data);
     return response.data;
   },
 };
 
-export default { timeRuleApi, ruleGroupApi, ruleApi, specialEventApi };
+export default { timeRuleApi, ruleGroupApi, ruleApi, positionSizingApi };

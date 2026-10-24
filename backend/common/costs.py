@@ -2,15 +2,40 @@
 
 Provides accurate simulation of Indian market trading costs including
 brokerage, STT, exchange charges, SEBI fees, stamp duty, and GST.
-Used by both backtesting and paper trading engines.
+Used by backtesting, paper trading and the simulated Terminal.
 """
-import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Tuple
+from datetime import datetime
+from django.utils import timezone
 
-from common.enums import ProductType, Side, InstrumentType
+from common.enums import FyersSegment, ProductType, Side, InstrumentType
 
-logger = logging.getLogger(__name__)
+CHARGE_PROFILE_FIELDS = (
+    "brokerage_per_order",
+    "brokerage_pct",
+    "brokerage_cap",
+    "stt_eq_delivery_pct",
+    "stt_eq_intraday_pct",
+    "stt_futures_pct",
+    "stt_options_sell_pct",
+    "ctt_futures_sell_pct",
+    "ctt_options_sell_pct",
+    "exchange_txn_pct",
+    "exchange_txn_fo_pct",
+    "sebi_turnover_pct",
+    "stamp_duty_pct",
+    "gst_pct",
+)
+
+
+def snapshot_charge_profile(profile):
+    if not profile:
+        return {"resolved": True}
+    return {
+        "name": profile.name,
+        **{field: str(getattr(profile, field)) for field in CHARGE_PROFILE_FIELDS},
+    }
 
 
 def get_charges_breakdown(charge_records):
@@ -23,8 +48,8 @@ def get_charges_breakdown(charge_records):
             leg = charges.get(leg_name) or {}
             totals['brokerage'] += float(leg.get('brokerage', 0) or 0)
             totals['stt'] += float(leg.get('stt', 0) or 0)
-            totals['exchange_txn'] += float(leg.get('exchange_charges', leg.get('exchange', 0)) or 0)
-            totals['sebi'] += float(leg.get('sebi_fee', leg.get('sebi', 0)) or 0)
+            totals['exchange_txn'] += float(leg.get('exchange_charges', 0) or 0)
+            totals['sebi'] += float(leg.get('sebi_fee', 0) or 0)
             totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
             totals['gst'] += float(leg.get('gst', 0) or 0)
     return {key: round(value, 2) for key, value in totals.items()}
@@ -33,15 +58,21 @@ def get_charges_breakdown(charge_records):
 class TradingCostCalculator:
     """Calculates realistic trading costs for Indian markets.
     
-    Uses a BrokerChargeProfile to compute all components:
+    Uses an immutable charge-profile snapshot dictionary to compute all components:
     - Brokerage (flat + percentage, capped)
-    - STT (Securities Transaction Tax)
+    - STT / configured commodity CTT, selected by segment
     - Exchange Transaction Charges
     - SEBI Turnover Fees
     - Stamp Duty
     - GST on brokerage + exchange charges
     """
     
+    @staticmethod
+    def get_tax_classification(entry_time: datetime, exit_time: datetime) -> str:
+        """Use actual trade dates in the application's timezone, never the order product."""
+        return (ProductType.INTRADAY if timezone.localdate(entry_time) == timezone.localdate(exit_time)
+                else ProductType.CNC)
+
     @staticmethod
     def apply_slippage(price: Decimal, side: str, slippage_pct: Decimal) -> Decimal:
         """Apply slippage to a fill price.
@@ -100,25 +131,33 @@ class TradingCostCalculator:
         instrument_type: str,
         tax_classification: str,
         side: str,
-        profile,
+        profile: dict,
+        *, segment: int = FyersSegment.CAPITAL_MARKET,
     ) -> Decimal:
-        """Calculate Securities Transaction Tax."""
-        if instrument_type in (InstrumentType.STOCK, InstrumentType.INDEX):
+        """Calculate the configured segment tax: STT, commodity CTT, or zero for currency."""
+        if segment == FyersSegment.CURRENCY_DERIVATIVES:
+            return Decimal('0')
+        if segment == FyersSegment.COMMODITY_DERIVATIVES:
+            if side != Side.SELL:
+                return Decimal('0')
+            field = 'ctt_options_sell_pct' if instrument_type == InstrumentType.OPTION else 'ctt_futures_sell_pct'
+            pct = Decimal(profile.get(field, '0'))
+        elif instrument_type == InstrumentType.STOCK:
             if tax_classification == ProductType.CNC:
-                pct = Decimal(str(profile.stt_eq_delivery_pct))
+                pct = Decimal(profile['stt_eq_delivery_pct'])
             else:  # ProductType.INTRADAY
                 if side == Side.SELL:
-                    pct = Decimal(str(profile.stt_eq_intraday_pct))
+                    pct = Decimal(profile['stt_eq_intraday_pct'])
                 else:
                     return Decimal('0')
         elif instrument_type == InstrumentType.FUTURE:
             if side == Side.SELL:
-                pct = Decimal(str(profile.stt_futures_pct))
+                pct = Decimal(profile['stt_futures_pct'])
             else:
                 return Decimal('0')
         elif instrument_type == InstrumentType.OPTION:
             if side == Side.SELL:
-                pct = Decimal(str(profile.stt_options_sell_pct))
+                pct = Decimal(profile['stt_options_sell_pct'])
             else:
                 return Decimal('0')
         else:
@@ -130,32 +169,32 @@ class TradingCostCalculator:
     def calculate_exchange_charges(
         turnover: Decimal,
         instrument_type: str,
-        profile,
+        profile: dict,
     ) -> Decimal:
         """Calculate exchange transaction charges."""
         if instrument_type in (InstrumentType.FUTURE, InstrumentType.OPTION):
-            pct = Decimal(str(profile.exchange_txn_fo_pct))
+            pct = Decimal(profile['exchange_txn_fo_pct'])
         else:
-            pct = Decimal(str(profile.exchange_txn_pct))
+            pct = Decimal(profile['exchange_txn_pct'])
         
         return (turnover * pct / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
     @staticmethod
-    def calculate_sebi_fee(turnover: Decimal, profile) -> Decimal:
+    def calculate_sebi_fee(turnover: Decimal, profile: dict) -> Decimal:
         """Calculate SEBI turnover fee."""
-        pct = Decimal(str(profile.sebi_turnover_pct))
+        pct = Decimal(profile['sebi_turnover_pct'])
         return (turnover * pct / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
     @staticmethod
     def calculate_stamp_duty(
         turnover: Decimal,
         side: str,
-        profile,
+        profile: dict,
     ) -> Decimal:
         """Calculate stamp duty (charged only on buy side)."""
         if side != Side.BUY:
             return Decimal('0')
-        pct = Decimal(str(profile.stamp_duty_pct))
+        pct = Decimal(profile['stamp_duty_pct'])
         return (turnover * pct / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
     @staticmethod
@@ -163,11 +202,11 @@ class TradingCostCalculator:
         brokerage: Decimal,
         exchange_charges: Decimal,
         sebi_fee: Decimal,
-        profile,
+        profile: dict,
     ) -> Decimal:
         """Calculate GST on brokerage + exchange charges + SEBI fee."""
         taxable = brokerage + exchange_charges + sebi_fee
-        gst_pct = Decimal(str(profile.gst_pct))
+        gst_pct = Decimal(profile['gst_pct'])
         return (taxable * gst_pct / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
     @classmethod
@@ -177,8 +216,9 @@ class TradingCostCalculator:
         instrument_type: str,
         tax_classification: str,
         side: str,
-        profile,
+        profile: dict,
         include_charges: bool = True,
+        *, segment: int = FyersSegment.CAPITAL_MARKET,
     ) -> Dict:
         """Calculate all charges for a single order leg.
         
@@ -187,13 +227,13 @@ class TradingCostCalculator:
             instrument_type: InstrumentType
             tax_classification: INTRADAY or CNC.
             side: BUY or SELL.
-            profile: BrokerChargeProfile instance.
+            profile: Saved charge-profile dictionary; decimal rates are strings.
             include_charges: If False, returns zero charges.
         
         Returns:
             Dict with itemized charges and total.
         """
-        if not include_charges or profile is None:
+        if not include_charges or 'brokerage_per_order' not in profile:
             return {
                 'brokerage': 0,
                 'stt': 0,
@@ -207,10 +247,10 @@ class TradingCostCalculator:
         turnover = Decimal(str(turnover))
         
         brokerage = cls.calculate_brokerage(
-            turnover, profile.brokerage_per_order,
-            profile.brokerage_pct, profile.brokerage_cap,
+            turnover, Decimal(profile['brokerage_per_order']),
+            Decimal(profile['brokerage_pct']), Decimal(profile['brokerage_cap']),
         )
-        stt = cls.calculate_stt(turnover, instrument_type, tax_classification, side, profile)
+        stt = cls.calculate_stt(turnover, instrument_type, tax_classification, side, profile, segment=segment)
         exchange_charges = cls.calculate_exchange_charges(turnover, instrument_type, profile)
         sebi_fee = cls.calculate_sebi_fee(turnover, profile)
         stamp_duty = cls.calculate_stamp_duty(turnover, side, profile)
@@ -236,10 +276,11 @@ class TradingCostCalculator:
         quantity: int,
         side: str,
         instrument_type: str,
-        entry_time,
-        exit_time,
-        profile,
+        entry_time: datetime,
+        exit_time: datetime,
+        profile: dict,
         include_charges: bool = True,
+        *, segment: int = FyersSegment.CAPITAL_MARKET,
     ) -> Dict:
         """Calculate complete charges for a round-trip trade (entry + exit).
         
@@ -251,7 +292,7 @@ class TradingCostCalculator:
             instrument_type: InstrumentType
             entry_time: Datetime of entry.
             exit_time: Datetime of exit.
-            profile: BrokerChargeProfile instance.
+            profile: Saved charge-profile dictionary.
             include_charges: If False, returns zero charges.
         
         Returns:
@@ -262,13 +303,13 @@ class TradingCostCalculator:
         
         exit_side = Side.BUY if side == Side.SELL else Side.SELL
         
-        tax_classification = ProductType.INTRADAY if entry_time.date() == exit_time.date() else ProductType.CNC
+        tax_classification = cls.get_tax_classification(entry_time, exit_time)
         
         entry_charges = cls.calculate_charges(
-            entry_turnover, instrument_type, tax_classification, side, profile, include_charges
+            entry_turnover, instrument_type, tax_classification, side, profile, include_charges, segment=segment
         )
         exit_charges = cls.calculate_charges(
-            exit_turnover, instrument_type, tax_classification, exit_side, profile, include_charges
+            exit_turnover, instrument_type, tax_classification, exit_side, profile, include_charges, segment=segment
         )
         
         total_charges = entry_charges['total'] + exit_charges['total']
@@ -287,11 +328,12 @@ class TradingCostCalculator:
         exit_price: Decimal,
         quantity: int,
         side: str,
-        instrument_type: InstrumentType = InstrumentType.STOCK,
-        entry_time=None,
-        exit_time=None,
-        profile=None,
+        instrument_type: str,
+        entry_time: datetime,
+        exit_time: datetime,
+        profile: dict,
         include_charges: bool = True,
+        *, segment: int = FyersSegment.CAPITAL_MARKET,
     ) -> Tuple[Decimal, Dict]:
         """Calculate net PnL after deducting all trading charges.
         
@@ -304,7 +346,7 @@ class TradingCostCalculator:
             instrument_type: InstrumentType
             entry_time: Datetime of entry.
             exit_time: Datetime of exit.
-            profile: BrokerChargeProfile instance (None = no charges).
+            profile: Saved charge-profile dictionary; an empty/resolved-only snapshot has no charges.
             include_charges: If False, returns gross_pnl unchanged.
         
         Returns:
@@ -312,7 +354,7 @@ class TradingCostCalculator:
         """
         charges = cls.calculate_trade_charges(
             entry_price, exit_price, quantity, side,
-            instrument_type, entry_time, exit_time, profile, include_charges,
+            instrument_type, entry_time, exit_time, profile, include_charges, segment=segment,
         )
         
         gross_pnl = Decimal(str(gross_pnl))

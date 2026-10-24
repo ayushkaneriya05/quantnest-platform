@@ -19,6 +19,6 @@ class WatchlistInstrumentAdmin(admin.ModelAdmin):
 
 @admin.register(ExecutionRoute)
 class ExecutionRouteAdmin(admin.ModelAdmin):
-    list_display = ['watchlist_instrument','target_instrument', 'target_underlying_instrument', 'route_type', 'created_at']
+    list_display = ['watchlist_instrument', 'route_type', 'override_sizing', 'created_at']
     list_filter = ['route_type']
-    autocomplete_fields = ['watchlist_instrument', 'target_instrument', 'target_underlying_instrument']
+    autocomplete_fields = ['watchlist_instrument']

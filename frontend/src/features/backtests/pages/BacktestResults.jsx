@@ -263,6 +263,11 @@ export default function BacktestResults() {
         </div>
       )}
 
+      {run?.data_quality?.simulation_policy && <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+        <p className="font-semibold text-foreground">Historical execution model</p>
+        <p className="mt-1">{run.data_quality.simulation_policy}</p>
+        <p className="mt-1">LTP rules use simulated observations. Historical candles cannot reproduce the real sequence of live ticks.</p>
+      </div>}
       {run?.data_quality?.complete === false && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-700/50 rounded-xl p-4 flex gap-3">
           <AlertCircle className="h-5 w-5 text-amber-700 dark:text-amber-400 shrink-0" />

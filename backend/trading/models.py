@@ -1,17 +1,24 @@
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
+from django.utils import timezone
+from common.enums import Side, TerminalOrderType, TerminalOrderStatus, PositionSide, TerminalExitReason
 
 class Watchlist(models.Model):
     """
     Links a user to a collection of instruments they are watching.
     """
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='watchlist')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='terminal_watchlists')
+    name = models.CharField(max_length=60, default='Main')
     instruments = models.ManyToManyField("instruments.Instrument", related_name='trading_watchlists', blank=True)
 
     def __str__(self):
-        return f"{self.user.username}'s Watchlist"
-    
+        return f"{self.user.username}: {self.name}"
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'name'], name='terminal_watchlist_name')]
+
+
 class Account(models.Model):
     """
     Represents a user's paper trading account, including balance and P&L.
@@ -23,6 +30,12 @@ class Account(models.Model):
     unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    charge_profile = models.ForeignKey('brokers.BrokerChargeProfile', null=True, blank=True, on_delete=models.SET_NULL)
+    futures_margin_pct = models.DecimalField(max_digits=5, decimal_places=2, default=20)
+    short_option_margin_pct = models.DecimalField(max_digits=5, decimal_places=2, default=25)
+    charges_paid = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    starting_balance = models.DecimalField(max_digits=20, decimal_places=2, default=1000000)
+
     def __str__(self):
         return f"{self.user.username}'s Account"
 
@@ -33,66 +46,61 @@ class Position(models.Model):
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='positions')
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE)
     quantity = models.IntegerField()
-    average_price = models.DecimalField(max_digits=10, decimal_places=2)
-    stop_loss = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    take_profit = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    average_price = models.DecimalField(max_digits=20, decimal_places=8)
+    stop_loss = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    take_profit = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ('account', 'instrument')
 
     def __str__(self):
-        return f"{self.account.user.username}'s Position in {self.instrument.symbol}"
+        return f"{self.account.user.username}'s Position in {self.instrument.name}"
 
 class Order(models.Model):
+    request_id = models.UUIDField(null=True, unique=True, editable=False)
     """
     Represents a single trading order placed by a user with a clear lifecycle.
     """
-    ORDER_TYPES = [
-        ('MARKET', 'Market'),
-        ('LIMIT', 'Limit'),
-        ('STOP', 'Stop-Loss'),
-        ('STOP_LIMIT', 'Stop-Limit')
-    ]
-    ORDER_STATUS = [
-        ('OPEN', 'Open'),          # Order is active and waiting to be filled
-        ('COMPLETE', 'Complete'),    # Order has been fully filled
-        ('CANCELLED', 'Cancelled'),  # User cancelled the order
-        ('REJECTED', 'Rejected'),    # The system rejected the order (e.g., insufficient funds)
-    ]
-    TRANSACTION_TYPES = [('BUY', 'Buy'), ('SELL', 'Sell')]
-
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='orders')
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE)
-    order_type = models.CharField(max_length=10, choices=ORDER_TYPES)
-    status = models.CharField(max_length=10, choices=ORDER_STATUS, default='OPEN', db_index=True)
-    transaction_type = models.CharField(max_length=4, choices=TRANSACTION_TYPES)
+    order_type = models.CharField(max_length=10, choices=TerminalOrderType.choices)
+    status = models.CharField(max_length=10, choices=TerminalOrderStatus.choices, default=TerminalOrderStatus.OPEN, db_index=True)
+    transaction_type = models.CharField(max_length=4, choices=Side.choices)
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     reserved_cash = models.DecimalField(max_digits=20, decimal_places=2, default=0)
-    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    trigger_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    price = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    trigger_price = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    filled_quantity = models.PositiveIntegerField(default=0)
+    avg_fill_price = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    rejection_reason = models.CharField(max_length=255, blank=True)
+    reduce_only = models.BooleanField(default=False)
+    stop_loss = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    take_profit = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    charge_profile_snapshot = models.JSONField(default=dict)
     
     # OCO (One Cancels Other) & Position Linking fields
-    is_oco = models.BooleanField(default=False)
-    oco_linked_order = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='linked_to')
-    position_link = models.ForeignKey(Position, null=True, blank=True, on_delete=models.SET_NULL, related_name='exit_orders')
     
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    eligible_at = models.DateTimeField(default=timezone.now)
     executed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=['account', 'status'], name='terminal_account_status_idx')]
 
     def __str__(self):
-        return f"{self.transaction_type} {self.quantity} {self.instrument.symbol} @ {self.price or 'Market'}"
+        return f"{self.transaction_type} {self.quantity} {self.instrument.name} @ {self.price or 'Market'}"
 
 class TradeHistory(models.Model):
     """
     Logs every single executed trade for historical analysis and P&L calculation.
     """
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='trades')
-    executed_price = models.DecimalField(max_digits=10, decimal_places=2)
+    executed_price = models.DecimalField(max_digits=20, decimal_places=8)
     quantity = models.PositiveIntegerField()
+    charges = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    charges_breakdown = models.JSONField(default=dict)
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     def __str__(self):
@@ -104,11 +112,14 @@ class ClosedPositionLog(models.Model):
     """
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='closed_positions')
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE)
-    side = models.CharField(max_length=5) # 'LONG' or 'SHORT'
+    side = models.CharField(max_length=5, choices=PositionSide.choices)
     quantity = models.PositiveIntegerField()
-    entry_price = models.DecimalField(max_digits=10, decimal_places=2)
-    exit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    entry_price = models.DecimalField(max_digits=20, decimal_places=8)
+    exit_price = models.DecimalField(max_digits=20, decimal_places=8)
     realized_pnl = models.DecimalField(max_digits=15, decimal_places=2)
+    gross_pnl = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    recorded_charges = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    exit_reason = models.CharField(max_length=100, choices=TerminalExitReason.choices, default=TerminalExitReason.MANUAL)
     entry_time = models.DateTimeField()
     exit_time = models.DateTimeField(auto_now_add=True)
 
@@ -116,4 +127,4 @@ class ClosedPositionLog(models.Model):
         indexes = [models.Index(fields=['account', '-exit_time'], name='terminal_close_time_idx')]
 
     def __str__(self):
-        return f"{self.side} {self.quantity} {self.instrument.symbol} - P&L: {self.realized_pnl}"
+        return f"{self.side} {self.quantity} {self.instrument.name} - P&L: {self.realized_pnl}"

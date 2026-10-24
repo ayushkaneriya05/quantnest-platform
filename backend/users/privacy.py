@@ -1,6 +1,5 @@
 """Owned, bounded exports and safe account shutdown preconditions."""
 import json
-from functools import partial
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from rest_framework.permissions import IsAuthenticated
@@ -19,7 +18,7 @@ def shutdown_account(user, *, erase=False):
     from live_trading.models import TradingSession
     from trading.models import Account
     from backtesting.models import BacktestRun, MonteCarloRun
-    from core.outbox import enqueue
+    from execution.lifecycle import request_session_refresh
     from commercial.models import UsageReservation
     from commercial.usage import settle_usage
     from users.sessions import revoke_sessions
@@ -37,7 +36,7 @@ def shutdown_account(user, *, erase=False):
             for session in model.objects.select_for_update().filter(user=user).exclude(status="STOPPED").order_by("pk"):
                 session.status, session.ended_at, session.error_message = "STOPPED", timezone.now(), "Account disabled."
                 session.save(update_fields=["status", "ended_at", "error_message", "updated_at"])
-                enqueue("control", f"{scope}:{session.pk}", {"scope": scope, "session_id": str(session.pk), "action": "SESSION_STOP"})
+                request_session_refresh(scope, session)
         BrokerCredential.objects.filter(user=user).update(is_active=False)
         BrokerSession.objects.filter(credential__user=user).update(is_valid=False)
         BacktestRun.objects.filter(user=user, status__in=["PENDING", "QUEUED", "RUNNING"]).update(status="CANCELLED")
@@ -54,20 +53,15 @@ def shutdown_account(user, *, erase=False):
             from django_otp import devices_for_user
             from users.models import BackupCode
             from strategies.models import Strategy
-            from customer_support.models import Consent
             from customer_support.models import ErasureRequest
-            from customer_support.tasks import withdraw_newsletter_task
-            for consent in Consent.objects.filter(user=user, purpose="marketing").exclude(state="withdrawn"):
-                transaction.on_commit(partial(withdraw_newsletter_task.delay, consent.email), robust=True)
             ErasureRequest.objects.get_or_create(user=user)
-            Consent.objects.filter(user=user).update(state="withdrawn", withdrawn_at=timezone.now())
             EmailAddress.objects.filter(user=user).delete()
             SocialAccount.objects.filter(user=user).delete()
             BackupCode.objects.filter(user=user).delete()
             for device in devices_for_user(user):
                 device.delete()
             BrokerSession.objects.filter(credential__user=user).update(access_token="")
-            BrokerCredential.objects.filter(user=user).update(api_key="", api_secret="", totp_secret="")
+            BrokerCredential.objects.filter(user=user).update(api_secret="")
             Strategy.objects.filter(user=user).update(visibility="PRIVATE")
             avatar = user.avatar
             if avatar:

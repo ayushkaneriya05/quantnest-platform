@@ -12,11 +12,9 @@ router.register(r'positions', views.PaperPositionViewSet, basename='paper-positi
 router.register(r'orders', views.PaperOrderViewSet, basename='paper-order')
 router.register(r'trades', views.PaperTradeViewSet, basename='paper-trade')
 
-# Simulated wallet and capital allocations
+# Simulated wallet and fund history
 router.register(r'portfolios', views.PortfolioViewSet, basename='portfolio')
-router.register(r'allocations', views.CapitalAllocationViewSet, basename='allocation')
 router.register(r'transactions', views.FundTransactionViewSet, basename='transaction')
-router.register(r'performance', views.DailyPerformanceViewSet, basename='performance')
 
 urlpatterns = [
     path('', include(router.urls)),

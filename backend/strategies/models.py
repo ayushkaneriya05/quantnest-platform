@@ -136,7 +136,7 @@ class Strategy(BaseTimestampModel):
             or self.live_positions.exists()
             or self.live_orders.exists()
         )
-        has_backtest = self.backtest_runs.exists() if hasattr(self, 'backtest_runs') else False
+        has_backtest = self.backtest_runs.exists()
 
         if has_paper or has_live or has_backtest:
             parts = []
@@ -212,23 +212,9 @@ class EntryOrderConfig(BaseTimestampModel):
     # Execution Style
     order_type = models.CharField(
         max_length=20,
-        choices=OrderType.choices,
+        choices=[(OrderType.MARKET, OrderType.MARKET.label)],
         default=OrderType.MARKET,
         help_text="Order type to place on entry signal (MARKET)"
-    )
-    price_offset = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0,
-        null=True,
-        blank=True,
-        help_text="Limit price offset from signal close price"
-    )
-
-    # Cooldown
-    cooldown_seconds = models.PositiveIntegerField(
-        default=0,
-        help_text="Minimum seconds between any trade entries on this instrument"
     )
 
     def __str__(self):

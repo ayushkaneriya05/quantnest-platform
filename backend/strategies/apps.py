@@ -7,5 +7,5 @@ class StrategiesConfig(AppConfig):
     verbose_name = 'Trading Strategies'
 
     def ready(self):
-        import strategies.signals
+        import strategies.signals  # noqa: F401 - register model signal handlers
         return super().ready()

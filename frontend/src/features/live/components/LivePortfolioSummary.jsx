@@ -1,18 +1,11 @@
 import PropTypes from "prop-types";
-import { useMemo } from "react";
-import { Link } from "react-router-dom";
-import { Button } from "@/shared/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
-import { Badge } from "@/shared/components/ui/badge";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import {
   Wallet,
   TrendingUp,
-  DollarSign,
   Activity,
-  RefreshCw,
 } from "lucide-react";
-import { formatNumber } from "@/shared/utils/formatters";
-import { formatBrokerAccount, formatDateTime as formatLiveDateTime } from "@/shared/utils/formatters";
+import { formatCurrency } from "@/shared/utils/formatters";
 
 const StatCard = ({
   icon: Icon,
@@ -58,17 +51,10 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
 
   const pnlVariant = dayPnl >= 0 ? "positive" : "negative";
 
-  const brokerAccounts = useMemo(() => summary?.broker_accounts || [], [summary?.broker_accounts]);
-
-  const totalEquity = useMemo(() => {
-    return brokerAccounts.reduce((sum, acc) => sum + Number(acc.net_equity || 0), 0);
-  }, [brokerAccounts]);
-  const equityComplete = brokerAccounts.length > 0 && brokerAccounts.every((account) => account.net_equity != null);
-
   return (
     <div className="space-y-8">
       {/* Key Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
           icon={Activity}
           title="Active Sessions"
@@ -91,99 +77,12 @@ export default function LivePortfolioSummary({ summary = {}, sessions = [] }) {
           variant="default"
         />
         <StatCard
-          icon={DollarSign}
-          title="Total Equity"
-          value={equityComplete ? `₹${formatNumber(totalEquity)}` : "—"}
-          subtitle={equityComplete ? "All broker accounts" : "Broker snapshots incomplete"}
-          variant="default"
-        />
-        <StatCard
           icon={TrendingUp}
           title="Today P&L"
-          value={`₹${formatNumber(dayPnl)}`}
-          subtitle="Realized today + open P&L"
+          value={`${formatCurrency(dayPnl)}`}
+          subtitle="Realized today + open P&L · before broker charges"
           variant={pnlVariant}
         />
-      </div>
-
-      {/* Broker Accounts Overview */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {brokerAccounts.map((account) => (
-          <Card
-            key={account.credential_id ?? account.broker_label}
-            className="bg-card/50 border-border"
-          >
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-lg text-foreground">{formatBrokerAccount(account.broker_name, account.broker_label)}</CardTitle>
-              <div className="flex items-center gap-3">
-                {!account.broker_session_valid && (
-                  <Button
-                    asChild
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 hover:bg-amber-400/10 gap-2"
-                  >
-                    <Link to="/brokers">
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      Reconnect
-                    </Link>
-                  </Button>
-                )}
-                <Badge
-                  className={
-                    account.is_healthy
-                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
-                      : "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30"
-                  }
-                >
-                  {account.is_healthy ? "Account ready" : "Action required"}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Account Metrics */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground text-xs uppercase tracking-wider font-bold mb-1">
-                    Net Equity
-                  </p>
-                  <p className="text-foreground font-bold text-lg">
-                    {account.net_equity == null ? "—" : `₹${formatNumber(Number(account.net_equity))}`}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs uppercase tracking-wider font-bold mb-1">
-                    Cash Balance
-                  </p>
-                  <p className="text-cyan-700 dark:text-cyan-400 font-bold text-lg">
-                    {account.cash_balance == null ? "—" : `₹${formatNumber(Number(account.cash_balance))}`}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs uppercase tracking-wider font-bold mb-1">
-                    Available Margin
-                  </p>
-                  <p className="text-emerald-700 dark:text-emerald-400 font-bold text-lg">
-                    {account.available_margin == null ? "—" : `₹${formatNumber(Number(account.available_margin))}`}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs uppercase tracking-wider font-bold mb-1">
-                    Used Margin
-                  </p>
-                  <p className="text-amber-700 dark:text-amber-400 font-bold text-lg">
-                    {account.used_margin == null ? "—" : `₹${formatNumber(Number(account.used_margin))}`}
-                  </p>
-                </div>
-              </div>
-
-              <div className="border-t border-border pt-3 text-xs text-muted-foreground">
-                <div>Funds snapshot: {account.funds_as_of ? formatLiveDateTime(account.funds_as_of) : "Not synced yet"}</div>
-                <div className="mt-1">Broker order updates: <span className={account.order_websocket_status === "connected" ? "text-emerald-700 dark:text-emerald-300" : account.order_websocket_status === "reconciliation" ? "text-amber-700 dark:text-amber-300" : "text-rose-700 dark:text-rose-300"}>{account.order_websocket_status || "unknown"}</span></div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
       </div>
 
     </div>

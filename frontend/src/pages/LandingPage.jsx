@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRight, Check, Code2, LockKeyhole, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, Code2, Sparkles } from 'lucide-react';
 import { useTheme } from '@/shared/context/theme';
 import MainHeader from '@/shared/components/layout/main-header';
 import { Button } from '@/shared/components/ui/button';
@@ -26,7 +26,7 @@ export default function QuantNestLanding() {
   useEffect(() => {
     document.title = 'QuantNest · Your rules, clearly tested';
     const description = document.querySelector('meta[name="description"]');
-    if (description) description.content = 'Research your own trading ideas, build rules, backtest and practise in Paper. Explore QuantNest subscriptions, private installations and custom software development.';
+    if (description) description.content = 'Research your own trading ideas, build rules, backtest and practise in Paper. Explore QuantNest subscriptions and separate custom software development.';
     if (hash) document.getElementById(hash.slice(1))?.scrollIntoView();
     else window.scrollTo({ top: 0 });
   }, [hash]);
@@ -43,7 +43,7 @@ export default function QuantNestLanding() {
             <p className="mt-6 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">Research your questions. Build your own rules. Test them on history and practise with simulated capital—all in one connected workspace.</p>
             <div className="mt-8 flex flex-wrap gap-3"><Button asChild size="lg" className="rounded-full"><Link to="/register">Start free with Explore<ArrowRight className="h-4 w-4" /></Link></Button><Button asChild variant="outline" size="lg" className="rounded-full"><Link to="/product/">See how QuantNest works</Link></Button></div>
             <div className="mt-7 flex flex-wrap gap-x-5 gap-y-3 text-xs text-muted-foreground">{['Your own strategy logic', 'Historical testing', 'Automated Paper practice'].map(text => <span className="flex items-center gap-2" key={text}><Check className="h-3.5 w-3.5 text-brand" />{text}</span>)}</div>
-            <p className="mt-6 max-w-lg text-xs leading-6 text-muted-foreground">For supported NSE cash-stock workflows. Public plans cover simulation through Paper; Live needs a separate Private assessment.</p>
+            <p className="mt-6 max-w-lg text-xs leading-6 text-muted-foreground">For supported NSE cash-stock workflows. Public plans cover simulation through Paper; customer Live trading is not currently available.</p>
           </div>
           <div className="site-hero-visual relative min-w-0"><SiteIllustration name="home" /><div className="site-visual-caption mt-4 flex justify-between gap-3 px-2 text-xs text-muted-foreground"><span>From the first question to the next iteration</span><span className="shrink-0 text-brand">Built around your logic</span></div></div>
         </div>
@@ -57,9 +57,8 @@ export default function QuantNestLanding() {
 
       <section className="site-home-section" id="research"><div className="site-container grid items-center gap-8 lg:grid-cols-2 lg:gap-12"><SiteIllustration name="research-intro" /><div><SectionTitle eyebrow="Research with context" title="Keep asking better questions." description="Use the assistant to investigate your own ideas, inspect supporting calculations and understand the results you already have." /><div className="my-7"><PointList points={['Attach selected stocks, a watchlist, your strategy or completed backtests.', 'Open sources and observation times instead of taking a written answer at face value.', 'Refine a draft in conversation and confirm it before anything is created or started.']} /></div><Link to="/features/research/" className="inline-flex items-center gap-2 font-medium text-brand">Explore AI research<ArrowRight className="h-4 w-4" /></Link></div></div></section>
 
-      <section className="site-home-section border-y bg-muted/30" id="services"><div className="site-container"><SectionTitle eyebrow="Beyond the public workspace" title="Need a different kind of setup?" description="Choose a private installation or a scoped development project when your requirements go beyond a public subscription." /><div className="mt-7 grid gap-6 md:grid-cols-2">
-        <article className="site-service-card site-card"><LockKeyhole className="h-7 w-7 text-brand" /><h3 className="mt-6 text-2xl font-semibold">QuantNest Private</h3><p className="mt-4 text-sm leading-7 text-muted-foreground">Supported Live trading for your own strategy logic in a customer-owned installation, alongside the agreed research, testing and review modules.</p><div className="my-6"><PointList points={['Agree hosting, access, backups and updates before setup.', 'Agree the supported broker connection and applicable requirements before Live activation.']} /></div><Button asChild variant="outline" className="rounded-full"><Link to="/private/">Explore Private<ArrowRight className="h-4 w-4" /></Link></Button></article>
-        <article className="site-service-card site-card"><Code2 className="h-7 w-7 text-brand" /><h3 className="mt-6 text-2xl font-semibold">Custom software development</h3><p className="mt-4 text-sm leading-7 text-muted-foreground">Research utilities, testing tools, reports and integrations built around your own process and specification.</p><div className="my-6"><PointList points={['Agree inputs, deliverables, acceptance criteria and ownership.', 'Work through clear milestones, handover and optional maintenance.']} /></div><Button asChild variant="outline" className="rounded-full"><Link to="/custom-development/">Explore development services<ArrowRight className="h-4 w-4" /></Link></Button></article>
+      <section className="site-home-section border-y bg-muted/30" id="services"><div className="site-container"><SectionTitle eyebrow="Beyond the public workspace" title="Software for your own project." description="Commission an application, tool or integration built around your requirements. No QuantNest subscription is required." /><div className="mt-7 max-w-3xl">
+        <article className="site-service-card site-card"><Code2 className="h-7 w-7 text-brand" /><h3 className="mt-6 text-2xl font-semibold">Custom software development</h3><p className="mt-4 text-sm leading-7 text-muted-foreground">Applications, dashboards, workflow automation, data tools and integrations. Describe your goal; we help turn it into an agreed specification.</p><div className="my-6"><PointList points={['Agree inputs, deliverables, acceptance criteria and ownership.', 'Work through clear milestones, handover and optional maintenance.']} /></div><Button asChild variant="outline" className="rounded-full"><Link to="/custom-development/">Explore development services<ArrowRight className="h-4 w-4" /></Link></Button></article>
       </div></div></section>
 
       <section className="site-home-section" id="pricing"><div className="site-container"><div className="mb-7"><SectionTitle eyebrow="Simple workspace plans" title="Start small. Add room when you need it." description="Explore the public workflow with limited free usage. Choose Build or Pro when you need more saved strategies, tests, research and Paper capacity." /></div><PricingCards /><Link to="/pricing/" className="mt-6 inline-flex items-center gap-2 text-sm text-brand">Understand credits and compare plans<ArrowRight className="h-4 w-4" /></Link></div></section>

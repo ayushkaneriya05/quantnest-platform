@@ -1,197 +1,144 @@
-# Development: complete local setup
+# Development deployment
 
-This is the recommended way to learn the application. It runs Django, PostgreSQL/TimescaleDB, three Redis stores, runtime/Celery services and the main React site locally. Commercial usage is recorded but subscription allowances are bypassed. Paper is enabled by default; data/AI/Live services are deliberate opt-ins.
+For the beginner Windows procedure, follow [Development setup](SETUP.md).
+This README explains the configuration behind those steps.
 
-## 1. Install the prerequisites
+This mode runs the same API, data layer and execution engine locally. It records
+usage without enforcing Public plan quotas. It defaults to Paper/simulated Terminal.
+Provider feed, AI research and real broker events are optional profiles.
 
-1. Install Git and obtain this repository.
-2. On Windows install Docker Desktop with its WSL2/Linux-container backend. Start Docker Desktop; the CLI alone is insufficient. On Linux install Docker Engine and Compose v2.
-3. Install Python 3.12 for the host deployment scripts. If using uv: `uv python install 3.12`.
-4. Node 22.14 or later in the supported 22 line is needed only for native frontend/build work; Compose supplies Node for its Vite service.
-5. Reserve enough memory for the development stack and image builds. It is not intended for a 2 GB laptop allocation.
+Read [shared components](../shared/README.md) for the meaning of every Compose field,
+service command, Redis database, volume and memory policy. Read
+[the script runbook](../shared/scripts/README.md) for deploy/backup/restore flags.
 
-Check tools from the repository root:
+## 1. Create the files
 
-```powershell
-Set-Location E:\QuantNest
-docker version
-docker compose version
-python --version
+From the repository root in a POSIX shell:
+
+```sh
+cp infra/development/backend.env.example infra/development/backend.env
+cp infra/development/research.env.example infra/development/research.env
+cp infra/development/frontend.env.example infra/development/frontend.env
 ```
 
-Docker must report a server as well as a client. Python must be 3.12 or a supported 3.13 interpreter. The images and CI use 3.12 because pandas-ta requires Python 3.12+.
+In PowerShell, use `Copy-Item` instead of `cp` if desired and use `python` instead
+of `python3` for subsequent host script commands. Start Docker Desktop's Linux
+engine first. These three files must exist even when the AI profile is off because
+Compose reads service env-file paths while resolving the project.
 
-## 2. Copy local configuration
+### Each backend.env input
 
-From E:\QuantNest, run once:
-
-```powershell
-Copy-Item infra/development/backend.env.example infra/development/backend.env
-Copy-Item infra/development/research.env.example infra/development/research.env
-Copy-Item infra/development/frontend.env.example frontend/.env
-```
-
-On Linux use `cp` instead of `Copy-Item`. Do not overwrite an existing configured frontend/.env; merge the needed values instead.
-
-The backend example has working **local-only** Django/database/Redis/encryption values and console email. Compose supplies database/Redis hostnames, development mode, DEBUG=True and shared Channels. Do not copy this file into Public or Private.
-
-| Input | What to do |
+| Line/key | Meaning and action |
 | --- | --- |
-| Local keys/passwords | Existing values work locally; replace them if other people share this environment |
-| FRONTEND_URL | Keep http://localhost:5173 for the supplied stack |
-| BACKEND_URL | Keep http://localhost:8000 for direct development callbacks |
-| FYERS_CLIENT_ID / FYERS_SECRET | Fill only when connecting the optional data service |
-| RESEARCH_SERVICE_TOKEN | Must be identical in backend.env and research.env |
-| GEMINI_API_KEY / GEMINI_MODEL in research.env | Fill only for AI; choose a model actually enabled in your project |
-| EXECUTION_ENABLED_SCOPES | Keep paper unless intentionally connecting a real broker |
-| BROKER_FYERS_* | Only for intentional Development Live; separate execution app from source authorization |
+| `SECRET_KEY` | Local signing key. The provided value is for a private developer machine only. |
+| `CREDENTIAL_ENCRYPTION_KEYS` | Local sample Fernet key so encrypted fields work without setup. Use a unique key before sharing the environment. |
+| `POSTGRES_ADMIN_PASSWORD` | Local bootstrap database password. |
+| `DB_NAME` | Separate Development database name. |
+| `DB_USER`, `DB_PASSWORD` | Restricted local Django database role, created by the initializer. |
+| `REDIS_PASSWORD` | Hexadecimal local Redis password, used for both Redis services. |
+| `FRONTEND_URL=http://localhost:5173` | Browser origin for CORS, emails and Vite. |
+| `BACKEND_URL=http://localhost:8000` | Direct local callback origin. The API's loopback port is published for this development setup. |
+| `ALLOWED_HOSTS` | Allows browser, loopback and internal API hostname. |
+| `EMAIL_BACKEND` | Prints account/support email to service logs rather than sending it. |
+| `DEFAULT_FROM_EMAIL` | Sender shown in those local messages. |
+| `RESEARCH_SERVICE_TOKEN` | Must match research.env when AI is enabled. |
+| `FYERS_CLIENT_ID`, `FYERS_SECRET` | Leave empty until enabling the market-data profile; then enter the data app credentials. |
+| `EXECUTION_ENABLED_SCOPES=paper` | Default simulated scopes. Use `paper,live` only for intentional personal broker integration development. |
 
-EMAIL_BACKEND is console: password-reset/verification mail is printed in API/worker logs, not delivered. DEFAULT_FROM_EMAIL is a local sender. For real delivery, configure the Brevo SMTP inputs described in the Public guide and change EMAIL_BACKEND to django.core.mail.backends.smtp.EmailBackend.
+`research.env` contains the matching token, `GEMINI_API_KEY` and `GEMINI_MODEL`.
+Leave the API key blank while AI is disabled. `frontend.env` contains
+`QUANTNEST_API_PROXY_TARGET`, `VITE_SITE_URL` and `VITE_TURNSTILE_SITE_KEY`.
+Compose overrides the proxy target to `http://api:8000`, and Vite reads that
+process environment. `VITE_SITE_URL` is an HTTPS canonical URL for static build
+metadata, not the local development server address. The widget key may stay empty
+for local development because the backend bypasses anonymous-form verification in
+Development with DEBUG true.
 
-VITE_ settings are public browser values. QUANTNEST_API_PROXY_TARGET is Vite-server-only: Compose supplies http://api:8000. Do not set it to localhost inside the frontend container; that would address the frontend container itself.
+## 2. Start the base stack
 
-## 3. Initialize and start the core stack
-
-The simplest complete startup uses the shared script:
-
-```powershell
-python infra/shared/scripts/deploy.py --root . --mode development --build
+```sh
+python3 infra/shared/scripts/deploy.py --root . --mode development --build
+python3 infra/shared/scripts/diagnostics.py --root . --mode development
 ```
 
-It builds images, starts state stores, stops application services, migrates, configures the Django Site, collects admin assets and starts the core services. No source/AI account is needed for this initial startup. Updates use the same sequence without an application maintenance switch.
+The first command builds images, waits for data services, stops application
+services, migrates, configures Timescale/Site/static assets and starts the stack.
+The second checks effective configuration, running services and execution workers.
+Open `http://localhost:5173` for React. `http://localhost:8000/admin/` is the local
+backend Admin. PostgreSQL is available only on `127.0.0.1:54329` for host tooling.
+Neither Redis nor research has a host port.
 
-If an image build fails, inspect the dependency/network error. Do not switch Python back to 3.11 or install unpinned packages over the lock.
+Base services are PostgreSQL, general Redis, research-cache Redis, API, execution,
+background, compute, Beat and Vite. No data feed or Gemini request is started by
+the base deployment. Quotes/charts need an authorized source and acquired data.
 
-Open:
+## 3. Create the administrator and prepare data
 
-- Main customer site and workspace: http://localhost:5173
-- Admin through Vite: http://localhost:5173/admin/
-- Direct API diagnostics: http://localhost:8000
-- PostgreSQL from a local client: localhost:54329
-
-Customer pages and workspace are the same React app. The Vite gateway forwards API, WebSocket, admin and static paths. The database port is loopback-only; Redis remains container-only.
-
-## 4. Create the administrator and OTP
-
-Choose a username, then run:
-
-```powershell
+```sh
 docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml exec api python manage.py createsuperuser
 docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml exec api python manage.py enrol_staff_otp --username YOUR_ADMIN_USERNAME
-```
-
-The first command asks for account details/password. The second prints a secret otpauth URI. Import it privately into an authenticator such as Google Authenticator or Authy; its current six-digit code is the admin OTP Token. Keep the URI out of screenshots/log sharing.
-
-Sign in with the username, password and current OTP. If a device already exists the enrolment command refuses to replace it. Use the documented recovery process rather than repeatedly creating devices.
-
-The deployment script configures the selected Django Site automatically. For native development, or after changing the website origin, run `python manage.py configure_site` with the intended backend environment.
-
-For Google sign-in, register the exact callback from [the provider guide](../../docs/third-party-setup.md), create a Google Social application in Admin and associate it with the configured Django Site. Google client credentials are stored in Admin, not additional unused env variables.
-
-## 5. Add market data when ready
-
-1. Set the data app credentials and register this exact callback with FYERS:
-   http://localhost:8000/api/v1/market/fyers/callback/
-2. Start a fresh authorization at http://localhost:8000/api/v1/market/fyers/login/.
-3. Sign into the canonical localhost admin origin if requested, then complete the source sign-in in the same browser within ten minutes. Starting at 127.0.0.1 redirects to localhost before creating the verification cookie.
-4. Source tokens are encrypted in the database. Expired access requires a new sign-in; there is no discontinued FYERS refresh-token flow.
-5. Start the optional feed:
-
-```powershell
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml --profile market-data up -d --build feed
-```
-
-Initialize supported instruments and the market calendar:
-
-```powershell
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml exec api python manage.py sync_instruments --source NSE_CM
 docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml exec api python manage.py sync_market_holidays
+docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml exec api python manage.py sync_instruments
 ```
 
-For historical data start with one symbol and a bounded interval:
+`createsuperuser` creates a staff login; `enrol_staff_otp` provides its authenticator
+setup. Keep that provisioning URI private. Holiday synchronization uses the current
+NSE API and the configured exchange/segment calendars. Instrument sync loads the
+provider master. Initial history is acquired on demand by charts/backtests/research;
+execution prepares the history its saved strategy requires.
 
-```powershell
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml exec api python manage.py ingest_historical --symbols NSE:SBIN-EQ --days 30 --timeframe 1m
+## 4. Enable live market data or AI
+
+```sh
+python3 infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data
 ```
 
-Use the actual symbols/timeframes required by your strategy. Data availability/provider limits still apply in development. The optional `setup_timescale` command converts the candle table to a hypertable and enables compression; run it after migrations with application services stopped and a backup if the table contains data. PostgreSQL storage remains usable before this conversion.
+After entering FYERS data credentials, use the staff data login flow at
+`http://localhost:8000/api/v1/market/fyers/login/`. Register the exact callback
+`http://localhost:8000/api/v1/market/fyers/callback/` with that data app. The feed
+then subscribes only to current browser/execution demand.
 
-Backtests require history plus indicator warmup; Paper and charts need a healthy feed and valid data. Starting containers does not fabricate prices or histories.
+To add AI, configure the Gemini key/model and matching research token, then run:
 
-## 6. Add AI research
-
-1. Put the Gemini key and a supported model in research.env.
-2. Verify the shared service token matches backend.env.
-3. Start the provider:
-
-```powershell
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml --profile research up -d --build research
+```sh
+python3 infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data --profile research
+python3 infra/shared/scripts/diagnostics.py --root . --mode development --profile market-data --profile research
 ```
 
-The provider is private; Django/Celery compute handles user research runs. Gemini availability/quota/billing is separate from the local software. See [research configuration](../../research_service/README.md).
+Profiles accumulate only when explicitly passed. The deploy script stops services
+from previously enabled profiles that the new configuration no longer selects.
 
-For subsequent deployments preserve the selected profiles:
+## 5. Intentional Live development
 
-```powershell
-python infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data --profile research
+Set `EXECUTION_ENABLED_SCOPES=paper,live`, then:
+
+```sh
+python3 infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data --profile live
 ```
 
-## 7. Intentional real broker development
+This starts broker-events and permits real broker access. Enter the user's trading
+app credentials in Broker Integration, separately from the shared market-data app.
+Register `http://localhost:8000/api/v1/brokers/credentials/fyers/callback/` for that
+local trading app where the broker permits it. No test order is placed by deployment.
 
-This is optional and sends **real** broker orders. Use your permitted development/sandbox account if available.
+## 6. Understand the Development additions
 
-1. Set EXECUTION_ENABLED_SCOPES=paper,live in backend.env.
-2. Configure BROKER_FYERS_CLIENT_ID and BROKER_FYERS_SECRET. Register BACKEND_URL + /api/v1/brokers/credentials/fyers/callback/ as the separate broker callback.
-3. Recreate the API/runtime/background services with the reviewed deploy script and `--profile live`; add data/research profiles if used.
-4. Connect the broker through the workspace and verify observations/reconciliation before deploying a strategy.
-
-The live profile starts broker-events. Background consumes live reconciliation. Merely using this profile does not authorize a trade; customer-owned credentials/session deployment are still needed. Public mode never gains Live via this profile.
-
-## 8. Inspect, stop and restart
-
-```powershell
-python infra/shared/scripts/diagnostics.py --root . --mode development
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml ps --all
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml logs --tail 100 api execution orders outbox compute
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml down
-```
-
-Pass matching --profile flags to diagnostics when you depend on optional services. Wait for image builds/worker warmup before interpreting initial health. Down stops/removes containers and keeps named volumes. **Down -v deletes local data**; use it only for an intentional disposable reset.
-
-Backend/research source is baked into images, so changes require --build. Frontend source is mounted and Vite updates it. Plans, support labels and builder metadata are fetched from the backend, with no shared JSON files to regenerate. Env edits require container recreation, not just restart. Before an update stop or pause sessions in the workspace; afterward run diagnostics and inspect their saved states as explained in [the script guide](../shared/scripts/README.md).
-
-## 9. Native development and public-mode checks
-
-Native processes use backend/.env and research_service/.env, not Docker mode files. Follow [Python setup](../../README.md) and [runtime commands](../../docs/backend-runtime.md). Configure reachable PostgreSQL and the three Redis stores, share one local runtime directory and use Redis-backed Channels across processes. Do not run native and Compose application producers against the same execution state.
-
-For local Public policy checks with native API/Vite, set backend/.env:
-
-```dotenv
-DEBUG=True
-QUANTNEST_DEPLOYMENT_MODE=public
-FRONTEND_URL=http://localhost:5173
-BACKEND_URL=http://localhost:5173
-ALLOWED_HOSTS=localhost,127.0.0.1
-QUANTNEST_PROXY_TOKEN=YOUR_GENERATED_TOKEN_AT_LEAST_32_CHARACTERS
-```
-
-Vite reads the token server-side from backend/.env. Restart Vite/API/workers after changes. Open localhost:5173, including /admin/. Direct port 8000 is intentionally rejected in Public. Register source/Google callbacks for the gateway origin in this setup.
-
-Public checks still enforce catalog availability, limits and Private-only Live. This does not enable real payments or grant source permission. The supplied Development Compose file stays Development.
-
-## 10. Backups and common problems
-
-Use the [shared script runbook](../shared/scripts/README.md) for local encrypted backups, isolated restore and previous-release recovery; use --mode development.
-
-| Symptom | Check |
+| Compose addition | Why |
 | --- | --- |
-| Docker CLI works but startup cannot connect | Docker Desktop/server is running and Linux containers are selected |
-| Webpage shows Network Error | API state/logs and Vite proxy target; use the same localhost origin |
-| Invalid DEBUG value | Boolean True/False, not a release name |
-| Empty charts/no Paper fills | Feed profile, fresh source token, symbols, market hours and data freshness |
-| Backtest never starts | Compute worker and compute queue, history and warmup |
-| Research unavailable | Research profile, Gemini key/model/quota and identical service token |
-| Admin asks for OTP | Use the authenticator enrolled for that staff account |
-| Application services remain stopped after an update failure | Read the failed migration/startup output, correct its cause and rerun the deployment |
+| `profiles: [market-data]` / `[research]` / `[live]` | Allows coding and migration work before external providers are configured. |
+| API loopback 8000, Vite loopback 5173 | Local-only browser/API access. |
+| PostgreSQL loopback 54329 | Host DB tools without publishing a database to the LAN. |
+| `frontend-node-modules` | Linux dependency cache separate from host node_modules. |
+| `../../frontend:/workspace` | React edits are visible to Vite immediately. |
+| `npm ci && npm run dev -- --host 0.0.0.0` | Installs the lockfile and listens inside the container; only the loopback host port is exposed. |
+| Background queues `default,live,marketdata` | Handles optional Live reconciliation without an extra Celery service. |
 
-Complete core startup, a bounded backtest, a Paper session, a Terminal order, account/OTP and selected provider workflows on your own environment before using it as a production template.
+Backend source is baked into the image. After backend changes, rebuild and recreate
+the application with the deploy command; restarting an old image alone does not
+load edited source. Do not also run native feed/execution
+against the same database and buffer directory. For a native workflow, use the
+root [README](../../README.md) instead of starting this Compose execution service.
+
+For backup/restore, use the shared runbook with `--mode development`. Stop selected
+application profiles first and preserve volumes. Real provider access and email
+delivery are separate from a successful local health check.

@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Badge } from '@/shared/components/ui/badge';
 import {
-  Target, Shield, Clock, Layers, DollarSign, Lock, History, BarChart2, PowerOff,
+  Target, Shield, Clock, Layers, DollarSign, Lock, History, BarChart2,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -11,8 +11,7 @@ const NAV_ITEMS = [
   { path: 'exit', icon: Shield, label: 'Exit', color: 'rose' },
   { path: 'time', icon: Clock, label: 'Time', color: 'amber' },
   { path: 'assets', icon: Layers, label: 'Assets', color: 'blue' },
-  { path: 'risk', icon: DollarSign, label: 'Risk', color: 'teal' },
-  { path: 'auto-disable', icon: PowerOff, label: 'Auto-Disable', color: 'orange' },
+  { path: 'sizing', icon: DollarSign, label: 'Sizing', color: 'teal' },
   { path: 'permissions', icon: Lock, label: 'Sharing', color: 'violet' },
   { path: 'versions', icon: History, label: 'Versions', color: 'blue' },
 ];
@@ -25,7 +24,6 @@ const COLORS = {
   blue: ['bg-blue-600/20 text-blue-700 dark:text-blue-400 border-blue-500/40', 'hover:bg-blue-600/10 hover:text-blue-800 dark:hover:text-blue-400'],
   teal: ['bg-teal-600/20 text-teal-700 dark:text-teal-400 border-teal-500/40', 'hover:bg-teal-600/10 hover:text-teal-800 dark:hover:text-teal-400'],
   violet: ['bg-violet-600/20 text-violet-700 dark:text-violet-400 border-violet-500/40', 'hover:bg-violet-600/10 hover:text-violet-800 dark:hover:text-violet-400'],
-  orange: ['bg-orange-600/20 text-orange-700 dark:text-orange-400 border-orange-500/40', 'hover:bg-orange-600/10 hover:text-orange-800 dark:hover:text-orange-400'],
 };
 
 const STATUS_BADGES = {

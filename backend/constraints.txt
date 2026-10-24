@@ -20,9 +20,7 @@ pandas==3.0.2
 redis==7.4.0
 fyers-apiv3==3.1.18
 python-dateutil==2.9.0.post0
-pandas-ta==0.4.71b0
 TA-Lib==0.8.2
-numba==0.61.2
 pandas_market_calendars==5.4.0
 httpx==0.28.1
 cryptography==45.0.6

@@ -15,7 +15,12 @@
 **/celerybeat-schedule*
 **/media
 **/staticfiles
-infra/private/license/*.json
-infra/public/tls
 frontend/dist
 dist
+
+# Backups and private keys must never enter an image build context.
+infra/backups/
+**/*.age
+**/*.dump
+**/*.pem
+**/*.key

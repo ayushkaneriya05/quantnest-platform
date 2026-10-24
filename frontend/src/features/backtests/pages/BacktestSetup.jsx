@@ -1,3 +1,4 @@
+import { formatNumber } from "@/shared/utils/formatters";
 /**
  * BacktestSetup — Professional backtest configuration form.
  * Step-grouped wizard-style layout with strategy info preview.
@@ -116,13 +117,7 @@ export default function BacktestSetup() {
   const fetchChargeProfiles = useCallback(async () => {
     try {
       const res = await brokersApi.getChargeProfiles();
-      const payload = res?.data;
-      const profiles = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.results)
-          ? payload.results
-          : [];
-      setChargeProfiles(profiles);
+      setChargeProfiles(res.data);
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load charge profiles"));
     }
@@ -146,10 +141,7 @@ export default function BacktestSetup() {
   const fetchStrategies = useCallback(async () => {
     try {
       const response = await strategyApi.getAll();
-      const strategyList = Array.isArray(response)
-        ? response
-        : response.data || [];
-      setStrategies(strategyList);
+      setStrategies(response);
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load strategies"));
     }
@@ -239,7 +231,7 @@ export default function BacktestSetup() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {estimate && <Card><CardHeader><CardTitle>Review workload before confirming</CardTitle></CardHeader><CardContent className="space-y-2"><p>{estimate.instrument_candles.toLocaleString('en-IN')} instrument-candles including warmup · {estimate.credits === null ? 'Unlimited Private usage' : <>{estimate.credits} credit{estimate.credits === 1 ? '' : 's'}</>}</p><p className="text-sm text-muted-foreground">{estimate.definition} For public plans, successful runs use the reviewed credits; failed or cancelled runs restore them automatically.</p><Button variant="outline" type="button" onClick={()=>setEstimate(null)}>Recalculate preview</Button></CardContent></Card>}
+        {estimate && <Card><CardHeader><CardTitle>Review workload before confirming</CardTitle></CardHeader><CardContent className="space-y-2"><p>{formatNumber(estimate.instrument_candles, { minimumFractionDigits: 0 })} instrument-candles including warmup · {estimate.credits === null ? 'Unmetered usage' : <>{estimate.credits} credit{estimate.credits === 1 ? '' : 's'}</>}</p><p className="text-sm text-muted-foreground">{estimate.definition} For public plans, successful runs use the reviewed credits; failed or cancelled runs restore them automatically.</p><Button variant="outline" type="button" onClick={()=>setEstimate(null)}>Recalculate preview</Button></CardContent></Card>}
         {/* ── STEP 1: Strategy & Period ── */}
         <div className="grid md:grid-cols-2 gap-6">
           <Card className="bg-card/50 border-border backdrop-blur-sm">

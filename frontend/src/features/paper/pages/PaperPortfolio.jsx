@@ -1,14 +1,13 @@
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   TrendingUp,
   BarChart3,
   RefreshCw,
   BookOpen,
   Terminal,
-  Plus,
 } from "lucide-react";
-import { Button } from "@/shared/components/ui/button";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageActions } from "@/shared/context/pageActions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
@@ -16,72 +15,62 @@ import { paperApi } from "@/shared/services/paperApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
 
-import PaperTradingDashboard from "@/features/paper/pages/PaperTradingDashboard.jsx";
+import PaperPortfolioOverview from "@/features/paper/components/PaperPortfolioOverview.jsx";
 import PaperPositions from "@/features/paper/components/PaperPositions.jsx";
 import PaperOrderBook from "@/features/paper/components/PaperOrderBook.jsx";
 import PaperTradeHistory from "@/features/paper/components/PaperTradeHistory.jsx";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency } from "@/shared/utils/formatters";
-import { usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
+import { usePaperTradingUpdate, usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
 
 export default function PaperPortfolio() {
   const handleRefresh = useStableCallback(async () => {
-    await fetchData();
-    notify.success("Data refreshed");
+    if (await fetchData()) notify.success("Data refreshed");
   });
 
   usePaperTradingWebSocket();
+  const lastMessage = usePaperTradingUpdate();
   const { notify } = useNotifications();
   const { setPageHeader, clearPageHeader } = usePageActions();
   const [activeTab, setActiveTab] = useState("overview");
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState([]);
-  const [selectedAccount, setSelectedAccount] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedAccount = searchParams.get("account_id");
+  const selectedAccount = accounts.find((account) => String(account.id) === requestedAccount)?.id.toString()
+    || accounts[0]?.id.toString() || "";
 
-  const [searchParams] = useMemo(() => [new URLSearchParams(window.location.search)], []);
-
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true);
-      const [accountsRes, activeRes] = await Promise.all([
-        paperApi.getAccounts(),
-        paperApi.getActiveAccount(),
-      ]);
+      if (showLoading) setLoading(true);
+      const accountsRes = await paperApi.getAccounts();
 
       const loadedAccounts = accountsRes.data || [];
-      const accountIdFromUrl = searchParams.get("account_id");
-
-      let active;
-      if (accountIdFromUrl) {
-        active = loadedAccounts.find(a => String(a.id) === String(accountIdFromUrl));
-      }
-
-      if (!active) {
-        active = activeRes.data?.id
-          ? activeRes.data
-          : loadedAccounts[0];
-      }
-
       setAccounts(loadedAccounts);
-      if (active?.id) {
-        setSelectedAccount(String(active.id));
-      } else if (loadedAccounts.length > 0) {
-        setSelectedAccount(String(loadedAccounts[0].id));
-      }
+      return true;
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load paper trading data"));
+      return false;
     } finally {
       setLoading(false);
     }
-  }, [notify, searchParams]);
+  }, [notify]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const handleAccountChange = (accountId) => {
-    setSelectedAccount(String(accountId));
-  };
+  useEffect(() => {
+    if (!lastMessage) return undefined;
+    const timer = setTimeout(() => fetchData(false), 150);
+    return () => clearTimeout(timer);
+  }, [lastMessage, fetchData]);
+
+  const handleAccountChange = useStableCallback((accountId) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("account_id", accountId);
+    setSearchParams(next, { replace: true });
+  });
 
   const selectedAccountData = useMemo(
     () => accounts.find((a) => String(a.id) === selectedAccount),
@@ -90,7 +79,7 @@ export default function PaperPortfolio() {
 
   usePageTitle({
     title: "Paper Trading Portfolio",
-    subtitle: selectedAccountData ? `Managing ${selectedAccountData.name}` : "Monitor virtual accounts and strategies",
+    subtitle: selectedAccountData ? `Managing ${selectedAccountData.name}` : "Monitor session positions, orders and trades",
   });
 
   useEffect(() => {
@@ -149,7 +138,7 @@ export default function PaperPortfolio() {
              <div className="flex items-center gap-2 bg-card/50 border border-border rounded-xl p-1 px-3 h-10">
                 <div className="flex items-center gap-2 mr-2">
                   <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Account</span>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Session</span>
                 </div>
                 <Select resource="paper-accounts"
                   value={selectedAccount?.toString()}
@@ -157,7 +146,7 @@ export default function PaperPortfolio() {
                   disabled={loading}
                 >
                   <SelectTrigger className="w-[280px] bg-transparent border-none text-foreground text-sm focus:ring-0 outline-none shadow-none h-8 font-medium px-2 hover:bg-secondary/50">
-                    <SelectValue placeholder="Select Account" />
+                    <SelectValue placeholder="Select session" />
                   </SelectTrigger>
                   <SelectContent className="bg-card border-border text-foreground">
                     {accounts.map((account) => (
@@ -179,14 +168,7 @@ export default function PaperPortfolio() {
              </div>
           )}
 
-          {activeTab === "overview" && !loading && accounts.length === 0 && (
-             <div className="flex items-center gap-3">
-                <h3 className="hidden sm:block text-sm font-bold text-foreground whitespace-nowrap">Active Virtual Accounts</h3>
-                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 h-10 px-4 shadow-lg shadow-indigo-500/20 text-white" onClick={() => window.dispatchEvent(new CustomEvent('open-new-paper-account'))}>
-                    <Plus className="h-4 w-4 mr-2" /> New Account
-                </Button>
-             </div>
-          )}
+
         </div>
       </div>
     );
@@ -196,7 +178,7 @@ export default function PaperPortfolio() {
     return () => {
       clearPageHeader();
     };
-  }, [activeTab, selectedAccount, accounts, loading, setPageHeader, clearPageHeader, handleRefresh]);
+  }, [activeTab, selectedAccount, accounts, loading, setPageHeader, clearPageHeader, handleRefresh, handleAccountChange]);
 
 
 
@@ -213,7 +195,7 @@ export default function PaperPortfolio() {
 
       {/* Tab Content */}
       <div className="mt-6">
-        {activeTab === "overview" && <PaperTradingDashboard selectedAccountId={selectedAccount} setActiveTab={setActiveTab} paperUpdatesManaged />}
+        {activeTab === "overview" && <PaperPortfolioOverview account={selectedAccountData} />}
         {activeTab === "positions" && <PaperPositions selectedAccountId={selectedAccount} />}
         {activeTab === "orders" && <PaperOrderBook selectedAccountId={selectedAccount} />}
         {activeTab === "trades" && <PaperTradeHistory selectedAccountId={selectedAccount} />}

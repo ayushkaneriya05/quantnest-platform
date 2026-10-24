@@ -4,8 +4,7 @@ from django.db.models.signals import post_save, post_delete, m2m_changed
 from django.dispatch import receiver
 from .models import Strategy, EntryOrderConfig, ExitOrderConfig
 from .services import StrategySnapshotService
-from risk_management.models import PositionSizingRule, StrategyAutoDisable
-from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
+from rules_engine.models import PositionSizingRule, RuleGroup, Rule, TimeRule
 from instruments.models import WatchlistInstrument, ExecutionRoute
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ def create_strategy_configs(sender, instance, created, **kwargs):
         enabled = instance.auto_version_enabled
         instance.auto_version_enabled = False
         Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=False)
-        for model in (EntryOrderConfig, ExitOrderConfig, PositionSizingRule, TimeRule, SpecialEventFilter):
+        for model in (EntryOrderConfig, ExitOrderConfig, PositionSizingRule, TimeRule):
             model.objects.get_or_create(strategy=instance)
         instance.auto_version_enabled = enabled
         Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=enabled)
@@ -47,16 +46,13 @@ def create_strategy_configs(sender, instance, created, **kwargs):
 @receiver(post_save, sender=EntryOrderConfig)
 @receiver(post_save, sender=ExitOrderConfig)
 @receiver(post_save, sender=TimeRule)
-@receiver(post_save, sender=SpecialEventFilter)
 @receiver(post_save, sender=RuleGroup)
 @receiver(post_save, sender=Rule)
 @receiver(post_save, sender=PositionSizingRule)
-@receiver(post_save, sender=StrategyAutoDisable)
 @receiver(post_save, sender=WatchlistInstrument)
 @receiver(post_save, sender=ExecutionRoute)
 @receiver(post_delete, sender=RuleGroup)
 @receiver(post_delete, sender=Rule)
-@receiver(post_delete, sender=StrategyAutoDisable)
 @receiver(post_delete, sender=WatchlistInstrument)
 @receiver(post_delete, sender=ExecutionRoute)
 def auto_create_version(sender, instance, **kwargs):

@@ -1,498 +1,466 @@
+"""Shared live demand, confirmed subscriptions and local observation preparation."""
+import json
 import logging
-import time
 import threading
-from datetime import datetime, timezone
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from django.conf import settings
 from django.core.cache import cache
+
+from common.redis import runtime_redis
 from instruments.models import Instrument
-from .services import MarketDataService
+from .contracts import HistoryRequest, OHLCV, normalize_symbol
 from .streaming import MarketDataStreamer
-from .utils import get_active_fyers_access_token
-
-
-try:
-    from fyers_apiv3.FyersWebsocket import data_ws
-except Exception:
-    data_ws = None
 
 logger = logging.getLogger(__name__)
 
 
 class LiveMarketDataRegistry:
-    cache_key = "marketdata:tracked_symbols"
-    requirements_cache_key = "marketdata:required_lookbacks"
-    readiness_cache_key = f"marketdata:readiness:{settings.EXECUTION_NODE_INDEX}"
-    heartbeat_cache_key = "marketdata:feed_heartbeat"
-    client_cache_key = "marketdata:client_subscription_counts"
-    cache_ttl = 60 * 60 * 6
+    client_key = "marketdata:client_subscriptions"
+    state_ttl = 30
+
+    @staticmethod
+    def key(suffix):
+        return f"quantnest:marketdata:{settings.MARKET_DATA_PROVIDER}:{suffix}"
 
     @classmethod
-    def get_symbols(cls):
-        return sorted(set(cache.get(cls.cache_key, [])))
+    def request_refresh(cls):
+        runtime_redis().incr(cls.key("demand_revision"))
 
     @classmethod
-    def set_symbols(cls, symbols):
-        normalized = sorted({
-            MarketDataService.normalize_symbol(symbol) for symbol in (symbols or []) if symbol
-        })
-        cache.set(cls.cache_key, normalized, timeout=cls.cache_ttl)
-        return normalized
+    def refresh_client_subscriptions(cls, symbols, connection):
+        if symbols:
+            runtime_redis().zadd(cls.client_key, {
+                json.dumps([normalize_symbol(symbol), connection]): time.time() for symbol in symbols})
 
     @classmethod
-    def get_required_lookbacks(cls):
-        return dict(cache.get(cls.requirements_cache_key, {}) or {})
-
-
-    @classmethod
-    def set_readiness(cls, symbol, required, ready, details=None):
-        readiness = dict(cache.get(cls.readiness_cache_key, {}) or {})
-        readiness[f"{MarketDataService.normalize_symbol(symbol)}:{int(required)}"] = {
-            "ready": bool(ready),
-            "details": details or {},
-            "updated_at": time.time(),
-        }
-        cache.set(cls.readiness_cache_key, readiness, timeout=cls.cache_ttl)
+    def remove_client_subscription(cls, symbol, connection):
+        runtime_redis().zrem(cls.client_key, json.dumps([normalize_symbol(symbol), connection]))
 
     @classmethod
-    def clear_readiness(cls, symbol):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        readiness = dict(cache.get(cls.readiness_cache_key, {}) or {})
-        for key in list(readiness):
-            if key.rsplit(":", 1)[0] == normalized:
-                readiness.pop(key, None)
-        cache.set(cls.readiness_cache_key, readiness, timeout=cls.cache_ttl)
+    def get_state(cls):
+        value = runtime_redis().get(cls.key("state"))
+        state = json.loads(value) if value else {}
+        if not 0 <= time.time() - state.get("updated_at", 0) < cls.state_ttl:
+            return {}
+        state["subscribed"] = set(state["subscribed"])
+        return state
+
+    @staticmethod
+    def is_ready(symbol, required, state):
+        prepared = state.get("prepared", {}).get(symbol, {})
+        return (state.get("connected", False) and symbol in state.get("subscribed", ()) and prepared.get("ready", False)
+                and all(prepared.get("depths", {}).get(source, 0) >= depth for source, depth in required.items()))
 
     @classmethod
-    def is_ready(cls, symbol, required, require_fresh=True):
-        if require_fresh and not cls.is_tick_fresh(symbol):
-            return False
-        readiness = dict(cache.get(cls.readiness_cache_key, {}) or {})
-        normalized = MarketDataService.normalize_symbol(symbol)
-        for key, value in readiness.items():
-            key_symbol, _, key_depth = key.rpartition(":")
-            if key_symbol == normalized and int(key_depth or 0) >= int(required):
-                if value.get("ready"):
-                    return True
-        return False
+    def resolve_demand(cls, subscribed, invalid):
+        """Resolve one feed snapshot. {} means ticks only."""
+        from execution.demand import market_requirements
+        from .providers import provider
 
-    @classmethod
-    def record_tick(cls, symbol, timestamp=None):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        cache.set(f"marketdata:last_tick:{normalized}", float(timestamp or time.time()), timeout=cls.cache_ttl)
-
-    @classmethod
-    def is_tick_fresh(cls, symbol, max_age=15):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        tick_at = cache.get(f"marketdata:last_tick:{normalized}")
-        return tick_at is not None and 0 <= time.time() - float(tick_at) <= max_age
+        client = runtime_redis()
+        client.zremrangebyscore(cls.client_key, "-inf", time.time() - 75)
+        browser = {json.loads(value)[0] for value in client.zrange(cls.client_key, 0, -1)}
+        execution, exposure = market_requirements()
+        available = set(Instrument.objects.filter(sym_ticker__in=browser, is_active=True).values_list("sym_ticker", flat=True))
+        ordered = sorted((execution.keys() | available) - invalid, key=lambda symbol: (
+            0 if symbol in exposure else 1 if symbol in execution else 2,
+            symbol not in subscribed, symbol))
+        capacity = provider().subscription_limit
+        requirements = {symbol: execution.get(symbol, {}) for symbol in ordered[:capacity]}
+        rejected = {symbol: "Market-data subscription capacity is full." for symbol in ordered[capacity:]}
+        rejected.update({symbol: "This instrument is unavailable for market data."
+                         for symbol in browser - available - invalid})
+        return requirements, rejected, browser
 
 
-    @classmethod
-    def add_symbols(cls, symbols):
-        return cls.set_symbols([*cls.get_symbols(), *(symbols or [])])
-
-
-    @classmethod
-    def get_client_subscription_counts(cls):
-        return dict(cache.get(cls.client_cache_key, {}) or {})
-
-
-    @classmethod
-    def get_client_symbols(cls):
-        counts = cls.get_client_subscription_counts()
-        return sorted(symbol for symbol, count in counts.items() if int(count or 0) > 0)
-
-
-    @classmethod
-    def add_client_subscription(cls, symbol):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        counts = cls.get_client_subscription_counts()
-        counts[normalized] = int(counts.get(normalized, 0) or 0) + 1
-        cache.set(cls.client_cache_key, counts, timeout=cls.cache_ttl)
-        return cls.set_symbols([*cls.get_symbols(), normalized])
-
-    @classmethod
-    def remove_client_subscription(cls, symbol):
-        normalized = MarketDataService.normalize_symbol(symbol)
-        counts = cls.get_client_subscription_counts()
-        next_count = int(counts.get(normalized, 0) or 0) - 1
-        if next_count > 0:
-            counts[normalized] = next_count
-        else:
-            counts.pop(normalized, None)
-        cache.set(cls.client_cache_key, counts, timeout=cls.cache_ttl)
-
-        return cls.get_symbols()
-
-    @classmethod
-    def refresh_from_active_accounts(cls):
-        """Resolve the active universe in one instrument query per refresh."""
-        from django.db.models import Q
-        from paper_trading.models import PaperTradingSession
-        from live_trading.models import TradingSession
-        from trading.models import Order, Position
-
-        tracked = set(cls.get_client_symbols())
-        tracked.update(symbol for symbol in Position.objects.values_list("instrument__sym_ticker", flat=True) if symbol)
-        tracked.update(symbol for symbol in Order.objects.filter(status="OPEN").values_list(
-            "instrument__sym_ticker", flat=True) if symbol)
-
-        requests, ids, lookbacks = [], set(), {}
-        for model in (PaperTradingSession, TradingSession):
-            sessions = model.objects.filter(status__in=["RUNNING", "PAUSED", "STOPPING", "ERROR"]).select_related(
-                "allocation__deployed_version")
-            for session in sessions:
-                version = session.allocation.deployed_version if session.allocation_id else None
-                config = version.config_snapshot if version else {}
-                instruments = {
-                    int(item["instrument_id"]) for item in config.get("watchlist_instruments", [])
-                    if item.get("instrument_id") is not None
-                }
-                if not instruments:
-                    continue
-                if version.pk not in lookbacks:
-                    lookbacks[version.pk] = MarketDataService.required_1m_candles(config)
-                requests.append((instruments, lookbacks[version.pk]))
-                ids.update(instruments)
-
-        active = dict(Instrument.objects.filter(
-            Q(pk__in=ids) | Q(sym_ticker__in=tracked), is_active=True, is_tradeable=True,
-        ).values_list("pk", "sym_ticker"))
-        required = {}
-        for instruments, depth in requests:
-            for instrument_id in instruments:
-                symbol = active.get(instrument_id)
-                if symbol:
-                    symbol = MarketDataService.normalize_symbol(symbol)
-                    required[symbol] = max(required.get(symbol, 0), depth)
-        cache.set(cls.requirements_cache_key, required, timeout=cls.cache_ttl)
-        return cls.set_symbols(active.values())
 
 class MarketObservationClient:
-    """Provider-neutral history, observation rings, and UI publication."""
+    """Provider callbacks write ticks; background loops manage all control I/O."""
+    subscription_batch_size = 500
+
     def __init__(self):
         self.socket = None
-        self._subscribed_symbols = set()
-        self._invalid_symbols = set()
-        self._publication_lock = threading.Lock()
-        self._publications = {}
-        self._prepared_depth = {}
+        self._connected = threading.Event()
+        self._connected_at = 0.0
+        self._generation = uuid.uuid4().hex
+        self._subscribed_symbols, self._invalid_symbols = set(), set()
+        self._pending = None
+        self._retry_at, self._next_demand, self._demand_revision = 0, 0, None
+        self._subscription_error = ""
+        self._disconnect_notice = threading.Event()
+        self._targets, self._rejected, self._prepared, self._markers = {}, {}, {}, {}
+        self._browser_symbols = set()
+        self._retry_history, self._calendars = {}, {}
+        self._state_lock = threading.RLock()
+        self._publication_lock, self._publications = threading.Lock(), {}
+        self.shm_managers, self.daily_managers, self._shm_locks = {}, {}, {}
+        self._sync_thread = self._history_thread = None
+        self._sync_stop, self._sync_wakeup, self._history_wakeup = threading.Event(), threading.Event(), threading.Event()
+        from .charts import LiveChartPublisher
+        self._chart_publisher = LiveChartPublisher()
         self._publisher = threading.Thread(target=self._publish_quotes, name="quote-publisher", daemon=True)
-        self.shm_managers = {}
-        self._shm_locks = {}
-        self._shm_registry_lock = threading.RLock()
-        self._sync_thread = None
-        self._sync_stop = threading.Event()
-        self._sync_wakeup = threading.Event()
-        self._volume_lock = threading.Lock()
-        self._last_cumulative_volume = {}
-        self._last_health_publish = {}
-        self.relay = None
-        self.broadcast_quotes = True
         self._publisher.start()
 
-    def start_subscription_sync(self, interval=15):
-        """Run subscription/history reconciliation off the websocket callback thread."""
+    def connect(self):
+        raise NotImplementedError
+
+    def subscribe_symbols(self, symbols: list[str]) -> None:
+        raise NotImplementedError
+
+    def unsubscribe_symbols(self, symbols: list[str]) -> None:
+        raise NotImplementedError
+
+    def disconnect(self) -> None:
+        raise NotImplementedError
+
+    def mark_connected(self):
+        # The SDK can reconnect internally without invoking its close callback.
+        if self._connected.is_set():
+            self.mark_disconnected()
+        with self._state_lock:
+            self._generation = uuid.uuid4().hex
+            self._subscribed_symbols.clear()
+            self._invalid_symbols.clear()
+            self._retry_at = 0
+            self._pending = None
+            self._prepared.clear()
+            self._markers.clear()
+            self._next_demand = 0
+            self._connected_at = time.time()
+            self._connected.set()
+        self._sync_wakeup.set()
+
+    def mark_disconnected(self):
+        with self._state_lock:
+            if not self._connected.is_set():
+                return  # SDK error and close callbacks can describe the same outage.
+            self._disconnect_notice.set()
+            self._connected.clear()
+            self._pending = None
+            self._prepared.clear()
+            self._markers.clear()
+            self._subscribed_symbols.clear()
+        for symbol, market in tuple(self.shm_managers.items()):
+            with self._symbol_lock(symbol):
+                if self.shm_managers.get(symbol) is market:
+                    market.mark_gap()
+
+    def subscription_result(self, operation, successful, error=""):
+        """One outstanding batch makes SDK acknowledgements unambiguous."""
+        with self._state_lock:
+            if self._pending is None or self._pending[0] != operation:
+                return
+            _, symbols, _ = self._pending
+            if successful:
+                if operation == "subscribe":
+                    self._subscribed_symbols.update(set(symbols) - self._invalid_symbols)
+                else:
+                    self._subscribed_symbols.difference_update(symbols)
+                self._subscription_error = ""
+            else:
+                self._retry_at = time.monotonic() + 5
+                self._subscription_error = error or "Provider subscription request failed."
+                logger.warning("%s", self._subscription_error)
+            self._pending = None
+        self._sync_wakeup.set()
+        self._history_wakeup.set()
+
+    def _notify_disconnect(self):
+        if not self._disconnect_notice.is_set():
+            return
+        self._disconnect_notice.clear()
+        if not cache.add("market_feed_disconnect_notification", True, 600):
+            return
+        from live_trading.models import TradingSession
+        from notifications.services import NotificationService
+        from common.enums import NotificationType
+        for user_id in TradingSession.objects.filter(status="RUNNING").values_list("user_id", flat=True).distinct():
+            NotificationService.notify(user_id=user_id, title="Live market data feed disconnected",
+                message="Live strategies need the feed to reconnect and publish observations before new entries can resume.",
+                type=NotificationType.CRITICAL, data={"module": "marketdata"})
+
+    def _publish_state(self):
+        with self._state_lock:
+            state = {
+                "generation": self._generation,
+                "connected": self._connected.is_set(), "updated_at": time.time(),
+                "requirements": self._targets, "rejected": {**self._rejected, **{
+                    symbol: "The provider rejected this instrument symbol." for symbol in self._invalid_symbols}},
+                "subscribed": sorted(self._subscribed_symbols), "prepared": self._prepared,
+                "subscription_error": self._subscription_error,
+            }
+            value = json.dumps(state)
+        runtime_redis().set(LiveMarketDataRegistry.key("state"),
+                            value, ex=LiveMarketDataRegistry.state_ttl)
+
+    def start_subscription_sync(self):
         if self._sync_thread and self._sync_thread.is_alive():
             return
-
-        def loop():
+        def subscriptions():
+            from django.db import close_old_connections
             while not self._sync_stop.is_set():
                 try:
+                    close_old_connections()
                     self.sync_subscriptions()
+                    self._publish_state()
+                    self._notify_disconnect()
                 except Exception:
-                    logger.exception("Subscription reconciliation failed")
-                self._sync_wakeup.wait(interval)
+                    logger.exception("Market subscription reconciliation failed")
+                finally:
+                    close_old_connections()
+                self._sync_wakeup.wait(1)
                 self._sync_wakeup.clear()
-
-        self._sync_thread = threading.Thread(
-            target=loop,
-            name="market-subscription-sync",
-            daemon=True,
-        )
+        def history():
+            from django.db import close_old_connections
+            while not self._sync_stop.is_set():
+                try:
+                    close_old_connections()
+                    self.prepare_history()
+                except Exception:
+                    logger.exception("Market history preparation failed")
+                finally:
+                    close_old_connections()
+                self._history_wakeup.wait(5)
+                self._history_wakeup.clear()
+        self._sync_thread = threading.Thread(target=subscriptions, name="market-subscriptions", daemon=True)
+        self._history_thread = threading.Thread(target=history, name="market-history", daemon=True)
         self._sync_thread.start()
+        self._history_thread.start()
 
-    def _get_shm_entry(self, symbol):
-        with self._shm_registry_lock:
-            return self.shm_managers.get(symbol), self._shm_locks.setdefault(symbol, threading.RLock())
+    def _symbol_lock(self, symbol):
+        with self._state_lock:
+            return self._shm_locks.setdefault(symbol, threading.RLock())
 
-    def sync_subscriptions(self, force=False):
-        if self.socket is None:
-            return []
+    def sync_subscriptions(self):
+        from .shared_memory import SharedMemoryManager
+        if not self._connected.is_set():
+            return
+        revision = runtime_redis().get(LiveMarketDataRegistry.key("demand_revision"))
+        if time.monotonic() >= self._next_demand or revision != self._demand_revision:
+            self._targets, self._rejected, self._browser_symbols = LiveMarketDataRegistry.resolve_demand(
+                self._subscribed_symbols, self._invalid_symbols)
+            self._demand_revision, self._next_demand = revision, time.monotonic() + 15
+        targets = {symbol: depths for symbol, depths in self._targets.items() if symbol not in self._invalid_symbols}
+        for symbol, depths in targets.items():
+            with self._symbol_lock(symbol):
+                if not depths:
+                    old_daily = self.daily_managers.pop(symbol, None)
+                    if old_daily:
+                        old_daily.close()
+                    with self._state_lock:
+                        for values in (self._prepared, self._markers, self._retry_history, self._calendars):
+                            values.pop(symbol, None)
+                if symbol not in self.shm_managers:
+                    market = SharedMemoryManager(
+                        symbol, "1m", max_size=max(10000, depths.get("1m", 0) + 500), create=True)
+                    if market.tick_counter:
+                        market.mark_gap()  # Reusing an old writer's buffer requires a new quote.
+                    self.shm_managers[symbol] = market
+        with self._state_lock:
+            self._targets = targets
+        for symbol in set(self.shm_managers) - targets.keys():
+            with self._symbol_lock(symbol):
+                self.shm_managers.pop(symbol).close()
+                daily = self.daily_managers.pop(symbol, None)
+                if daily:
+                    daily.close()
+                with self._state_lock:
+                    for values in (self._prepared, self._markers, self._retry_history, self._calendars):
+                        values.pop(symbol, None)
+        with self._state_lock:
+            pending = self._pending
+        if pending and time.monotonic() >= pending[2]:
+            # Reconnect before another batch: late SDK acknowledgements have no IDs.
+            self._subscription_error = "Subscription acknowledgement timed out; reconnecting."
+            self.mark_disconnected()
+            self.disconnect()
+            self.connect()
+            return
+        with self._state_lock:
+            if self._pending or time.monotonic() < self._retry_at:
+                return
+            removals = sorted(self._subscribed_symbols - targets.keys())
+            additions = [symbol for symbol in targets if symbol not in self._subscribed_symbols]
+            operation, symbols = ("unsubscribe", removals) if removals else ("subscribe", additions)
+            symbols = symbols[:self.subscription_batch_size]
+            if not symbols:
+                return
+            self._pending = operation, symbols, time.monotonic() + 20
+        try:
+            if operation == "subscribe":
+                self.subscribe_symbols(symbols)
+            else:
+                self.unsubscribe_symbols(symbols)
+        except Exception as exc:
+            self.subscription_result(operation, False, str(exc))
+        self._history_wakeup.set()
 
-        cache.set(LiveMarketDataRegistry.heartbeat_cache_key, time.time(), timeout=60)
-        target_symbols = set(LiveMarketDataRegistry.refresh_from_active_accounts())
-        target_symbols -= self._invalid_symbols
-        additions = target_symbols if force else target_symbols - self._subscribed_symbols
-        removals = set() if force else self._subscribed_symbols - target_symbols
-
-        for sym in sorted(additions):
-            self.socket.subscribe(symbols=[sym], data_type="SymbolUpdate")
-
-        required_lookbacks = LiveMarketDataRegistry.get_required_lookbacks()
-        from marketdata.shared_memory import SharedMemoryManager
-        buffer_symbols = target_symbols
-        for symbol in set(self.shm_managers) - buffer_symbols:
-            shm, symbol_lock = self._get_shm_entry(symbol)
-            with symbol_lock:
-                if shm is not None:
-                    shm.close()
-                with self._shm_registry_lock:
-                    self.shm_managers.pop(symbol, None)
-                    self._shm_locks.pop(symbol, None)
-                    self._prepared_depth.pop(symbol, None)
-
-        for sym in sorted(buffer_symbols):
-            required = int(required_lookbacks.get(sym, 2) or 2)
-            if self._prepared_depth.get(sym, 0) >= required and sym in self.shm_managers:
+    def prepare_history(self):
+        import numpy as np
+        from .calendar import MarketSessionCalendar
+        from .candles import read_source
+        from .history import ensure_history, revision_key
+        from .shared_memory import SharedMemoryManager
+        if not self._connected.is_set():
+            return
+        with self._state_lock:
+            targets = {symbol: dict(depths) for symbol, depths in self._targets.items()
+                       if depths and symbol in self._subscribed_symbols}
+            generation = self._generation
+            connected_at = self._connected_at
+        revisions = dict(zip(targets, runtime_redis().mget([revision_key(symbol) for symbol in targets]))) if targets else {}
+        for symbol, required in targets.items():
+            if self._sync_stop.is_set():
+                return
+            if time.monotonic() < self._retry_history.get(symbol, 0):
                 continue
+            acquire, retry_delay = True, 30
             try:
-                LiveMarketDataRegistry.clear_readiness(sym)
-                historical = MarketDataService.ensure_historical_candles(sym, timeframe="1m", required_count=required)
-
-                if not historical["ready"]:
-                    LiveMarketDataRegistry.set_readiness(sym, required, False, historical)
-                    raise RuntimeError(f"Historical data is not ready for {sym}: {historical}")
-
-                shm, symbol_lock = self._get_shm_entry(sym)
-                with symbol_lock:
-                    shm = self.shm_managers.get(sym)
-                if shm is None:
-                    shm_size = max(10000, required + 500)
-                    shm = SharedMemoryManager(sym, "1m", max_size=shm_size, create=True)
-
-                    with self._shm_registry_lock:
-                        self.shm_managers[sym] = shm
-                    with symbol_lock:
-                        shm.preload_historical_data(required, False)
-                elif shm.max_size < required:
-                    raise RuntimeError(
-                        f"Existing SHM capacity {shm.max_size} is below required depth {required}; controlled worker/feed restart is required to resize it"
-                    )
+                now = datetime.now(timezone.utc)
+                cached = self._calendars.get(symbol)
+                if cached is None or time.monotonic() - cached[0] >= 60:
+                    instrument = Instrument.objects.get(sym_ticker=symbol)
+                    calendar = MarketSessionCalendar.for_instrument(instrument)
+                    start = min(calendar.warmup_start(now, depth, source=source) for source, depth in required.items())
+                    calendar.load_holidays(start.date() - timedelta(days=7), now.astimezone(calendar.zone).date() + timedelta(days=31))
+                    self._calendars[symbol] = time.monotonic(), instrument, calendar
                 else:
-                    with symbol_lock:
-                        data = shm.get_latest_data()
-                        valid_count = int(
-                            ((data[:, 0] > 0)
-                             & (data[:, 1] > 0)
-                             & (data[:, 2] > 0)
-                             & (data[:, 3] > 0)).sum()
-                        )
-                        if valid_count < required or historical.get("fetched", 0) > 0:
-                            shm.preload_historical_data(required, False)
-                self._prepared_depth[sym] = required
-                LiveMarketDataRegistry.set_readiness(sym, required, True, historical)
-                cache.set(LiveMarketDataRegistry.heartbeat_cache_key, time.time(), timeout=60)
-                logger.info("SHM ready check for %s: required=%s capacity=%s", sym, required, shm.max_size)
+                    _, instrument, calendar = cached
+                market = self.shm_managers.get(symbol)
+                if market is None:
+                    continue
+                gap = market.source_gap
+                if gap and "1m" in required:
+                    reconnected = datetime.fromtimestamp(connected_at, timezone.utc)
+                    recovery_end = reconnected.replace(second=0, microsecond=0) + timedelta(minutes=1)
+                    if calendar.is_open(reconnected) and now < recovery_end:
+                        continue  # Fetch the interrupted minute only after it has completed.
+                daily = calendar.completed_horizon("1D", now) if "1D" in required else 0
+                marker = (int(revisions[symbol] or 0), calendar.signature, daily, gap, tuple(sorted(required.items())))
+                previous = self._markers.get(symbol)
+                if marker == previous:
+                    continue
+                acquire = previous is None or marker[1:] != previous[1:]
+                prepared, through = {}, {}
+                for source, depth in required.items():
+                    start = calendar.warmup_start(now, depth, source=source)
+                    request = HistoryRequest(instrument, source, start, now, calendar)
+                    if acquire:
+                        result = ensure_history(request, max_requests=1)
+                        if not result.complete:
+                            retry_delay = 30 if result.error else 5
+                            raise ValueError(result.error or "Required history is still being prepared.")
+
+                    batch = read_source(request)
+                    if batch.frame.empty:
+                        raise ValueError(f"No completed {source} observations are available.")
+                    if len(batch.frame) < depth:
+                        raise ValueError(f"Insufficient completed {source} history: {len(batch.frame)} available; {depth} required.")
+                    if acquire and not batch.quality["complete"]:
+                        raise ValueError("Required history acquisition is incomplete.")
+                    frame = batch.frame.tail(depth)
+                    through[source] = frame.index[-1].timestamp()
+                    prepared[source] = np.column_stack((
+                        frame.loc[:, list(OHLCV)].to_numpy(dtype=float), frame.index.as_unit("s").asi8))
+                with self._symbol_lock(symbol):
+                    with self._state_lock:
+                        if self._sync_stop.is_set() or self._generation != generation or self._targets.get(symbol) != required:
+                            continue
+                    for source, rows in prepared.items():
+                        managers = self.shm_managers if source == "1m" else self.daily_managers
+                        buffer = managers.get(symbol)
+                        if buffer is None:
+                            buffer = SharedMemoryManager(symbol, source, max_size=max(500, required[source] + 500), create=True)
+                            managers[symbol] = buffer
+                        if buffer.max_size < required[source]:
+                            raise ValueError(f"Increase {symbol} {source} buffer capacity to {required[source]}.")
+                        buffer.replace_history(rows)
+                    if "1D" not in required:
+                        old_daily = self.daily_managers.pop(symbol, None)
+                        if old_daily:
+                            old_daily.close()
+                    with self._state_lock:
+                        if self._generation != generation or not self._connected.is_set() or self._targets.get(symbol) != required:
+                            continue
+                        self._prepared[symbol] = {"ready": True, "depths": required, "prepared_through": through,
+                                                  "source_gap": gap,
+                                                  "updated_at": time.time(), "error": ""}
+                        # Record the revision read before the data, so a concurrent
+                        # correction is picked up by the next preparation pass.
+                        self._markers[symbol] = marker
+                        self._retry_history.pop(symbol, None)
             except Exception as exc:
-                LiveMarketDataRegistry.set_readiness(sym, required, False, {"error": str(exc)})
-                cache.set(LiveMarketDataRegistry.heartbeat_cache_key, time.time(), timeout=60)
-                logger.error("Failed to prepare SHM for %s: %s", sym, exc)
-
-        if additions:
-            logger.info("Subscribed live feed to %s symbol(s) individually", len(additions))
-
-        if removals and hasattr(self.socket, "unsubscribe"):
-            for sym in sorted(removals):
-                self.socket.unsubscribe(symbols=[sym], data_type="SymbolUpdate")
-            logger.info("Unsubscribed live feed from %s symbol(s) individually", len(removals))
-
-        # Preparation belongs to the running feed, not a six-hour cache window.
-        # Recreate a lost projection from buffers already prepared on this node.
-        if self._prepared_depth and not cache.touch(
-                LiveMarketDataRegistry.readiness_cache_key, timeout=LiveMarketDataRegistry.cache_ttl):
-            for symbol, depth in self._prepared_depth.items():
-                if symbol in self.shm_managers:
-                    LiveMarketDataRegistry.set_readiness(symbol, depth, True, {"prepared_depth": depth})
-        self._subscribed_symbols = target_symbols
-        return sorted(target_symbols)
+                with self._state_lock:
+                    if self._generation != generation or symbol not in self._targets:
+                        continue
+                    previous = self._prepared.get(symbol, {})
+                    # Existing buffers remain useful after a correction-read
+                    # failure. New requirements/gaps must be prepared again.
+                    ready = not acquire
+                    self._prepared[symbol] = {**previous, "ready": ready and previous.get("ready", False),
+                                              "error": str(exc), "updated_at": time.time()}
+                    self._retry_history[symbol] = time.monotonic() + retry_delay
+                logger.warning("History preparation pending symbol=%s: %s", symbol, exc)
 
     def shutdown(self):
         self._sync_stop.set()
         self._sync_wakeup.set()
-        if self._sync_thread and self._sync_thread.is_alive():
-            self._sync_thread.join(timeout=5)
-        logger.info("Shutting down market observation client")
+        self._history_wakeup.set()
+        self.mark_disconnected()
+        self._publish_state()
         try:
-            if self.socket is not None:
-                self.socket.close_connection()
+            self.disconnect()
         except Exception:
-            logger.exception("Failed to close market socket during shutdown")
-        try:
-            self._publisher.join(timeout=5)
-            for shm in self.shm_managers.values():
-                shm.close()
-        except Exception:
-            logger.exception("Failed to close market observation buffers")
+            logger.exception("Could not close the market-data socket")
+        for thread in (self._sync_thread, self._history_thread, self._publisher):
+            if thread and thread.is_alive():
+                thread.join(timeout=5)
+        for symbol in tuple(self.shm_managers):
+            with self._symbol_lock(symbol):
+                self.shm_managers.pop(symbol).close()
+                daily = self.daily_managers.pop(symbol, None)
+                if daily:
+                    daily.close()
 
-    def ingest_observation(self, symbol, quote, volume_delta, event_time, received_time,
-                           source_sequence=None, source_generation=None):
-        shm, symbol_lock = self._get_shm_entry(symbol)
-        if shm is not None:
-            with symbol_lock:
-                sequence = shm.update_current_candle(
-                    price=float(quote["price"]), volume=volume_delta, timestamp=event_time,
-                    received_time=received_time, source_sequence=source_sequence,
-                    source_generation=source_generation)
-                if not sequence:
-                    return
-                if self.relay is not None:
-                    self.relay.emit(symbol, quote, volume_delta, event_time, received_time, sequence)
-        from quantnest_runtime.signals import notify_market_change
-        notify_market_change()
-        if self.broadcast_quotes:
-            with self._publication_lock:
-                self._publications[symbol] = {**quote, "received_at": received_time}
+    def ingest_observation(self, symbol, quote, volume_delta, event_time, received_time):
+        if self._sync_stop.is_set():
+            return
+        with self._symbol_lock(symbol):
+            if not self._connected.is_set():
+                return  # Ignore queued messages from the disconnected transport.
+            market = self.shm_managers.get(symbol)
+            if market is None:
+                return
+            sequence = market.update_current_candle(
+                price=float(quote["price"]), volume=volume_delta, timestamp=event_time,
+                received_time=received_time)
+            if not sequence:
+                return
+        with self._publication_lock:
+            self._publications[symbol] = quote
+
+    def read_observations(self, symbol, lookback):
+        import numpy as np
+        with self._symbol_lock(symbol):
+            market = self.shm_managers.get(symbol)
+            return market.get_latest_data(lookback or None) if market else np.empty((0, 6))
 
     def _publish_quotes(self):
-        # UI quotes can coalesce; observed execution ticks remain in the local ring.
-        while not getattr(self, "_sync_stop", threading.Event()).is_set():
+        from .quotes import publish_quote
+        while not self._sync_stop.is_set():
             with self._publication_lock:
                 quotes, self._publications = self._publications, {}
             for symbol, quote in quotes.items():
                 try:
-                    MarketDataStreamer.publish_tick(symbol, quote)
-                    if time.time() - self._last_health_publish.get(symbol, 0) >= 2:
-                        LiveMarketDataRegistry.record_tick(symbol, quote.get("received_at"))
-                        self._last_health_publish[symbol] = time.time()
+                    payload = publish_quote(symbol, quote)
+                    # Valuations retain the latest quote even with no browser open.
+                    # Execution-only symbols need no Channels fanout or chart work.
+                    if symbol in self._browser_symbols:
+                        MarketDataStreamer.publish(MarketDataStreamer.symbol_group(symbol), {"type": "tick", "data": payload})
+                        self._chart_publisher.publish(symbol, self.read_observations)
                 except Exception:
                     logger.exception("Quote publication failed symbol=%s", symbol)
-            time.sleep(0.05)
-
-
-class FyersLiveFeedClient(MarketObservationClient):
-    """Fyers transport and normalization; shared consumers receive canonical observations."""
-
-    def connect(self):
-        if data_ws is None:
-            raise RuntimeError("fyers_apiv3 websocket client is not available")
-
-        client_id = getattr(settings, "FYERS_CLIENT_ID", "")
-        access_token = get_active_fyers_access_token()
-        if not client_id or not access_token:
-            raise RuntimeError("Valid Fyers websocket credentials are not available")
-
-        self.socket = data_ws.FyersDataSocket(
-            access_token=f"{client_id}:{access_token}",
-            log_path=str(settings.BASE_DIR / "logs"),
-            litemode=False,
-            write_to_file=False,
-            reconnect=True,
-            on_connect=self._on_connect,
-            on_close=self._on_close,
-            on_error=self._on_error,
-            on_message=self._on_message,
-        )
-        self.socket.connect()
-        return self.socket
-
-    def _on_connect(self):
-        logger.info("Connected to Fyers live market websocket")
-        self._subscribed_symbols.clear()
-        self._prepared_depth.clear()
-        self.start_subscription_sync()
-        self._sync_wakeup.set()
-
-    def _on_close(cls, ws=None, code=None, reason=None):
-        logger.info("Market WebSocket connection closed. Code=%s", code)
-        for market in tuple(cls.shm_managers.values()):
-            market.mark_gap()
-        if cls.relay:
-            cls.relay.rotate()
-        if cls.socket and getattr(cls.socket, "reconnect", False):
-            pass
-        # Notify users with active live sessions about feed disconnection
-        from django.core.cache import cache
-        throttle_key = "market_feed_disconnect_notification"
-        if not cache.get(throttle_key):
-            try:
-                from live_trading.models import TradingSession
-                from notifications.services import NotificationService
-                from common.enums import NotificationType
-                notified_users = set()
-                for session in TradingSession.objects.filter(status="RUNNING").select_related("user"):
-                    if session.user_id not in notified_users:
-                        NotificationService.notify(
-                            user=session.user,
-                            title="Live market data feed disconnected",
-                            message="Live strategies are not receiving fresh quotes. The feed will need to reconnect before entries can resume.",
-                            type=NotificationType.CRITICAL,
-                            data={"module": "marketdata", "close_code": str(code)}
-                        )
-                        notified_users.add(session.user_id)
-            except Exception:
-                import logging
-                logging.getLogger(__name__).exception("Failed dispatching market feed disconnect notification")
-            cache.set(throttle_key, True, 600)  # 10 min throttle
-
-    def _on_error(self, message):
-        logger.error("Fyers live websocket error: %s", message)
-        if isinstance(message, dict):
-            if message.get("code") == -99:
-                logger.info("Refreshing Fyers websocket token after expiry")
-                try:
-                    self.connect()
-                except Exception as exc:  # pragma: no cover - reconnect safety
-                    logger.exception("Failed reconnecting Fyers websocket: %s", exc)
-            elif message.get("code") == -300 and "invalid_symbols" in message:
-                invalid_symbols = message.get("invalid_symbols", [])
-                logger.warning("Fyers marked symbols as invalid: %s", invalid_symbols)
-                self._invalid_symbols.update(invalid_symbols)
-                self._subscribed_symbols -= set(invalid_symbols)
-
-    def _on_message(self, message):
-        # Fyers V3 can send a single dict or a list of dicts
-        ticks = message if isinstance(message, list) else [message]
-
-        for tick in ticks:
-            if not isinstance(tick, dict):
-                continue
-
-            symbol = tick.get("symbol")
-            if not symbol or isinstance(symbol, list):
-                continue
-
-            ltp = tick.get("ltp")
-            if ltp in (None, "", 0, "0"):
-                continue
-
-            traded_at = tick.get("last_traded_time")
-            traded_at_dt = (
-                datetime.fromtimestamp(traded_at, tz=timezone.utc) if traded_at else datetime.now(timezone.utc)
-            )
-
-            quote = {
-                "price": ltp,
-
-                # Backward compatibility for existing backend engines and frontend components
-                "open": tick.get("open_price"),
-                "high": tick.get("high_price"),
-                "low": tick.get("low_price"),
-                "close": tick.get("prev_close_price"),
-
-                # New, accurate Fyers Daily keys
-                "day_open": tick.get("open_price"),
-                "day_high": tick.get("high_price"),
-                "day_low": tick.get("low_price"),
-                "prev_close": tick.get("prev_close_price"),
-                "change": tick.get("ch"),
-                "change_percent": tick.get("chp"),
-                "volume": tick.get("vol_traded_today"),
-                "last_traded_qty": tick.get("last_traded_qty"),
-                "avg_trade_price": tick.get("avg_trade_price"),
-                "timestamp": traded_at_dt.isoformat(),
-            }
-
-            cumulative_volume = float(tick.get("vol_traded_today") or 0)
-            with self._volume_lock:
-                previous_volume = self._last_cumulative_volume.get(symbol)
-                if previous_volume is None or cumulative_volume < previous_volume:
-                    # The daily cumulative total cannot be assigned to the
-                    # current minute when ingestion starts mid-session.
-                    volume_delta = 0.0
-                else:
-                    volume_delta = cumulative_volume - previous_volume
-                self._last_cumulative_volume[symbol] = cumulative_volume
-
-            self.ingest_observation(symbol, quote, volume_delta, traded_at_dt.timestamp(), time.time())
+            self._sync_stop.wait(0.05)

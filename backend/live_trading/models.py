@@ -1,22 +1,37 @@
+import uuid
+from decimal import Decimal
+
+from common.enums import (
+    ExecutionSessionStatus,
+    OrderIntent,
+    OrderStatus,
+    OrderType,
+    ProductType,
+    Side,
+)
+from common.models import BaseTimestampModel
 from django.conf import settings
 from django.db import models
-from django.db.models.functions import Greatest
-from decimal import Decimal
-import uuid
-from common.enums import CapitalAllocationType
-from common.enums import OrderStatus, OrderType, ProductType, Side
-from common.models import BaseTimestampModel
+from django.db.models import (
+    Count,
+    DecimalField,
+    ExpressionWrapper,
+    F,
+    IntegerField,
+    OuterRef,
+    Subquery,
+    Sum,
+    Value,
+)
+from django.db.models.functions import Coalesce, Greatest
+from django.utils import timezone
+from execution.order_reports import ACTIVE
 
 
 class TradingSession(BaseTimestampModel):
-    SESSION_STATUSES = [
-        ("RUNNING", "Running"),
-        ("PAUSED", "Paused"),
-        ("STOPPED", "Stopped"),
-        ("STOPPING", "Stopping"),
-        ("ERROR", "Error"),
-    ]
-
+    applied_version = models.ForeignKey('strategies.StrategyVersion', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+')
+    applied_at = models.DateTimeField(null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_sessions")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.CASCADE, related_name="live_sessions")
     allocation = models.OneToOneField(
@@ -29,9 +44,8 @@ class TradingSession(BaseTimestampModel):
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_sessions")
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=SESSION_STATUSES, default="PAUSED")
+    status = models.CharField(max_length=20, choices=ExecutionSessionStatus.choices, default="PAUSED")
     error_message = models.TextField(blank=True)
-    auto_disable_state = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "live_trading_session"
@@ -40,16 +54,60 @@ class TradingSession(BaseTimestampModel):
     def __str__(self):
         return f"{self.strategy.name} [{self.status}]"
 
-    @property
-    def trades_count(self):
-        return self.allocation.trades.count() if self.allocation else 0
 
-    @property
-    def pnl(self):
-        return self.allocation.total_pnl if self.allocation else Decimal("0")
+class LiveStrategyAllocationQuerySet(models.QuerySet):
+    def with_totals(self):
+        """Shared financial snapshot for deployment and allocation responses."""
+        decimal_field = DecimalField(max_digits=18, decimal_places=4)
+        zero_money = Value(Decimal("0"), output_field=decimal_field)
+
+        open_positions = LivePosition.objects.filter(allocation_id=OuterRef("pk"), quantity__gt=0)
+        used_capital = open_positions.order_by().values("allocation_id").annotate(
+            total=Sum(ExpressionWrapper(F("quantity") * F("avg_price") * F("instrument__qty_multiplier"), output_field=decimal_field))
+        ).values("total")[:1]
+        unrealized_pnl = open_positions.order_by().values("allocation_id").annotate(
+            total=Sum("unrealized_pnl")
+        ).values("total")[:1]
+        realized_pnl = LiveTrade.objects.filter(allocation_id=OuterRef("pk")).order_by().values(
+            "allocation_id"
+        ).annotate(total=Sum("realized_pnl")).values("total")[:1]
+        reserved_value = ExpressionWrapper(
+            Greatest(F("pending_quantity"), F("quantity") - F("filled_quantity"))
+            * Coalesce(F("price"), zero_money) * F('instrument__qty_multiplier'),
+            output_field=decimal_field,
+        )
+        reserved_capital = LiveOrder.objects.filter(
+            allocation_id=OuterRef("pk"), intent=OrderIntent.ENTRY, status__in=ACTIVE
+        ).order_by().values("allocation_id").annotate(total=Sum(reserved_value)).values("total")[:1]
+        allocation_trades = LiveTrade.objects.filter(allocation_id=OuterRef("pk")).order_by().values(
+            "allocation_id"
+        ).annotate(total=Count("id")).values("total")[:1]
+
+        allocation_queryset = self.select_related(
+            "strategy", "broker_credential", "deployed_version"
+        ).annotate(
+            annotated_used_capital=Coalesce(Subquery(used_capital, output_field=decimal_field), zero_money),
+            annotated_reserved_capital=Coalesce(Subquery(reserved_capital, output_field=decimal_field), zero_money),
+            annotated_realized_pnl=Coalesce(Subquery(realized_pnl, output_field=decimal_field), zero_money),
+            annotated_unrealized_pnl=Coalesce(Subquery(unrealized_pnl, output_field=decimal_field), zero_money),
+            annotated_trade_count=Coalesce(Subquery(allocation_trades, output_field=IntegerField()), Value(0)),
+        ).annotate(
+            annotated_available_capital=Greatest(
+                zero_money,
+                F("allocated_capital") - F("annotated_used_capital") - F("annotated_reserved_capital") + F("annotated_realized_pnl"),
+            ),
+            annotated_total_pnl=F("annotated_realized_pnl") + F("annotated_unrealized_pnl"),
+        )
+
+        return allocation_queryset.annotate(
+            annotated_open_positions=Coalesce(Subquery(
+                open_positions.order_by().values("allocation_id").annotate(total=Count("id")).values("total")[:1]), Value(0)),
+        )
 
 
 class LiveStrategyAllocation(BaseTimestampModel):
+    objects = LiveStrategyAllocationQuerySet.as_manager()
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_strategy_allocations")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.CASCADE, related_name="live_allocations")
     deployed_version = models.ForeignKey(
@@ -61,9 +119,7 @@ class LiveStrategyAllocation(BaseTimestampModel):
         help_text='Pinned strategy version for this live allocation'
     )
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.CASCADE, related_name="strategy_allocations")
-    allocation_type = models.CharField(max_length=20, choices=CapitalAllocationType.choices, default=CapitalAllocationType.FIXED)
     allocated_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    allocated_percentage = models.DecimalField(max_digits=6, decimal_places=2, default=0)
     broker_equity_reference = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     is_over_allocated = models.BooleanField(default=False)
     breach_reason = models.TextField(blank=True)
@@ -81,7 +137,7 @@ class LiveStrategyAllocation(BaseTimestampModel):
         """Total capital invested in open positions."""
         from django.db.models import Sum
         result = self.positions.filter(quantity__gt=0).aggregate(
-            total=Sum(models.F('quantity') * models.F('avg_price'))
+            total=Sum(models.F('quantity') * models.F('avg_price') * models.F('instrument__qty_multiplier'))
         )['total']
         return result or Decimal("0")
 
@@ -109,14 +165,14 @@ class LiveStrategyAllocation(BaseTimestampModel):
         from django.db.models import Sum
         result = LiveOrder.objects.filter(
             allocation=self,
-            intent="ENTRY",
-            status__in=[OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, "UNKNOWN"]
+            intent=OrderIntent.ENTRY,
+            status__in=ACTIVE
         ).aggregate(
             total=Sum(
                 Greatest(
                     models.F('pending_quantity'),
                     models.F('quantity') - models.F('filled_quantity'),
-                ) * models.F('price')
+                ) * models.F('price') * models.F('instrument__qty_multiplier')
             )
         )['total']
         return result or Decimal("0")
@@ -158,10 +214,12 @@ class LiveOrder(BaseTimestampModel):
     avg_fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     filled_value = models.DecimalField(max_digits=24, decimal_places=8, default=0)
     strategy_version = models.ForeignKey("strategies.StrategyVersion", on_delete=models.PROTECT, null=True, related_name="live_orders")
-    intent = models.CharField(max_length=10, choices=[("ENTRY", "Entry"), ("EXIT", "Exit")], default="ENTRY")
+    intent = models.CharField(max_length=10, choices=OrderIntent.choices, default=OrderIntent.ENTRY)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=OrderStatus.PENDING)
     rejection_reason = models.TextField(blank=True)
     placed_at = models.DateTimeField(auto_now_add=True)
+    broker_ordered_at = models.DateTimeField(null=True, blank=True)
+    broker_updated_at = models.DateTimeField(null=True, blank=True)
     executed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
     
@@ -187,21 +245,6 @@ class LiveOrder(BaseTimestampModel):
         ]
 
 
-class BrokerAccountObservation(BaseTimestampModel):
-    """Unowned broker activity and account totals never become strategy trades."""
-    credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.CASCADE, related_name="account_observations")
-    kind = models.CharField(max_length=20, choices=[("ORDER", "External order"), ("POSITION", "Account position")])
-    broker_key = models.CharField(max_length=200)
-    symbol = models.CharField(max_length=100, blank=True)
-    payload = models.JSONField(default=dict)
-    expected_quantity = models.IntegerField(null=True, blank=True)
-    observed_quantity = models.IntegerField(null=True, blank=True)
-    matched = models.BooleanField(default=False)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["credential", "kind", "broker_key"], name="unique_broker_account_observation")]
-
-
 class LivePosition(BaseTimestampModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_positions")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_positions")
@@ -214,21 +257,9 @@ class LivePosition(BaseTimestampModel):
     avg_price = models.DecimalField(max_digits=12, decimal_places=4)
     current_price = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    last_broker_sync = models.DateTimeField(null=True, blank=True)
-    opened_at = models.DateTimeField(auto_now_add=True)
+    opened_at = models.DateTimeField(default=timezone.now)
     last_updated = models.DateTimeField(auto_now=True)
     
-    # New fields for better broker sync tracking
-    broker_position_id = models.CharField(max_length=128, blank=True, help_text="Broker's position identifier")
-    sync_status = models.CharField(
-        max_length=20,
-        choices=[('SYNCED', 'Synced'), ('PENDING', 'Pending'), ('CONFLICT', 'Conflict')],
-        default='PENDING',
-        help_text="Current sync status with broker"
-    )
-    sync_error = models.TextField(blank=True, help_text="Error message if sync failed")
-    last_sync_attempt = models.DateTimeField(null=True, blank=True, help_text="Last time sync was attempted")
-
     class Meta:
         db_table = "live_position"
         unique_together = ["user", "strategy", "broker_credential", "instrument", "side"]

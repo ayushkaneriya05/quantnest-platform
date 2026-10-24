@@ -12,7 +12,6 @@ import { Label } from '@/shared/components/ui/label';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/shared/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/shared/components/ui/dialog';
 import WorkspaceState from '@/shared/components/WorkspaceState';
-import EmailPreferences from './email-preferences';
 
 const resources = { live_positions: 'Live positions', live_orders: 'Pending Live orders', paper_positions: 'Paper positions', paper_orders: 'Pending Paper orders', terminal_positions: 'Terminal positions', terminal_orders: 'Open Terminal orders' };
 
@@ -51,10 +50,9 @@ export default function AccountTab() {
   return <div className="space-y-5">
     <div className="grid gap-3 md:grid-cols-3">{[
       { to: '/settings/billing', icon: CreditCard, title: 'Billing and Usage', text: 'Plan, allowances, payments and renewal.' },
-      { to: '/support', icon: LifeBuoy, title: 'Support', text: 'Requests, replies and project quotations.' },
+      { to: '/support', icon: LifeBuoy, title: 'Support', text: 'Support requests and replies.' },
       { to: '/docs/getting-started/', icon: BookOpen, title: 'User guide', text: 'Choose a first task and learn each workflow.' },
     ].map(item => <Link key={item.to} to={item.to} className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><item.icon className="mt-0.5 h-5 w-5 shrink-0 text-brand" /><div className="min-w-0 flex-1"><h2 className="text-sm font-semibold">{item.title}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{item.text}</p></div><ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" /></Link>)}</div>
-    <EmailPreferences />
     <Card><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5"><div><h2 className="text-base font-semibold">Export your account records</h2><p className="mt-1 text-sm text-muted-foreground">Download your strategies, execution records, reviews and payment records. Secrets and recovery codes are excluded.</p><p className="mt-1 text-xs text-muted-foreground">Up to 1,000 records per category and 100 strategies, within 10 MiB. Limited to two exports per day.</p></div><Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={exportAccount}>{busy === 'export' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}Export records</Button></CardContent></Card>
     <Card className="border-destructive/30"><CardHeader className="p-5 pb-3"><CardTitle className="text-base">Account access</CardTitle><CardDescription>Settle open positions and pending orders in Terminal, Paper and Live before disabling access.</CardDescription></CardHeader><CardContent className="grid gap-4 px-5 pb-5 md:grid-cols-2">{[
       { action: 'deactivate', title: 'Deactivate your account', text: 'Disable sign-in and stop new work. Your records remain saved. Contact support to request reactivation.', button: 'Deactivate account' },

@@ -1,4 +1,5 @@
 import { createSlice } from "@reduxjs/toolkit";
+import { isNewerQuote } from "../utils/marketData";
 
 const initialState = {
   isConnected: false,
@@ -33,7 +34,7 @@ const websocketSlice = createSlice({
     },
     updateTickData: (state, action) => {
       const { symbol, data } = action.payload;
-      state.tickData[symbol] = { ...data, received_at: Date.now() };
+      if (isNewerQuote(data, state.tickData[symbol])) state.tickData[symbol] = data;
     },
     addSubscription: (state, action) => {
       if (!state.subscriptions.includes(action.payload)) {

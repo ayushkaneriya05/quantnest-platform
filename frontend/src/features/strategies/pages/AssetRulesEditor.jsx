@@ -1,3 +1,4 @@
+import { formatCurrency, formatDate } from "@/shared/utils/formatters";
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import PropTypes from "prop-types";
 /**
@@ -27,6 +28,8 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/pageActions';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEnums } from '@/shared/context/EnumsContext';
+import { useWebSocket } from '@/shared/hooks/useWebSocket';
+import { isObservedQuote } from '@/shared/utils/marketData';
 
 // ── Constants ──
 const TYPE_LABELS = { STOCK: 'Equity', FUTURE: 'Futures', OPTION: 'Options', BOND: 'Bonds' };
@@ -50,8 +53,8 @@ const TYPE_DOT = {
 };
 
 // ── Helpers ──
-const fmt = (p) => p ? `₹${parseFloat(p).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null;
-const fmtExp = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : null;
+const fmt = (p) => p ? formatCurrency(p) : null;
+const fmtExp = (d) => d ? formatDate(d, { day: '2-digit', month: 'short', year: '2-digit' }) : null;
 const daysTo = (d) => { if (!d) return null; const diff = Math.ceil((new Date(d) - new Date()) / 864e5); return diff >= 0 ? diff : null; };
 
 // ── Instrument Detail Dialog ──
@@ -86,7 +89,7 @@ function DetailDialog({ instrument, open, onClose }) {
   ];
   if (isDeriv) sections.push({ title: 'Derivative', icon: <Clock className="h-3.5 w-3.5" />, rows: [
     ['Underlying', i.underlying_symbol || '—'], ['Expiry', fmtExp(i.expiry_date) || '—'],
-    ['Strike', i.strike_price > 0 ? `₹${i.strike_price}` : '—'],
+    ['Strike', i.strike_price > 0 ? `${formatCurrency(i.strike_price)}` : '—'],
     ['Type', i.option_type !== 'XX' ? i.option_type : '—'],
   ]});
 
@@ -156,6 +159,15 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
   const [loading, setLoading] = useState(false);
   const [selectedExpiry, setSelectedExpiry] = useState('');
   const atmRowRef = useRef(null);
+  const { subscribe, getLatestPrice, tickData } = useWebSocket();
+  const symbol = underlying?.sym_ticker;
+  const quote = open && symbol ? tickData[symbol] : null;
+  const spot = Number(quote?.price) > 0 ? Number(quote.price) : null;
+  useEffect(() => {
+    if (!open || !symbol) return undefined;
+    getLatestPrice(symbol);
+    return subscribe(symbol);
+  }, [open, symbol, subscribe, getLatestPrice]);
 
   useEffect(() => {
     if (!open || !underlying) return;
@@ -191,12 +203,11 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
   }, [options, selectedExpiry]);
 
   const atmStrike = useMemo(() => {
-    if (!underlying?.previous_close || chainData.length === 0) return null;
-    const spot = parseFloat(underlying.previous_close);
+    if (!spot || chainData.length === 0) return null;
     return chainData.reduce((prev, curr) =>
       Math.abs(curr.strike - spot) < Math.abs(prev.strike - spot) ? curr : prev
     ).strike;
-  }, [chainData, underlying?.previous_close]);
+  }, [chainData, spot]);
 
   // Auto-scroll to ATM row when chainData loads
   useEffect(() => {
@@ -215,7 +226,7 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
           <DialogTitle className="flex items-center gap-2">
             <span className="text-lg font-bold">{underlying.symbol} Option Chain</span>
           </DialogTitle>
-          <p className="text-xs text-muted-foreground mt-1">LTP: {fmt(underlying.previous_close) || 'N/A'}</p>
+          <p className="text-xs text-muted-foreground mt-1">{isObservedQuote(quote) ? 'Spot' : 'Last known spot'}: {fmt(spot) || 'Unavailable'}</p>
         </div>
 
         {/* Body */}
@@ -255,20 +266,19 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
                   </tr>
                   <tr>
                     <th className="py-2 px-2 w-20 border-b border-border bg-background">Action</th>
-                    <th className="py-2 px-2 text-right border-b border-border bg-background">OI</th>
-                    <th className="py-2 px-2 text-right border-b border-border bg-background">LTP</th>
+                    <th className="py-2 px-2 text-right border-b border-border bg-background">Prev OI</th>
+                    <th className="py-2 px-2 text-right border-b border-border bg-background">Prev close</th>
                     <th className="py-2 px-2 text-center border-b border-l border-r border-border bg-background">₹</th>
-                    <th className="py-2 px-2 border-b border-border bg-background">LTP</th>
-                    <th className="py-2 px-2 border-b border-border bg-background">OI</th>
+                    <th className="py-2 px-2 border-b border-border bg-background">Prev close</th>
+                    <th className="py-2 px-2 border-b border-border bg-background">Prev OI</th>
                     <th className="py-2 px-2 text-right w-20 border-b border-border bg-background">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
                   {chainData.map((row) => {
                     const isATM = row.strike === atmStrike;
-                    const spot = parseFloat(underlying.previous_close || 0);
-                    const ceITM = row.strike < spot;
-                    const peITM = row.strike > spot;
+                    const ceITM = spot != null && row.strike < spot;
+                    const peITM = spot != null && row.strike > spot;
 
                     return (
                       <tr
@@ -292,7 +302,7 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
                         )}
                         </td>
                         <td className={`py-1 px-2 text-right font-mono text-muted-foreground ${ceITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{formatOI(row.CE?.previous_oi)}</td>
-                        <td className={`py-1 px-2 text-right font-mono text-emerald-800 dark:text-emerald-400/90 ${ceITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{fmt(row.CE?.previous_close) || '0.00'}</td>
+                        <td className={`py-1 px-2 text-right font-mono text-emerald-800 dark:text-emerald-400/90 ${ceITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{fmt(row.CE?.previous_close) || '—'}</td>
 
                         {/* STRIKE */}
                         <td className={`py-1.5 px-2 text-center font-bold font-mono border-l border-r border-border/60 ${
@@ -302,7 +312,7 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
                         </td>
 
                         {/* PUTS */}
-                        <td className={`py-1 px-2 font-mono text-rose-800 dark:text-rose-400/90 ${peITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{fmt(row.PE?.previous_close) || '0.00'}</td>
+                        <td className={`py-1 px-2 font-mono text-rose-800 dark:text-rose-400/90 ${peITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{fmt(row.PE?.previous_close) || '—'}</td>
                         <td className={`py-1 px-2 font-mono text-muted-foreground ${peITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>{formatOI(row.PE?.previous_oi)}</td>
                         <td className={`py-1 px-2 text-right ${peITM ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>
                           {row.PE && (
@@ -355,7 +365,7 @@ function DropdownItem({ instrument, onAdd, onDetail, isInWatchlist, onOpenOption
             </span>
           )}
           {instrument.strike_price > 0 && (
-            <span className="text-[11px] text-muted-foreground">₹{instrument.strike_price}</span>
+            <span className="text-[11px] text-muted-foreground">{formatCurrency(instrument.strike_price)}</span>
           )}
         </div>
         <p className="text-xs text-muted-foreground truncate">{instrument.name}</p>

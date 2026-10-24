@@ -12,21 +12,22 @@ import {
 } from "./dialog";
 import { Button } from "./button";
 import { Input } from "./input";
-import { Info, HelpCircle, AlertTriangle, Edit3 } from "lucide-react";
+import { HelpCircle, Edit3 } from "lucide-react";
 
 // The underlying React Component that renders the custom dialog
 const CustomDialogComponent = ({ 
-  type = "confirm", // 'confirm', 'alert', 'warn'
+  type,
   title, 
   message, 
   onResolve, 
   onClose,
   confirmText = "Confirm",
-  cancelText = "Cancel",
   defaultValue = ""
 }) => {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState(defaultValue);
+  const isPrompt = type === "prompt";
+  const Icon = isPrompt ? Edit3 : HelpCircle;
 
   // Animate in on mount
   useEffect(() => {
@@ -42,39 +43,19 @@ const CustomDialogComponent = ({
     }, 300); // 300ms matches standard shadcn animation duration
   };
 
-  const getIcon = () => {
-    switch (type) {
-      case "warn": return <AlertTriangle className="h-6 w-6 text-warning" />;
-      case "alert": return <Info className="h-6 w-6 text-sky-700 dark:text-sky-400" />;
-      case "prompt": return <Edit3 className="h-6 w-6 text-success" />;
-      case "confirm":
-      default: return <HelpCircle className="h-6 w-6 text-indigo-500" />;
-    }
-  };
-
-  const getTitleClass = () => {
-    switch (type) {
-      case "warn": return "text-warning";
-      case "alert": return "text-sky-700 dark:text-sky-400";
-      case "prompt": return "text-success";
-      case "confirm":
-      default: return "text-foreground";
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={(isOpen) => {
-      if (!isOpen) handleClose(type === "prompt" ? null : false);
+      if (!isOpen) handleClose(isPrompt ? null : false);
     }}>
       <DialogContent className="bg-card border-border text-foreground sm:max-w-md">
         <DialogHeader className="flex flex-row items-center gap-4">
-          <div className="mt-1">{getIcon()}</div>
+          <div className="mt-1"><Icon className={`h-6 w-6 ${isPrompt ? "text-success" : "text-indigo-500"}`} /></div>
           <div className="flex flex-col gap-1">
-            <DialogTitle className={getTitleClass()}>{title || (type === "confirm" ? "Confirm Action" : type === "warn" ? "Warning" : "Alert")}</DialogTitle>
+            <DialogTitle className={isPrompt ? "text-success" : "text-foreground"}>{title}</DialogTitle>
             <DialogDescription className="text-muted-foreground">
               {message}
             </DialogDescription>
-            {type === "prompt" && (
+            {isPrompt && (
               <div className="mt-4">
                 <Input
                   value={inputValue}
@@ -90,16 +71,14 @@ const CustomDialogComponent = ({
           </div>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-0 mt-4">
-          {(type === "confirm" || type === "prompt") && (
-            <Button variant="outline" className="border-border hover:bg-secondary text-foreground" onClick={() => handleClose(type === "prompt" ? null : false)}>
-              {cancelText}
-            </Button>
-          )}
+          <Button variant="outline" className="border-border hover:bg-secondary text-foreground" onClick={() => handleClose(isPrompt ? null : false)}>
+            Cancel
+          </Button>
           <Button 
-            className={type === "warn" ? "bg-amber-700 hover:bg-amber-800 text-white" : type === "prompt" ? "bg-emerald-700 hover:bg-emerald-800 text-white" : "bg-indigo-600 hover:bg-indigo-700 text-white"}
-            onClick={() => handleClose(type === "prompt" ? inputValue : true)}
+            className={isPrompt ? "bg-emerald-700 hover:bg-emerald-800 text-white" : "bg-indigo-600 hover:bg-indigo-700 text-white"}
+            onClick={() => handleClose(isPrompt ? inputValue : true)}
           >
-            {type === "confirm" || type === "prompt" ? confirmText : "OK"}
+            {confirmText}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -142,24 +121,6 @@ export const customConfirm = (message, title = "Please Confirm", confirmText = "
 };
 
 /**
- * Shows an Alert dialog (Info). Returns a Promise resolving to true when OK is clicked.
- * @param {string} message - The alert message
- * @param {string} title - Optional title
- */
-export const customAlert = (message, title = "Alert") => {
-  return createDialog({ type: "alert", message, title });
-};
-
-/**
- * Shows a Warning dialog. Returns a Promise resolving to true when OK is clicked.
- * @param {string} message - The warning message
- * @param {string} title - Optional title
- */
-export const customWarn = (message, title = "Warning") => {
-  return createDialog({ type: "warn", message, title });
-};
-
-/**
  * Shows a Prompt dialog. Returns a Promise resolving to the user input string, or null if cancelled.
  * @param {string} message - The prompt message
  * @param {string} defaultValue - Optional initial value
@@ -171,13 +132,11 @@ export const customPrompt = (message, defaultValue = "", title = "Input Required
 };
 
 CustomDialogComponent.propTypes = {
-  ...CustomDialogComponent.propTypes,
-  cancelText: PropTypes.string,
   confirmText: PropTypes.string,
-  defaultValue: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  defaultValue: PropTypes.string,
   message: PropTypes.string,
   onClose: PropTypes.func,
   onResolve: PropTypes.func,
   title: PropTypes.string,
-  type: PropTypes.string,
+  type: PropTypes.oneOf(["confirm", "prompt"]).isRequired,
 };

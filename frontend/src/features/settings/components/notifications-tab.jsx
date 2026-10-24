@@ -23,7 +23,7 @@ export default function NotificationsTab() {
       setLoading(true);
       setError('');
       const response = await notificationApi.getPreferences();
-      setPreferences(Array.isArray(response.data?.results) ? response.data.results : response.data || []);
+      setPreferences(response.data);
     } catch (error) {
       setError(getApiErrorMessage(error, "Failed to load notification preferences"));
     } finally {

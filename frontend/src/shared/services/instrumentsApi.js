@@ -13,17 +13,7 @@ export const instrumentsApi = {
     return response.data;
   },
 
-  // Get all instruments
-  getAll: async (params = {}) => {
-    const response = await api.get(`${INSTRUMENTS_URL}instruments/`, { params });
-    return response.data;
-  },
 
-  // Get by ID
-  getById: async (id) => {
-    const response = await api.get(`${INSTRUMENTS_URL}instruments/${id}/`);
-    return response.data;
-  },
 };
 
 export async function searchTerminalInstruments(params, config = {}) {
@@ -75,8 +65,7 @@ export const executionRoutesApi = {
     const response = await api.get(`${INSTRUMENTS_URL}execution-routes/`, {
       params: { watchlist_instrument: watchlistInstrumentId }
     });
-    const data = response.data;
-    return Array.isArray(data) ? data : (data?.results || []);
+    return response.data;
   },
   
   delete: async (id) => {

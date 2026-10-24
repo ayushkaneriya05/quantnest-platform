@@ -93,8 +93,6 @@ def _google_user(request, code, verifier):
             raise ValidationError("An account with this email already exists. Sign in with your password.")
         # Save Google's account and verified email without creating a Django login session.
         with transaction.atomic():
-            from installations.licensing import require_active_licence
-            require_active_licence()
             social_adapter.save_user(request, social_login)
     return social_login.user
 

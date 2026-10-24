@@ -2,9 +2,9 @@ import logging
 from copy import deepcopy
 from django.db import transaction
 from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig
-from risk_management.models import PositionSizingRule, StrategyAutoDisable
-from rules_engine.models import RuleGroup, Rule, TimeRule, SpecialEventFilter
+from rules_engine.models import PositionSizingRule, RuleGroup, Rule, TimeRule
 from instruments.models import WatchlistInstrument
+from execution.order_reports import ACTIVE
 
 logger = logging.getLogger(__name__)
 
@@ -16,14 +16,24 @@ class StrategySnapshotService:
     @staticmethod
     def validate_config_snapshot(snapshot):
         """Validate that config snapshot has all required fields."""
+        if not isinstance(snapshot, dict):
+            raise ValueError('Strategy configuration must be an object.')
         required_fields = [
             'name', 'strategy_type', 'market_type', 'exchange', 'instrument_type',
             'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments',
-            'time_rule', 'special_event_filter', 'position_sizing_rule', 'auto_disable_rules'
+            'time_rule', 'position_sizing_rule'
         ]
         missing = [field for field in required_fields if field not in snapshot]
         if missing:
             raise ValueError(f"Config snapshot missing required fields: {missing}")
+        objects = ('entry_order_config', 'exit_order_config', 'time_rule', 'position_sizing_rule')
+        if any(not isinstance(snapshot[field], dict) for field in objects):
+            raise ValueError('Order, time and sizing configurations must be objects.')
+        if any(not isinstance(snapshot[field], list) for field in ('rule_groups', 'watchlist_instruments')):
+            raise ValueError('Rules and instruments must be lists.')
+        if any(not isinstance(group, dict) or not isinstance(group.get('rules', []), list) or
+                any(not isinstance(rule, dict) for rule in group.get('rules', [])) for group in snapshot['rule_groups']):
+            raise ValueError('Each rule group must contain a list of rule objects.')
         return True
 
     @staticmethod
@@ -90,9 +100,6 @@ class StrategySnapshotService:
             if 'time_rule' in snapshot:
                 StrategySnapshotService._restore_time_rule(strategy, snapshot['time_rule'])
                 
-            if 'special_event_filter' in snapshot:
-                StrategySnapshotService._restore_event_filter(strategy, snapshot['special_event_filter'])
-                
             if 'entry_order_config' in snapshot:
                 StrategySnapshotService._restore_entry_config(strategy, snapshot['entry_order_config'])
 
@@ -107,15 +114,10 @@ class StrategySnapshotService:
             # 3. Restore Rule Groups (Delete all existing and recreate)
             # This is safer than trying to diff/update heavily nested structures
             strategy.rule_groups.all().delete()
-            strategy.auto_disable_rules.all().delete()
             
             if 'rule_groups' in snapshot:
                 for group_data in snapshot['rule_groups']:
                     StrategySnapshotService._restore_rule_group(strategy, group_data)
-
-            if 'auto_disable_rules' in snapshot:
-                for rule_data in snapshot['auto_disable_rules']:
-                    StrategySnapshotService._restore_auto_disable_rule(strategy, rule_data)
 
             # 5. Restore watchlist instruments
             if 'watchlist_instruments' in snapshot:
@@ -163,19 +165,14 @@ class StrategySnapshotService:
             'tags': list(strategy.tags.order_by('name').values_list('name', flat=True)),
         }
 
-        for rel_name in ('entry_order_config', 'exit_order_config', 'time_rule', 'special_event_filter', 'position_sizing_rule'):
+        for rel_name in ('entry_order_config', 'exit_order_config', 'time_rule', 'position_sizing_rule'):
             rel_obj = getattr(strategy, rel_name)
             data[rel_name] = StrategySnapshotService._model_to_dict(rel_obj, exclude=['id', 'strategy', 'created_at', 'updated_at'])
-
-        data['auto_disable_rules'] = [
-            StrategySnapshotService._model_to_dict(rule, exclude=['id', 'strategy', 'created_at', 'updated_at'])
-            for rule in strategy.auto_disable_rules.order_by('id')
-        ]
 
         # Watchlist instruments and execution routes
         watchlist_data = []
         for wi in strategy.watchlist_instruments.select_related('instrument').prefetch_related('execution_routes').order_by('instrument_id'):
-            wi_dict = {'instrument_id': wi.instrument_id, 'instrument_symbol': wi.instrument.symbol, 'instrument_name': wi.instrument.name}
+            wi_dict = {'instrument_id': wi.instrument_id, 'instrument_symbol': wi.instrument.sym_ticker, 'instrument_name': wi.instrument.name}
             
             routes_data = []
             for route in sorted(wi.execution_routes.all(), key=lambda item: item.pk):
@@ -223,12 +220,9 @@ class StrategySnapshotService:
         TimeRule.objects.update_or_create(strategy=strategy, defaults=data)
 
     @staticmethod
-    def _restore_event_filter(strategy, data):
-        SpecialEventFilter.objects.update_or_create(strategy=strategy, defaults=data)
-
-    @staticmethod
     def _restore_entry_config(strategy, data):
-        EntryOrderConfig.objects.update_or_create(strategy=strategy, defaults=data)
+        fields = {field.name for field in EntryOrderConfig._meta.fields} - {'id', 'strategy', 'created_at', 'updated_at'}
+        EntryOrderConfig.objects.update_or_create(strategy=strategy, defaults={key: value for key, value in data.items() if key in fields})
 
     @staticmethod
     def _restore_exit_config(strategy, data):
@@ -250,10 +244,6 @@ class StrategySnapshotService:
             Rule.objects.create(rule_group=group, **r_data)
 
     @staticmethod
-    def _restore_auto_disable_rule(strategy, rule_data):
-        StrategyAutoDisable.objects.create(strategy=strategy, **rule_data)
-
-    @staticmethod
     def _restore_watchlist(strategy, watchlist_data):
         """Restore the complete selection; fail if a saved instrument is unavailable."""
         from instruments.models import Instrument, ExecutionRoute
@@ -266,7 +256,8 @@ class StrategySnapshotService:
         for item in watchlist_data:
             watch = WatchlistInstrument.objects.create(strategy=strategy, instrument=instruments[item['instrument_id']])
             for route in item.get('execution_routes', []):
-                values = dict(route)
+                fields = {field.name for field in ExecutionRoute._meta.fields} - {'id', 'watchlist_instrument', 'created_at', 'updated_at'}
+                values = {key: value for key, value in route.items() if key in fields}
                 for field in ExecutionRoute._meta.fields:
                     if field.is_relation and field.name in values:
                         values[field.attname] = values.pop(field.name)
@@ -276,128 +267,144 @@ class StrategySnapshotService:
 class StrategyLifecycleService:
     @staticmethod
     def halt_and_archive(strategy, user):
-        """
-        Close all open positions and archive the strategy.
-        Returns a dict with status information.
-        """
-        if strategy.status == 'ARCHIVED':
-            raise ValueError('Strategy is already archived')
-
+        """Reuse session square-off; archive only after confirmed settlement."""
         from live_trading.models import TradingSession, LivePosition
         from live_trading.services import LiveExecutionService
-        from django.utils import timezone
-        import time
-
-        active_sessions = list(TradingSession.objects.filter(
-            strategy=strategy,
-            status__in=['RUNNING', 'PAUSED', 'STOPPING', 'ERROR']
-        ).select_related('broker_credential'))
-
-        for session in active_sessions:
-            LiveExecutionService.pause_session(session)
-
-        closed_positions = 0
-        open_positions = LivePosition.objects.filter(
-            strategy=strategy,
-            quantity__gt=0
-        ).select_related('instrument', 'broker_credential')
-
-        for position in open_positions:
-            session = next(
-                (
-                    item for item in active_sessions
-                    if item.allocation_id == position.allocation_id
-                ),
-                None,
-            )
-            if not session:
-                raise ValueError(f"No active live session found to close position {position.id}")
-
-            exit_side = 'SELL' if position.side == 'BUY' else 'BUY'
-            order = LiveExecutionService.place_order(
-                session=session,
-                instrument=position.instrument,
-                side=exit_side,
-                quantity=position.quantity,
-                order_type='MARKET',
-                intent="EXIT",
-            )
-            
-            for _ in range(5):
-                # Use new BrokerReconciliationService instead of old sync method
-                from live_trading.reconciliation_service import BrokerReconciliationService
-                reconciliation_service = BrokerReconciliationService(session.broker_credential)
-                reconciliation_service.reconcile_orders()
-                
-                order.refresh_from_db()
-                if order.status == 'FILLED':
-                    break
-                time.sleep(1)
-                
-            if order.status != 'FILLED':
-                raise RuntimeError(
-                    f"Close order {order.id} for position {position.id} is {order.status}; archive aborted."
-                )
-            closed_positions += 1
-
-        if TradingSession.objects.filter(strategy=strategy, orders__status__in=LiveExecutionService.ACTIVE_ORDER_STATUSES).exists():
-            raise RuntimeError('Pending broker orders must settle before archiving')
-        for session in active_sessions:
-            session.status = 'STOPPED'
-            session.ended_at = timezone.now()
-            session.save(update_fields=['status', 'ended_at', 'updated_at'])
-            from core.lifecycle import publish_session_event
-            publish_session_event('live', session, 'SESSION_STOP')
-
-        strategy.status = 'ARCHIVED'
-        strategy.save(update_fields=['status', 'updated_at'])
-
-        return {
-            'status': 'archived',
-            'sessions_stopped': len(active_sessions),
-            'positions_closing': closed_positions,
-            'message': f"Strategy '{strategy.name}' archived after closing {closed_positions} live position(s)."
-        }
+        from django.db.models import Q
+        if strategy.user_id != user.pk:
+            raise ValueError('Choose one of your own strategies.')
+        if strategy.status == 'ARCHIVED':
+            raise ValueError('Strategy is already archived.')
+        sessions = list(TradingSession.objects.filter(strategy=strategy).filter(
+            Q(status__in=['RUNNING', 'PAUSED', 'STOPPING', 'ERROR']) |
+            Q(orders__status__in=ACTIVE) |
+            Q(allocation__positions__quantity__gt=0)).distinct())
+        for session in sessions:
+            LiveExecutionService.stop_session(session, close_positions=True)
+        with transaction.atomic():
+            strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
+            if TradingSession.objects.filter(pk__in=[item.pk for item in sessions]).exclude(status='STOPPED').exists():
+                raise RuntimeError('Square-off is awaiting broker settlement. Review Live sessions and retry archive after all positions and orders settle.')
+            StrategyDeploymentService.validate_strategy_lifecycle(strategy)
+            if LivePosition.objects.filter(strategy=strategy, quantity__gt=0).exists():
+                raise RuntimeError('Unsettled live positions remain. Review their allocation before archiving.')
+            strategy.status = 'ARCHIVED'
+            strategy.save(update_fields=['status', 'updated_at'])
+        return {'status': 'archived', 'sessions_stopped': len(sessions),
+                'message': f"Strategy '{strategy.name}' archived after session settlement."}
 
 
 class StrategyDeploymentService:
     @staticmethod
-    def validate_for_deployment(strategy, mode='paper'):
-        errors = []
-        if strategy.status != 'ACTIVE':
-            errors.append('Only active strategies can be deployed.')
-        mode_flag = 'paper_trading_enabled' if mode == 'paper' else 'live_trading_enabled'
-        if not getattr(strategy, mode_flag, False):
-            errors.append(f'{mode.title()} trading is disabled for this strategy.')
-        if not strategy.watchlist_instruments.exists():
-            errors.append('Add at least one instrument to the strategy watchlist.')
+    def validate_snapshot(snapshot, mode='paper'):
+        """Validate the immutable configuration that execution will actually use."""
+        from instruments.services import InstrumentResolver
+        from instruments.serializers import ExecutionRouteSerializer
+        from rules_engine.serializers import TimeRuleSerializer, RuleSerializer, RuleGroupSerializer
+        from rules_engine.serializers import PositionSizingRuleSerializer
+        from .serializers import EntryOrderConfigSerializer, ExitOrderConfigSerializer
+        from rest_framework.exceptions import ValidationError
+        StrategySnapshotService.validate_config_snapshot(snapshot)
+        instruments = InstrumentResolver.validate_execution_snapshot(snapshot)
+        def validate(serializer_class, data):
+            serializer = serializer_class(data=data, partial=True)
+            for field in ('strategy', 'rule_group'):
+                if field in serializer.fields:
+                    serializer.fields[field].read_only = True
+            serializer.is_valid(raise_exception=True)
+            return serializer.validated_data
+        try:
+            for name, serializer in (('time_rule', TimeRuleSerializer),
+                    ('entry_order_config', EntryOrderConfigSerializer),
+                    ('exit_order_config', ExitOrderConfigSerializer),
+                    ('position_sizing_rule', PositionSizingRuleSerializer)):
+                validate(serializer, snapshot[name])
+            from common.enums import InstrumentType
+            if (snapshot['strategy_type'] != 'INTRADAY' and snapshot['entry_order_config'].get('entry_side') == 'SELL'
+                    and any(item.instrument_type == InstrumentType.STOCK for item in instruments.values())):
+                raise ValueError('Stock short entries require an Intraday strategy. Delivery execution does not include stock borrowing.')
+            for watch in snapshot['watchlist_instruments']:
+                for route in watch.get('execution_routes', []):
+                    validate(ExecutionRouteSerializer, route)
+            active = [group for group in snapshot['rule_groups'] if group.get('is_active', True)]
+            entries = [group for group in active if group.get('rule_type') == 'ENTRY']
+            if not entries or any(not any(rule.get('is_active', True) for rule in group.get('rules', [])) for group in entries):
+                raise ValueError('The selected version needs complete active entry rules.')
+            if mode == 'live' and not any(group.get('rule_type') == 'STOP_LOSS' and
+                    any(rule.get('is_active', True) for rule in group.get('rules', [])) for group in active):
+                raise ValueError('The selected live version needs an active stop-loss rule.')
+            for group in active:
+                validate(RuleGroupSerializer, group)
+                for rule in group.get('rules', []):
+                    if rule.get('is_active', True):
+                        serializer = RuleSerializer(data=rule, context={'rule_type': group['rule_type']})
+                        serializer.fields['rule_group'].read_only = True
+                        serializer.is_valid(raise_exception=True)
+            from marketdata.calendar import MarketSessionCalendar
+            from execution.compiler import compile_strategy
+            markets = set()
+            for watch in snapshot['watchlist_instruments']:
+                instrument_id, side, _ = InstrumentResolver.resolve(watch,
+                    snapshot['entry_order_config']['entry_side'], snapshot['position_sizing_rule'])
+                instrument = instruments[instrument_id]
+                markets.add((instrument.exchange, instrument.segment, side))
+            for exchange, segment, side in markets:
+                config = deepcopy(snapshot)
+                config['entry_order_config']['entry_side'] = side
+                compile_strategy(config, 0, calendar=MarketSessionCalendar.for_exchange(exchange, segment))
+        except ValidationError as exc:
+            from backend.middleware.api_responses import error_envelope
+            message = error_envelope(exc.detail, 400)['message']
+            raise ValueError(f'Invalid selected version: {message}') from None
 
-        active_entry_groups = strategy.rule_groups.filter(rule_type='ENTRY', is_active=True).prefetch_related('rules')
-        if not active_entry_groups.exists():
-            errors.append('Add at least one active entry rule group.')
-        elif not active_entry_groups.filter(rules__is_active=True).exists():
-            errors.append('Every deployable strategy needs at least one active entry rule.')
-
-        empty_active_groups = [
-            group.name or f'Group #{group.id}'
-            for group in active_entry_groups
-            if not group.rules.filter(is_active=True).exists()
-        ]
-        if empty_active_groups:
-            errors.append(f"Remove or complete empty active entry groups: {', '.join(empty_active_groups)}.")
-
-        if not hasattr(strategy, 'position_sizing_rule'):
-            errors.append('Configure position sizing before deployment.')
-
-        has_stop_loss = strategy.rule_groups.filter(
-            rule_type='STOP_LOSS',
-            is_active=True,
-            rules__is_active=True,
-        ).exists()
-        if mode == 'live' and not has_stop_loss:
-            errors.append('Live deployment requires at least one active stop-loss rule.')
-
-        return errors
+    @staticmethod
+    @transaction.atomic
+    def change_version(allocation, version, scope, user):
+        """One cold path for version validation, capacity and actor publication."""
+        from django.contrib.auth import get_user_model
+        from execution.lifecycle import request_session_refresh
+        get_user_model().objects.select_for_update().get(pk=user.pk)
+        if scope == 'live':
+            from brokers.models import BrokerCredential
+            from execution.lifecycle import require_execution_scope
+            from common.enums import ExecutionScope
+            from live_trading.models import LiveStrategyAllocation, LiveOrder, LivePosition, TradingSession
+            require_execution_scope(ExecutionScope.LIVE)
+            BrokerCredential.objects.select_for_update().get(pk=allocation.broker_credential_id)
+            allocation = LiveStrategyAllocation.objects.select_for_update().get(pk=allocation.pk, user=user)
+            positions = LivePosition.objects.filter(allocation=allocation, quantity__gt=0)
+            orders = LiveOrder.objects.filter(allocation=allocation)
+            sessions = list(TradingSession.objects.select_for_update().filter(allocation=allocation))
+        else:
+            from paper_trading.models import CapitalAllocation, PaperAccount, PaperPosition, PaperOrder
+            PaperAccount.objects.select_for_update().filter(allocation=allocation).first()
+            allocation = CapitalAllocation.objects.select_for_update().get(pk=allocation.pk, portfolio__user=user)
+            positions = PaperPosition.objects.filter(account__allocation=allocation, quantity__gt=0)
+            orders = PaperOrder.objects.filter(account__allocation=allocation)
+            sessions = list(allocation.paper_sessions.select_for_update())
+        if version.strategy_id != allocation.strategy_id:
+            raise ValueError('Choose a version belonging to this strategy.')
+        if allocation.deployed_version_id == version.pk:
+            return allocation
+        if scope == "paper" and CapitalAllocation.objects.filter(
+            strategy_id=allocation.strategy_id, deployed_version=version
+        ).exclude(pk=allocation.pk).exists():
+            raise ValueError("This strategy version already has a Paper deployment. Choose another version.")
+        StrategyDeploymentService.validate_snapshot(version.config_snapshot, scope)
+        identities = {int(item['instrument_id']) for item in version.config_snapshot['watchlist_instruments']}
+        if positions.exclude(instrument_id__in=identities).exists():
+            raise ValueError('Close positions before removing their instruments from the deployed version.')
+        active_statuses = ['PENDING', 'PLACED', 'PARTIAL_FILL', 'UNKNOWN']
+        if orders.filter(status__in=active_statuses).exists():
+            raise ValueError('Wait for outstanding orders to settle before changing the version.')
+        if scope == 'paper':
+            from commercial.usage import require_inventory_capacity
+            require_inventory_capacity(user, paper_snapshot=version.config_snapshot, paper_allocation=allocation)
+        allocation.deployed_version = version
+        allocation.save(update_fields=['deployed_version', 'updated_at'])
+        for session in sessions:
+            request_session_refresh(scope, session)
+        return allocation
 
     @staticmethod
     def validate_strategy_lifecycle(strategy):

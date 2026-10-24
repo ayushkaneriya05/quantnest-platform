@@ -1,3 +1,4 @@
+import { formatNumber } from "@/shared/utils/formatters";
 export const hidden = new Set(["id", "user", "user_id", "strategy", "rule_group", "watchlist_instrument", "created_at", "updated_at"]);
 export const fieldLabel = (key) => ({
   operand_a_type: "Left operand", operand_b_type: "Right operand",
@@ -9,7 +10,7 @@ export const fieldLabel = (key) => ({
 export function formatStrategyValue(value, enums = {}) {
   if (value == null || value === "") return "Not set";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 8 }).format(value);
+  if (typeof value === "number") return formatNumber(value, { maximumFractionDigits: 8 });
   if (Array.isArray(value)) return value.length ? value.map((item) => formatStrategyValue(item, enums)).join(" · ") : "None";
   if (typeof value === "object") return Object.entries(value).filter(([key]) => !hidden.has(key))
     .map(([key, item]) => `${fieldLabel(key)}: ${formatStrategyValue(item, enums)}`).join("; ") || "None";

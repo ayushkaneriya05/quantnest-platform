@@ -1,6 +1,6 @@
 # QuantNest complete implementation plan
 
-**Delivery map and release roadmap: 16 October 2026.**
+**Delivery map and release roadmap: 18 October 2026.**
 
 This retains the engineering companion to the [business plan](business-plan.md).
 It describes what the current source implements, what an operator must configure
@@ -13,9 +13,9 @@ old local checks as proof of a production rollout.
 - Django API/control plane, PostgreSQL/TimescaleDB, durable Redis, analytical cache,
   Celery/Beat, dedicated execution services and a private research service.
 - Three separate deployment configurations: Development, Public and Private.
-- Public subscriptions stop at simulated Paper. Private may include qualified Live.
+- Public subscriptions stop at simulated Paper. Private supports personal Live only; it is not sold to customers.
 - Existing data integration and Brevo remain. Public hosting uses Oracle; frontend
-  uses Cloudflare. Private hosting is portable to a customer-controlled Linux host.
+  uses Cloudflare. Personal Private uses a separate operator-controlled Linux host.
 - No public demo, Astro site, marketplace, strategy invitations or customer API keys.
 - NSE stocks execute now. Build/Pro list futures/options as Coming soon.
 
@@ -31,15 +31,15 @@ for those responsibilities.
 | Product catalog | commercial/catalog.py, CatalogRevision and public catalog API | Review/publish prices, terms and numeric allowances |
 | Usage | commercial/usage.py and entry-point service calls | Current inventory, reserved/used period credits and per-request limits; validate promised host capacity |
 | Payments | commercial/billing.py, reconciliation, webhook delivery and invoices | Merchant onboarding, actual price mappings, sandbox and production acceptance |
-| Support | customer_support services, tickets, conversations and delivery | Verified sender; optional inbound domain; staff response procedures |
-| Custom work | Engagement, quotation revisions, acceptance and milestone payments | Staff scope/price/contract decisions and real deliverable acceptance |
-| Private distribution | installations models, provisioning, signing, local licence refresh and release tools | Central signing setup, signed artifact delivery and customer host acceptance |
-| Consent/privacy | email preference, newsletter confirmation, export and erasure | Documented retention behaviour and provider agreements |
+| Support | customer_support services, tickets, conversations and delivery | Verified SMTP sender and staff response procedures |
+| Custom enquiries | Support requests and replies | All project agreements, payments and delivery are managed separately |
+| Personal Private | Separate production stack, shared signup/UI, instance-local accounts and standard Docker deployment | Personal data/broker configuration and host acceptance |
+| Account privacy | export and erasure | Documented retention behaviour and provider agreements |
 | Research | Django research orchestration and private FastAPI service | Numeric allowances, service/model configuration and provider usage |
-| Strategy workflow | strategies, rules_engine, risk_management and React strategy pages | Existing rule model; no proposed expression-node graph |
+| Strategy workflow | strategies, rules_engine and React strategy pages | Existing rule model; no proposed expression-node graph |
 | Paper/Live | execution owners, shared calculations, gateways, ledgers and reconciliation | Different fill models; Live qualification and current limitations require explicit acceptance |
 | Reports/journal | analytics, trade_journal, audit and React review workspace | Source-specific realized P&L; no fabricated combined equity |
-| Operations | mode Compose files, shared scripts, Public Oracle provisioning and timers | Real backups, isolated restoration, alert delivery and capacity evidence |
+| Operations | mode Compose files, shared deploy/diagnostics and encrypted backup/restore scripts | Real backups, empty-database restoration, health and capacity evidence |
 
 File paths in this table are relative to backend/ unless stated otherwise.
 The [documentation index](README.md) links each detailed procedure.
@@ -51,7 +51,7 @@ The [documentation index](README.md) links each detailed procedure.
 Run normal Django migrations on installation and upgrade. They initialize launch
 catalog terms. Related services create usage
 buckets, reservations, checkout attempts, payment/event records, invoices, tickets,
-deliveries, quotation revisions and licence state when their workflow runs.
+deliveries when their workflow runs.
 
 Do not prepopulate routine financial or usage records by hand. Do not rewrite
 historical migrations or fabricate provider payment rows to grant access.
@@ -61,7 +61,7 @@ historical migrations or fabricate provider payment rows to grant access.
 Keep Admin for business decisions, as agreed:
 
 - Published catalog revisions and provider price mappings.
-- Quotations, project scope, milestone acceptance and Private contracts.
+- Custom project work is managed outside this platform.
 - Refund decisions. Provider rates and operating costs are managed outside the application for now.
 - Installation provisioning/revocation and accepted Live scope.
 
@@ -77,8 +77,8 @@ There is no separate staff Operations application to build or manually seed.
 5. Confirm Public rejects a Live scope and the UI explains Private availability.
 6. Confirm Development bypasses commercial allowances while retaining execution
    scopes, ownership, funds, validation and other execution invariants.
-7. Confirm Private uses current signed licence validity with unlimited software usage, with no hosted
-   subscription checkout.
+7. Confirm Private has no quotas or checkout and uses the same registration and site pages;
+   confirm Public rejects Live execution.
 8. Ensure all customers see the same catalog/support labels through backend APIs.
 
 Admissions belong at user-driven creation, start, deployment, version change and
@@ -86,9 +86,10 @@ resume actions. Usage completion/refund still runs asynchronously for admitted
 jobs. Do not add commercial plan queries to tick processing or cancel/reduce orders
 because a period allowance expires.
 
-Running activity may be paused by the lifecycle when entitlement ends; protection,
-reductions, reconciliation and account history must remain usable. Renewal does
-not silently resume previously paused trading.
+Commercial expiry is checked at new user-driven admissions. It does not add a
+background gate to admitted execution or to protective/reducing orders. Explicit
+session actions, protection rules and market/runtime readiness still apply. Renewal
+does not silently resume previously paused trading.
 
 ## 5. Integration order
 
@@ -104,8 +105,8 @@ guide](../infra/README.md). Use separate test and production accounts/configurat
 | 5 | Research | Authenticated private service, approved model and processing arrangement |
 | 6 | Public forms | Turnstile verification and owned support conversations |
 | 7 | Billing | Merchant acceptance, reviewed amounts, provider mappings, captured-payment reconciliation |
-| 8 | Optional email features | Newsletter confirmation and/or inbound support replies only if configured |
-| 9 | Private distribution | Central signing keys, contract, provisioned identity, delivered verification keys and signed release |
+| 8 | Optional email features | Inbound support replies only if configured |
+| 9 | Personal Private | Separate host/secrets, locally provisioned owner and personal broker authorization; optional signed release deployment |
 | 10 | Recovery and monitoring | Encrypted backup, isolated restore, real alert delivery and incident runbook |
 
 Google sign-in is optional; password/email authentication remains available.
@@ -134,7 +135,7 @@ Use isolated customer accounts and provider sandbox operations:
 - Practise Terminal and deploy/pause/resume/stop Paper with valid price/history data.
 - Review journal/report source and P&L basis; export owned data.
 - Exhaust and restore allowances through real user/job outcomes.
-- Send support/feedback and receive staff replies; confirm optional newsletter flow.
+- Send support/feedback and receive staff replies.
 - Exercise captured, duplicate, delayed, failed and uncertain payment/refund outcomes.
 - Check cancellation, expiry, explicit resumption and preserved paid terms.
 - Confirm product update email preferences, activity history and blocked unsafe account deletion.
@@ -146,12 +147,13 @@ Do not use a real broker order as a generic health probe.
 ### Capacity gate
 
 The conservative host starts at one API worker, one execution owner with one
-calculation child, one gateway worker, one compute task and one background task at
+calculation child, one gateway worker, one compute task and two background tasks at
 a time. Runtime actor limits are separate from subscription allowances.
 
-The initial four-actor per-user ceiling cannot satisfy Build's five or Pro's
-twenty Paper instruments. Resolve that mismatch with actual resource/admission
-provisioning and evidence before enabling their checkout. Raising a limit alone
+The initial eight-actor owner can accommodate Build's five Paper instruments;
+Pro's twenty need a larger, measured per-owner capacity before checkout opens.
+Public user quotas come directly from the plan. Provision shared capacity and
+collect deployment evidence before opening checkout. Raising a limit alone
 does not add CPU, memory, broker throughput or data entitlement.
 
 ### Activate
@@ -161,31 +163,22 @@ features and plans whose dependencies and capacity are ready. Publish accurate
 contact/status information. Review real error, support, cost and capacity signals
 after launch.
 
-## 7. Private delivery procedure
+## 7. Personal Private deployment
 
-1. Agree workflows, qualified brokers, licence validity, hosting responsibilities,
-   term/maintenance/support and acceptance criteria.
-2. Qualify the Live arrangement separately if included; retain independent broker
-   access and incident responsibility.
-3. Create the central contract and provision the installation.
-4. Deliver the signed release, public verification keys, installation identity and
-   activation secret through a protected channel.
-5. The customer follows infra/private/README.md on their own Linux host.
-6. Create local accounts and Admin; central account records are not copied automatically.
-7. Import/refresh the local licence, prepare data and exercise agreed workflows.
-8. Verify expiry/offline/revision/revocation behavior and explicit resumption.
-9. Validate broker identity, cumulative fills, unknown outcomes and reconciliation
-   on an approved test arrangement before real Live activation.
-10. Hand over backup/restore, monitoring, upgrade and incident instructions.
+Private currently serves only the operator. Follow [Private setup](../infra/private/README.md)
+for an isolated production host, shared registration and UI, local administrator,
+data/broker authorization, backups and upgrades. No customer provisioning, licence
+refresh or central subscription service is required. Live code remains shared;
+Public continues to reject Live scope.
 
-Private saves accepted licence/revision state in PostgreSQL and mounts verification
-keys read-only; there is no separate licence-state volume. Oracle is used by the
-central signing authority; customer hosts need no OCI credentials for ordinary
-local licence verification.
+The retired licensing app has been removed. Older deployments must finish the
+licensing retirement migration using the previous release before upgrading.
+Source/image releases use the standard Docker deployment flow. Customer
+Private plans are deferred.
 
 ## 8. Runtime work that remains bounded by current behavior
 
-The [technical reference](execution-technical-reference.md#20-current-limitations-and-verification-boundaries)
+The [Live operations guide](live-trading.md#operations-and-recovery)
 owns the detailed limitations. Track these engineering priorities before making
 stronger product promises:
 
@@ -193,15 +186,15 @@ stronger product promises:
 | --- | --- | --- |
 | High | Review pending/partial-fill exposure protection | Protection remains correct while broker quantities/orders are unresolved |
 | High | Establish measured end-to-end latency at admitted load | Tick, calculation, gateway, broker acknowledgement/fill and convergence stages reported separately |
-| High | Validate stop/target group parity | Complex rules, multiple matching groups, partial exits and breakeven follow stated semantics |
+| High | Validate stop/target group parity | Complex rules, AND/OR groups and full exits follow stated semantics; real broker partial fills remain accounted for |
 | High before stronger reporting claims | Complete Live net-cost accounting | Broker fees/corrections reconcile without mixing simulated costs |
 | Medium | Define backtest final-exposure policy | Explicit final liquidation or marked-to-market policy and corresponding metrics |
-| Medium | Improve chart reconciliation/aggregation | Session-aligned timeframe boundaries and reconnect history/volume correction |
-| When adding nodes | Controlled topology/partition changes | Drain, ownership fencing, replication gaps and restart recovery demonstrated |
+| Release validation | Validate the implemented Terminal/chart changes | Segment sessions, recorded fees, derivatives quantities, backend candle snapshots and reconnect behaviour; see [Terminal guide](trading-terminal.md) |
+| When increasing workers | Controlled worker/partition changes on one execution server | Old owners stop before new owners start; pending work and shard ownership remain correct |
 | When adding markets | Complete contract lifecycle | Data, calendars, margin, multipliers, expiry/settlement and financial records agree |
 
 Do not describe Python process concurrency as equal latency or exchange-grade HFT.
-Existing telemetry measures local stages, not an unconditional broker fill guarantee.
+Runtime latency sampling is currently removed. Production latency needs an explicit profiling run; process presence is not a broker fill guarantee.
 
 ## 9. Future roadmap
 
@@ -222,8 +215,8 @@ enum or market label does not enable execution.
 ### More users
 
 Measure CPU/RSS, cache pressure, locks, queues and broker account throughput. Scale
-resources and admission first. Add execution nodes with shared PostgreSQL/runtime
-Redis and local observation replication only after the topology procedure is accepted.
+resources and admission on the one execution server. Multi-server execution is a
+future architecture project and has no active runtime settings or transport.
 Preserve one owner per actor/account partition and safe financial serialization.
 
 ### Builder evolution
@@ -245,5 +238,5 @@ of truth and existing components over duplicate static exports or extra services
 
 Keep deployment commands in infra, provider account steps in Third-party setup,
 business workflows in Commercial operations and execution internals in the
-technical reference. Update this plan when a remaining item is actually accepted;
+trading guides. Update this plan when a remaining item is actually accepted;
 do not mark it complete because source code or a local build exists.

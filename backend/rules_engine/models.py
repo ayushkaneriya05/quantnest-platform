@@ -6,7 +6,7 @@ from common.models import BaseTimestampModel
 from common.enums import (
     CandleTimeframe, MarketSession, LogicalOperator, default_trading_days,
     DEFAULT_TRADING_START_TIME, DEFAULT_TRADING_END_TIME,
-    RuleType, RuleGroupAction, OperandType, ComparisonOperator, Timezone
+    RuleType, QuantityType, OperandType, ComparisonOperator, Timezone
 )
 
 
@@ -46,7 +46,7 @@ class TimeRule(BaseTimestampModel):
         null=True,
         blank=True,
         default=DEFAULT_TRADING_END_TIME,
-        help_text="End time for trading (IST)"
+        help_text="End time for new entries in the configured timezone"
     )
     
     # Candle settings
@@ -74,42 +74,10 @@ class TimeRule(BaseTimestampModel):
         return f"{self.strategy.name} - Time Rules"
 
 
-class SpecialEventFilter(BaseTimestampModel):
-    """
-    Filters to avoid trading during special market events.
-    """
-    strategy = models.OneToOneField(
-        'strategies.Strategy',
-        on_delete=models.CASCADE,
-        related_name='special_event_filter'
-    )
-    
-    avoid_earnings = models.BooleanField(
-        default=False,
-        help_text="Avoid trading on earnings announcement days"
-    )
-    avoid_news = models.BooleanField(
-        default=False,
-        help_text="Avoid trading during major news events"
-    )
-    avoid_rbi_policy = models.BooleanField(
-        default=False,
-        help_text="Avoid trading on RBI policy days"
-    )
-    custom_avoid_dates = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Custom dates to avoid trading: ['2024-01-26', ...]"
-    )
-
-    def __str__(self):
-        return f"{self.strategy.name} - Event Filters"
-
-
 class RuleGroup(BaseTimestampModel):
     """
     Group of rules combined with logical operators.
-    Supports AND/OR logic, sequential conditions, and minimum confirmations.
+    Active typed conditions combine with AND/OR; priority defines evaluation order.
     """
     strategy = models.ForeignKey(
         'strategies.Strategy',
@@ -134,19 +102,6 @@ class RuleGroup(BaseTimestampModel):
 
     is_active = models.BooleanField(default=True)
     
-    # Action (e.g., for Stop Loss and Target groups)
-    action = models.CharField(
-        max_length=50,
-        choices=RuleGroupAction.choices,
-        null=True,
-        blank=True,
-    )
-    action_params = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Params for action, e.g., {'exit_pct': 50}"
-    )
-
     class Meta:
         ordering = ['rule_type', 'priority']
 
@@ -217,3 +172,39 @@ class Rule(BaseTimestampModel):
 
     def __str__(self):
         return f"{self.operand_a_type} {self.comparison} {self.operand_b_type}"
+
+
+class PositionSizingRule(BaseTimestampModel):
+    """
+    Defines how position size is calculated for a strategy.
+    Supports fixed quantity and capital-based sizing.
+    """
+    strategy = models.OneToOneField(
+        'strategies.Strategy',
+        on_delete=models.CASCADE,
+        related_name='position_sizing_rule'
+    )
+
+    # Sizing method
+    sizing_method = models.CharField(
+        max_length=20,
+        choices=QuantityType.choices,
+        default=QuantityType.CAPITAL_BASED
+    )
+
+    # Fixed sizing
+    fixed_quantity = models.PositiveIntegerField(default=1, null=True, blank=True)
+
+    # Capital-based sizing
+    capital_percentage = models.DecimalField(
+        max_digits=5, decimal_places=2, default=10.00, null=True, blank=True,
+        help_text="Percentage of capital per trade"
+    )
+
+    class Meta:
+        db_table = 'rules_position_sizing_rule'
+        verbose_name = 'Position Sizing Rule'
+        verbose_name_plural = 'Position Sizing Rules'
+
+    def __str__(self):
+        return f"Sizing for {self.strategy.name}"

@@ -15,13 +15,11 @@ export default function ResearchStrategyPreview({ snapshot, enums = {} }) {
     <p className="text-xs text-muted-foreground">{snapshot.exchange} · {snapshot.instrument_type} · {snapshot.strategy_type}. All configured values below include the backend defaults applied during validation.</p>
     {(snapshot.rule_groups || []).map((group, index) => <section key={index} className="rounded-lg border border-border p-3">
       <h4 className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">{choiceLabel(enums, "RuleType", group.rule_type)} · {group.name}</h4>
-      <p className="my-2 text-xs text-muted-foreground">{group.logical_operator === "OR" ? "Any condition" : "All conditions"}{group.action ? ` · ${choiceLabel(enums, "RuleGroupAction", group.action)}` : ""}</p>
+      <p className="my-2 text-xs text-muted-foreground">{group.logical_operator === "OR" ? "Any condition" : "All conditions"}</p>
       <ul className="space-y-2 text-sm">{(group.rules || []).map((rule, position) => <li key={position} className="break-words">{describeRule(rule, enums)}{rule.is_active === false ? " (disabled)" : ""}</li>)}</ul>
-      {Object.keys(group.action_params || {}).length > 0 && <div className="mt-3"><ConfigFields value={group.action_params} /></div>}
     </section>)}
-    {[["Time and timeframe", "time_rule"], ["Position sizing", "position_sizing_rule"], ["Entry settings", "entry_order_config"], ["Exit settings", "exit_order_config"], ["Event restrictions", "special_event_filter"]].map(([label, key]) => snapshot[key] && <details key={key} className="rounded-lg border border-border p-3" open={key === "time_rule" || key === "position_sizing_rule"}><summary className="mb-3 cursor-pointer text-sm font-medium">{label}</summary><ConfigFields value={snapshot[key]} /></details>)}
+    {[["Time and timeframe", "time_rule"], ["Position sizing", "position_sizing_rule"], ["Entry settings", "entry_order_config"], ["Exit settings", "exit_order_config"]].map(([label, key]) => snapshot[key] && <details key={key} className="rounded-lg border border-border p-3" open={key === "time_rule" || key === "position_sizing_rule"}><summary className="mb-3 cursor-pointer text-sm font-medium">{label}</summary><ConfigFields value={snapshot[key]} /></details>)}
     <section className="rounded-lg border border-border p-3"><h4 className="mb-2 text-sm font-medium">Instruments and routes</h4><ul className="text-sm text-muted-foreground">{(snapshot.watchlist_instruments || []).map((item) => <li key={item.instrument_id}>{item.instrument_symbol || item.symbol || `Instrument #${item.instrument_id}`} · {(item.execution_routes || []).map((route) => route.route_type).join(", ")}</li>)}</ul></section>
-    {(snapshot.auto_disable_rules || []).map((item, index) => <details key={index} className="rounded-lg border border-border p-3"><summary className="mb-3 cursor-pointer text-sm">Auto-disable rule {index + 1}</summary><ConfigFields value={item} /></details>)}
   </div>;
 }
 ResearchStrategyPreview.propTypes = { snapshot: PropTypes.object, enums: PropTypes.object };

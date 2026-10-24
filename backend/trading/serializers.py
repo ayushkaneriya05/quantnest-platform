@@ -1,216 +1,174 @@
-from rest_framework import serializers
+"""Typed Terminal API contracts. Trading mutations belong to the account service."""
+from common.enums import (
+    InstrumentType, ExchangeInstrumentType, TerminalOrderType, TerminalOrderStatus,
+    Side, TERMINAL_USER_ORDER_TYPES,
+)
 from django.db import transaction
-from instruments.models import Instrument
-
+from django.utils import timezone
+from rest_framework import serializers
+from brokers.models import BrokerChargeProfile
 from .models import Watchlist, Account, Position, Order, TradeHistory, ClosedPositionLog
 from .services import TradingOrderService
 
+
 class InstrumentSerializer(serializers.ModelSerializer):
-    """
-    Serializes Instrument data for read operations.
-    """
-    company_name = serializers.CharField(source="name", read_only=True)
+    orderable = serializers.SerializerMethodField()
 
     class Meta:
+        from instruments.models import Instrument
         model = Instrument
-        fields = ['id', 'symbol', 'company_name', 'exchange', 'sym_ticker']
+        fields = ['id', 'symbol', 'name', 'exchange', 'segment', 'sym_ticker',
+                  'instrument_type', 'option_type', 'strike_price', 'expiry_date',
+                  'underlying_symbol', 'lot_size', 'qty_multiplier', 'tick_size',
+                  'qty_freeze', 'currency_code', 'orderable']
+
+    def get_orderable(self, obj):
+        return obj.is_active and obj.is_tradeable and obj.instrument_type not in (InstrumentType.INDEX, InstrumentType.MF) and obj.ex_inst_type != ExchangeInstrumentType.UNDCUR and (not obj.expiry_date or obj.expiry_date >= timezone.localdate())
+
 
 class WatchlistSerializer(serializers.ModelSerializer):
-    """
-    Serializes the user's watchlist, nesting the instrument details.
-    """
     instruments = InstrumentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Watchlist
-        fields = ['id', 'user', 'instruments']
-        
+        fields = ['id', 'name', 'instruments']
+
+    def validate_name(self, value):
+        lists = Watchlist.objects.filter(user=self.context['request'].user, name=value)
+        if self.instance:
+            lists = lists.exclude(pk=self.instance.pk)
+        if lists.exists():
+            raise serializers.ValidationError('Choose a different watchlist name.')
+        return value
+
+
 class AccountSerializer(serializers.ModelSerializer):
-    """
-    Serializes the user's trading account, including all P&L fields.
-    """
+    charge_profile = serializers.PrimaryKeyRelatedField(queryset=BrokerChargeProfile.objects.none(), allow_null=True, required=False)
+    futures_margin_pct = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=1, max_value=100)
+    short_option_margin_pct = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=1, max_value=100)
+
     class Meta:
         model = Account
-        fields = [
-            'id', 'user', 'balance', 'margin', 
-            'realized_pnl', 'unrealized_pnl', 'created_at'
-        ]
-        read_only_fields = ['user', 'created_at', 'realized_pnl', 'unrealized_pnl']
+        fields = ['id', 'user', 'balance', 'margin', 'realized_pnl', 'unrealized_pnl',
+                  'created_at', 'charge_profile', 'charges_paid', 'starting_balance',
+                  'futures_margin_pct', 'short_option_margin_pct']
+        read_only_fields = ['id', 'user', 'balance', 'margin', 'realized_pnl', 'unrealized_pnl',
+                            'created_at', 'charges_paid', 'starting_balance']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request:
+            self.fields['charge_profile'].queryset = BrokerChargeProfile.objects.filter(user=request.user)
+
+    @transaction.atomic
+    def update(self, instance, data):
+        from common.enums import ExecutionMode, ExecutionCommandType
+        from execution.repository import enqueue
+        account = Account.objects.select_for_update().get(pk=instance.pk)
+        if any(key in data and data[key] != getattr(account, key)
+               for key in ('futures_margin_pct', 'short_option_margin_pct')):
+            if Order.objects.filter(account=account, status=TerminalOrderStatus.OPEN).exists():
+                raise serializers.ValidationError('Finish working orders before changing margin settings.')
+        changes = {key: value.pk if key == 'charge_profile' and value else value for key, value in data.items()}
+        enqueue(ExecutionMode.TERMINAL, account.pk, ExecutionCommandType.REFRESH, {'terminal_changes': changes})
+        return account
+
 
 class PositionSerializer(serializers.ModelSerializer):
-    """
-    Serializes an open position, including risk management fields.
-    """
     instrument = InstrumentSerializer(read_only=True)
 
     class Meta:
         model = Position
-        fields = [
-            'id', 'instrument', 'quantity', 'average_price', 
-            'stop_loss', 'take_profit'
-        ]
+        fields = ['id', 'instrument', 'quantity', 'average_price', 'stop_loss', 'take_profit']
         read_only_fields = ['quantity', 'average_price']
 
-    def validate(self, attrs):
-        instance = self.instance
-        if instance is None:
-            return attrs
-
-        stop_loss = attrs.get("stop_loss", instance.stop_loss)
-        take_profit = attrs.get("take_profit", instance.take_profit)
-        average_price = instance.average_price
-
-        if instance.quantity > 0:
-            if stop_loss is not None and stop_loss >= average_price:
-                raise serializers.ValidationError({"stop_loss": "Stop loss for a long position must be below average price."})
-            if take_profit is not None and take_profit <= average_price:
-                raise serializers.ValidationError({"take_profit": "Take profit for a long position must be above average price."})
-        elif instance.quantity < 0:
-            if stop_loss is not None and stop_loss <= average_price:
-                raise serializers.ValidationError({"stop_loss": "Stop loss for a short position must be above average price."})
-            if take_profit is not None and take_profit >= average_price:
-                raise serializers.ValidationError({"take_profit": "Take profit for a short position must be below average price."})
-
-        return attrs
-
     @transaction.atomic
-    def update(self, instance, validated_data):
-        Account.objects.select_for_update().get(pk=instance.account_id)
-        self.instance = Position.objects.select_for_update().get(pk=instance.pk)
-        self.validate(validated_data)
-        position = super().update(self.instance, validated_data)
-        TradingOrderService.sync_position_sl_tp_orders(position)
+    def update(self, instance, data):
+        from common.enums import ExecutionMode, ExecutionCommandType
+        from execution.repository import enqueue
+        position = Position.objects.select_for_update().get(pk=instance.pk)
+        enqueue(ExecutionMode.TERMINAL, position.account_id, ExecutionCommandType.PROTECT, {
+            'instrument_id': position.instrument_id,
+            'unit': [ExecutionMode.TERMINAL, position.account_id, position.instrument_id],
+            'stop': data.get('stop_loss', position.stop_loss),
+            'target': data.get('take_profit', position.take_profit),
+        })
         return position
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    """
-    Handles both creating and displaying orders.
-    """
+    order_type = serializers.ChoiceField(choices=TERMINAL_USER_ORDER_TYPES, required=False)
     instrument = InstrumentSerializer(read_only=True)
-    instrument_symbol = serializers.CharField(write_only=True, required=False)
-    transaction_type = serializers.ChoiceField(choices=Order.TRANSACTION_TYPES, required=False)
+    sym_ticker = serializers.SlugRelatedField(source='instrument', slug_field='sym_ticker', queryset=InstrumentSerializer.Meta.model.objects.all(), write_only=True, required=False)
+    transaction_type = serializers.ChoiceField(choices=Side.choices, required=False)
 
     class Meta:
         model = Order
-        fields = [
-            'id', 'instrument', 'instrument_symbol', 'order_type', 'status', 
-            'transaction_type', 'quantity', 'price', 'trigger_price', 
-            'created_at', 'executed_at'
-        ]
-        read_only_fields = ['id', 'instrument', 'status', 'created_at', 'executed_at']
-
-    def create(self, validated_data):
-        instrument_symbol = validated_data.get("instrument_symbol")
-        transaction_type = validated_data.get("transaction_type")
-
-        if not instrument_symbol:
-            raise serializers.ValidationError({"instrument_symbol": "This field is required for creating an order."})
-        if not transaction_type:
-            raise serializers.ValidationError({"transaction_type": "This field is required for creating an order."})
-
-        try:
-            return TradingOrderService.create_order(self.context["request"].user, validated_data)
-        except serializers.ValidationError:
-            raise
-        except ValueError as exc:
-            raise serializers.ValidationError({"detail": str(exc)}) from exc
+        fields = ['id', 'instrument', 'sym_ticker', 'order_type', 'status', 'transaction_type',
+                  'quantity', 'price', 'trigger_price', 'created_at', 'executed_at', 'activated_at',
+                  'filled_quantity', 'avg_fill_price', 'rejection_reason',
+                  'reduce_only', 'stop_loss', 'take_profit']
+        read_only_fields = ['id', 'instrument', 'status', 'created_at', 'executed_at', 'activated_at',
+                            'filled_quantity', 'avg_fill_price', 'rejection_reason']
 
     def validate(self, attrs):
-        order_type = attrs.get("order_type", getattr(self.instance, "order_type", None))
-        quantity = attrs.get("quantity", getattr(self.instance, "quantity", None))
-        price = attrs.get("price", getattr(self.instance, "price", None))
-        trigger_price = attrs.get("trigger_price", getattr(self.instance, "trigger_price", None))
-
-        payload = {
-            "order_type": order_type,
-            "quantity": quantity,
-            "price": price,
-            "trigger_price": trigger_price,
-        }
+        instance = self.instance
+        kind = attrs.get('order_type', instance.order_type if instance else None)
+        payload = {key: attrs.get(key, getattr(instance, key, None)) for key in ('quantity', 'price', 'trigger_price')}
+        payload['order_type'] = kind
         try:
             TradingOrderService.validate_payload(payload)
         except ValueError as exc:
-            raise serializers.ValidationError({"detail": str(exc)}) from exc
-
-        if order_type == "MARKET":
-            attrs["price"] = None
-            attrs["trigger_price"] = None
-        elif order_type == "LIMIT":
-            attrs["trigger_price"] = None
-        elif order_type == "STOP":
-            attrs["price"] = None
-
+            raise serializers.ValidationError(str(exc)) from None
+        if kind == TerminalOrderType.MARKET:
+            attrs.update(price=None, trigger_price=None)
+        elif kind == TerminalOrderType.LIMIT:
+            attrs['trigger_price'] = None
+        elif kind == TerminalOrderType.STOP:
+            attrs['price'] = None
+        if instance and ('instrument' in attrs or 'transaction_type' in attrs or 'reduce_only' in attrs):
+            raise serializers.ValidationError('Instrument, side and reduce-only mode cannot be changed.')
+        if not instance and (not attrs.get('instrument') or not attrs.get('transaction_type')):
+            raise serializers.ValidationError('Instrument and side are required.')
         return attrs
 
+    def create(self, data):
+        try:
+            return TradingOrderService.create_order(self.context['request'].user, data)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from None
+
     @transaction.atomic
-    def update(self, instance, validated_data):
-        account = Account.objects.select_for_update().get(pk=instance.account_id)
-        instance = Order.objects.select_for_update().get(pk=instance.pk)
-        if instance.status != "OPEN":
-            raise serializers.ValidationError({"detail": "Only open orders can be modified."})
-
-        next_order_type = validated_data.get("order_type", instance.order_type)
-        fill_price = None
-        if next_order_type == "MARKET":
-            fill_price = TradingOrderService.get_market_fill_price(instance.instrument)
-
-        order = super().update(instance, validated_data)
-        TradingOrderService.reserve_order(order, account, fill_price)
-        from .services import TerminalOrderCache
-        TerminalOrderCache.update_order(order)
-        if order.order_type == "MARKET":
-            order = TradingOrderService.execute_order(order, fill_price)
-        TradingOrderService.sync_order_to_position(order)
+    def update(self, instance, data):
+        from common.enums import ExecutionMode, ExecutionCommandType
+        from execution.repository import enqueue
+        order = Order.objects.select_for_update().get(pk=instance.pk)
+        if order.status != TerminalOrderStatus.OPEN:
+            raise serializers.ValidationError('Only working orders can be modified.')
+        changes = {('trigger' if key == 'trigger_price' else key): value for key, value in data.items()}
+        enqueue(ExecutionMode.TERMINAL, order.account_id, ExecutionCommandType.AMEND,
+            {'identity': str(order.request_id), 'instrument_id': order.instrument_id, 'changes': changes})
         return order
 
+
 class TradeHistorySerializer(serializers.ModelSerializer):
-    """
-    Serializes a single trade, nesting key details for context.
-    """
     instrument = InstrumentSerializer(source='order.instrument', read_only=True)
     order_type = serializers.CharField(source='order.order_type', read_only=True)
     transaction_type = serializers.CharField(source='order.transaction_type', read_only=True)
 
     class Meta:
         model = TradeHistory
-        fields = [
-            'id', 'order', 'instrument', 'order_type', 'transaction_type',
-            'executed_price', 'quantity', 'timestamp'
-        ]
+        fields = ['id', 'order', 'instrument', 'order_type', 'transaction_type', 'executed_price',
+                  'quantity', 'timestamp', 'charges', 'charges_breakdown']
         read_only_fields = fields
 
+
 class ClosedPositionLogSerializer(serializers.ModelSerializer):
-    """
-    Serializes a closed position (round-trip trade) showing Realized P&L.
-    """
     instrument = InstrumentSerializer(read_only=True)
 
     class Meta:
         model = ClosedPositionLog
-        fields = [
-            'id', 'account', 'instrument', 'side', 'quantity', 
-            'entry_price', 'exit_price', 'realized_pnl', 
-            'entry_time', 'exit_time'
-        ]
+        fields = ['id', 'account', 'instrument', 'side', 'quantity', 'entry_price', 'exit_price',
+                  'realized_pnl', 'gross_pnl', 'recorded_charges', 'entry_time', 'exit_time', 'exit_reason']
         read_only_fields = fields
-
-class AccountSummarySerializer(serializers.ModelSerializer):
-    """
-    Serializes comprehensive data for the account summary page, including
-    trade history and positions for frontend calculations.
-    """
-    positions = PositionSerializer(many=True, read_only=True)
-    history = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Account
-        fields = [
-            'id', 'user', 'balance', 'margin',
-            'realized_pnl', 'unrealized_pnl', 'created_at',
-            'positions', 'history'
-        ]
-
-    def get_history(self, obj):
-        trade_history = TradeHistory.objects.filter(order__account=obj).order_by('-timestamp')
-        return TradeHistorySerializer(trade_history, many=True).data

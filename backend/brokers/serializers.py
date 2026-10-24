@@ -4,35 +4,26 @@ from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerF
 
 
 class BrokerCredentialSerializer(serializers.ModelSerializer):
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        for field in ["client_id", "api_key", "api_secret", "totp_secret"]:
-            data.pop(field, None)
-        return data
-
     class Meta:
         model = BrokerCredential
         fields = [
-            "id",
-            "broker_name",
-            "label",
-            "client_id",
-            "api_key",
-            "api_secret",
-            "totp_secret",
-            "permissions",
-            "is_active",
-            "is_verified",
-            "last_verified_at",
-            "created_at",
-            "updated_at",
+            "id", "broker_name", "label", "client_id", "permissions",
+            "is_active", "is_verified", "last_verified_at", "created_at", "updated_at",
         ]
-        read_only_fields = ["is_verified", "last_verified_at", "created_at", "updated_at"]
-        extra_kwargs = {
-            "api_key": {"write_only": True, "required": False, "allow_blank": True},
-            "api_secret": {"write_only": True, "required": False, "allow_blank": True},
-            "totp_secret": {"write_only": True, "required": False, "allow_blank": True},
-        }
+        read_only_fields = fields
+
+
+class BrokerConfigurationSerializer(serializers.Serializer):
+    broker_name = serializers.CharField(max_length=20)
+
+    def validate(self, attrs):
+        from .services import BROKER_ADAPTERS
+        adapter_class = BROKER_ADAPTERS.get(attrs["broker_name"])
+        if adapter_class is None:
+            raise serializers.ValidationError({"broker_name": "This broker is not supported yet."})
+        configuration = adapter_class.configuration_serializer(data=self.initial_data)
+        configuration.is_valid(raise_exception=True)
+        return {**attrs, **configuration.validated_data}
 
 
 class BrokerSessionSerializer(serializers.ModelSerializer):
@@ -109,11 +100,12 @@ class BrokerChargeProfileSerializer(serializers.ModelSerializer):
             'brokerage_per_order', 'brokerage_pct', 'brokerage_cap',
             'stt_eq_delivery_pct', 'stt_eq_intraday_pct',
             'stt_futures_pct', 'stt_options_sell_pct',
+            'ctt_futures_sell_pct', 'ctt_options_sell_pct',
             'exchange_txn_pct', 'exchange_txn_fo_pct',
             'sebi_turnover_pct', 'stamp_duty_pct', 'gst_pct',
             'is_default', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'is_default', 'created_at', 'updated_at']
 
     def validate_name(self, value):
         """Ensure unique name per user."""
@@ -127,19 +119,4 @@ class BrokerChargeProfileSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data['user'] = self.context['request'].user
-        profile = super().create(validated_data)
-        if profile.is_default:
-            BrokerChargeProfile.objects.filter(
-                user=profile.user,
-                is_default=True,
-            ).exclude(pk=profile.pk).update(is_default=False)
-        return profile
-
-    def update(self, instance, validated_data):
-        profile = super().update(instance, validated_data)
-        if profile.is_default:
-            BrokerChargeProfile.objects.filter(
-                user=profile.user,
-                is_default=True,
-            ).exclude(pk=profile.pk).update(is_default=False)
-        return profile
+        return super().create(validated_data)

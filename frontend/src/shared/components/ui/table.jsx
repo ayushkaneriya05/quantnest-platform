@@ -2,8 +2,8 @@ import * as React from "react"
 import PropTypes from "prop-types"
 import { cn } from "@/shared/lib/utils"
 
-const Table = React.forwardRef(({ className, ...props }, ref) => (
-  <div className="scrollbar-thin-theme relative min-w-0 w-full max-w-full overflow-auto">
+const Table = React.forwardRef(({ className, containerClassName, ...props }, ref) => (
+  <div className={cn("scrollbar-thin-theme relative min-w-0 w-full max-w-full overflow-auto", containerClassName)}>
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm [&_th]:whitespace-nowrap", className)}
@@ -12,7 +12,7 @@ const Table = React.forwardRef(({ className, ...props }, ref) => (
   </div>
 ))
 Table.displayName = "Table"
-Table.propTypes = { className: PropTypes.string }
+Table.propTypes = { className: PropTypes.string, containerClassName: PropTypes.string }
 
 const TableHeader = React.forwardRef(({ className, ...props }, ref) => (
   <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />

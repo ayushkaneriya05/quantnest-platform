@@ -1,21 +1,21 @@
-import logging
+from datetime import timedelta
 
 from celery import shared_task
 from django.core.management import call_command
-from core.retention import prune_runtime_records
-
-logger = logging.getLogger(__name__)
+from django.utils import timezone
 
 
 @shared_task(name="common.sync_market_holidays")
 def sync_market_holidays():
     """Daily sync of exchange holiday calendars."""
-    logger.info("Starting scheduled market holiday sync")
-    try:
-        call_command("sync_market_holidays")
-    except Exception as exc:
-        logger.exception("Failed to sync market holidays: %s", exc)
-        return {"status": "error", "message": str(exc)}
+    call_command("sync_market_holidays")
 
-    logger.info("Finished scheduled market holiday sync")
-    return {"status": "ok"}
+
+@shared_task(name="common.prune_execution_commands")
+def prune_execution_commands():
+    """Bound command history; never remove pending work or financial checkpoints."""
+    from execution.models import Command
+    cutoff = timezone.now() - timedelta(days=7)
+    ids = list(Command.objects.filter(applied_at__lt=cutoff).order_by('pk').values_list('pk', flat=True)[:10000])
+    deleted, _ = Command.objects.filter(pk__in=ids).delete()
+    return {'completed_commands_removed': deleted}

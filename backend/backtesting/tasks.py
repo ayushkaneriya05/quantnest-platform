@@ -18,16 +18,12 @@ def run_backtest_task(run_id):
     if not BacktestRun.objects.filter(pk=run_id, status=BacktestStatus.QUEUED).update(status=BacktestStatus.RUNNING, started_at=timezone.now()):
         return
     try:
-        run = BacktestRun.objects.select_related("user", "strategy").get(id=run_id)
-        engine = BacktestEngine(run_instance=run)
+        run = BacktestRun.objects.select_related("user", "strategy", "strategy_version").get(id=run_id)
+        engine = BacktestEngine(run)
         engine.run_simulation()
         run.refresh_from_db(fields=["status", "error_message"])
         notify_backtest_result(run)
-        if run.status == BacktestStatus.FAILED:
-            return f"Backtest {run_id} failed: {run.error_message}"
-        if run.status == BacktestStatus.CANCELLED:
-            return f"Backtest {run_id} cancelled"
-        return f"Backtest {run_id} completed successfully"
+        return run_id
     except Exception as e:
         logger.exception(f"Error in backtest task {run_id}: {str(e)}")
         # Update run status if not already handled by engine
@@ -41,7 +37,7 @@ def run_backtest_task(run_id):
         if failed_run:
             publish_backtest_update(failed_run)
             notify_backtest_result(failed_run)
-        return f"Backtest {run_id} failed: {str(e)}"
+        return run_id
 
 
 
@@ -57,9 +53,7 @@ def run_monte_carlo_task(mc_id):
         simulator = MonteCarloSimulator(mc_id)
         simulator.run_simulation()
         simulator.run.refresh_from_db(fields=["status", "error_message"])
-        if simulator.run.status == BacktestStatus.FAILED:
-            return f"Monte Carlo {mc_id} failed: {simulator.run.error_message}"
-        return f"Monte Carlo {mc_id} completed successfully"
+        return mc_id
     except Exception as e:
         logger.exception(f"Error in monte carlo task {mc_id}: {str(e)}")
         MonteCarloRun.objects.filter(id=mc_id).update(
@@ -67,4 +61,4 @@ def run_monte_carlo_task(mc_id):
             error_message=str(e),
             completed_at=timezone.now()
         )
-        return f"Monte Carlo {mc_id} failed: {str(e)}"
+        return mc_id

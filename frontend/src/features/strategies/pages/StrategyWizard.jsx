@@ -45,7 +45,7 @@ export default function StrategyWizard() {
         status: data.status || 'DRAFT',
         paper_trading_enabled: data.paper_trading_enabled ?? false,
         live_trading_enabled: data.live_trading_enabled ?? false,
-        tags: Array.isArray(data.tags) ? data.tags : [],
+        tags: data.tags,
       });
     } catch (error) {
       notify.error(getApiErrorMessage(error, 'Failed to load strategy'));
@@ -339,7 +339,7 @@ export default function StrategyWizard() {
             <div className="text-center py-6">
               <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
                 After creating your strategy, you can configure entry rules, exit rules,
-                trading hours, assets, and risk settings.
+                trading hours, instruments, position sizing, and full-position exits.
               </p>
             </div>
           )}

@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 from notifications.services import NotificationService
 from common.enums_view import get_enum_metadata
+from .evaluation import SCREEN_OPERAND_TYPES
 from .models import ResearchRun, ResearchAction
 from .services import update_active_run, ACTIVE
 from .tools import execute_tool
@@ -38,11 +39,10 @@ def normalize_citations(text, evidence, references):
 @shared_task(name="research.expire_runs")
 def expire_runs():
     from datetime import timedelta
-    from django.db.models import Q
     cutoff = timezone.now() - timedelta(minutes=11)
+    # Queued work can legitimately wait behind a backtest on the compute worker.
     stale = ResearchRun.objects.filter(
-        Q(status=ResearchRun.Status.PENDING, created_at__lt=cutoff) |
-        Q(status=ResearchRun.Status.RUNNING, started_at__lt=cutoff)).values_list("pk", flat=True)
+        status=ResearchRun.Status.RUNNING, started_at__lt=cutoff).values_list("pk", flat=True)
     for run_id in list(stale[:100]):
         failed = update_active_run(run_id, status=ResearchRun.Status.FAILED, progress_message="Research deadline exceeded",
                                    error_message="The research worker did not finish within its deadline. Retry the request.", completed_at=timezone.now())
@@ -143,6 +143,8 @@ def start_research(run_id):
                                    "has_strategy_snapshot": bool(run.request.get("strategy_snapshot")),
                                    "recorded_evidence": run.evidence, "tool_budget": 8 - run.tool_attempts},
                        "builder_schema": get_enum_metadata(),
+                       "screen_operand_types": SCREEN_OPERAND_TYPES,
+                       "screen_data_policy": "Screening and stock analysis use completed candles as of the run. Use CLOSE, not live LTP. Strategy drafts may use live LTP.",
                        "history": [{"run_id": item.pk, "prompt": item.prompt or "Market screen", "answer": item.result.get("answer", ""),
                                     "as_of": item.as_of.isoformat(), "draft_evidence_id": item.result.get("draft_evidence_id"),
                                     "evidence": [{"evidence_id": value["evidence_id"], "tool": value["tool"],

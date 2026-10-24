@@ -19,7 +19,7 @@ order: 10
 
 - Explore, Build and Pro currently support NSE stocks.
 - NSE futures and options are coming soon in Build and Pro. They are not available today, and no release date is announced. Upgrading adds capacity for the currently supported workflow.
-- Live trading is supported through an activated Private installation with an agreed supported broker setup, rather than a public subscription.
+- Customer Live trading and QuantNest Private are not currently available.
 
 - Explore resets each calendar month in Asia/Kolkata. Paid allowances follow the verified billing period.
 - Used and reserved work are shown separately; a running job stays associated with the period in which it started.
@@ -37,4 +37,4 @@ order: 10
 
 - The first paid Workspace purchase has a seven-day refund window alongside applicable remedies.
 - Submit your payment reference and reason, then track the request status and relevant credit note.
-- Read the [refund policy](/refunds/) for Private and custom-work distinctions.
+- Read the [refund policy](/refunds/) for custom-work terms.

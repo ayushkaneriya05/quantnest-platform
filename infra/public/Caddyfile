@@ -1,5 +1,4 @@
 {$ORIGIN_HOSTNAME} {
-	tls /etc/caddy/tls/origin.pem /etc/caddy/tls/origin-key.pem
 	encode zstd gzip
 	request_body {
 		max_size 12MB

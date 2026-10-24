@@ -22,7 +22,7 @@ export const featureDetails = {
     task: 'Turn your trading idea into rules you can read and test.',
     summary: 'Define entries, exits, position size and safeguards without writing an execution program.',
     steps: ['Choose instruments and a default timeframe. Define entry and exit conditions.', 'Set fixed-quantity or capital-based sizing, stop-loss, target, trading windows and relevant restrictions.', 'Save a version with notes. Inspect changes, backtest it and explicitly select a version when deploying to Paper.'],
-    capabilities: [['Visual rules', 'Combine indicator and price conditions using AND/OR groups, supported operators and configurable parameters.'], ['Sizing and exits', 'Choose how much to trade and describe stop-loss, target and supported exit actions separately.'], ['Version history', 'Keep saved configurations with notes and readable changes. Review a version before restoring it.'], ['Read-only sharing', 'Share a public configuration link when you choose. Account and execution records stay private.']],
+    capabilities: [['Visual rules', 'Combine indicator and price conditions using AND/OR groups, supported operators and configurable parameters.'], ['Sizing and exits', 'Choose how much to trade and describe stop-loss, target and full-position exit conditions separately.'], ['Version history', 'Keep saved configurations with notes and readable changes. Review a version before restoring it.'], ['Read-only sharing', 'Share a public configuration link when you choose. Account and execution records stay private.']],
     inputs: 'Your instruments, conditions, parameters, timeframe, sizing and execution restrictions.',
     outputs: 'A saved strategy and version history preserving the rules behind tests and deployments.',
     limitations: 'Saving does not start execution. You supply the logic; QuantNest does not sell profitable strategies. Current strategy execution supports NSE cash stocks.',
@@ -57,11 +57,11 @@ export const featureDetails = {
   journal: {
     task: 'Understand your decisions and learn from recorded outcomes.',
     summary: 'Keep private trade reviews and examine performance without mixing execution environments.',
-    steps: ['Choose Terminal, Paper or available Private Live records, then select dates.', 'Review a close and save context, lessons, mistake tags and your execution rating.', 'Use Reports for realised summaries. Optionally attach results and selected notes to AI research.'],
-    capabilities: [['Private reviews', 'Record why you acted, what went as expected and what you would change.'], ['Separate reports', 'Keep manual Terminal, automated Paper and Private Live outcomes clearly separated.'], ['Realised summaries', 'Inspect recorded P&L, charges and available breakdowns for selected dates.'], ['Connected research', 'Ask AI about a trade or results, choosing whether saved notes are included.']],
+    steps: ['Choose Terminal or Paper records, then select dates.', 'Review a close and save context, lessons, mistake tags and your execution rating.', 'Use Reports for realised summaries. Optionally attach results and selected notes to AI research.'],
+    capabilities: [['Private reviews', 'Record why you acted, what went as expected and what you would change.'], ['Separate reports', 'Keep manual Terminal and automated Paper outcomes clearly separated.'], ['Realised summaries', 'Inspect recorded P&L, charges and available breakdowns for selected dates.'], ['Connected research', 'Ask AI about a trade or results, choosing whether saved notes are included.']],
     inputs: 'Recorded closes, an execution source, dates and your private review notes.',
     outputs: 'Saved reviews, source-specific realised summaries and an optional research handoff.',
-    limitations: 'Partial exits count separately. Ratings are self-reported. Equity metrics are unavailable when the necessary historical equity series is not recorded.',
+    limitations: 'Broker partial fills and manual reductions count separately. Ratings are self-reported. Equity metrics are unavailable when the necessary historical equity series is not recorded.',
   },
   controls: {
     task: 'Keep your account and execution settings under your control.',

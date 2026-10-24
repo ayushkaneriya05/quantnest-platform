@@ -3,7 +3,7 @@ from .models import Watchlist,TradeHistory,Account,Position,Order,ClosedPosition
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    raw_id_fields = ('account', 'instrument', 'oco_linked_order', 'position_link')
+    raw_id_fields = ('account', 'instrument')
     list_display = ('id', 'account', 'transaction_type', 'quantity', 'instrument', 'order_type', 'status', 'price')
     list_filter = ('status', 'order_type', 'transaction_type')
 

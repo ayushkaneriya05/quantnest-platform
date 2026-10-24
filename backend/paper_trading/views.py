@@ -1,25 +1,25 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db import transaction
-from common.enums import CapitalAllocationType
-from core.lifecycle import publish_session_event
+from django.db.models import Prefetch
+from decimal import Decimal
+from rest_framework.fields import DecimalField
 from .models import (
     PaperAccount, PaperPosition, PaperOrder, PaperTrade,
-    Portfolio, CapitalAllocation, FundTransaction, DailyPerformance,
+    Portfolio, FundTransaction,
     PaperTradingSession
 )
 from .serializers import (
     PaperAccountSerializer, PaperPositionSerializer,
     PaperOrderSerializer, PaperTradeSerializer,
-    PortfolioSerializer, CapitalAllocationSerializer,
+    PortfolioSerializer,
     FundTransactionSerializer,
-    DailyPerformanceSerializer, PaperTradingSessionSerializer
+    PaperTradingSessionSerializer
 )
 from .services import PaperExecutionService, PortfolioService
 
 
-class PortfolioViewSet(viewsets.ModelViewSet):
+class PortfolioViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for user portfolio."""
     serializer_class = PortfolioSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -27,231 +27,31 @@ class PortfolioViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Portfolio.objects.filter(user=self.request.user)
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
     @action(detail=False, methods=['get'])
     def me(self, request):
         """Get current user's portfolio (creates if not exists)."""
-        portfolio, created = Portfolio.objects.get_or_create(
-            user=request.user,
-            defaults={'name': 'Primary Portfolio'}
-        )
+        portfolio = PortfolioService.get_or_create_portfolio(request.user)
         serializer = self.get_serializer(portfolio)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=['post'])
-    def create_paper_account(self, request):
-        """Create or return paper account for strategy allocation."""
-        allocation_id = request.data.get('allocation_id')
-        name = request.data.get('name')
-        if not allocation_id:
-            return Response({'error': 'allocation_id required'}, status=400)
-
-        try:
-            allocation = CapitalAllocation.objects.get(id=allocation_id, portfolio__user=request.user)
-            strategy = allocation.strategy
-        except CapitalAllocation.DoesNotExist:
-            return Response({'error': 'Allocation not found'}, status=404)
-
-        try:
-            with transaction.atomic():
-                from django.contrib.auth import get_user_model
-                get_user_model().objects.select_for_update().get(pk=request.user.pk)
-                paper_account = PortfolioService.ensure_paper_account_for_allocation(allocation, name=name)
-                PaperExecutionService.deploy_session(
-                    user=request.user,
-                    strategy=strategy,
-                    allocation=paper_account.allocation,
-                    account=paper_account,
-                    initial_status="STOPPED",
-                    slippage_pct=request.data.get('slippage_pct', 0),
-                    charge_profile_id=request.data.get('charge_profile'),
-                    include_charges=request.data.get('include_charges', True),
-                )
-        except ValueError as e:
-            return Response({'error': str(e)}, status=400)
-
-        serializer = PaperAccountSerializer(paper_account)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'])
     def deposit(self, request, pk=None):
         """Deposit funds into portfolio."""
-        amount = request.data.get('amount', 0)
-        if float(amount or 0) <= 0:
-            return Response({'error': 'Amount must be positive'}, status=400)
+        self.get_object()
+        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal('0.01')).run_validation(request.data.get('amount'))
         transaction = PortfolioService.deposit(request.user, amount, request.data.get('notes', ''))
         return Response({'success': True, 'new_balance': transaction.balance_after})
 
     @action(detail=True, methods=['post'])
     def withdraw(self, request, pk=None):
         """Withdraw funds from portfolio."""
-        amount = request.data.get('amount', 0)
-        if float(amount or 0) <= 0:
-            return Response({'error': 'Amount must be positive'}, status=400)
+        self.get_object()
+        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal('0.01')).run_validation(request.data.get('amount'))
         try:
             transaction = PortfolioService.withdraw(request.user, amount, request.data.get('notes', ''))
         except ValueError as exc:
             return Response({'error': str(exc)}, status=400)
         return Response({'success': True, 'new_balance': transaction.balance_after})
-
-    @action(detail=False, methods=['get'])
-    def performance(self, request):
-        portfolio = PortfolioService.get_or_create_portfolio(request.user)
-        data = DailyPerformance.objects.filter(portfolio=portfolio).order_by('date')
-        return Response(DailyPerformanceSerializer(data, many=True).data)
-
-class CapitalAllocationViewSet(viewsets.ModelViewSet):
-    """ViewSet for capital allocations."""
-    serializer_class = CapitalAllocationSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return CapitalAllocation.objects.filter(portfolio__user=self.request.user)
-
-    def create(self, request, *args, **kwargs):
-        """Create allocation using service logic."""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        portfolio = serializer.validated_data['portfolio']
-        strategy = serializer.validated_data['strategy']
-        alloc_type = serializer.validated_data['allocation_type']
-        version = serializer.validated_data.get('deployed_version')
-        deployed_version_id = version.pk if version else None
-
-        val = serializer.validated_data['allocated_amount'] if alloc_type == 'FIXED' else serializer.validated_data['allocated_percentage']
-
-        try:
-            allocation = PortfolioService.allocate_to_strategy(portfolio, strategy, val, alloc_type, deployed_version_id=deployed_version_id)
-            return Response(self.get_serializer(allocation).data, status=status.HTTP_201_CREATED)
-        except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    @transaction.atomic
-    def update(self, request, *args, **kwargs):
-        """Update allocation using service logic."""
-        from django.contrib.auth import get_user_model
-        get_user_model().objects.select_for_update().get(pk=request.user.pk)
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-
-        portfolio = instance.portfolio
-        strategy = instance.strategy
-        alloc_type = serializer.validated_data.get('allocation_type', instance.allocation_type)
-        version = serializer.validated_data.get('deployed_version')
-        deployed_version_id = version.pk if version else None
-        if version and instance.deployed_version_id != version.pk:
-            from commercial.usage import require_inventory_capacity
-            require_inventory_capacity(request.user, paper_snapshot=version.config_snapshot, paper_allocation=instance)
-
-
-        if alloc_type == CapitalAllocationType.FIXED:
-            val = serializer.validated_data.get('allocated_amount', instance.allocated_amount)
-        else:
-            val = serializer.validated_data.get('allocated_percentage', instance.allocated_percentage)
-
-        try:
-            allocation = PortfolioService.allocate_to_strategy(portfolio, strategy, val, alloc_type, allocation_instance=instance, deployed_version_id=deployed_version_id)
-            return Response(self.get_serializer(allocation).data)
-        except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    def destroy(self, request, pk=None):
-        """Delete allocation with paper account options."""
-        allocation = self.get_object()
-        paper_account = getattr(allocation, 'paper_account', None)
-
-        if paper_account:
-            can_delete_account, delete_reason = PortfolioService.can_delete_paper_account(paper_account)
-            return Response({
-                'status': 'has_paper_account',
-                'paper_account': {
-                    'id': paper_account.id,
-                    'name': paper_account.name,
-                    'current_balance': str(paper_account.current_balance),
-                    'total_pnl': str(paper_account.total_pnl),
-                    'unrealized_pnl': str(paper_account.unrealized_pnl),
-                },
-                'can_delete_paper_account': can_delete_account,
-                'delete_reason': delete_reason,
-                'message': 'Allocation has an associated paper account. Confirm deletion options.',
-            }, status=status.HTTP_200_OK)
-
-        try:
-            PortfolioService.deallocate_from_strategy(allocation)
-        except ValueError as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({'success': True, 'message': 'Allocation deleted'}, status=200)
-
-    @action(detail=True, methods=['post'])
-    def confirm_delete(self, request, pk=None):
-        """Confirm allocation deletion with optional paper account deletion."""
-        allocation = self.get_object()
-        delete_paper_account = request.data.get('delete_paper_account', False)
-        try:
-            PortfolioService.deallocate_from_strategy(allocation, delete_paper_account=delete_paper_account is True)
-        except ValueError as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({'success': True, 'message': 'Allocation deleted'}, status=200)
-
-    @action(detail=False, methods=['get'])
-    def by_strategy(self, request):
-        """Get allocation for a specific strategy."""
-        strategy_id = request.query_params.get('strategy_id')
-        if not strategy_id:
-            return Response({'error': 'strategy_id required'}, status=400)
-
-        allocations = self.get_queryset().filter(strategy_id=strategy_id)
-        return Response(self.get_serializer(allocations, many=True).data)
-
-    @action(detail=True, methods=['post'], url_path='deploy-version')
-    @transaction.atomic
-    def deploy_version(self, request, pk=None):
-        """Hot-swap the deployed strategy version on a paper allocation."""
-        from django.contrib.auth import get_user_model
-        get_user_model().objects.select_for_update().get(pk=request.user.pk)
-        allocation = self.get_object()
-        allocation = CapitalAllocation.objects.select_for_update(of=("self",)).get(pk=allocation.pk)
-        version_id = request.data.get('version_id')
-
-        if not version_id:
-            return Response(
-                {'error': 'version_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            from strategies.models import StrategyVersion
-            version = StrategyVersion.objects.get(
-                id=version_id,
-                strategy=allocation.strategy
-            )
-        except StrategyVersion.DoesNotExist:
-            return Response(
-                {'error': 'Invalid version for this strategy'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        if allocation.deployed_version_id == version.pk:
-            return Response(self.get_serializer(allocation).data)
-        from commercial.usage import require_inventory_capacity
-        require_inventory_capacity(request.user, paper_snapshot=version.config_snapshot, paper_allocation=allocation)
-        allocation.deployed_version = version
-        allocation.save(update_fields=['deployed_version', 'updated_at'])
-
-        from risk_management.auto_disable import AutoDisableGate
-        for session in allocation.paper_sessions.all():
-            AutoDisableGate.version_changed(session)
-            if session.status == "RUNNING":
-                publish_session_event("paper", session, "VERSION_CHANGE")
-
-        serializer = self.get_serializer(allocation)
-        return Response(serializer.data)
-
 
 class FundTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for fund transactions (read-only)."""
@@ -262,156 +62,117 @@ class FundTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         return FundTransaction.objects.filter(portfolio__user=self.request.user)
 
 
-class DailyPerformanceViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for daily performance records."""
-    serializer_class = DailyPerformanceSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return DailyPerformance.objects.filter(portfolio__user=self.request.user)
-
-    @action(detail=False, methods=['get'])
-    def range(self, request):
-        """Get performance for a date range."""
-        start_date = request.query_params.get('start')
-        end_date = request.query_params.get('end')
-
-        queryset = self.get_queryset()
-        if start_date:
-            queryset = queryset.filter(date__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(date__lte=end_date)
-
-        return Response(self.get_serializer(queryset, many=True).data)
-
-
 class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for paper trading sessions."""
     serializer_class = PaperTradingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PaperTradingSession.objects.filter(user=self.request.user).select_related(
-            'strategy', 'allocation', 'account', 'charge_profile'
-        ).order_by('-updated_at')
+        sessions = PaperTradingSession.objects.filter(user=self.request.user).select_related(
+            "strategy", "allocation__deployed_version", "charge_profile"
+        ).prefetch_related(Prefetch("account", queryset=PaperAccount.objects.with_totals())).order_by("-updated_at")
+        session_status = self.request.query_params.get("status")
+        if session_status:
+            from common.enums import ExecutionSessionStatus
+            from rest_framework.fields import ChoiceField
+            session_status = ChoiceField(choices=ExecutionSessionStatus.choices).run_validation(session_status)
+            sessions = sessions.filter(status=session_status)
+        return sessions
+
+    def destroy(self, request, pk=None):
+        session = self.get_object()
+        try:
+            PortfolioService.delete_paper_account(session.account)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"])
+    def reset(self, request, pk=None):
+        session = self.get_object()
+        try:
+            PortfolioService.reset_paper_account(session.account)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(self.get_object()).data)
+
+    @action(detail=True, methods=["post"], url_path="update-allocation")
+    def update_allocation(self, request, pk=None):
+        session = self.get_object()
+        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
+            request.data.get("allocation_amount")
+        )
+        try:
+            PortfolioService.update_allocation(session.allocation, amount)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(self.get_object()).data)
+
+    @action(detail=True, methods=["post"], url_path="deploy-version")
+    def deploy_version(self, request, pk=None):
+        from rest_framework.fields import IntegerField
+        from strategies.models import StrategyVersion
+        from strategies.services import StrategyDeploymentService
+        session = self.get_object()
+        version_id = IntegerField(min_value=1).run_validation(request.data.get("version_id"))
+        try:
+            version = StrategyVersion.objects.get(pk=version_id, strategy_id=session.strategy_id)
+            StrategyDeploymentService.change_version(session.allocation, version, "paper", request.user)
+        except StrategyVersion.DoesNotExist:
+            return Response({"error": "Select a saved version of this strategy."}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=['post'], url_path='configure-costs')
     def configure_costs(self, request, pk=None):
         session = self.get_object()
         try:
-            PaperExecutionService.configure_session_costs(
+            session = PaperExecutionService.configure_session_costs(
                 session,
                 slippage_pct=request.data.get('slippage_pct', session.slippage_pct),
-                charge_profile_id=request.data.get('charge_profile'),
+                charge_profile_id=request.data.get('charge_profile', session.charge_profile_id),
                 include_charges=request.data.get('include_charges', session.include_charges),
             )
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(self.get_serializer(session).data)
+        return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=['post'])
     def pause(self, request, pk=None):
         session = self.get_object()
-        if session.status != "RUNNING":
-            return Response({"error": "Only RUNNING sessions can be paused"}, status=status.HTTP_400_BAD_REQUEST)
-        PaperExecutionService.pause_session(session)
-        return Response({"status": "Paused"})
+        try:
+            PaperExecutionService.pause_session(session)
+        except ValueError as exc:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(str(exc)) from None
+        return Response({"status": "PAUSED"})
 
     @action(detail=True, methods=['post'])
     def stop(self, request, pk=None):
         session = self.get_object()
         if session.status == "STOPPED":
             return Response({"error": "Session is already STOPPED"}, status=status.HTTP_400_BAD_REQUEST)
-        _, remaining_positions = PaperExecutionService.stop_session(session)
-        return Response({"status": "Stopped", "remaining_positions": remaining_positions})
+        session, remaining_positions = PaperExecutionService.stop_session(session)
+        return Response({"status": session.status, "remaining_positions": remaining_positions})
 
     @action(detail=True, methods=['post'])
-    @transaction.atomic
     def resume(self, request, pk=None):
-        from django.contrib.auth import get_user_model
-        get_user_model().objects.select_for_update().get(pk=request.user.pk)
         session = self.get_object()
-        if session.status == "RUNNING":
-            return Response({"error": "Session is already RUNNING"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            from commercial.usage import require_inventory_capacity
-            require_inventory_capacity(request.user, paper_snapshot=session.allocation.deployed_version.config_snapshot,
-                                       paper_session_id=session.pk)
             PaperExecutionService.resume_session(session)
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({"status": "Resumed"})
+        return Response({"status": "RUNNING"})
 
 
-class PaperAccountViewSet(viewsets.ModelViewSet):
+class PaperAccountViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for paper trading accounts."""
     serializer_class = PaperAccountSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PaperAccount.objects.filter(user=self.request.user).select_related('allocation__strategy').prefetch_related('sessions')
-
-    def create(self, request, *args, **kwargs):
-        return Response({'error': 'Create paper accounts from a strategy allocation so portfolio capital stays in sync.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
-
-    def perform_update(self, serializer):
-        serializer.save()
-
-    def destroy(self, request, pk=None):
-        """Delete paper account with validation."""
-        account = self.get_object()
-        try:
-            PortfolioService.delete_paper_account(account)
-        except ValueError as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({'success': True, 'message': 'Paper account deleted'}, status=200)
-
-    @action(detail=False, methods=['get'])
-    def active(self, request):
-        """Get the first paper account (legacy support)."""
-        account = self.get_queryset().first()
-        if account:
-            return Response(self.get_serializer(account).data)
-        return Response({})
-
-    @action(detail=True, methods=['post'])
-    def reset(self, request, pk=None):
-        """Reset account to initial balance."""
-        account = self.get_object()
-        try:
-            PortfolioService.reset_paper_account(account)
-        except ValueError as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({'success': True, 'message': 'Account reset'})
-
-    @action(detail=True, methods=['post'])
-    def validate_delete(self, request, pk=None):
-        """Check if account can be deleted (used for UI validation)."""
-        account = self.get_object()
-        can_delete, message = PortfolioService.can_delete_paper_account(account)
-        return Response({
-            'can_delete': can_delete,
-            'reason': message,
-        })
-
-    @action(detail=True, methods=['get'])
-    def summary(self, request, pk=None):
-        """Get account summary with stats."""
-        account = self.get_object()
-        trades = account.trades.all()
-
-        winning = trades.filter(net_pnl__gt=0).count()
-        losing = trades.filter(net_pnl__lt=0).count()
-
-        return Response({
-            'account': self.get_serializer(account).data,
-            'total_trades': trades.count(),
-            'winning_trades': winning,
-            'losing_trades': losing,
-            'win_rate': (winning / trades.count() * 100) if trades.count() > 0 else 0,
-            'open_positions': account.positions.count(),
-        })
-
+        return PaperAccount.objects.with_totals().filter(user=self.request.user).prefetch_related('sessions')
 
 class PaperPositionViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for paper positions (read-only - strategy managed only)."""
@@ -447,30 +208,17 @@ class PaperTradeViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def analytics(self, request):
-        """Get trade analytics."""
-        qs = self.get_queryset()
-
-        total = qs.count()
-        if total == 0:
-            return Response({
-                'total_trades': 0,
-                'win_rate': 0,
-                'avg_pnl': 0,
-                'total_pnl': 0,
-            })
-
-        winning = qs.filter(net_pnl__gt=0)
-        losing = qs.filter(net_pnl__lt=0)
-
-        from django.db.models import Sum, Avg
-
-        return Response({
-            'total_trades': total,
-            'winning_trades': winning.count(),
-            'losing_trades': losing.count(),
-            'win_rate': (winning.count() / total) * 100,
-            'avg_pnl': float(qs.aggregate(avg=Avg('net_pnl'))['avg'] or 0),
-            'total_pnl': float(qs.aggregate(total=Sum('net_pnl'))['total'] or 0),
-            'avg_winner': float(winning.aggregate(avg=Avg('net_pnl'))['avg'] or 0),
-            'avg_loser': float(losing.aggregate(avg=Avg('net_pnl'))['avg'] or 0),
-        })
+        """Read one aggregate snapshot, with the same fields even when empty."""
+        from django.db.models import Avg, Count, Q, Sum
+        stats = self.get_queryset().aggregate(
+            total_trades=Count('id'),
+            winning_trades=Count('id', filter=Q(net_pnl__gt=0)),
+            losing_trades=Count('id', filter=Q(net_pnl__lt=0)),
+            avg_pnl=Avg('net_pnl'), total_pnl=Sum('net_pnl'),
+            avg_winner=Avg('net_pnl', filter=Q(net_pnl__gt=0)),
+            avg_loser=Avg('net_pnl', filter=Q(net_pnl__lt=0)),
+        )
+        for key in ('avg_pnl', 'total_pnl', 'avg_winner', 'avg_loser'):
+            stats[key] = float(stats[key] or 0)
+        stats['win_rate'] = stats['winning_trades'] / stats['total_trades'] * 100 if stats['total_trades'] else 0
+        return Response(stats)

@@ -4,8 +4,8 @@ Instruments app - asset metadata, filtering, and option selection rules.
 from django.db import models
 from common.models import BaseTimestampModel
 from common.enums import (
-    Exchange, InstrumentType, OptionType, StrikeSelectionLogic, 
-    ExpiryType, FyersSegment, ExchangeInstrumentType,
+    Exchange, InstrumentType,
+    FyersSegment, ExchangeInstrumentType,
     QuantityType
 )
 
@@ -173,54 +173,8 @@ class ExecutionRoute(BaseTimestampModel):
         max_length=20,
         choices=[
             ('DIRECT', 'Trade Same Instrument'),
-            ('MANUAL', 'Specific Instrument'),
-            ('FUTURES', 'Dynamic Futures'),
-            ('OPTIONS', 'Dynamic Options'),
         ],
         default='DIRECT'
-    )
-    
-    # ── For MANUAL: specific instrument to trade ──
-    target_instrument = models.ForeignKey(
-        Instrument, null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='routed_from'
-    )
-    
-    # ── For FUTURES / OPTIONS: underlying instrument to resolve derivatives from ──
-    target_underlying_instrument = models.ForeignKey(
-        Instrument, null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='underlying_routes',
-        help_text='The underlying instrument whose derivatives to trade. '
-                  'Enables cross-symbol routing (e.g., signal on NIFTY → trade BANKNIFTY options).'
-    )
-    
-    # ── Expiry Selection (FUTURES + OPTIONS) ──
-    expiry_preference = models.CharField(
-        max_length=20,
-        choices=ExpiryType.choices,  # WEEKLY, MONTHLY, NEAREST
-        default=ExpiryType.NEAREST
-    )
-    avoid_same_day_expiry = models.BooleanField(
-        default=False,
-        help_text='If True, on the day of expiry, it will automatically roll over to the next expiry to avoid Gamma risk.'
-    )
-    
-    # ── Option-Specific Fields ──
-    buy_signal_option_type = models.CharField(
-        max_length=5, choices=OptionType.choices,
-        default=OptionType.CE  # BUY signal → trade CE
-    )
-    sell_signal_option_type = models.CharField(
-        max_length=5, choices=OptionType.choices,
-        default=OptionType.PE  # SELL signal → trade PE
-    )
-    
-    strike_selection = models.CharField(
-        max_length=20,
-        choices=StrikeSelectionLogic.choices,  # ATM, ITM_1, OTM_2, etc.
-        default=StrikeSelectionLogic.ATM
     )
     
     # ── Optional Per-Instrument Position Sizing Override ──
@@ -242,15 +196,8 @@ class ExecutionRoute(BaseTimestampModel):
         help_text='For CAPITAL_BASED method: percent of portfolio capital to allocate'
     )
     
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['watchlist_instrument'], name='one_execution_route_per_instrument')]
+
     def __str__(self):
         return f"{self.watchlist_instrument} -> {self.route_type}"
-    
-    def get_sizing_dict(self):
-        if not self.override_sizing:
-            return None
-        return {
-            "sizing_method": self.sizing_method,
-            "fixed_quantity": self.fixed_quantity,
-            "capital_percentage": self.capital_percentage,
-        }
-

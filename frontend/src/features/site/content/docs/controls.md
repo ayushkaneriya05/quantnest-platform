@@ -18,7 +18,7 @@ order: 9
 
 ## Understand separate restrictions
 
-- Manual pause, strategy safeguards, plan allowances and Private Live permissions are separate restrictions.
+- Manual pause, strategy safeguards, plan allowances and enabled execution scopes are separate restrictions.
 - Renewal does not automatically resume paused or disabled work.
 - Review the version, allocation, costs and supported instruments before deploying or updating.
 - An application stop is not the same as a protective order held by an exchange.
@@ -26,4 +26,4 @@ order: 9
 ## Get help
 
 - Track support requests and replies in your workspace.
-- Private support access requires your authorisation, a defined scope and expiry.
+- Share only the information needed for your support request; never send broker credentials.

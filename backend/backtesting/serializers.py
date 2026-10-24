@@ -4,17 +4,13 @@ Serializers for the backtesting app.
 from decimal import Decimal
 import uuid
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 from common.costs import get_charges_breakdown
 from .models import (
     BacktestRun, BacktestTrade, BacktestMetrics, EquityCurvePoint,
     MonteCarloRun, MonteCarloResult
 )
-
-
-class ChargeProfileSummarySerializer(serializers.Serializer):
-    id = serializers.IntegerField(read_only=True)
-    name = serializers.CharField(read_only=True)
 
 
 class BacktestRunListSerializer(serializers.ModelSerializer):
@@ -28,10 +24,22 @@ class BacktestRunListSerializer(serializers.ModelSerializer):
         ]
 
 
-class BacktestRunSerializer(serializers.ModelSerializer):
+class BacktestCostSerializer(serializers.ModelSerializer):
+    charge_profile_detail = serializers.SerializerMethodField()
+
+    def get_charge_profile_detail(self, obj):
+        snapshot = obj.charge_profile_snapshot
+        return {'name': snapshot['name']} if snapshot.get('name') else None
+
+
+class BacktestRunSerializer(BacktestCostSerializer):
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
-    charge_profile_detail = ChargeProfileSummarySerializer(source='charge_profile', read_only=True)
     estimate_token = serializers.CharField(write_only=True, required=False, max_length=32768)
+
+    def validate_parameters(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('Strategy overrides must be an object.')
+        return value
 
     class Meta:
         model = BacktestRun
@@ -51,14 +59,16 @@ class BacktestRunSerializer(serializers.ModelSerializer):
         charge_profile = attrs.get("charge_profile")
         if attrs["end_date"] < attrs["start_date"]:
             raise serializers.ValidationError({"end_date": "End date must be on or after start date."})
+        if attrs["end_date"] > timezone.localdate():
+            raise serializers.ValidationError({"end_date": "End date cannot be in the future."})
         if initial_capital is not None and initial_capital <= 0:
             raise serializers.ValidationError({"initial_capital": "Initial capital must be greater than zero."})
-        if slippage_pct is not None and slippage_pct < 0:
-            raise serializers.ValidationError({"slippage_pct": "Slippage cannot be negative."})
-        if attrs.get("include_charges", True) and charge_profile is None:
+        if slippage_pct is not None and not 0 <= slippage_pct < 100:
+            raise serializers.ValidationError({'slippage_pct': 'Slippage must be at least zero and less than 100 percent.'})
+        if attrs.get("include_charges", True) and charge_profile is None and not self.context.get('charge_profile_snapshot', {}).get('name'):
             raise serializers.ValidationError({"charge_profile": "Select a charge profile or turn off charges."})
-        request = self.context.get("request")
-        if charge_profile is not None and request and charge_profile.user_id != request.user.id:
+        request = self.context["request"]
+        if charge_profile is not None and charge_profile.user_id != request.user.id:
             raise serializers.ValidationError({"charge_profile": "Select a charge profile owned by your account."})
         return attrs
 
@@ -67,18 +77,20 @@ class BacktestRunSerializer(serializers.ModelSerializer):
         from commercial.usage import reserve_usage
         from .services import backtest_configuration
         user = validated_data["user"]
-        request = self.context.get("request")
-        key = getattr(request, "headers", {}).get("Idempotency-Key") or f"backtest:{uuid.uuid4()}"
+        request = self.context["request"]
+        key = request.headers.get("Idempotency-Key") or f"backtest:{uuid.uuid4()}"
         token = validated_data.pop("estimate_token", "")
         config = backtest_configuration(BacktestRun(**validated_data))
-        payload = {**{key: getattr(value, "pk", value) for key, value in validated_data.items()}, "config": config}
+        profile = validated_data.get("charge_profile")
+        payload = {**validated_data, "user": user.pk, "strategy": validated_data["strategy"].pk,
+                   "charge_profile": profile.pk if profile else None, "config": config}
         run = super().create(validated_data)
         reserve_usage(user, "backtest_credits", key, payload, resource=run, estimate_token=token)
         return run
 
 
 class BacktestTradeSerializer(serializers.ModelSerializer):
-    instrument_symbol = serializers.CharField(source='instrument.symbol', read_only=True)
+    instrument_symbol = serializers.CharField(source='instrument.sym_ticker', read_only=True)
     charges_breakdown = serializers.SerializerMethodField()
 
     class Meta:
@@ -122,11 +134,10 @@ class EquityCurvePointSerializer(serializers.ModelSerializer):
         fields = ['id', 'timestamp', 'equity_value', 'drawdown_pct']
 
 
-class BacktestRunDetailSerializer(serializers.ModelSerializer):
+class BacktestRunDetailSerializer(BacktestCostSerializer):
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     metrics = BacktestMetricsSerializer(read_only=True)
     trades_count = serializers.IntegerField(source='trades.count', read_only=True)
-    charge_profile_detail = ChargeProfileSummarySerializer(source='charge_profile', read_only=True)
 
     class Meta:
         model = BacktestRun

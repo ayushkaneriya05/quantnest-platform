@@ -1,67 +1,75 @@
 # QuantNest documentation
 
-**Source review: 16 October 2026.** These guides describe the repository at this
-date. Implemented code, a configured provider account and a validated production
-deployment are separate things. Remaining delivery work is identified in the
-implementation plan and execution limitations.
+**Source review: 23 October 2026.** The four trading guides describe the current
+implementation from customer actions through data preparation, execution,
+persistence and operation. They replace the old execution rebuild plan, runtime,
+technical-reference and execution-review documents.
 
-## Choose a guide
+## Trading and execution guides
 
-| Your task | Start here | What it owns |
+| Functionality | Complete guide | Main topics |
 | --- | --- | --- |
-| Understand the product and business direction | [Business plan](business-plan.md) | Customers, positioning, subscriptions, Private services and priorities |
-| See delivery scope and remaining work | [Implementation plan](implementation-plan.md) | Current implementation map, release gates and future work |
-| Plan the future strategy language and builder | [Strategy builder plan](strategy-builder-plan.md) | Research, original-proposal review, compiled rules/state, sizing/routing, all-market extension contracts and phased delivery; implementation deferred |
-| Install or upgrade a deployment | [Infrastructure guide](../infra/README.md) | Development, Public and Private setup, exact scripts and environment files |
-| Configure an external account | [Third-party setup](third-party-setup.md) | Cloudflare, Oracle, email, payments, authentication, data and research credentials |
-| Operate subscriptions, support or Private customers | [Commercial operations](commercial-operations.md) | Customer actions, Admin decisions, routine automation, records and failure recovery |
-| Run execution services | [Backend runtime](backend-runtime.md) | Processes, worker sizing, launch, health, safe restart and configuration |
-| Trace a tick, order, fill or backtest | [Execution technical reference](execution-technical-reference.md) | Detailed call chains, state, storage, failure boundaries and current limitations |
-| Develop strategy configuration | [Strategy configuration](strategy-configuration.md) | Rules, sizing, versions, sharing, deployment and auto-disable configuration |
-| Understand reports and journal reviews | [Execution review](execution-review.md) | Source-specific accounting, filters, reviews, exports and research evidence |
-| Understand sign-in and security | [Authentication](authentication.md) | Sessions, CSRF, 2FA, Admin, OAuth, avatars and account recovery |
-| Maintain the React customer site | [Customer site](customer-site.md) | Routing, catalog ownership, content, illustrations, themes and workspace integration |
-| Run the separate AI service | [Research service](../research_service/README.md) | Private service setup, protocol, tools, model configuration and isolation |
-| Maintain frontend structure | [Customer site structure](customer-site.md#1-entry-points-and-layouts) | Feature folders, shared components, layouts and route ownership |
+| Historical strategy testing | [Backtesting](backtesting.md) | Configuration snapshots, allowances, history/warmup, shared rules, OHLC replay, matching, charges, results and Monte Carlo |
+| Automated simulation | [Paper trading](paper-trading.md) | Wallet, fixed allocations, saved-version deployments, live observations, independent units, simulated fills, session controls and runtime operation |
+| Automated broker trading | [Live trading](live-trading.md) | Broker setup, fixed allocations, funds, rules, durable submission, cumulative fills, reconciliation, timestamps and recovery |
+| Manual simulation | [Trading Terminal](trading-terminal.md) | Watchlists, contracts/lots, stored and live charts, tickets, all order types, position actions, charges, account configuration and calendars |
 
-Historical input: [original strategy builder proposal](archive/strategy-builder-original-proposal.md).
-It is preserved in full as a future-design source. Its old file paths, branch
-instructions and proposed behavior do not describe the current implementation.
+Each guide contains the user procedure, API map, source/method responsibilities,
+worked examples, financial basis and troubleshooting. Paper/Live/Terminal guides
+also cover their source-specific Journal and Reports workflows.
 
-## Filename convention
+For the shared process model, start with
+[Paper runtime operations and scaling](paper-trading.md#runtime-operations-and-scaling).
+For real order submission/recovery, use
+[Live signal to broker order](live-trading.md#signal-to-broker-order).
+For data delivery to the UI, use
+[Terminal chart flow](trading-terminal.md#chart-history-and-live-candles).
 
-Use lowercase topic names with hyphens, for example `backend-runtime.md` or
-`strategy-builder-plan.md`. Keep `README.md` as the conventional folder index.
-Avoid project-name prefixes, spaces, numbered download suffixes and mixed casing.
-Historical proposals belong in `archive/` with their status and successor linked.
+## Other guides
 
-For end users, the application provides searchable guides at `/docs/`. Those
-articles explain product tasks. This folder explains the underlying system and
-operator responsibilities.
+| Your task | Guide | Responsibility |
+| --- | --- | --- |
+| Understand product direction | [Business plan](business-plan.md) | Customers, positioning, subscriptions and priorities |
+| Review delivery scope | [Implementation plan](implementation-plan.md) | Implementation map and remaining release work |
+| Build/configure a strategy | [Strategy configuration](strategy-configuration.md) | Current rule schema, sizing, versions, restore and sharing |
+| Design the future builder | [Strategy builder plan](strategy-builder-plan.md) | Deferred expression/setup/sequence design and extension contracts |
+| First deployment as a beginner | [Start here](../infra/START-HERE.md) | Ordered Development/Public/Private walkthroughs, tools, first user and operations |
+| Install/upgrade reference | [Infrastructure](../infra/README.md) | Service commands, environment and migration procedures |
+| Configure external accounts | [Integration setup](../infra/shared/INTEGRATIONS.md) | Provider dashboards, key destinations, callbacks and acceptance |
+| Review provider wire contracts | [Third-party reference](third-party-setup.md) | Deeper existing provider/broker implementation notes |
+| Manage subscriptions/support | [Commercial operations](commercial-operations.md) | Customer/Admin decisions, allowances and routine automation |
+| Understand sign-in/security | [Authentication](authentication.md) | Sessions, CSRF, 2FA, OAuth and recovery |
+| Maintain the site/frontend | [Customer site](customer-site.md) | Routing, content, shared presentation and feature structure |
+| Run research | [Research service](../research_service/README.md) | Separate service setup, tools, models and isolation |
 
-## One owner for each subject
+The [original strategy-builder proposal](archive/strategy-builder-original-proposal.md)
+is retained as historical input to the future design. Its proposed behaviour and
+old paths are not documentation of the current runtime.
 
-- Deployment commands and environment examples belong to `infra/`; follow the
-  selected mode's README instead of combining instructions from different modes.
-- Customer and operator workflows belong to Commercial operations. The business
-  plan explains direction; it is not an alternative operational procedure.
-- `backend/commercial/catalog.py` and published database catalog terms own plans.
-  Documentation examples do not change allowances or an existing purchase.
-- Backend enums and support metadata own API values and customer-facing labels.
-  React owns routes and presentation. There is no generated root JSON catalog.
-- Execution internals belong to the technical reference; runtime commands belong
-  to the runtime guide. Neither establishes a measured latency guarantee.
+## Documentation ownership
 
-## Updating these guides
+- Use lowercase topic names separated by hyphens; retain conventional `README.md` indexes.
+- The four mode guides own execution behaviour. Avoid another competing runtime plan/reference.
+- Strategy configuration owns authoring/versioning; the future builder plan is explicitly deferred.
+- Infrastructure READMEs own exact installation commands and mode-specific environment files.
+- Commercial operations owns customer/operator business workflows and allowance policy.
+- Backend enums, validation and published catalogue terms remain authoritative for API values and limits.
+- Application `/docs/` articles are user-facing help; this folder provides deeper technical/operator detail.
 
-1. Trace the frontend action, API/service, database mutation and background work.
-2. Document the implemented behavior, including rejection and recovery cases.
-3. Link to the owning guide instead of copying its complete procedure.
-4. Mark provider setup, operator decisions and future work explicitly.
-5. When changing a path, endpoint, setting or model, update its guide and links.
-6. Preserve a valuable future proposal as an explicitly marked plan/archive;
-   absence of its implementation alone is not a reason to delete the design.
+## Keeping documentation current
 
-Historical migrations remain part of installation even when their retired
-features are no longer documented as current functionality. Removed benchmark
-artifacts and old verification results are not production acceptance evidence.
+Trace the frontend action, API validation, saved configuration, asynchronous
+command/task, numerical operation and durable result. Explain requested versus
+applied state, simulation versus real fills, and gross versus net results.
+Update links and Private release packaging when changing filenames.
+
+Code review is not a measured latency guarantee or proof of every production
+failure case. Historical migrations remain required even when their retired
+features are no longer documented as current functionality.
+
+## Personal Private policy
+
+Private currently serves only the operator on a separate production instance;
+customer Live and Private sales are unavailable. See [deployment setup](../infra/private/README.md).
+The [old Private marketing source](archive/private-marketing-2026-10-23.md) is
+inactive reference material and is not bundled into the application.

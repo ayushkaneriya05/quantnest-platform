@@ -79,7 +79,7 @@ export default function PerformanceReports() {
       <div><p className="text-xs text-muted-foreground">Average P&L per close</p><p className="mt-1 font-semibold tabular-nums">{loading ? "—" : displayMoney(summary?.average_pnl)}</p></div>
       <div><p className="text-xs text-muted-foreground">Recorded charges</p><p className="mt-1 font-semibold tabular-nums">{loading ? "—" : displayMoney(summary?.recorded_charges)}</p><p className="mt-1 text-[11px] text-muted-foreground">{filters.source === "PAPER" ? "Simulated brokerage and taxes" : "Unavailable for this execution source"}</p></div>
       <div><p className="text-xs text-muted-foreground">Current unrealized P&L</p><p className={`mt-1 font-semibold tabular-nums ${pnlTone(positions?.unrealized_pnl)}`}>{loading ? "—" : displayMoney(positions?.unrealized_pnl)}</p>
-        {positions && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{positions.positions} open positions · before exit costs · {positions.unpriced_positions ? `${positions.unpriced_positions} awaiting fresh quotes` : positions.oldest_quote_at ? `oldest quote ${formatDateTime(positions.oldest_quote_at)}` : "no open exposure"}. Separate from the selected close-date period.</p>}
+        {positions && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{positions.positions} open positions · before exit costs · {positions.unpriced_positions ? `${positions.unpriced_positions} awaiting price data` : positions.oldest_quote_at ? `oldest quote ${formatDateTime(positions.oldest_quote_at)}` : "no open exposure"}. Separate from the selected close-date period.</p>}
       </div>
     </section>
     <section className="rounded-xl border border-border bg-background/60 p-4">

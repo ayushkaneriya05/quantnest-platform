@@ -88,8 +88,7 @@ export default function PaperWallet() {
                   Virtual Balance
                 </p>
                 <h3 className="text-3xl font-black text-foreground mt-1">
-                  ₹
-                  {Number(portfolio?.current_capital || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatCurrency(Number(portfolio?.current_capital || 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </h3>
                 <p className="text-xs text-indigo-700 dark:text-indigo-400/80 mt-2 flex items-center gap-1">
                   <ShieldCheck className="h-3 w-3" />
@@ -163,8 +162,7 @@ export default function PaperWallet() {
           <div>
             <p className="text-xs text-muted-foreground">Total Capital Allocated</p>
             <p className="text-sm font-bold text-indigo-700 dark:text-indigo-400">
-              ₹
-              {Number((portfolio?.allocations || []).reduce((sum, allocation) => sum + Number(allocation.effective_allocated ?? allocation.allocated_amount ?? 0), 0)).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatCurrency(Number(portfolio?.allocated_capital || 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
         </div>

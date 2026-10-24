@@ -350,54 +350,6 @@ export default function ExitRulesBuilder() {
                       />
                     </div>
 
-                    <div className="flex items-center gap-2 pl-9">
-                      <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
-                        On Trigger:
-                      </span>
-                      <Select
-                        value={group.action || "EXIT_ALL"}
-                        onValueChange={(v) =>
-                          handleUpdateGroup(group.id, "action", v, type)
-                        }
-                      >
-                        <SelectTrigger className="w-auto min-w-[140px] bg-muted/50 border-none hover:bg-muted/50 text-xs h-7 shadow-none focus:ring-0 text-foreground">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                        {(enums.RuleGroupAction || []).map((action) => (
-                          <SelectItem key={action.value} value={action.value}>
-                            {action.label}
-                          </SelectItem>
-                        ))}
-                        </SelectContent>
-                      </Select>
-                      {group.action === "PARTIAL_EXIT" && (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] text-muted-foreground font-medium">
-                            Exit %:
-                          </span>
-                          <Input
-                            type="number"
-                            min="1"
-                            max="99"
-                            value={group.action_params?.exit_pct || ""}
-                            onChange={(e) =>
-                              handleUpdateGroup(
-                                group.id,
-                                "action_params",
-                                {
-                                  ...group.action_params,
-                                  exit_pct: e.target.value,
-                                },
-                                type,
-                              )
-                            }
-                            className="bg-muted/50 border-none text-foreground text-xs h-7 w-16 focus:ring-0"
-                            placeholder="e.g. 50"
-                          />
-                        </div>
-                      )}
-                    </div>
                   </div>
                   <div className="flex items-center gap-2 self-start mt-1">
                     <Select

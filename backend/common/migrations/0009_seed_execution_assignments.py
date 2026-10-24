@@ -1,9 +1,12 @@
+import hashlib
 from django.db import migrations
 
 
 def seed(apps, schema_editor):
-    from django.conf import settings
-    from quantnest_runtime.ownership import partition
+    # Freeze the historical algorithm here. Fresh installations must not import
+    # a runtime package that a later migration retires.
+    def partition(identity):
+        return int.from_bytes(hashlib.blake2b(identity.encode(), digest_size=8).digest(), 'big') % 64
     Assignment = apps.get_model("common", "RuntimeAssignment")
     alias = schema_editor.connection.alias
     for scope, app, name in (("live", "live_trading", "TradingSession"), ("paper", "paper_trading", "PaperTradingSession")):
@@ -19,7 +22,7 @@ def seed(apps, schema_editor):
                 if instrument_id:
                     Assignment.objects.using(alias).update_or_create(
                         scope=scope, session_id=str(session.pk), instrument_id=instrument_id,
-                        defaults={"user_id": user_id, "shard": partition(f"{scope}:{session.pk}:{instrument_id}", settings.EXECUTION_SHARDS)},
+                        defaults={"user_id": user_id, "shard": partition(f"{scope}:{session.pk}:{instrument_id}")},
                     )
 
 

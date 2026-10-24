@@ -4,10 +4,10 @@ Views for the rules_engine app.
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule
+from .models import PositionSizingRule, TimeRule, RuleGroup, Rule
 from .serializers import (
-    TimeRuleSerializer, SpecialEventFilterSerializer,
-    RuleGroupSerializer, RuleGroupCreateSerializer, RuleSerializer
+    PositionSizingRuleSerializer, TimeRuleSerializer,
+    RuleGroupSerializer, RuleSerializer
 )
 
 
@@ -15,22 +15,10 @@ class TimeRuleViewSet(viewsets.ModelViewSet):
     """ViewSet for time rules."""
     serializer_class = TimeRuleSerializer
     permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
     
     def get_queryset(self):
         qs = TimeRule.objects.filter(strategy__user=self.request.user)
-        strategy_id = self.request.query_params.get('strategy')
-        if strategy_id:
-            qs = qs.filter(strategy_id=strategy_id)
-        return qs
-
-
-class SpecialEventFilterViewSet(viewsets.ModelViewSet):
-    """ViewSet for special event filters."""
-    serializer_class = SpecialEventFilterSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        qs = SpecialEventFilter.objects.filter(strategy__user=self.request.user)
         strategy_id = self.request.query_params.get('strategy')
         if strategy_id:
             qs = qs.filter(strategy_id=strategy_id)
@@ -47,8 +35,6 @@ class RuleGroupViewSet(viewsets.ModelViewSet):
         ).prefetch_related('rules')
     
     def get_serializer_class(self):
-        if self.action == 'create':
-            return RuleGroupCreateSerializer
         return RuleGroupSerializer
     
     @action(detail=False, methods=['get'])
@@ -72,6 +58,20 @@ class RuleViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         return Rule.objects.filter(rule_group__strategy__user=self.request.user)
+
+
+class PositionSizingRuleViewSet(viewsets.ModelViewSet):
+    """ViewSet for position sizing rules."""
+    serializer_class = PositionSizingRuleSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'put', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        qs = PositionSizingRule.objects.filter(strategy__user=self.request.user)
+        strategy_id = self.request.query_params.get('strategy')
+        if strategy_id:
+            qs = qs.filter(strategy_id=strategy_id)
+        return qs
 
 
 

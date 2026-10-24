@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/shared/utils/formatters";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, Info, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -19,19 +20,6 @@ const TYPE_CONFIG = {
   CRITICAL: { color: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20", icon: XCircle },
 };
 
-function formatDateTime(value) {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime())
-    ? value
-    : parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "medium" });
-}
-
-function responseList(data) {
-  if (Array.isArray(data?.results)) return data.results;
-  return Array.isArray(data) ? data : [];
-}
-
 export default function NotificationCenter() {
   const { notify } = useNotifications();
   const navigate = useNavigate();
@@ -51,7 +39,7 @@ export default function NotificationCenter() {
         notificationApi.getSummary(),
       ]);
       const nextSummary = summaryResponse.data || {};
-      setItems(responseList(itemsResponse.data));
+      setItems(itemsResponse.data);
       setSummary(nextSummary);
       syncUnreadCount(nextSummary.unread);
     } catch (error) {

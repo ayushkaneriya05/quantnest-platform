@@ -1,8 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, Exists, ExpressionWrapper, F, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, Value, When, Case
-from django.db import transaction
-from django.db.models.functions import Coalesce, Greatest
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Sum
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -10,9 +8,8 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import ValidationError
 from brokers.models import BrokerSession
-from .serializers import BrokerAccountObservationSerializer
 from common.enums import OrderStatus
-from core.lifecycle import publish_session_event
+from execution.order_reports import ACTIVE
 
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
 from .serializers import (
@@ -33,108 +30,28 @@ class LiveTradingPagination(PageNumberPagination):
     max_page_size = 200
 
 
-class BrokerAccountObservationViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = BrokerAccountObservationSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LiveTradingPagination
-
-    def get_queryset(self):
-        from .models import BrokerAccountObservation
-        rows = BrokerAccountObservation.objects.filter(credential__user=self.request.user).select_related("credential").order_by("-updated_at", "-pk")
-        credential = self.request.query_params.get("credential")
-        if credential:
-            if not credential.isdigit():
-                raise ValidationError({"credential": "Use a broker credential ID."})
-            rows = rows.filter(credential_id=int(credential))
-        kind = self.request.query_params.get("kind")
-        if kind:
-            if kind not in {"ORDER", "POSITION"}:
-                raise ValidationError({"kind": "Choose ORDER or POSITION."})
-            rows = rows.filter(kind=kind)
-        matched = self.request.query_params.get("matched")
-        if matched is not None:
-            if matched.lower() not in {"true", "false"}:
-                raise ValidationError({"matched": "Choose true or false."})
-            rows = rows.filter(matched=matched.lower() == "true")
-        return rows
-
-
 class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TradingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        decimal_field = DecimalField(max_digits=18, decimal_places=4)
-        zero_money = Value(Decimal("0"), output_field=decimal_field)
-        active_statuses = [OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, "UNKNOWN"]
-
-        open_positions = LivePosition.objects.filter(allocation_id=OuterRef("pk"), quantity__gt=0)
-        used_capital = open_positions.order_by().values("allocation_id").annotate(
-            total=Sum(ExpressionWrapper(F("quantity") * F("avg_price"), output_field=decimal_field))
-        ).values("total")[:1]
-        unrealized_pnl = open_positions.order_by().values("allocation_id").annotate(
-            total=Sum("unrealized_pnl")
-        ).values("total")[:1]
-        realized_pnl = LiveTrade.objects.filter(allocation_id=OuterRef("pk")).order_by().values(
-            "allocation_id"
-        ).annotate(total=Sum("realized_pnl")).values("total")[:1]
-        reserved_value = ExpressionWrapper(
-            Greatest(F("pending_quantity"), F("quantity") - F("filled_quantity"))
-            * Coalesce(F("price"), zero_money),
-            output_field=decimal_field,
-        )
-        reserved_capital = LiveOrder.objects.filter(
-            allocation_id=OuterRef("pk"), status__in=active_statuses
-        ).order_by().values("allocation_id").annotate(total=Sum(reserved_value)).values("total")[:1]
-        allocation_trades = LiveTrade.objects.filter(allocation_id=OuterRef("pk")).order_by().values(
-            "allocation_id"
-        ).annotate(total=Count("id")).values("total")[:1]
-
-        allocation_queryset = LiveStrategyAllocation.objects.select_related(
-            "strategy", "broker_credential", "deployed_version"
-        ).annotate(
-            annotated_used_capital=Coalesce(Subquery(used_capital, output_field=decimal_field), zero_money),
-            annotated_reserved_capital=Coalesce(Subquery(reserved_capital, output_field=decimal_field), zero_money),
-            annotated_realized_pnl=Coalesce(Subquery(realized_pnl, output_field=decimal_field), zero_money),
-            annotated_unrealized_pnl=Coalesce(Subquery(unrealized_pnl, output_field=decimal_field), zero_money),
-            annotated_trade_count=Coalesce(Subquery(allocation_trades, output_field=IntegerField()), Value(0)),
-        ).annotate(
-            annotated_available_capital=Greatest(
-                zero_money,
-                F("allocated_capital") - F("annotated_used_capital") - F("annotated_reserved_capital") + F("annotated_realized_pnl"),
-            ),
-            annotated_total_pnl=F("annotated_realized_pnl") + F("annotated_unrealized_pnl"),
-        )
-
-        allocation_positions_count = LivePosition.objects.filter(
-            allocation_id=OuterRef("allocation_id"), quantity__gt=0
-        ).order_by().values("allocation_id").annotate(total=Count("id")).values("total")[:1]
-        legacy_positions_count = LivePosition.objects.filter(
-            allocation__isnull=True,
-            user_id=OuterRef("user_id"),
-            strategy_id=OuterRef("strategy_id"),
-            broker_credential_id=OuterRef("broker_credential_id"),
-            quantity__gt=0,
-        ).order_by().values("user_id").annotate(total=Count("id")).values("total")[:1]
-        active_orders_count = LiveOrder.objects.filter(
-            session_id=OuterRef("pk"), status__in=active_statuses
-        ).order_by().values("session_id").annotate(total=Count("id")).values("total")[:1]
-
-        return TradingSession.objects.filter(user=self.request.user).select_related(
+        sessions = TradingSession.objects.filter(user=self.request.user)
+        session_status = self.request.query_params.get("status")
+        if session_status:
+            from common.enums import ExecutionSessionStatus
+            from rest_framework.fields import ChoiceField
+            session_status = ChoiceField(choices=ExecutionSessionStatus.choices).run_validation(session_status)
+            sessions = sessions.filter(status=session_status)
+        return sessions.select_related(
             "strategy", "broker_credential"
         ).annotate(
-            annotated_open_positions=Case(
-                When(allocation_id__isnull=True, then=Coalesce(Subquery(legacy_positions_count), Value(0))),
-                default=Coalesce(Subquery(allocation_positions_count), Value(0)),
-                output_field=IntegerField(),
-            ),
-            annotated_active_orders=Coalesce(Subquery(active_orders_count), Value(0)),
+            annotated_active_orders=Count("orders", filter=Q(orders__status__in=ACTIVE)),
             annotated_broker_session_valid=Exists(BrokerSession.objects.filter(
                 credential_id=OuterRef("broker_credential_id"),
                 is_valid=True,
                 token_expiry__gt=timezone.now(),
             )),
-        ).prefetch_related(Prefetch("allocation", queryset=allocation_queryset, to_attr="prefetched_allocation"))
+        ).prefetch_related(Prefetch("allocation", queryset=LiveStrategyAllocation.objects.with_totals()))
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
@@ -143,67 +60,43 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"])
     def pause(self, request, pk=None):
         session = self.get_object()
-        if session.status != "RUNNING":
-            raise ValidationError({"status": f"Cannot pause a session in {session.status} state."})
-        return Response(self.get_serializer(LiveExecutionService.pause_session(session)).data)
+        try:
+            session = LiveExecutionService.pause_session(session)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from None
+        return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=["post"])
     def resume(self, request, pk=None):
         session = self.get_object()
-        if session.status != "PAUSED":
-            raise ValidationError({"status": f"Only paused sessions can be resumed; current state is {session.status}."})
         try:
             session = LiveExecutionService.resume_session(session)
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(self.get_serializer(session).data)
-
-    @action(detail=True, methods=["post"])
-    def start(self, request, pk=None):
-        session = self.get_object()
-        if session.status != "STOPPED":
-            raise ValidationError({"status": f"Only stopped sessions can be started; current state is {session.status}."})
-        try:
-            session = LiveExecutionService.resume_session(session)
-        except ValueError as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(self.get_serializer(session).data)
+        return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=["post"])
     def stop(self, request, pk=None):
         session = self.get_object()
-        close_positions = bool(request.data.get("close_positions"))
-        if session.status == "STOPPED" and not close_positions:
+        from rest_framework.fields import BooleanField
+        close_positions = BooleanField().run_validation(request.data.get('close_positions', False))
+        if session.status in {"STOPPED", "STOPPING"} and not close_positions:
             return Response(self.get_serializer(session).data)
-        if session.status not in {"RUNNING", "PAUSED", "ERROR", "STOPPING", "STOPPED"}:
-            raise ValidationError({"status": f"Cannot stop a session in {session.status} state."})
-        if session.status == "STOPPING":
-            raise ValidationError({"status": "Session is already stopping; reconcile broker state before sending another close request."})
         session = LiveExecutionService.stop_session(session, close_positions=close_positions)
-        return Response(self.get_serializer(session).data)
+        return Response(self.get_serializer(self.get_object()).data)
 
 
     @action(detail=True, methods=["post"])
     def sync(self, request, pk=None):
         """
-        Manual sync endpoint. Updated to use new BrokerReconciliationService.
+        Reconcile owned orders; positions and trades are derived from their fills.
         """
         session = self.get_object()
-        from live_trading.reconciliation_service import BrokerReconciliationService
+        from live_trading.order_processor import reconcile_orders
         
         try:
-            reconciliation_service = BrokerReconciliationService(session.broker_credential)
-            orders_result = reconciliation_service.reconcile_orders()
-            positions_result = reconciliation_service.reconcile_positions()
-            
-            return Response({
-                "synced_orders": orders_result.get("matched", 0) + orders_result.get("created", 0),
-                # "synced_positions": positions_result.get("updated", 0) + positions_result.get("created", 0),
-                "account_state": {
-                    "orders": orders_result,
-                    "positions": positions_result
-                }
-            })
+            result = reconcile_orders(session.broker_credential)
+            return Response({"synced_orders": result["matched"], "orders": result})
         except Exception as e:
             return Response(
                 {"error": str(e)},
@@ -326,7 +219,7 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        queryset = LiveStrategyAllocation.objects.filter(user=self.request.user).select_related("strategy", "broker_credential", "deployed_version")
+        queryset = LiveStrategyAllocation.objects.with_totals().filter(user=self.request.user)
         broker_id = self.request.query_params.get("broker_credential")
         if broker_id:
             queryset = queryset.filter(broker_credential_id=broker_id)
@@ -338,57 +231,30 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"], url_path="update-allocation")
     def update_allocation(self, request, pk=None):
         allocation = self.get_object()
-        allocation = LiveExecutionService.update_allocation(
-            allocation=allocation,
-            allocation_amount=request.data.get("allocation_amount"),
-            allocation_percentage=request.data.get("allocation_percentage"),
+        from rest_framework.fields import DecimalField as AmountField
+        amount = AmountField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
+            request.data.get("allocation_amount")
         )
-        return Response(LiveStrategyAllocationSerializer(allocation).data)
+        try:
+            allocation = LiveExecutionService.update_allocation(
+                allocation=allocation,
+                allocation_amount=amount,
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from None
+        return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=['post'], url_path='deploy-version')
-    @transaction.atomic
     def deploy_version(self, request, pk=None):
-        """Hot-swap the deployed strategy version on a live allocation."""
+        from django.shortcuts import get_object_or_404
+        from rest_framework.fields import IntegerField
+        from strategies.models import StrategyVersion
+        from strategies.services import StrategyDeploymentService
         allocation = self.get_object()
-        from installations.licensing import require_broker_access
-        require_broker_access(allocation.broker_credential.broker_name)
-        allocation = LiveStrategyAllocation.objects.select_for_update(of=("self",)).get(pk=allocation.pk)
-        version_id = request.data.get('version_id')
-
-        if not version_id:
-            return Response(
-                {'error': 'version_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+        version_id = IntegerField(min_value=1).run_validation(request.data.get('version_id'))
+        version = get_object_or_404(StrategyVersion, pk=version_id, strategy=allocation.strategy)
         try:
-            from strategies.models import StrategyVersion
-            version = StrategyVersion.objects.get(
-                id=version_id,
-                strategy=allocation.strategy
-            )
-        except StrategyVersion.DoesNotExist:
-            return Response(
-                {'error': 'Invalid version for this strategy'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        if allocation.deployed_version_id == version.pk:
-            return Response(self.get_serializer(allocation).data)
-        from instruments.services import InstrumentResolver
-        try:
-            InstrumentResolver.validate_execution_snapshot(version.config_snapshot)
+            allocation = StrategyDeploymentService.change_version(allocation, version, 'live', request.user)
         except ValueError as exc:
-            raise ValidationError(str(exc))
-        allocation.deployed_version = version
-        allocation.save(update_fields=['deployed_version', 'updated_at'])
-
-        session = getattr(allocation, "session", None)
-        if session:
-            from risk_management.auto_disable import AutoDisableGate
-            AutoDisableGate.version_changed(session)
-            if session.status == "RUNNING":
-                publish_session_event("live", session, "VERSION_CHANGE")
-
-        serializer = self.get_serializer(allocation)
-        return Response(serializer.data)
+            raise ValidationError(str(exc)) from None
+        return Response(self.get_serializer(self.get_object()).data)

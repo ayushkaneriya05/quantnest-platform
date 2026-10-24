@@ -1,28 +1,31 @@
 import api from "@/shared/services/api";
 
 export const tradingTerminalApi = {
-  getSnapshot: () => api.get("/trading/terminal/"),
+  getSnapshot: (watchlistId) => api.get("/trading/terminal/", { params: { watchlist_id: watchlistId } }),
+  updateAccount: (payload) => api.patch('/trading/account/', payload),
+  previewOrder: (payload, signal) => api.post('/trading/orders/preview/', payload, { signal }),
+  cancelOrders: (ids) => api.post('/trading/orders/cancel/', { ids }),
+  positionAction: (id, payload) => api.post('/trading/positions/' + id + '/action/', payload),
   getCandles: ({
     symbol,
     interval = "1m",
     limit = 200,
     before,
     signal,
+    fetchMissing = false,
   } = {}) =>
     api.get("/market/candles/", {
-      params: { symbol, interval, limit, before },
+      params: { symbol, interval, limit, before, fetch_missing: fetchMissing },
       signal,
     }),
-  addToWatchlist: (instrumentId) =>
-    api.post("/trading/watchlist/", { instrument_id: instrumentId }),
-  removeFromWatchlist: (instrumentId) =>
+  addToWatchlist: (symTicker, watchlistId) =>
+    api.post("/trading/watchlist/", { sym_ticker: symTicker }, { params: { watchlist_id: watchlistId } }),
+  removeFromWatchlist: (symTicker, watchlistId) =>
     api.delete("/trading/watchlist/", {
-      data: { instrument_id: instrumentId },
+      params: { watchlist_id: watchlistId },
+      data: { sym_ticker: symTicker },
     }),
   placeOrder: (payload) => api.post("/trading/orders/", payload),
-  getOrdersHistory: (params) => api.get("/trading/orders/", { params }),
-  getTradesHistory: (params) => api.get("/trading/trades/", { params }),
-  getPnlHistory: (params) => api.get("/trading/pnl-report/", { params }),
 };
 
 export default tradingTerminalApi;

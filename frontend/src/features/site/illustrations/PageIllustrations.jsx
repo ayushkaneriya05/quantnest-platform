@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BrainCircuit, Check, Code2, FileCheck2, FileText, FlaskConical, Layers3, LockKeyhole, MessageSquare, Monitor, Radio, Search, Server, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { Activity, ArrowRight, BrainCircuit, Check, Code2, FileCheck2, FileText, FlaskConical, Layers3, LockKeyhole, MessageSquare, Monitor, Search, Server, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ChoiceNote, FlowConnector, IllustrationFrame, IllustrationNode } from './IllustrationElements';
 
@@ -38,15 +38,11 @@ export function ResearchIntroIllustration() {
   </IllustrationFrame>;
 }
 
+// Previous Live illustration is preserved in the inactive marketing archive.
 export function PrivateIllustration() {
-  return <IllustrationFrame name="private" title="Live trading in QuantNest Private" icon={Radio}>
-    <div className="site-private-server"><div className="site-live-label"><Radio className="h-4 w-4" />SUPPORTED LIVE EXECUTION</div><Server className="mx-auto mt-4 h-12 w-12 text-brand" /><p className="mt-3 font-semibold">Your private installation</p><p className="mt-1 text-xs text-muted-foreground">Customer-owned execution infrastructure</p></div>
-    <div className="site-private-route"><span>Your saved strategy</span><FlowConnector /><span>Supported broker</span></div>
-    <ChoiceNote label="Private installation capabilities" choices={[
-      ['Live trading', 'Execute your own rules through a supported broker after the deployment scope, broker access and applicable requirements are agreed and activation is complete.'],
-      ['Full workspace', 'Include research, screening, strategy building, backtesting, Terminal, Paper, journal and reports in the agreed installation.'],
-      ['Ongoing support', 'Agree updates, monitoring, backups, licensing and support responsibilities before setup.'],
-    ]} />
+  return <IllustrationFrame name="private" title="QuantNest Private" icon={Server}>
+    <div className="rounded-2xl border p-6 text-center">
+      <Server className="mx-auto h-10 w-10 text-brand" /><p className="mt-5 font-semibold">Not available to customers</p><p className="mt-3 text-sm text-muted-foreground">Research, backtesting and simulation remain available in the public workspace.</p></div>
   </IllustrationFrame>;
 }
 
@@ -84,7 +80,7 @@ export function SecurityIllustration() {
     <ChoiceNote label="Security help" choices={[
       ['Protect', 'Enable two-factor authentication and revoke sign-in sessions you do not recognise.'],
       ['Report', 'Send a security concern through Contact, without passwords, tokens or other people’s data.'],
-      ['Private access', 'Agree support access scope and expiry for a Private installation.'],
+      ['Project access', 'Agree support access and responsibilities for custom work.'],
     ]} />
   </IllustrationFrame>;
 }

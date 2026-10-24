@@ -7,7 +7,7 @@ from .models import UserSession
 
 @shared_task(name="users.cleanup_expired_sessions")
 def cleanup_expired_sessions():
-    count = UserSession.objects.filter(expires_at__lte=timezone.now()).count()
-    UserSession.objects.filter(expires_at__lte=timezone.now()).delete()
+    count, _ = UserSession.objects.filter(expires_at__lte=timezone.now()).delete()
+    call_command("clearsessions", verbosity=0)
     call_command("flushexpiredtokens", verbosity=0)
     return count

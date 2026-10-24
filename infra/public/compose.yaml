@@ -4,7 +4,7 @@ x-backend: &backend
   build: {context: ../.., dockerfile: infra/shared/docker/backend.Dockerfile}
   image: quantnest-backend:${QUANTNEST_RELEASE:-local}
   env_file: [backend.env]
-  environment: &backend-env
+  environment:
     QUANTNEST_DEPLOYMENT_MODE: public
     DEBUG: "False"
     EXECUTION_ENABLED_SCOPES: paper
@@ -14,16 +14,14 @@ x-backend: &backend
     CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379/1
     MARKET_CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379/2
     RESEARCH_CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis-cache:6379/0
-    RUNTIME_REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis-runtime:6379/0
+    RUNTIME_REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379/3
     RESEARCH_SERVICE_URL: http://research:8001
     QUANTNEST_RUNTIME_DIR: /var/lib/quantnest/runtime
-    EXECUTION_NOTIFY_TARGETS: 172.29.0.10
   volumes: [runtime:/var/lib/quantnest/runtime, media:/opt/quantnest/backend/media, staticfiles:/opt/quantnest/backend/staticfiles]
   networks: [private, outbound]
   depends_on:
     postgres: {condition: service_healthy}
     redis: {condition: service_healthy}
-    redis-runtime: {condition: service_healthy}
     redis-cache: {condition: service_healthy}
   restart: unless-stopped
   init: true
@@ -44,18 +42,8 @@ services:
     logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
     image: redis:7.4.6-bookworm
     environment: {REDISCLI_AUTH: "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"}
-    command: [redis-server, --appendonly, "yes", --maxmemory, 256mb, --maxmemory-policy, noeviction, --requirepass, "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"]
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory, 512mb, --maxmemory-policy, noeviction, --requirepass, "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"]
     volumes: [redis:/data]
-    networks: [private]
-    healthcheck: {test: [CMD, redis-cli, ping], interval: 10s, timeout: 3s, retries: 5}
-    restart: unless-stopped
-    mem_limit: 384m
-  redis-runtime:
-    logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
-    image: redis:7.4.6-bookworm
-    environment: {REDISCLI_AUTH: "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"}
-    command: [redis-server, /usr/local/etc/redis/redis.conf, --requirepass, "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"]
-    volumes: [redis-runtime:/data, ../shared/redis/runtime.conf:/usr/local/etc/redis/redis.conf:ro]
     networks: [private]
     healthcheck: {test: [CMD, redis-cli, ping], interval: 10s, timeout: 3s, retries: 5}
     restart: unless-stopped
@@ -74,40 +62,34 @@ services:
     networks: [private, outbound, edge]
     command: [uvicorn, backend.asgi:application, --host, 0.0.0.0, --port, "8000", --workers, "${API_WORKERS:-1}", --no-server-header, --no-proxy-headers, --no-access-log]
     mem_limit: 512m
-    healthcheck: {test: [CMD, python, -m, quantnest_runtime.probe, --require-mode, public], interval: 30s, timeout: 10s, retries: 5, start_period: 60s}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os; from urllib.request import ProxyHandler, Request, build_opener;
+          build_opener(ProxyHandler({})).open(Request("http://127.0.0.1:8000/health/",
+          headers={"X-Forwarded-Proto": "https", "X-QuantNest-Proxy-Token": os.environ.get("QUANTNEST_PROXY_TOKEN", "")}), timeout=5).close()
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   feed:
     <<: *backend
     command: [python, -m, quantnest_runtime, market-data]
     mem_limit: 768m
   execution:
     <<: *backend
-    command: [python, -m, quantnest_runtime, execution]
-    environment:
-      <<: *backend-env
-      EXECUTION_NOTIFY_BIND: 0.0.0.0
-    networks:
-      private: {ipv4_address: 172.29.0.10}
-      outbound: {}
+    command: [python, -m, execution]
     mem_limit: 1536m
-  orders:
-    <<: *backend
-    command: [python, -m, quantnest_runtime, orders]
-    mem_limit: 512m
-  terminal:
-    <<: *backend
-    command: [python, -m, quantnest_runtime, terminal]
-    mem_limit: 384m
-  outbox:
-    <<: *backend
-    command: [python, -m, quantnest_runtime, outbox]
-    mem_limit: 384m
   background:
     <<: *backend
-    command: [celery, -A, backend, worker, --queues=default,paper,marketdata,notifications, --concurrency=1, --prefetch-multiplier=1, --max-tasks-per-child=100, --hostname=background@%h]
+    command: [celery, -A, backend, worker, --queues=default,marketdata, --concurrency=2, --max-tasks-per-child=100, --hostname=background@%h]
     mem_limit: 768m
   compute:
     <<: *backend
-    command: [celery, -A, backend, worker, --queues=compute, --concurrency=1, --prefetch-multiplier=1, --max-tasks-per-child=25, --max-memory-per-child=850000, --hostname=compute@%h]
+    command: [celery, -A, backend, worker, --queues=compute, --concurrency=1, --max-tasks-per-child=25, --max-memory-per-child=850000, --hostname=compute@%h]
     mem_limit: 1280m
     cpus: 0.75
   beat:
@@ -131,8 +113,8 @@ services:
     environment:
       PUBLIC_HOSTNAME: "${PUBLIC_HOSTNAME:?Set PUBLIC_HOSTNAME}"
       ORIGIN_HOSTNAME: "${ORIGIN_HOSTNAME:?Set ORIGIN_HOSTNAME}"
-    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, ./tls:/etc/caddy/tls:ro, caddy:/data, caddy-config:/config]
-    ports: ["443:443"]
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, caddy:/data, caddy-config:/config]
+    ports: ["80:80", "443:443"]
     networks: [edge, outbound]
     depends_on: [api]
     restart: unless-stopped
@@ -140,7 +122,7 @@ services:
     mem_limit: 128m
 
 networks:
-  private: {internal: true, ipam: {config: [{subnet: 172.29.0.0/24}]}}
+  private: {internal: true}
   edge: {internal: true}
   outbound: {}
 
@@ -148,7 +130,6 @@ volumes:
   staticfiles: {}
   postgres: {}
   redis: {}
-  redis-runtime: {}
   runtime: {}
   media: {}
   scheduler: {}

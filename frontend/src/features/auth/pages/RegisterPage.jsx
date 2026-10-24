@@ -115,9 +115,7 @@ export default function RegisterPage() {
             </ol>
           </div>
           <p className="text-xs leading-6 text-muted-foreground lg:mt-7 lg:border-t lg:pt-5">
-            Public plans support simulated trading. Live trading requires a separately agreed and activated{" "}
-            <Link to="/private" className="focus-ring rounded-sm font-medium text-brand underline underline-offset-4">Private installation</Link>{" "}
-            on customer-owned infrastructure.
+            Public plans support simulated trading. Customer Live trading is not currently available.
           </p>
         </>
       }

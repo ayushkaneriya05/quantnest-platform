@@ -10,7 +10,7 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 
 const navItems = [
   ["Product", "/product/"], ["Features", "/features/"], ["Pricing", "/pricing/"],
-  ["Documentation", "/docs/"], ["Services", "/custom-development/"], ["Private", "/private/"],
+  ["Documentation", "/docs/"], ["Services", "/custom-development/"],
 ];
 
 export default function MainHeader({ authPage }) {

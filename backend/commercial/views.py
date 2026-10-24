@@ -5,7 +5,7 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
-from core.request_views import ObjectAPIView as APIView
+from rest_framework.views import APIView
 from . import billing
 from copy import deepcopy
 from .models import PaymentAttempt, Invoice, PriceMapping
@@ -28,13 +28,11 @@ def get_public_catalog(request):
         data.pop(unused, None)
     data["support"] = get_support_specification()
     data["limit_labels"] = LIMIT_LABELS
-    data["privacy_policy_revision"] = settings.PRIVACY_POLICY_REVISION
-    data["checkout_available"] = settings.QUANTNEST_DEPLOYMENT_MODE != "private" and settings.BILLING_ENABLED
+    data["checkout_available"] = settings.BILLING_ENABLED
     for plan in data["plans"].values():
-        plan["checkout_available"] = bool(data["checkout_available"] and
-            (settings.QUANTNEST_DEPLOYMENT_MODE != "public" or plan["limits"]["paper_instruments"] <= settings.EXECUTION_MAX_USER_ACTORS))
+        plan["checkout_available"] = bool(data["checkout_available"])
     data["tax_bps"] = settings.BILLING_TAX_BPS
-    data["deployment_mode"] = settings.QUANTNEST_DEPLOYMENT_MODE
+    data["live"] = "not-offered"  # Override old published catalog marketing without changing purchased terms.
     data["execution_enabled_scopes"] = sorted(settings.EXECUTION_ENABLED_SCOPES)
     data["contact"] = {"name": settings.QUANTNEST_LEGAL_NAME, "email": settings.QUANTNEST_SUPPORT_EMAIL,
                        "hours": settings.QUANTNEST_SUPPORT_HOURS}
@@ -48,15 +46,16 @@ class AccountView(APIView):
         data = get_account_usage(request.user, policy=policy)
         data["invoices"] = list(Invoice.objects.filter(user=request.user).order_by("-issued_at").values("id", "number", "snapshot", "issued_at")[:50])
         data["checkouts"] = [billing.get_checkout_data(row) for row in PaymentAttempt.objects.filter(user=request.user).select_related("catalog").order_by("-created_at")[:10]]
-        if settings.QUANTNEST_DEPLOYMENT_MODE == "private":
-            return Response(data)
         from .catalog import get_active_catalog
-        active = policy["catalog"] if policy["catalog"].is_active else get_active_catalog()
+        # Quote the active catalog in every workspace; checkout availability is separate.
+        active = policy["catalog"]
+        if active is None or not active.is_active:
+            active = get_active_catalog()
         data["checkout_terms"] = {code: billing.calculate_billing_totals(active, code, policy["subscription"]) for code in ("build", "pro")}
         mappings = set(PriceMapping.objects.filter(catalog=active, tax_bps=settings.BILLING_TAX_BPS)
                        .values_list("plan", "total_minor"))
         for code, totals in data["checkout_terms"].items():
-            totals["automatic_renewal_available"] = (code, totals["total_minor"]) in mappings
+            totals["automatic_renewal_available"] = settings.BILLING_ENABLED and (code, totals["total_minor"]) in mappings
         return Response(data)
 
 
@@ -120,7 +119,6 @@ class InvoiceView(APIView):
 
 
 class RazorpayWebhookView(APIView):
-    skip_object_validation = True  # Authenticate the original bytes before parsing.
     authentication_classes = []
     permission_classes = [AllowAny]
     def post(self, request):

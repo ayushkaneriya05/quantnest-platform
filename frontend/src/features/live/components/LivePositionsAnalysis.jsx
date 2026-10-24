@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
+import { formatNumber, formatBrokerAccount, formatDateTime, formatCurrency } from "@/shared/utils/formatters";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import TablePagination from "@/shared/components/TablePagination";
 
@@ -13,13 +13,12 @@ function Metric({ title, value, note, color = "text-foreground" }) {
   return <Card className="border-border bg-card/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p><p className={`mt-2 text-2xl font-semibold ${color}`}>{value}</p>{note && <p className="mt-1 text-xs text-muted-foreground">{note}</p>}</CardContent></Card>;
 }
 
-export default function LivePositionsAnalysis({ positions = [], positionsForPnL, pagination, summary = {}, onPageChange, allocationFilter = "", onAllocationChange }) {
+export default function LivePositionsAnalysis({ positions = [], positionsForPnL = positions, pagination, summary = {}, onPageChange, allocationFilter = "", onAllocationChange }) {
   const pnlPositions = useMemo(() => {
-    if (!Array.isArray(positionsForPnL)) return positions;
     return allocationFilter
       ? positionsForPnL.filter((position) => String(position.allocation_id) === String(allocationFilter))
       : positionsForPnL;
-  }, [allocationFilter, positions, positionsForPnL]);
+  }, [allocationFilter, positionsForPnL]);
   const { livePnLByPositionId } = useLivePositionsPnL(pnlPositions);
   const stats = useMemo(() => {
     const pnlValues = pnlPositions.map((position) =>
@@ -37,7 +36,7 @@ export default function LivePositionsAnalysis({ positions = [], positionsForPnL,
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric title="Open positions" value={stats.count} note="Matching allocation · all pages" />
-        <Metric title="Unrealized P&L" value={`₹${formatNumber(stats.pnl)}`} color={stats.pnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} />
+        <Metric title="Unrealized P&L" value={`${formatCurrency(stats.pnl)}`} color={stats.pnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} />
         <Metric title="In profit" value={stats.profitable} color="text-emerald-700 dark:text-emerald-400" />
         <Metric title="At loss" value={stats.atLoss} color="text-rose-700 dark:text-rose-400" />
       </div>
@@ -72,9 +71,9 @@ export default function LivePositionsAnalysis({ positions = [], positionsForPnL,
                       <TableCell><div className="text-foreground">{position.strategy_name || "Unassigned strategy"}</div><div className="text-xs text-muted-foreground">{formatBrokerAccount(position.broker_name, position.broker_label)}</div></TableCell>
                       <TableCell><Badge variant="outline" className={isBuy ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"}>{position.side || "—"}</Badge></TableCell>
                       <TableCell className="text-right text-foreground">{formatNumber(position.quantity)}</TableCell>
-                      <TableCell className="text-right text-foreground">₹{formatNumber(Number(position.avg_price))}</TableCell>
-                      <TableCell className="text-right text-foreground">{livePrice > 0 ? `₹${formatNumber(livePrice)}` : "—"}</TableCell>
-                      <TableCell className={`text-right font-medium ${pnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>₹{formatNumber(pnl)}</TableCell>
+                      <TableCell className="text-right text-foreground">{formatCurrency(Number(position.avg_price))}</TableCell>
+                      <TableCell className="text-right text-foreground">{livePrice > 0 ? `${formatCurrency(livePrice)}` : "—"}</TableCell>
+                      <TableCell className={`text-right font-medium ${pnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>{formatCurrency(pnl)}</TableCell>
                       <TableCell className={`text-right ${(livePosition?.pnlPercent ?? Number(position.return_percent || 0)) >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>{(livePosition?.pnlPercent ?? Number(position.return_percent || 0)).toFixed(2)}%</TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(position.opened_at)}</TableCell>
                     </TableRow>;

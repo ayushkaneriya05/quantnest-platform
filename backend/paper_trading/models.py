@@ -4,11 +4,13 @@ Paper Trading Models
 Simulates live trading with virtual money for strategy testing.
 """
 from django.db import models
+from django.db.models.functions import Coalesce, Greatest
 from django.conf import settings
+from django.utils import timezone
 from common.models import BaseTimestampModel
 from common.enums import (
     Side, OrderType, OrderStatus, ProductType,
-    CapitalAllocationType, TransactionType, RebalanceFrequency
+    TransactionType, ExecutionSessionStatus
 )
 from decimal import Decimal
 import uuid
@@ -35,13 +37,6 @@ class Portfolio(BaseTimestampModel):
         max_digits=15, decimal_places=2, default=0,
         help_text="Current available capital"
     )
-    # High watermark for drawdown
-    peak_value = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
-        help_text="Highest portfolio value achieved"
-    )
-    peak_date = models.DateField(null=True, blank=True)
-    
     is_active = models.BooleanField(default=True)
     
     class Meta:
@@ -54,72 +49,40 @@ class Portfolio(BaseTimestampModel):
 
     @property
     def total_value(self):
-        # Account balances already contain allocated cash and realized P&L.
-        # Only allocations without accounts need to be counted as reserved cash.
         account_balance = self.user.paper_accounts.aggregate(total=models.Sum("current_balance"))["total"] or Decimal("0")
-        unassigned_allocations = self.allocations.filter(paper_account__isnull=True)
-        fixed_reserved = unassigned_allocations.filter(allocation_type=CapitalAllocationType.FIXED).aggregate(total=models.Sum("allocated_amount"))["total"] or Decimal("0")
-        percentage_reserved = unassigned_allocations.filter(allocation_type=CapitalAllocationType.PERCENTAGE).aggregate(total=models.Sum("allocated_percentage"))["total"] or Decimal("0")
-        denominator = Decimal("1") - (percentage_reserved / Decimal("100"))
-        numerator = self.current_capital + account_balance + fixed_reserved + self.unrealized_pnl
-        
-        if denominator <= Decimal("0"):
-            return Decimal("0") # Prevent division by zero or negative if over-allocated
-            
-        return numerator / denominator
+        return self.current_capital + account_balance + self.unrealized_pnl
+
+    @property
+    def allocated_capital(self):
+        return self.allocations.aggregate(total=models.Sum("allocated_amount"))["total"] or Decimal("0")
 
     @property
     def invested_value(self):
-        return sum(
-            (position.invested_value
-             for account in self.user.paper_accounts.all()
-             for position in account.positions.all()),
-            Decimal("0"),
-        )
+        return PaperPosition.objects.filter(account__user_id=self.user_id).aggregate(
+            total=models.Sum(models.F('quantity') * models.F('avg_price') * models.F('instrument__qty_multiplier'))
+        )['total'] or Decimal('0')
 
     @property
     def realized_pnl(self):
-        return sum(
-            (trade.net_pnl
-             for account in self.user.paper_accounts.all()
-             for trade in account.trades.all()),
-            Decimal("0"),
-        )
+        return PaperTrade.objects.filter(account__user_id=self.user_id).aggregate(
+            total=models.Sum('net_pnl'))['total'] or Decimal('0')
 
     @property
     def unrealized_pnl(self):
-        return sum(
-            (position.unrealized_pnl
-             for account in self.user.paper_accounts.all()
-             for position in account.positions.all()),
-            Decimal("0"),
-        )
+        return PaperPosition.objects.filter(account__user_id=self.user_id).aggregate(
+            total=models.Sum('unrealized_pnl'))['total'] or Decimal('0')
 
     @property
     def today_pnl(self):
         from django.utils import timezone
-        realized_today = sum(
-            (trade.net_pnl
-             for account in self.user.paper_accounts.all()
-             for trade in account.trades.filter(exit_time__date=timezone.localdate())),
-            Decimal("0"),
-        )
+        realized_today = PaperTrade.objects.filter(account__user_id=self.user_id,
+            exit_time__date=timezone.localdate()).aggregate(total=models.Sum('net_pnl'))['total'] or Decimal('0')
         return realized_today + self.unrealized_pnl
 
     @property
     def today_trades(self):
         from django.utils import timezone
-        return sum(
-            account.trades.filter(exit_time__date=timezone.localdate()).count()
-            for account in self.user.paper_accounts.all()
-        )
-
-    @property
-    def current_drawdown(self):
-        if self.peak_value <= 0:
-            return 0
-        return max(Decimal("0"), ((self.peak_value - self.total_value) / self.peak_value) * 100)
-
+        return PaperTrade.objects.filter(account__user_id=self.user_id, exit_time__date=timezone.localdate()).count()
 
 class CapitalAllocation(BaseTimestampModel):
     """
@@ -144,66 +107,19 @@ class CapitalAllocation(BaseTimestampModel):
         help_text='Pinned strategy version for this paper allocation'
     )
     
-    # Allocation method
-    allocation_type = models.CharField(
-        max_length=20,
-        choices=CapitalAllocationType.choices,
-        default=CapitalAllocationType.FIXED
-    )
-    
-    # Allocation values
     allocated_amount = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text="Fixed amount allocated"
+        help_text="Capital assigned to this deployment"
     )
-    allocated_percentage = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0,
-        help_text="Percentage of portfolio allocated"
-    )
-    
-    # Auto-rebalancing
-    auto_rebalance = models.BooleanField(default=False)
-    rebalance_frequency = models.CharField(
-        max_length=20,
-        choices=RebalanceFrequency.choices,
-        default=RebalanceFrequency.WEEKLY
-    )
-    last_rebalance = models.DateTimeField(null=True, blank=True)
-        
+
     class Meta:
         db_table = 'portfolio_allocation'
         verbose_name = 'Capital Allocation'
         verbose_name_plural = 'Capital Allocations'
+        constraints = [models.UniqueConstraint(fields=['strategy', 'deployed_version'], name='paper_strategy_version_unique')]
 
     def __str__(self):
         return f"{self.strategy.name}: ₹{self.allocated_amount}"
-
-    @property
-    def effective_allocated(self):
-        if self.allocation_type == CapitalAllocationType.PERCENTAGE and self.portfolio:
-            portfolio_equity = self.portfolio.total_value
-            return (self.allocated_percentage / Decimal("100")) * portfolio_equity
-        return self.allocated_amount
-
-    @property
-    def available_amount(self):
-        return max(self.effective_allocated - self.utilized_amount, Decimal("0"))
-
-    @property
-    def utilized_amount(self):
-        account = getattr(self, "paper_account", None)
-        return account.margin_used if account else Decimal("0")
-
-    @property
-    def total_pnl(self):
-        account = getattr(self, "paper_account", None)
-        return account.total_pnl if account else Decimal("0")
-
-    @property
-    def today_pnl(self):
-        account = getattr(self, "paper_account", None)
-        return account.today_pnl if account else Decimal("0")
-
 
 class FundTransaction(BaseTimestampModel):
     """
@@ -240,51 +156,28 @@ class FundTransaction(BaseTimestampModel):
         return f"{self.transaction_type}: {sign}{self.amount}"
 
 
-class DailyPerformance(BaseTimestampModel):
-    """
-    Daily performance record for the portfolio.
-    """
-    portfolio = models.ForeignKey(
-        Portfolio,
-        on_delete=models.CASCADE,
-        related_name='daily_performance'
-    )
-    
-    date = models.DateField()
-    
-    # Capital
-    opening_capital = models.DecimalField(max_digits=15, decimal_places=2)
-    closing_capital = models.DecimalField(max_digits=15, decimal_places=2)
-    
-    total_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    pnl_percentage = models.DecimalField(max_digits=8, decimal_places=4, default=0)
-    
-    # Activity
-    trades_count = models.PositiveIntegerField(default=0)
-    winning_trades = models.PositiveIntegerField(default=0)
-    losing_trades = models.PositiveIntegerField(default=0)
-    
-    # Costs
-    brokerage_paid = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    taxes_paid = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
-    
-    class Meta:
-        db_table = 'portfolio_daily_performance'
-        verbose_name = 'Daily Performance'
-        verbose_name_plural = 'Daily Performance Records'
-        unique_together = ['portfolio', 'date']
-        ordering = ['-date']
-
-    def __str__(self):
-        return f"{self.portfolio.name} - {self.date}"
-
-    @property
-    def win_rate(self):
-        total = self.winning_trades + self.losing_trades
-        if total == 0:
-            return 0
-        return (self.winning_trades / total) * 100
+class PaperAccountQuerySet(models.QuerySet):
+    def with_totals(self):
+        """Read ledger totals once for lists; execution still reads fresh balances."""
+        money = models.DecimalField(max_digits=18, decimal_places=4)
+        zero = models.Value(Decimal("0"), output_field=money)
+        positions = PaperPosition.objects.filter(account_id=models.OuterRef("pk")).order_by().values("account_id")
+        return self.annotate(
+            annotated_realized_pnl=Coalesce(models.Sum("trades__net_pnl"), zero),
+            annotated_trade_count=models.Count("trades"),
+            annotated_today_trades=models.Count("trades", filter=models.Q(
+                trades__exit_time__date=timezone.localdate())),
+            annotated_used_capital=Coalesce(models.Subquery(
+                positions.annotate(total=models.Sum("margin_blocked")).values("total")[:1],
+                output_field=money), zero),
+            annotated_unrealized_pnl=Coalesce(models.Subquery(
+                positions.annotate(total=models.Sum("unrealized_pnl")).values("total")[:1],
+                output_field=money), zero),
+            annotated_open_positions=Coalesce(models.Subquery(
+                positions.annotate(total=models.Count("pk")).values("total")[:1]), models.Value(0)),
+        ).annotate(
+            annotated_available_capital=Greatest(zero, models.F("current_balance") - models.F("annotated_used_capital")),
+        )
 
 
 class PaperAccount(BaseTimestampModel):
@@ -299,12 +192,13 @@ class PaperAccount(BaseTimestampModel):
     
     allocation = models.OneToOneField(
         'CapitalAllocation',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
+        on_delete=models.CASCADE,
         related_name='paper_account',
         help_text="Capital allocation this paper account was created from"
     )
     
+    objects = PaperAccountQuerySet.as_manager()
+
     name = models.CharField(max_length=100, default='Paper Account')
     
     # Capital
@@ -383,8 +277,6 @@ class PaperPosition(BaseTimestampModel):
     current_price = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
-    # Realized (from partial closes)
-    realized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
     # Margin
     margin_blocked = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -404,11 +296,11 @@ class PaperPosition(BaseTimestampModel):
 
     @property
     def current_value(self):
-        return self.quantity * self.current_price
+        return self.quantity * self.current_price * self.instrument.qty_multiplier
 
     @property
     def invested_value(self):
-        return self.quantity * self.avg_price
+        return self.quantity * self.avg_price * self.instrument.qty_multiplier
 
 
 class PaperOrder(BaseTimestampModel):
@@ -553,18 +445,13 @@ class PaperTrade(BaseTimestampModel):
 
 
 class PaperTradingSession(BaseTimestampModel):
+    applied_version = models.ForeignKey('strategies.StrategyVersion', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+')
+    applied_at = models.DateTimeField(null=True, blank=True)
     """
     Execution controller for paper trading. Mirrors TradingSession from live trading.
     Controls whether a paper deployment is RUNNING, PAUSED, or STOPPED.
     """
-    SESSION_STATUSES = [
-        ("RUNNING", "Running"),
-        ("PAUSED", "Paused"),
-        ("STOPPING", "Stopping"),
-        ("STOPPED", "Stopped"),
-        ("ERROR", "Error"),
-    ]
-
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -602,25 +489,20 @@ class PaperTradingSession(BaseTimestampModel):
     include_charges = models.BooleanField(default=True)
     status = models.CharField(
         max_length=20,
-        choices=SESSION_STATUSES,
+        choices=ExecutionSessionStatus.choices,
         default="PAUSED"
     )
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True)
-    auto_disable_state = models.JSONField(default=dict, blank=True)
-
-    @property
-    def trades_count(self):
-        return self.account.trades.count()
-
-    @property
-    def pnl(self):
-        return self.account.total_pnl
 
     class Meta:
         db_table = "paper_trading_session"
         ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["account"], name="paper_session_account_unique"),
+            models.UniqueConstraint(fields=["allocation"], name="paper_session_allocation_unique"),
+        ]
 
     def __str__(self):
         return f"{self.strategy.name} [Paper: {self.status}]"

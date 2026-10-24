@@ -35,7 +35,7 @@ import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useBacktestProgress } from "@/shared/hooks/useBacktestProgress";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
-import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
+import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 
 /* ─── Status Badge Config ─── */
 const STATUS_CONFIG = {
@@ -72,7 +72,7 @@ export default function BacktestList() {
   const fetchRuns = useCallback(async () => {
     try {
       const response = await backtestApi.getRuns();
-      setRuns(Array.isArray(response.data) ? response.data : response.data?.results || []);
+      setRuns(response.data);
     } catch (error) {
       notifyRef.current.error(getApiErrorMessage(error, "Failed to load backtests"));
     } finally {
@@ -162,7 +162,7 @@ export default function BacktestList() {
     setRerunningId(id);
     try {
       const {data: estimate} = await backtestApi.estimateRerun(id);
-      const confirmed = await customConfirm(`Rerun this saved configuration? ${estimate.instrument_candles.toLocaleString('en-IN')} instrument-candles including warmup; ${estimate.credits === null ? 'unlimited Private usage' : `${estimate.credits} credits on success`}. Internal failures restore the allowance.`);
+      const confirmed = await customConfirm(`Rerun this saved configuration? ${formatNumber(estimate.instrument_candles, { minimumFractionDigits: 0 })} instrument-candles including warmup; ${estimate.credits === null ? 'unmetered usage' : `${estimate.credits} credits on success`}. Internal failures restore the allowance.`);
       if (!confirmed) return;
       const response = await backtestApi.rerunRun(id, estimate.token);
       notify.success("Backtest cloned and started successfully!");

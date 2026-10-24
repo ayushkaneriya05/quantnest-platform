@@ -8,37 +8,22 @@ from rest_framework.response import Response
 
 from .enums import (
     StrategyType, MarketType, Exchange, InstrumentType, OptionType,
-    OrderType, OrderStatus, Side, ProductType, StrategyStatus, StrategyVisibility,
-    CandleTimeframe, CandlePart, MarketSession,
+    OrderType, OrderStatus, Side, ProductType, StrategyStatus, StrategyVisibility, ExecutionSessionStatus,
+    CandleTimeframe, MarketSession,
     CandlePatternType,
     LogicalOperator, RuleType,
-    RuleGroupAction,
     OperandType,
     ComparisonOperator,
-    QuantityType, CapitalAllocationType, StrikeSelectionLogic, ExpiryType,
-    AutoDisableTriggerType, Severity,
-    TransactionType, RebalanceFrequency, Timezone, BacktestStatus,
+    QuantityType,
+    TransactionType, Timezone, BacktestStatus,
     BrokerName,
-    get_operand_parameter_config, OperandType, TradingDay,
+    get_operand_parameter_config, TradingDay,
     DEFAULT_TRADING_DAYS, DEFAULT_TRADING_START_TIME, DEFAULT_TRADING_END_TIME,
     OPERAND_GROUPS, get_math_expression_operand_types,
+    TerminalOrderType, TerminalOrderStatus, ChartTimeframe,
+    PositionSide, TerminalPositionAction, TerminalExitReason,
+    TERMINAL_USER_ORDER_TYPES, TERMINAL_PRICE_REQUIRED_TYPES, TERMINAL_TRIGGER_REQUIRED_TYPES,
 )
-
-
-def _choices_to_list(choices):
-    """Convert Django TextChoices / list-of-tuples into [{value, label}, ...]."""
-    if hasattr(choices, 'choices'):
-        # TextChoices enum
-        return [{'value': v, 'label': l} for v, l in choices.choices]
-    
-    # Handle plain list of tuples
-    try:
-        if isinstance(choices, (list, tuple)):
-            return [{'value': v, 'label': l} for v, l in choices]
-    except Exception:
-        pass
-        
-    return []
 
 
 # Map of enum name → source
@@ -52,44 +37,38 @@ _ENUM_SOURCES = {
     'OrderType': OrderType,
     'OrderStatus': OrderStatus,
     'Side': Side,
+    'TerminalOrderType': TerminalOrderType,
+    'TerminalOrderStatus': TerminalOrderStatus,
+    'PositionSide': PositionSide,
+    'TerminalPositionAction': TerminalPositionAction,
+    'TerminalExitReason': TerminalExitReason,
     'ProductType': ProductType,
     'BrokerName': BrokerName,
 
     # Strategy lifecycle
     'StrategyStatus': StrategyStatus,
+    'ExecutionSessionStatus': ExecutionSessionStatus,
     'StrategyVisibility': StrategyVisibility,
 
     # Candle / time
     'CandleTimeframe': CandleTimeframe,
+    'ChartTimeframe': ChartTimeframe,
     'TradingDay': TradingDay,
 
-    'CandlePart': CandlePart,
     'CandlePatternType': CandlePatternType,
     'MarketSession': MarketSession,
 
     # Rules
     'LogicalOperator': LogicalOperator,
     'RuleType': RuleType,
-    'RuleGroupAction': RuleGroupAction,
     'OperandType': OperandType,
     'ComparisonOperator': ComparisonOperator,
 
     # Position sizing
     'QuantityType': QuantityType,
-    'CapitalAllocationType': CapitalAllocationType,
-
-    # Options
-    'StrikeSelectionLogic': StrikeSelectionLogic,
-    'ExpiryType': ExpiryType,
-
-
-    # Risk management
-    'AutoDisableTriggerType': AutoDisableTriggerType,
-    'Severity': Severity,
 
     # Portfolio
     'TransactionType': TransactionType,
-    'RebalanceFrequency': RebalanceFrequency,
     'BacktestStatus': BacktestStatus,
 
     'Timezone':Timezone,
@@ -97,10 +76,24 @@ _ENUM_SOURCES = {
 
 
 def get_enum_metadata():
-    """Return all enum choices as {EnumName: [{value, label}, ...]}."""
-    data = {}
-    for name, source in _ENUM_SOURCES.items():
-        data[name] = _choices_to_list(source)
+    """Expose names, values, labels and field requirements to the frontend."""
+    data = {
+        name: [{'name': member.name, 'value': member.value, 'label': member.label} for member in source]
+        for name, source in _ENUM_SOURCES.items()
+    }
+
+    for choice in data['TerminalOrderType']:
+        choice.update(
+            user_selectable=choice['value'] in TERMINAL_USER_ORDER_TYPES,
+            requires_price=choice['value'] in TERMINAL_PRICE_REQUIRED_TYPES,
+            requires_trigger=choice['value'] in TERMINAL_TRIGGER_REQUIRED_TYPES,
+        )
+    for choice in data['TerminalPositionAction']:
+        choice.update(
+            requires_quantity=choice['value'] not in (TerminalPositionAction.CLOSE, TerminalPositionAction.SETTLE),
+            requires_expiry=choice['value'] == TerminalPositionAction.SETTLE,
+            requires_settlement_price=choice['value'] == TerminalPositionAction.SETTLE,
+        )
 
     data['OperandParameterConfig'] = {
         operand.value: get_operand_parameter_config(operand)
@@ -117,7 +110,7 @@ def get_enum_metadata():
     data['StrategyBuilderDefaults'] = {
         'time_rule': {
             'trading_days': list(DEFAULT_TRADING_DAYS),
-            'market_session': 'MARKET_OPEN',
+            'market_session': MarketSession.MARKET_OPEN,
             'start_time': DEFAULT_TRADING_START_TIME.strftime('%H:%M'),
             'end_time': DEFAULT_TRADING_END_TIME.strftime('%H:%M'),
             'candle_timeframe': CandleTimeframe.M5,
@@ -125,17 +118,12 @@ def get_enum_metadata():
             'no_trade_windows': [],
         },
         'entry_order_config': {
-            'entry_side': 'BUY', 'entry_group_operator': 'OR',
-            'order_type': 'MARKET', 'price_offset': 0, 'cooldown_seconds': 0,
+            'entry_side': Side.BUY, 'entry_group_operator': LogicalOperator.OR,
+            'order_type': OrderType.MARKET,
         },
         'position_sizing_rule': {
-            'sizing_method': 'CAPITAL_BASED', 'fixed_quantity': 1,
+            'sizing_method': QuantityType.CAPITAL_BASED, 'fixed_quantity': 1,
             'capital_percentage': 10,
-        },
-        'auto_disable_rule': {
-            'trigger_type': 'CONSECUTIVE_LOSSES', 'threshold_value': 0,
-            'threshold_count': 5, 'auto_reenable': False,
-            'cooldown_hours': 24, 'is_active': True,
         },
     }
         

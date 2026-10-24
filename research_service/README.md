@@ -6,43 +6,32 @@ confirmed actions. This private FastAPI service calls Gemini and requests nine
 allowlisted Django tools. It has no trading credentials, database connection,
 order API or strategy activation API.
 
-## Start locally
+## Setup and startup
 
-Use the root Python 3.12 environment (see [setup](../README.md)). From the
-repository root, install the backend and research dependencies:
+Follow the beginner [Development](../infra/development/SETUP.md),
+[Public](../infra/public/SETUP.md) or [Private](../infra/private/SETUP.md) walkthrough.
+[Gemini integration setup](../infra/shared/INTEGRATIONS.md#5-gemini-ai-research)
+explains obtaining the provider key, selecting a supported model and verifying
+the first response.
 
-```powershell
-.venv\Scripts\python.exe -m pip install --require-hashes -r backend/requirements.lock -r research_service/requirements.lock
-```
+For Compose, use the selected mode's `research.env` for `GEMINI_API_KEY`,
+`GEMINI_MODEL` and `RESEARCH_SERVICE_TOKEN`. Put the same service token in that
+mode's `backend.env`. These files are separate from native `backend/.env` and
+`research_service/.env`; do not merge the two deployment methods.
 
-Set a random `RESEARCH_SERVICE_TOKEN` in `backend/.env` and put the same value in
-`research_service/.env`. Also set `GEMINI_API_KEY` in the service environment.
-Examples are in each directory's `.env.example`. The API key stays exclusively
-in the FastAPI service. Use a Gemini model supporting Interactions function
-calling and structured JSON output; `GEMINI_MODEL` is configurable.
+Development enables the `research` profile. Public/Private include it in their
+normal full deployment. Docker installs the locked dependencies and supplies
+internal service/tool URLs. The browser calls Django only; do not expose 8001.
 
-```powershell
-cd backend
-..\.venv\Scripts\python.exe manage.py migrate
-..\.venv\Scripts\python.exe -m celery -A backend worker -Q research --pool=solo -l info
-```
+Research and screening jobs run on the existing **compute** Celery queue.
+Background and Beat services handle maintenance/expiry. There is no separate
+research Celery queue or worker command to add. Screening does not require a
+Gemini request; AI answers additionally need the internal FastAPI service.
 
-Run Django's ASGI server and Redis using your existing setup. In another shell,
-from the repository root:
-
-```powershell
-.venv\Scripts\python.exe -m uvicorn research_service.main:app --host 127.0.0.1 --port 8001 --env-file research_service/.env
-```
-
-Install `python-dotenv` when using Uvicorn's `--env-file` option (included in this
-service's requirements). For separate containers, configure
-`RESEARCH_SERVICE_URL` on Django and `RESEARCH_INTERNAL_API_URL` on FastAPI.
-Keep FastAPI on a private interface/network; the browser calls Django only.
-Disable response buffering on the internal streaming endpoint if proxied.
-
-The dedicated Celery queue must have a worker. Screening also uses this queue
-and works without FastAPI or Gemini. The existing Beat service expires abandoned
-jobs. Restart Django/ASGI, Celery and Beat after changing registrations.
+If maintaining a native setup, configure the two internal URLs and matching
+tokens explicitly and keep its processes separate from Compose. Use a model
+supporting Interactions function calling and structured output; a configured
+default name is not a guarantee of access for your Google project.
 
 ## Workflow
 
@@ -109,17 +98,17 @@ Alternative Data placeholder is removed from navigation until it has a data sour
   Loaded frames, calculated indicators and identical artifacts are reused within
   a run. Charts are bounded to 120 bars and stay outside model tool responses.
 - NSE stocks and one direct execution route per draft instrument in this version.
-- Warmup comes from `IndicatorRequirementAnalyzer` and `MarketSessionCalendar`.
-  Data comes from `StrategyMarketDataService`, including missing-candle broker
-  backfill and coverage rechecks. Candle series are indexed by scheduled close,
+- Warmup comes from the shared execution compiler and `MarketSessionCalendar`.
+  Data comes through `marketdata.candles.prepare_frames` and the common history
+  path, including missing-candle provider backfill and coverage checks. Candle series are indexed by scheduled close,
   including holiday-aware weekly closes, so incomplete future bars are excluded.
 - Returns/volatility in comparison tables use 20 completed bars. Volatility is
   the sample standard deviation of bar returns, not annualized volatility.
-- Screening condition outcomes use `RuleEvaluator.evaluate_rule`, including
-  crossover semantics. Undefined ratios render as N/A; empty trade totals are zero.
-- Backtest diagnostics count actual entry signals, time/event restrictions,
-  cooldown, existing positions, sizing/capital/route rejection, queued entries and
-  fills. They add counters at existing decision points without new tick-path queries.
+- Screening condition outcomes use `research.evaluation.evaluate_conditions`
+  with the shared execution compiler/evaluator, including crossover semantics.
+  Undefined ratios render as N/A; empty trade totals are zero.
+- Backtest diagnostics describe the evaluation and admission outcomes recorded
+  with that run. Older runs may not include the current diagnostic fields.
 - Reloading saved results keeps original dates. Refresh analysis creates a new
   observation. Closed candles and separately timestamped quotes remain distinct.
 - Gemini requests use `store=False`; complete interaction steps are preserved
@@ -138,7 +127,7 @@ history and already-created drafts. `backtesting.0018` adds aggregate diagnostic
 `research.0002_remove_old_ai_engine` irreversibly drops only the four removed AI
 Engine tables and deletes its obsolete content types. This removes the unused
 AI recommendations, regime, health and overfit history as approved. The migration
-has not been run against your trading database by this implementation.
+is part of the versioned migration history applied by the normal deploy flow.
 
 ## Verification
 
@@ -151,9 +140,8 @@ npx eslint src/features/research src/shared/services/researchApi.js
 npm run build
 ```
 
-Test suites and browser harnesses were removed on 2026-10-14. Validate the research
-workflow against your configured deployment before release. A real Gemini request
-requires your service token/API key and running services.
+Validate the research workflow against your configured deployment before release.
+A real Gemini request requires your service token/API key and running services.
 Logs record tool latency, provider token usage, failures and action outcomes;
 they do not include credentials or request headers.
 

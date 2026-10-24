@@ -177,6 +177,16 @@ export default function MonteCarloSim() {
   }, [fetchData, notify]);
 
   const viewResults = useCallback((mcRun) => setSelectedRun(mcRun), []);
+  const handleCancel = async (mcRun) => {
+    setStartingRunId(mcRun.id);
+    try {
+      await backtestApi.cancelMonteCarlo(mcRun.id);
+      notify.success('Simulation cancelled. Its reserved allowance has been restored.');
+      await fetchData();
+    } catch (error) {
+      notify.error(getApiErrorMessage(error, 'Could not cancel simulation.'));
+    } finally { setStartingRunId(null); }
+  };
 
   useEffect(() => {
     if (!selectedRunId || selectedRunStatus !== "COMPLETED") {
@@ -230,6 +240,7 @@ export default function MonteCarloSim() {
   const formatPercentile = (value) => Number(value.toFixed(2));
   const selectedRunMessage = selectedRun?.error_message || ({
     FAILED: "The simulation failed.",
+    CANCELLED: "This simulation was cancelled and its reserved allowance was restored.",
     QUEUED: "Simulation is queued and will start when a worker is available.",
     RUNNING: "Simulation is running. Results will appear here when it completes.",
     PENDING: "This simulation is waiting to start. Use Start simulation in the history list.",
@@ -433,9 +444,11 @@ export default function MonteCarloSim() {
                           {mc.status}
                         </Badge>
                       </div>
-                      {mc.status === "PENDING" && (
-                        <div className="flex justify-end mt-2">
-                          <Button
+                      {["PENDING", "QUEUED"].includes(mc.status) && (
+                        <div className="flex justify-end gap-2 mt-2">
+                          <Button size="sm" variant="outline" className="h-7 text-xs" disabled={startingRunId === mc.id}
+                            onClick={(event) => { event.stopPropagation(); handleCancel(mc); }}>Cancel</Button>
+                          {mc.status === 'PENDING' && <Button
                             size="sm"
                             variant="outline"
                             disabled={startingRunId === mc.id}
@@ -446,7 +459,7 @@ export default function MonteCarloSim() {
                             className="h-7 border-border text-xs"
                           >
                             {startingRunId === mc.id ? "Starting..." : "Start simulation"}
-                          </Button>
+                          </Button>}
                         </div>
                       )}
                     </div>

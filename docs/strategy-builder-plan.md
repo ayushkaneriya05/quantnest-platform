@@ -18,7 +18,7 @@ input. It was a future implementation specification, not useless application
 code. Its stock-first expressions, event anchors and hybrid triggers remain
 central to this plan. Current behavior is documented separately in
 [Strategy configuration](strategy-configuration.md) and the
-[Execution technical reference](execution-technical-reference.md).
+[current Live execution guide](live-trading.md).
 
 ## Contents
 
@@ -100,15 +100,15 @@ paths must not be used as the current integration map.
 | Rule storage | Rule stores operand A, comparison, operand B and optional per-operand frames | No general recursive expression definition today |
 | Arithmetic | Restricted named arithmetic in math_expressions.py | Useful syntax adapter; not a temporal language |
 | Metadata | common/enums.py owns builder parameter descriptors | Reuse/extend backend ownership; do not recreate frontend PARAM_CONFIG |
-| Shared program | trading_domain/strategy.py: StrategyProgram | Entry/exit orchestration already shared |
-| Calculations | quantnest_runtime/calculation.py builds frames/indicators in a process pool | Extend this path for heavy compiled plans |
-| Fast application | strategy_engine/engine.py applies results and checks protection | Preserve an owner-controlled tick path |
-| Ownership | Runtime actors are scope/session/instrument, with leases and generations | State cannot be keyed only by strategy and symbol |
-| Requests | strategy_engine/router.py: OrderRequest and Redis stream handoff | Extend the existing envelope rather than adding a competing queue |
-| Actions | trading_domain/exit_actions.py | Reuse full/partial/breakeven semantics, then strengthen fill-aware behavior |
+| Shared program | execution/compiler.py: Program | Entry/exit orchestration already shared |
+| Calculations | execution/features.py updates shared incremental numerical features in persistent workers | Extend this path for heavy compiled plans |
+| Fast application | execution/engine.py applies results and checks protection | Preserve an owner-controlled tick path |
+| Ownership | Execution units are mode/session/instrument, with observed generations and position revisions | State cannot be keyed only by strategy and symbol |
+| Requests | execution/messages.py: typed Intent/Transition messages and durable database commands | Extend the existing envelope rather than adding a competing queue |
+| Actions | execution/compiler.py | Retain current full-position exits; qualify any future action extensions separately |
 | Sizing | Fixed quantity or capital based; optional route override | Preserve these; Risk Based was deliberately removed |
 | Execution | Automated strategy MARKET orders and DIRECT NSE-stock routes | Model fields for other routes are not implemented support |
-| Contracts | Contract has integer lot sizing, currency/tick/multiplier; MarketEvent/DataCapabilities exist | Foundations need fractional, settlement and richer capability support |
+| Contracts | Contract enforces integer lots and price ticks; instrument records hold currency/multiplier metadata | Future execution needs fractional quantities, contract economics, settlement and explicit provider capabilities; unused event/capability declarations were removed |
 | Data | Historical candles and observed-price rings; source does not promise every trade/depth event | Observation replay is not an exchange-complete tick tape |
 | Backtest | Shared rules, historical driver and fill assumptions; entry vectorization | Stateful logic needs a chronological reducer, not only a Boolean array |
 | Versions | Full StrategyVersion snapshots and selected allocation versions | Extend existing provenance and readable differences |
@@ -239,7 +239,7 @@ The complete saved definition includes:
 | Entry/exit behavior | Trigger roots and deterministic action priority |
 | Sizing | Fixed/capital method, overrides and approved later extensions |
 | Routing | Signal role to resolved contract(s), account and order policy |
-| Schedule/risk | Entry windows, cooldowns, risk restrictions and auto-disable definitions |
+| Schedule/entry controls | Entry windows and declared future policy extensions |
 | Simulation | Required data tier and chosen assumptions |
 | UI metadata | Layout and readable names excluded from semantic execution hashes |
 
@@ -695,13 +695,15 @@ requires adapter qualification; an app-side simulated bracket is not equivalent.
 
 ### Broader risk integration
 
-Keep deployed auto-disable rules in the canonical snapshot and read prepared metrics.
+The current implementation uses full-position exits, sizing and schedules.
+Any future performance-triggered pause or portfolio policy is a new feature; define
+its snapshot schema and prepared metric basis before implementing it.
 Add portfolio exposure limits, maximum open legs, concentration, maximum order
 notional, drawdown and margin buffers at their owning state/admission layer.
 Distinguish per-position, strategy, account and installation policy. Every rule
 needs a declared metric basis: realized/net/gross/mark-to-market and currency.
 
-Entry schedule, cooldown, auto-disable and commercial availability are entry gates.
+Entry schedule and commercial availability apply at their owning entry boundaries.
 Exit/hedge obligations use explicit execution safety policy rather than a generic
 subscription permission check on every order.
 
@@ -928,7 +930,10 @@ Gateway locks/funds checks remain necessary even when commercial admission passe
 Commercial limits stay at user-driven actions and background entitlement refresh,
 not per-order database permission lookups in evaluation.
 
-### Action arbitration
+### Proposed action arbitration
+
+This is a future extension. The current builder supports full-position exits only;
+there are no partial-exit or breakeven action markers to reuse.
 
 For one owned exposure/event, resolve conflicts deterministically: mandatory
 protective reduction before discretionary new exposure; full exit before partial
@@ -1077,7 +1082,7 @@ are future additions, not existing endpoints:
 
 Use ETag/revision identity for stable public metadata where appropriate. Backend
 ownership remains authoritative. Compilation responses are not authority to deploy
-later if licence/data/broker/capacity state changes in the meantime.
+later if data/broker/capacity state changes in the meantime.
 
 ### Persistence
 
@@ -1175,19 +1180,19 @@ restricted arithmetic syntax-to-node adapter when useful.
 | --- | --- |
 | common/enums.py and common/enums_view.py | Keep current choices; expose/bridge the backend expression registry without duplicate frontend metadata |
 | rules_engine/models.py, serializers.py, views.py, metadata.py | Definition storage, authoritative validation, preview and requirement reporting |
-| rules_engine/evaluator.py, indicators.py | Legacy conversion and qualified indicator/kernel reuse |
-| trading_domain/strategy.py | Orchestrate prepared signal/state/action plans |
-| trading_domain/configuration.py | Calendar-aware requirements and selected stream/clock policies |
-| trading_domain/contracts.py | Contract economics, quantities and normalized event/capability contracts |
-| trading_domain/exit_actions.py and orders.py | Stable fill-aware action identities and shared execution reduction semantics |
-| strategy_engine/engine.py and context.py | Apply prepared plans; protect filled exposure through pending phases |
-| strategy_engine/dispatcher.py, router.py, order_queue.py | Existing durable envelope with provenance and state/intent coupling |
-| quantnest_runtime/execution.py and calculation.py | Prepared plan loading, immutable cuts, actor state revisions and bounded scheduling |
-| core/assignments.py, runtime_projection.py, outbox.py | Dependency-aware capacity, checkpoint publication and recovery fencing |
+| execution/engine.py, execution/features.py | Shared rule evaluation and incremental indicator kernels |
+| execution/compiler.py | Orchestrate prepared signal/state/action plans |
+| execution/compiler.py | Calendar-aware requirements and selected stream/clock policies |
+| execution/types.py and execution/preparation.py | Contract economics, quantities and normalized event/capability contracts |
+| execution/ledger.py and execution/order_reports.py | Stable fill-aware action identities and shared execution reduction semantics |
+| execution/engine.py and owner.py | Apply prepared plans; protect filled exposure through pending phases |
+| execution/messages.py | Existing durable envelope with provenance and state/intent coupling |
+| execution/worker.py and market.py | Prepared plan loading, immutable cuts, actor state revisions and bounded scheduling |
+| execution/lifecycle.py, repository.py, recovery.py | Dependency-aware capacity, checkpoint publication and recovery fencing |
 | marketdata providers/access/data preparation | Rich capability reports and canonical stream/calendar/publication semantics |
 | instruments/models.py and services.py | Effective contract specs, mappings and background selector publication |
-| risk_management evaluator/policy/metrics | Shared sizing and declared risk metric integration |
-| backtesting engine/executor/context/execution_service | Chronological state/timer/fill events plus retained pure vector path |
+| rules_engine/models.py and utils.py | Current sizing records and shared calculate_quantity; future policies require a separate design |
+| backtesting/engine.py and execution/replay.py | Chronological state/timer/fill events plus retained pure vector path |
 | paper_trading and live_trading services | Resolved order/protection contract and qualified execution semantics |
 | live_trading/order_processor.py | Preserve owned identity and shared cumulative fills |
 | research draft/action validation | Accept only registry-described definitions and require user confirmation |
@@ -1305,7 +1310,7 @@ prototype and evidence; no artificial completion dates are promised here.
 | 2. Pure expression core | Compiler and bounded stateless stock operators; existing indicators reused | Deterministic old/new equivalence, work estimates and no-lookahead behavior |
 | 3. Authoring experience | Metadata-driven simple/advanced editor, validation report, snapshot/diff and owned preview | Save/reload correctness, readable errors, mobile/theme/accessibility |
 | 4. Stateful/hybrid stocks | Anchors, sequences, timers, observation guards and dynamic protection | Canonical breakout/retest cases, partial-fill protection and honest recovery class |
-| 5. Controlled rollout | Shadow → Paper → qualified Private Live, per saved version | Stage latency/capacity evidence, recovery and incident procedures |
+| 5. Controlled rollout | Shadow → Paper → personal Live, per saved version | Stage latency/capacity evidence, recovery and incident procedures |
 | 6. Coordinated strategies | Fixed cross-instrument dependencies, pair/basket coordinator and portfolio budgets | No global barriers, deterministic cuts, leg/funds failure semantics |
 | 7. Derivatives/crypto | One selected market family end-to-end at a time | Real historical/live capabilities, economic model, order/reconciliation/report qualification |
 | 8. Advanced extensions | Qualified fundamentals/news/depth, additional venues and optional execution algorithms | Customer need, data rights, costs and evidence justify the maintenance |
@@ -1334,7 +1339,7 @@ Keep only the two existing deployment controls:
 - EXECUTION_ENABLED_SCOPES for Paper/Live execution availability.
 
 Admission additionally checks qualified data, contract/broker support, signed
-Private licence validity, Public numeric allowances and runtime capacity at user actions. These
+Public numeric allowances and runtime capacity at user actions. These
 are not new competing deployment-mode flags.
 
 Compile/deploy/version-change/resume/preview/backtest are admission points. Meter
@@ -1343,12 +1348,12 @@ workload estimate for unique streams, graph kernels, history and stateful replay
 do not double-charge a cached shared series or ignore a costly dependency graph.
 
 The current runtime has no background commercial-expiry checks. Subscription and
-licence checks belong to user-action admission, so admitted sessions continue
+Public plan checks belong to user-action admission, so admitted sessions continue
 until explicitly paused/stopped or blocked by ordinary risk/execution controls.
 The builder must preserve that boundary. Protection, cancellation, bounded
 reductions and reconciliation of admitted obligations remain available.
 
-Private executes on its customer's infrastructure. Central licensing/support is
+Private executes on a separate personal host. Public billing/support is
 outside tick evaluation; the builder must not add a central compile/market-data
 dependency to every private decision. Deliver compatible operator/runtime versions
 and registry metadata with the signed software release.
@@ -1422,13 +1427,13 @@ starts, because this work is intentionally deferred.
 | [Original QuantNest proposal](archive/strategy-builder-original-proposal.md) | Complete original stock-first expressions/anchors/sequences requirements |
 
 Current repository sources: [Rule model](../backend/rules_engine/models.py),
-[evaluator](../backend/rules_engine/evaluator.py), [metadata](../backend/common/enums.py),
-[shared program](../backend/trading_domain/strategy.py),
-[runtime calculation](../backend/quantnest_runtime/calculation.py),
-[owner application](../backend/strategy_engine/engine.py),
-[contracts](../backend/trading_domain/contracts.py),
+[evaluator](../backend/execution/engine.py), [metadata](../backend/common/enums.py),
+[shared program](../backend/execution/compiler.py),
+[runtime calculation](../backend/execution/features.py),
+[owner application](../backend/execution/engine.py),
+[contracts](../backend/execution/types.py),
 [routes](../backend/instruments/models.py),
-[order request](../backend/strategy_engine/router.py),
-[shared exit actions](../backend/trading_domain/exit_actions.py),
+[order request](../backend/execution/messages.py),
+[shared full-exit program](../backend/execution/compiler.py),
 [backtest driver](../backend/backtesting/engine.py) and
 [strategy UI](../frontend/src/features/strategies).

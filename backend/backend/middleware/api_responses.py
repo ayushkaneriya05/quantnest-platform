@@ -3,12 +3,23 @@
 import logging
 
 from django.http import JsonResponse
-from rest_framework.exceptions import ErrorDetail
+from rest_framework.exceptions import ErrorDetail, ParseError
+from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BrowsableAPIRenderer, JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import exception_handler as drf_exception_handler
 
 logger = logging.getLogger(__name__)
+
+
+class ObjectJSONParser(JSONParser):
+    """API payloads are JSON objects; arrays remain valid inside those objects."""
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        data = super().parse(stream, media_type, parser_context)
+        if not isinstance(data, dict):
+            raise ParseError("Provide a JSON object for this request.")
+        return data
 
 
 def _message(value):

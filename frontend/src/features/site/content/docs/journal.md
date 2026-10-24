@@ -5,9 +5,9 @@ order: 8
 ---
 ## Choose the right records
 
-- Select Terminal, Paper or available Private Live records.
+- Select Terminal or Paper records.
 - Set dates and inspect account context and timestamps.
-- Partial exits are separate recorded closes.
+- Broker partial fills and manual Terminal reductions are separate recorded closes.
 
 ## Save a trade review
 

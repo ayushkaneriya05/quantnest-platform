@@ -7,7 +7,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('strategies', '0023_alter_strategy_visibility'),
-        ('risk_management', '0013_remove_positionsizingrule_risk_per_trade_percentage_and_more'),
     ]
 
     operations = [

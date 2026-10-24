@@ -7,7 +7,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('instruments', '0010_alter_instrument_exchange'),
-        ('risk_management', '0013_remove_positionsizingrule_risk_per_trade_percentage_and_more'),
     ]
 
     operations = [

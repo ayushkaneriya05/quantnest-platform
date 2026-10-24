@@ -1,8 +1,9 @@
 import PropTypes from "prop-types";
 import * as React from "react"
-import { format, setMonth, setYear, setDate as setDayOfMonth } from "date-fns"
+import { setMonth, setYear, setDate as setDayOfMonth } from "date-fns"
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react"
 
+import { formatDate } from "@/shared/utils/formatters"
 import { cn } from "@/shared/lib/utils"
 import { Button } from "@/shared/components/ui/button"
 import { Calendar } from "@/shared/components/ui/calendar"
@@ -62,7 +63,7 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
           )}
         >
           <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
-          <span className="min-w-0 truncate">{date ? format(date, "PPP") : placeholder}</span>
+          <span className="min-w-0 truncate">{date ? formatDate(date) : placeholder}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -87,7 +88,7 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
               className="h-8 px-2 hover:bg-secondary hover:text-foreground font-semibold text-sm text-foreground"
               onClick={() => setView(view === "months" ? "days" : "months")}
             >
-              {format(displayMonth, "MMMM")}
+              {formatDate(displayMonth, { month: "long" })}
             </Button>
             <Button
               variant="ghost"

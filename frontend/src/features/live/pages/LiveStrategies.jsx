@@ -9,10 +9,11 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useLiveTradingData } from "@/features/live/hooks/useLiveTradingData.js";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
-import LiveAllocationUpdateModal from "@/features/live/components/LiveAllocationUpdateModal.jsx";
-import LiveHotSwapModal from "@/features/live/components/LiveHotSwapModal.jsx";
+import AllocationCapitalDialog from "@/features/strategies/components/AllocationCapitalDialog.jsx";
+import SessionStatusFilter from "@/features/strategies/components/SessionStatusFilter.jsx";
+import ChangeStrategyVersionDialog from "@/features/strategies/components/ChangeStrategyVersionDialog.jsx";
 import LiveSyncStatus from "@/features/live/components/LiveSyncStatus.jsx";
-import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
+import { formatBrokerAccount, formatDateTime, formatCurrency } from "@/shared/utils/formatters";
 import { statusTone } from "@/shared/constants/statusColors";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 
@@ -20,19 +21,21 @@ export default function LiveStrategies() {
   const navigate = useNavigate();
   const { notify } = useNotifications();
   const data = useLiveTradingData({ notify });
-  const [busyAction, setBusyAction] = useState("");
+  const [status, setStatus] = useState("all");
+  const visibleSessions = status === "all" ? data.sessions : data.sessions.filter((session) => session.status === status);
+  const [busy, setBusy] = useState(false);
   const [allocationSession, setAllocationSession] = useState(null);
   const [versionSession, setVersionSession] = useState(null);
-  const runAction = async (key, action, success) => {
+  const runAction = async (action, success) => {
     try {
-      setBusyAction(key);
+      setBusy(true);
       const response = await action();
       if (success) notify.success(success(response));
       await data.loadData(false);
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Live strategy action failed"));
     } finally {
-      setBusyAction("");
+      setBusy(false);
     }
   };
 
@@ -43,7 +46,7 @@ export default function LiveStrategies() {
       : `This stops new entries for ${session.strategy_name || "this deployment"} and submits market exit orders for its open positions. Broker confirmation can arrive asynchronously; reconcile before assuming exposure is flat.`;
     const action = alreadyStopped ? "Close positions" : "Stop & close";
     if (!(await customConfirm(message, title, action))) return;
-    await runAction(`close-${session.id}`, () => liveTradingApi.stopSession(session.id, { close_positions: true }));
+    await runAction(() => liveTradingApi.stopSession(session.id, { close_positions: true }));
   };
 
   const pageActions = useMemo(() => (
@@ -67,14 +70,15 @@ export default function LiveStrategies() {
         <Card className="border-border bg-card/50"><CardContent className="p-5"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Authentication attention</p><p className="mt-2 text-2xl font-semibold text-rose-700 dark:text-rose-300">{attentionCount}</p><p className="mt-1 text-xs text-muted-foreground">Expired or unavailable broker session</p></CardContent></Card>
       </div>
 
+      <SessionStatusFilter value={status} onValueChange={setStatus} />
       {data.loading ? (
         <Card className="border-border bg-card/60"><CardContent className="py-12 text-center text-muted-foreground">Loading live deployments…</CardContent></Card>
-      ) : data.sessions.length === 0 ? (
-        <Card className="border-border bg-card/60"><CardContent className="py-14 text-center"><Zap className="mx-auto mb-3 h-8 w-8 text-muted-foreground" /><p className="text-foreground">No live deployments</p><p className="mt-1 text-sm text-muted-foreground">Deploy a strategy to a connected broker account to see it here.</p></CardContent></Card>
+      ) : visibleSessions.length === 0 ? (
+        <Card className="border-border bg-card/60"><CardContent className="py-14 text-center"><Zap className="mx-auto mb-3 h-8 w-8 text-muted-foreground" /><p className="text-foreground">{data.sessions.length ? "No sessions match this status" : "No live deployments"}</p><p className="mt-1 text-sm text-muted-foreground">Deploy a strategy to a connected broker account to see it here.</p></CardContent></Card>
       ) : (
         <div className="space-y-3">
-          {data.sessions.map((session) => {
-            const canClose = ["RUNNING", "PAUSED", "ERROR"].includes(session.status);
+          {visibleSessions.map((session) => {
+            const canClose = ["RUNNING", "PAUSED", "ERROR", "STOPPING"].includes(session.status);
             const allocation = session.allocation;
             const brokerHealth = data.summary?.broker_accounts?.find((account) => String(account.credential_id) === String(session.broker_credential));
             return <Card key={session.id} className="overflow-hidden border-border bg-card/50">
@@ -83,29 +87,29 @@ export default function LiveStrategies() {
                   <div className="flex min-w-[220px] items-start gap-3">
                     <div className="rounded-xl border border-border bg-secondary/60 p-2.5"><Zap className="h-5 w-5 text-indigo-700 dark:text-indigo-300" /></div>
                     <div>
-                      <div className="flex flex-wrap items-center gap-2"><CardTitle className="text-lg text-foreground">{session.strategy_name || `Strategy #${session.strategy}`}</CardTitle>{allocation?.version_number && <Badge className="border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">v{allocation.version_number}</Badge>}<Badge className={statusTone[session.status] || statusTone.STOPPED}>{session.status}</Badge></div>
+                      <div className="flex flex-wrap items-center gap-2"><CardTitle className="text-lg text-foreground">{session.strategy_name || `Strategy #${session.strategy}`}</CardTitle>{allocation?.version_number && <Badge className="border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">v{allocation.version_number}</Badge>}<Badge className={statusTone[session.status] || statusTone.STOPPED}>{session.status}</Badge>{allocation?.version_id !== session.applied_version && <Badge variant="outline">Version pending</Badge>}</div>
                       <p className="mt-1 text-sm text-muted-foreground">{formatBrokerAccount(session.broker_name, session.broker_label)}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {session.status === "RUNNING" && <Button size="sm" variant="outline" onClick={() => runAction(`pause-${session.id}`, () => liveTradingApi.pauseSession(session.id))} disabled={busyAction === `pause-${session.id}`}><Pause className="mr-2 h-4 w-4" />Pause</Button>}
-                    {session.status === "PAUSED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`resume-${session.id}`, () => liveTradingApi.resumeSession(session.id))} disabled={busyAction === `resume-${session.id}`}><Play className="mr-2 h-4 w-4" />Resume</Button>}
-                    {session.status === "STOPPED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(`start-${session.id}`, () => liveTradingApi.startSession(session.id))} disabled={busyAction === `start-${session.id}`}><Play className="mr-2 h-4 w-4" />Start</Button>}
+                    {session.status === "RUNNING" && <Button size="sm" variant="outline" onClick={() => runAction(() => liveTradingApi.pauseSession(session.id))} disabled={busy}><Pause className="mr-2 h-4 w-4" />Pause</Button>}
+                    {["PAUSED", "ERROR"].includes(session.status) && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(() => liveTradingApi.resumeSession(session.id))} disabled={busy}><Play className="mr-2 h-4 w-4" />Resume</Button>}
+                    {session.status === "STOPPED" && session.strategy_status === "ACTIVE" && session.live_trading_enabled && <Button size="sm" variant="outline" onClick={() => runAction(() => liveTradingApi.resumeSession(session.id))} disabled={busy}><Play className="mr-2 h-4 w-4" />Start</Button>}
                     {!["RUNNING", "STOPPING"].includes(session.status) && (session.strategy_status !== "ACTIVE" || !session.live_trading_enabled) && <span className="px-2 py-2 text-xs text-amber-700 dark:text-amber-300">Activate the strategy and enable live trading to resume.</span>}
-                    {canClose && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session)} disabled={Boolean(busyAction)}><ShieldX className="mr-2 h-4 w-4" />Stop &amp; close</Button>}
-                    {session.status === "STOPPED" && Number(session.open_positions || 0) > 0 && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session, true)} disabled={Boolean(busyAction)}><ShieldX className="mr-2 h-4 w-4" />Close remaining</Button>}
-                    {allocation && <Button size="sm" variant="outline" onClick={() => setAllocationSession(session)}><Settings className="mr-2 h-4 w-4" />Allocation</Button>}
-                    {allocation && <Button size="sm" variant="outline" onClick={() => setVersionSession(session)}><RotateCw className="mr-2 h-4 w-4" />Version</Button>}
-                    <Button size="sm" variant="outline" onClick={() => runAction(`sync-${session.id}`, () => liveTradingApi.syncSession(session.id), (response) => `Reconciled ${response.data?.synced_orders || 0} orders and ${response.data?.synced_positions || 0} positions`)} disabled={busyAction === `sync-${session.id}`}><RefreshCw className="mr-2 h-4 w-4" />Reconcile</Button>
+                    {canClose && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session)} disabled={busy}><ShieldX className="mr-2 h-4 w-4" />{session.status === "STOPPING" ? "Retry close" : "Stop & close"}</Button>}
+                    {session.status === "STOPPED" && Number(session.open_positions || 0) > 0 && <Button size="sm" className="bg-rose-700 text-white hover:bg-rose-600" onClick={() => stopAndClose(session, true)} disabled={busy}><ShieldX className="mr-2 h-4 w-4" />Close remaining</Button>}
+                    {allocation && <Button size="sm" variant="outline" disabled={busy} onClick={() => setAllocationSession(session)}><Settings className="mr-2 h-4 w-4" />Capital</Button>}
+                    {allocation && <Button size="sm" variant="outline" disabled={busy} onClick={() => setVersionSession(session)}><RotateCw className="mr-2 h-4 w-4" />Version</Button>}
+                    <Button size="sm" variant="outline" onClick={() => runAction(() => liveTradingApi.syncSession(session.id), (response) => `Reconciled ${response.data.synced_orders} orders`)} disabled={busy}><RefreshCw className="mr-2 h-4 w-4" />Reconcile orders</Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 rounded-xl border border-border bg-background/40 p-4 sm:grid-cols-2 xl:grid-cols-5">
-                  <div><p className="text-xs text-muted-foreground">Allocation</p><p className="mt-1 font-medium text-foreground">₹{formatNumber(Number(allocation?.allocated_capital || 0))}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Used / reserved</p><p className="mt-1 font-medium text-foreground">₹{formatNumber(Number(allocation?.used_capital || 0))} / ₹{formatNumber(Number(allocation?.reserved_capital || 0))}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Available</p><p className="mt-1 font-medium text-foreground">₹{formatNumber(Number(allocation?.available_capital || 0))}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Lifetime P&amp;L</p><p className={`mt-1 font-medium ${Number(session.pnl || 0) >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>₹{formatNumber(Number(session.pnl || 0))}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Allocation</p><p className="mt-1 font-medium text-foreground">{formatCurrency(Number(allocation?.allocated_capital || 0))}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Used / reserved</p><p className="mt-1 font-medium text-foreground">{formatCurrency(Number(allocation?.used_capital || 0))} / {formatCurrency(Number(allocation?.reserved_capital || 0))}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Available</p><p className="mt-1 font-medium text-foreground">{formatCurrency(Number(allocation?.available_capital || 0))}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Lifetime P&amp;L before charges</p><p className={`mt-1 font-medium ${Number(session.pnl || 0) >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>{formatCurrency(Number(session.pnl || 0))}</p></div>
                   <div><p className="text-xs text-muted-foreground">Trades · open positions · active orders</p><p className="mt-1 font-medium text-foreground">{session.trades_count || 0} · {session.open_positions || 0} · {session.active_orders || 0}</p></div>
                 </div>
                 <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
@@ -123,8 +127,19 @@ export default function LiveStrategies() {
         </div>
       )}
 
-      <LiveAllocationUpdateModal open={Boolean(allocationSession)} session={allocationSession} onOpenChange={(open) => !open && setAllocationSession(null)} onSuccess={() => { setAllocationSession(null); data.loadData(false); }} />
-      <LiveHotSwapModal open={Boolean(versionSession)} session={versionSession} onOpenChange={(open) => !open && setVersionSession(null)} onSuccess={() => { setVersionSession(null); data.loadData(false); }} />
+      {allocationSession && <AllocationCapitalDialog strategyName={allocationSession.strategy_name}
+        currentAmount={allocationSession.allocation.allocated_capital}
+        onApply={(amount) => liveTradingApi.updateAllocation(allocationSession.allocation.id, { allocation_amount: amount })}
+        onClose={() => setAllocationSession(null)} onSuccess={() => data.loadData(false)} />}
+      {versionSession && <ChangeStrategyVersionDialog
+        strategyId={versionSession.strategy}
+        strategyName={versionSession.strategy_name}
+        currentVersionId={versionSession.allocation.version_id}
+        currentVersionNumber={versionSession.allocation.version_number}
+        onApply={(versionId) => liveTradingApi.deployVersion(versionSession.allocation.id, { version_id: versionId })}
+        onClose={() => setVersionSession(null)}
+        onSuccess={() => data.loadData(false)}
+      />}
     </div>
   );
 }

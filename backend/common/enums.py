@@ -1,8 +1,8 @@
-"""
-Common app - shared enums, base models, and utilities for QuantNest Algo Trading Platform.
-"""
-from django.db import models
+"""Shared choices and rule-operand metadata used by the backend and frontend."""
 from datetime import time
+
+from django.db import models
+
 
 class Timezone(models.TextChoices):
     """Supported timezones for trading rules."""
@@ -80,14 +80,75 @@ class Side(models.TextChoices):
     SELL = 'SELL', 'Sell'
 
 
-class TradePhase(models.TextChoices):
-    """Execution phase of a trade."""
-    FLAT = 'FLAT', 'Flat'
-    ENTRY_PENDING = 'ENTRY_PENDING', 'Entry Pending'
+class ExecutionScope(models.TextChoices):
+    PAPER = 'paper', 'Paper'
+    LIVE = 'live', 'Live'
+
+
+class ExecutionCommandType(models.TextChoices):
+    REFRESH = 'REFRESH', 'Apply session or account configuration'
+    ORDER = 'ORDER', 'Place order'
+    CANCEL = 'CANCEL', 'Cancel order'
+    AMEND = 'AMEND', 'Amend order'
+    PROTECT = 'PROTECT', 'Change position protection'
+    CLOSE = 'CLOSE', 'Close position'
+    BALANCE = 'BALANCE', 'Adjust account capital'
+    BROKER = 'BROKER', 'Apply broker order observation'
+    FUNDS = 'FUNDS', 'Refresh broker available capital'
+    SETTLE = 'SETTLE', 'Settle an expired simulated contract'
+
+
+class ExecutionMode(models.TextChoices):
+    """Adapters supported by the common execution kernel."""
+    BACKTEST = 'backtest', 'Backtest'
+    PAPER = 'paper', 'Paper'
+    LIVE = 'live', 'Live'
+    TERMINAL = 'terminal', 'Terminal'
+
+
+class OrderIntent(models.TextChoices):
+    ENTRY = 'ENTRY', 'Entry'
+    EXIT = 'EXIT', 'Exit'
+
+
+class TerminalOrderType(models.TextChoices):
+    MARKET = 'MARKET', 'Market'
+    LIMIT = 'LIMIT', 'Limit'
+    STOP = 'STOP', 'Stop market'
+    STOP_LIMIT = 'STOP_LIMIT', 'Stop limit'
+    SETTLEMENT = 'SETTLEMENT', 'Manual simulation settlement'
+
+
+TERMINAL_USER_ORDER_TYPES = tuple(kind for kind in TerminalOrderType if kind != TerminalOrderType.SETTLEMENT)
+TERMINAL_PRICE_REQUIRED_TYPES = frozenset((TerminalOrderType.LIMIT, TerminalOrderType.STOP_LIMIT))
+TERMINAL_TRIGGER_REQUIRED_TYPES = frozenset((TerminalOrderType.STOP, TerminalOrderType.STOP_LIMIT))
+
+
+class TerminalOrderStatus(models.TextChoices):
     OPEN = 'OPEN', 'Open'
-    PARTIAL_EXIT_PENDING = 'PARTIAL_EXIT_PENDING', 'Partial Exit Pending'
-    EXIT_PENDING = 'EXIT_PENDING', 'Exit Pending'
-    CLOSED = 'CLOSED', 'Closed'
+    COMPLETE = 'COMPLETE', 'Complete'
+    CANCELLED = 'CANCELLED', 'Cancelled'
+    REJECTED = 'REJECTED', 'Rejected'
+
+
+class PositionSide(models.TextChoices):
+    LONG = 'LONG', 'Long'
+    SHORT = 'SHORT', 'Short'
+
+
+class TerminalPositionAction(models.TextChoices):
+    REDUCE = 'REDUCE', 'Reduce position'
+    INCREASE = 'INCREASE', 'Increase position'
+    CLOSE = 'CLOSE', 'Close remaining position'
+    REVERSE = 'REVERSE', 'Reverse position'
+    SETTLE = 'SETTLE', 'Settle expired contract'
+
+
+class TerminalExitReason(models.TextChoices):
+    MANUAL = 'manual', 'Manual'
+    STOP_LOSS = 'stop_loss', 'Stop loss'
+    TAKE_PROFIT = 'take_profit', 'Take profit'
+    MANUAL_SETTLEMENT = 'manual_settlement', 'Manual settlement'
 
 
 class ProductType(models.TextChoices):
@@ -98,6 +159,14 @@ class ProductType(models.TextChoices):
     CO = 'CO', 'Cover Order'
     BO = 'BO', 'Bracket Order'
     MTF = 'MTF', 'Margin Trading Facility'
+
+
+class ExecutionSessionStatus(models.TextChoices):
+    RUNNING = "RUNNING", "Running"
+    PAUSED = "PAUSED", "Paused"
+    STOPPING = "STOPPING", "Stopping"
+    STOPPED = "STOPPED", "Stopped"
+    ERROR = "ERROR", "Error"
 
 
 class StrategyStatus(models.TextChoices):
@@ -127,6 +196,20 @@ class CandleTimeframe(models.TextChoices):
     W1 = '1W', '1 Week'
 
 
+class ChartTimeframe(models.TextChoices):
+    M1 = '1m', '1 Minute'
+    M3 = '3m', '3 Minutes'
+    M5 = '5m', '5 Minutes'
+    M10 = '10m', '10 Minutes'
+    M15 = '15m', '15 Minutes'
+    M30 = '30m', '30 Minutes'
+    H1 = '1H', '1 Hour'
+    H4 = '4H', '4 Hours'
+    D1 = '1D', '1 Day'
+    W1 = '1W', '1 Week'
+    MN1 = '1M', '1 Month'
+
+
 class TradingDay(models.TextChoices):
     MONDAY = 'Monday', 'Monday'
     TUESDAY = 'Tuesday', 'Tuesday'
@@ -149,14 +232,6 @@ def default_trading_days():
     return list(DEFAULT_TRADING_DAYS)
 
 
-class CandlePart(models.TextChoices):
-    """Part of the candle to use as reference."""
-    OPEN = 'OPEN', 'Open'
-    HIGH = 'HIGH', 'High'
-    LOW = 'LOW', 'Low'
-    CLOSE = 'CLOSE', 'Close'
-
-
 class CandlePatternType(models.TextChoices):
     """Candlestick patterns for entry rules."""
     DOJI = 'DOJI', 'Doji'
@@ -174,10 +249,8 @@ class CandlePatternType(models.TextChoices):
 
 class MarketSession(models.TextChoices):
     """Market session filter."""
-    # PRE_MARKET = 'PRE_MARKET', 'Pre-Market'
     MARKET_OPEN = 'MARKET_OPEN', 'Market Open'
-    # MARKET_CLOSE = 'MARKET_CLOSE', 'Market Close'
-    # ALL = 'ALL', 'All Sessions'
+    ALL = 'ALL', 'All trading sessions'
 
 
 class LogicalOperator(models.TextChoices):
@@ -192,13 +265,6 @@ class RuleType(models.TextChoices):
     EXIT = 'EXIT', 'Exit Rule'
     STOP_LOSS = 'STOP_LOSS', 'Stop Loss Rule'
     TARGET = 'TARGET', 'Target Rule'
-
-
-class RuleGroupAction(models.TextChoices):
-    """Position actions triggered when an exit group matches."""
-    EXIT_ALL = 'EXIT_ALL', 'Exit Full Position'
-    PARTIAL_EXIT = 'PARTIAL_EXIT', 'Take Partial Profit'
-    MOVE_TO_BREAKEVEN = 'MOVE_TO_BREAKEVEN', 'Move SL to Breakeven'
 
 
 class OperandType(models.TextChoices):
@@ -338,7 +404,7 @@ OPERAND_PARAMETER_CONFIG = {
     OperandType.WILLIAMS_R: [_number('period', 'Period', 14)],
     OperandType.PARABOLIC_SAR: [_number('af', 'Acceleration Factor', 0.02, minimum=0, step=0.01), _number('max_af', 'Max AF', 0.2, minimum=0, step=0.01)],
     OperandType.ICHIMOKU_CLOUD: [_number('tenkan', 'Tenkan (Conversion)', 9), _number('kijun', 'Kijun (Base)', 26), _number('senkou', 'Senkou B', 52), _select('output_line', 'Output Line', [
-        {'value': 'TENKAN', 'label': 'Tenkan'}, {'value': 'KIJUN', 'label': 'Kijun'}, {'value': 'SENKOU_A', 'label': 'Senkou A'}, {'value': 'SENKOU_B', 'label': 'Senkou B'}, {'value': 'CHIKOU', 'label': 'Chikou'},
+        {'value': 'TENKAN', 'label': 'Tenkan'}, {'value': 'KIJUN', 'label': 'Kijun'}, {'value': 'SENKOU_A', 'label': 'Senkou A'}, {'value': 'SENKOU_B', 'label': 'Senkou B'}, {'value': 'CHIKOU', 'label': 'Historical close (Kijun candles ago)'},
     ], 'TENKAN')],
     OperandType.CONSTANT: [{'key': 'value', 'label': 'Value', 'type': 'number', 'default': 0, 'step': 0.01}],
     OperandType.CANDLE_PATTERN: [{'key': 'pattern', 'label': 'Pattern', 'type': 'enum', 'enumKey': 'CandlePatternType', 'default': CandlePatternType.DOJI}],
@@ -366,6 +432,7 @@ OPERAND_GROUPS = {
 }
 _GROUPED_OPERANDS = {operand for group in OPERAND_GROUPS.values() for operand in group}
 OPERAND_GROUPS['Technical Indicators'] = [operand for operand in OperandType if operand not in _GROUPED_OPERANDS]
+INDICATOR_OPERANDS = frozenset((*OPERAND_GROUPS['Technical Indicators'], OperandType.VWAP, OperandType.CANDLE_PATTERN))
 
 # Math expressions accept numeric operands only. Position-state operands need
 # an open position, so they are offered only to exit-related rule groups.
@@ -380,7 +447,7 @@ _MATH_EXPRESSION_BASE_TYPES = {
         OperandType.CANDLE_PATTERN,
     }),
 }
-_MATH_EXPRESSION_STATE_TYPES = {
+POSITION_OPERANDS = {
     OperandType.POSITION_PNL_PERCENTAGE, OperandType.POSITION_PNL_POINTS,
     OperandType.TRAILING_PEAK_OFFSET, OperandType.ENTRY_PRICE,
     OperandType.POSITION_RR_RATIO,
@@ -396,7 +463,7 @@ def get_math_expression_operand_types(rule_type):
 
     allowed = set(_MATH_EXPRESSION_BASE_TYPES)
     if rule_type in {RuleType.EXIT, RuleType.STOP_LOSS, RuleType.TARGET}:
-        allowed.update(_MATH_EXPRESSION_STATE_TYPES)
+        allowed.update(POSITION_OPERANDS)
     return sorted(operand.value for operand in allowed)
 
 
@@ -407,7 +474,7 @@ def get_operand_parameter_config(operand_type):
     except (TypeError, ValueError):
         return []
     config = [dict(item) for item in OPERAND_PARAMETER_CONFIG.get(operand_type, [])]
-    if operand_type not in {OperandType.CONSTANT, OperandType.MATH_EXPRESSION}:
+    if operand_type not in {OperandType.CONSTANT, OperandType.MATH_EXPRESSION} | POSITION_OPERANDS:
         config.append(dict(OPERAND_SHIFT_CONFIG))
     return config
 
@@ -435,30 +502,6 @@ class QuantityType(models.TextChoices):
     CAPITAL_BASED = 'CAPITAL_BASED', 'Capital Based'
 
 
-class CapitalAllocationType(models.TextChoices):
-    """Capital allocation method."""
-    PERCENTAGE = 'PERCENTAGE', 'Percentage of Capital'
-    FIXED = 'FIXED', 'Fixed Amount'
-
-
-class StrikeSelectionLogic(models.TextChoices):
-    """Option strike selection logic."""
-    ATM = 'ATM', 'At The Money'
-    ITM_1 = 'ITM_1', 'ITM 1 Strike'
-    ITM_2 = 'ITM_2', 'ITM 2 Strikes'
-    ITM_3 = 'ITM_3', 'ITM 3 Strikes'
-    OTM_1 = 'OTM_1', 'OTM 1 Strike'
-    OTM_2 = 'OTM_2', 'OTM 2 Strikes'
-    OTM_3 = 'OTM_3', 'OTM 3 Strikes'
-
-
-class ExpiryType(models.TextChoices):
-    """Option expiry selection."""
-    WEEKLY = 'WEEKLY', 'Weekly'
-    MONTHLY = 'MONTHLY', 'Monthly'
-    NEAREST = 'NEAREST', 'Nearest Expiry'
-
-
 class BrokerName(models.TextChoices):
     """Supported brokers."""
     ZERODHA = 'ZERODHA', 'Zerodha'
@@ -477,35 +520,6 @@ class NotificationType(models.TextChoices):
     CRITICAL = 'CRITICAL', 'Critical'
 
 
-class EntryPriceLogic(models.TextChoices):
-    """Entry price logic for order placement."""
-    LTP = 'LTP', 'Last Traded Price (Instant)'
-    AT_CLOSE = 'AT_CLOSE', 'At Close'
-    AT_OPEN = 'AT_OPEN', 'At Next Open'
-    ABOVE_HIGH = 'ABOVE_HIGH', 'Above High'
-    BELOW_LOW = 'BELOW_LOW', 'Below Low'
-    AT_BREAKOUT = 'AT_BREAKOUT', 'At Breakout'
-    OFFSET = 'OFFSET', 'Limit with Offset'
-
-
-class AutoDisableTriggerType(models.TextChoices):
-    """Trigger types for strategy auto-disable."""
-    CONSECUTIVE_LOSSES = 'CONSECUTIVE_LOSSES', 'Consecutive Losses'
-    CONSECUTIVE_WINS = 'CONSECUTIVE_WINS', 'Consecutive Wins'
-    DAILY_LOSS = 'DAILY_LOSS', 'Daily Loss Threshold'
-    WEEKLY_LOSS = 'WEEKLY_LOSS', 'Weekly Loss Threshold'
-    MONTHLY_LOSS = 'MONTHLY_LOSS', 'Monthly Loss Threshold'
-    WIN_RATE_DROP = 'WIN_RATE_DROP', 'Win Rate Below Threshold'
-    DRAWDOWN = 'DRAWDOWN', 'Drawdown Exceeded'
-
-
-class Severity(models.TextChoices):
-    """Impact level used by economic calendar events."""
-    INFO = 'INFO', 'Info'
-    WARNING = 'WARNING', 'Warning'
-    CRITICAL = 'CRITICAL', 'Critical'
-
-
 class TransactionType(models.TextChoices):
     """Fund transaction types for portfolio."""
     DEPOSIT = 'DEPOSIT', 'Deposit'
@@ -517,13 +531,6 @@ class TransactionType(models.TextChoices):
     LOSS_SETTLEMENT = 'LOSS_SETTLEMENT', 'Loss Settlement'
     ALLOCATION = 'ALLOCATION', 'Strategy Allocation'
     DEALLOCATION = 'DEALLOCATION', 'Strategy De-allocation'
-
-
-class RebalanceFrequency(models.TextChoices):
-    """Rebalance frequency for capital allocations."""
-    DAILY = 'DAILY', 'Daily'
-    WEEKLY = 'WEEKLY', 'Weekly'
-    MONTHLY = 'MONTHLY', 'Monthly'
 
 
 class BacktestStatus(models.TextChoices):
@@ -545,36 +552,6 @@ class FyersSegment(models.IntegerChoices):
     EQUITY_DERIVATIVES = 11, 'Equity Derivatives'
     CURRENCY_DERIVATIVES = 12, 'Currency Derivatives'
     COMMODITY_DERIVATIVES = 20, 'Commodity Derivatives'
-
-
-class FyersOrderType(models.IntegerChoices):
-    """Fyers order type codes."""
-    LIMIT = 1, 'Limit Order'
-    MARKET = 2, 'Market Order'
-    STOP_MARKET = 3, 'Stop Order (SL-M)'
-    STOP_LIMIT = 4, 'Stop Limit Order (SL-L)'
-
-
-class FyersOrderStatus(models.IntegerChoices):
-    """Fyers order status codes."""
-    CANCELLED = 1, 'Cancelled'
-    FILLED = 2, 'Traded / Filled'
-    TRANSIT = 4, 'Transit'
-    REJECTED = 5, 'Rejected'
-    PENDING = 6, 'Pending'
-
-
-class FyersOrderSide(models.IntegerChoices):
-    """Fyers order side codes."""
-    BUY = 1, 'Buy'
-    SELL = -1, 'Sell'
-
-
-class FyersPositionSide(models.IntegerChoices):
-    """Fyers position side codes."""
-    LONG = 1, 'Long'
-    SHORT = -1, 'Short'
-    CLOSED = 0, 'Closed'
 
 
 class ExchangeInstrumentType(models.IntegerChoices):

@@ -353,10 +353,10 @@ export default function EntryRulesBuilder() {
                     </SelectTrigger>
                     <SelectContent>
                       {(enums.Side || []).filter(({ value }) => ["BUY", "SELL"].includes(value)).map((side) => (
-                        <SelectItem key={side.value} value={side.value}>
+                        <SelectItem key={side.value} value={side.value} disabled={side.value === 'SELL' && strategy?.strategy_type !== 'INTRADAY'}>
                         <span className="flex items-center gap-2">
                           <span className={`inline-block h-2 w-2 rounded-full ${side.value === "BUY" ? "bg-emerald-400" : "bg-rose-400"}`} />
-                          {side.value === "BUY" ? "Long" : "Short"} ({side.label})
+                          {side.value === "BUY" ? "Long" : "Short"} ({side.label}){side.value === 'SELL' && strategy?.strategy_type !== 'INTRADAY' ? ' · Intraday only' : ''}
                         </span>
                         </SelectItem>
                       ))}

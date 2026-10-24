@@ -2,7 +2,7 @@
 
 catalog.ALLOWANCES defines each allowance. Inventory counts saved records,
 per-request limits validate submitted size, and period credits reserve once.
-Private work has no numeric quotas; only its active licence is required.
+Personal Private work has no commercial quotas or licence dependency.
 """
 import hashlib
 import json
@@ -26,7 +26,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 
-from core.lifecycle import require_execution_scope
+from execution.lifecycle import require_execution_scope
 from .catalog import ALLOWANCES, get_active_catalog
 from .models import Subscription, UsageBucket, UsageReservation
 
@@ -75,7 +75,7 @@ def get_account_policy(user, now=None):
 
 
 def _prepare_allowance(user, kind, amounts, policy):
-    """All three kinds validate inputs, account and licence through this path.
+    """All three kinds validate inputs and account through this path.
 
     Reuse the returned policy only within the same action/outer transaction.
     """
@@ -88,8 +88,6 @@ def _prepare_allowance(user, kind, amounts, policy):
         owner = get_user_model().objects.select_for_update().get(pk=user.pk)
         if not owner.is_active:
             reject_request("account_inactive", "This account cannot start new work.")
-        from installations.licensing import require_active_licence
-        require_active_licence()
         return get_account_policy(owner)
     if policy["user_id"] != user.pk:
         raise ValueError("An allowance policy belongs to one account")
@@ -132,18 +130,14 @@ def require_inventory_capacity(user, *, paper_snapshot=None, paper_session_id=No
     """Check saved-item additions or a proposed Paper deploy/resume/version."""
     policy = _prepare_allowance(user, "inventory", additions, policy)
     if paper_snapshot is not None:
-        if paper_allocation:
-            from paper_trading.models import PaperTradingSession
-            if not PaperTradingSession.objects.filter(user=user, allocation=paper_allocation, status__in=PAPER_CAPACITY_STATUSES).exists():
-                paper_snapshot = None  # An inactive allocation uses no deployed capacity.
-            else:
-                from instruments.services import InstrumentResolver
-                InstrumentResolver.validate_execution_snapshot(paper_snapshot)
-        if paper_snapshot is not None:
-            require_execution_scope("paper")
+        require_execution_scope("paper")
     totals = {}
     if policy["limits_enforced"]:
         totals = {key: _get_saved_resource_count(user, key) + amount for key, amount in additions.items()}
+        if paper_snapshot is not None and paper_allocation:
+            from paper_trading.models import PaperTradingSession
+            if not PaperTradingSession.objects.filter(user=user, allocation=paper_allocation, status__in=PAPER_CAPACITY_STATUSES).exists():
+                paper_snapshot = None  # An inactive allocation uses no deployed capacity.
         if paper_snapshot is not None:
             paper = _get_paper_usage(user, exclude_session=paper_session_id, allocation=paper_allocation, snapshot=paper_snapshot)
             if paper_allocation is None:
@@ -174,7 +168,7 @@ def estimate_backtest_workload(user, config, start_date, end_date, *, policy=Non
                        definition=f"One credit per {unit:,} source candles including warmup. The reviewed cost is charged once on success.")
     else:
         preview.update(credits=None, credit_candles=None,
-                       definition="Private installations have no software usage quota while the licence is active.")
+                       definition="Personal Private has no commercial usage quotas. Server capacity and execution controls still apply.")
     preview["config_hash"] = hash_payload(config)
     return {**preview, "token": signing.dumps({"user": user.pk, **preview}, salt="backtest-workload")}
 
@@ -250,12 +244,15 @@ def complete_usage(kind, pk, status):
         settle_usage(row, failed=status != "COMPLETED")
 
 
-# 5. Billing reads the same definitions; Private has no usage buckets or counters.
+# 5. Billing always returns the same allowance definitions. Unmetered counts are null.
 def get_account_usage(user, *, policy=None):
     policy = policy or get_account_policy(user)
     terms, subscription = policy["plan"], policy["subscription"]
     start, end = policy["period_start"], policy["period_end"]
-    usage = {}
+    usage = {
+        key: {"limit": terms["limits"].get(key, 0), "kind": definition["kind"], "used": None, "reserved": 0}
+        for key, definition in ALLOWANCES.items()
+    }
     if policy["record_usage"]:
         buckets = {row.feature: row for row in UsageBucket.objects.filter(user=user, period_start=start)}
         counts = {key: _get_saved_resource_count(user, key) for key, definition in ALLOWANCES.items()
@@ -263,10 +260,10 @@ def get_account_usage(user, *, policy=None):
         counts.update(_get_paper_usage(user))
         for key, definition in ALLOWANCES.items():
             kind, bucket = definition["kind"], buckets.get(key)
-            item = {"limit": terms["limits"].get(key, 0), "kind": kind, "used": counts.get(key, 0), "reserved": 0}
+            item = usage[key]
+            item["used"] = counts.get(key, 0)
             if kind == "period" and bucket:
                 item.update(used=bucket.used, reserved=bucket.reserved)
-            usage[key] = item
     return {"plan": terms, "deployment_mode": policy["deployment_mode"], "limits_enforced": policy["limits_enforced"],
             "catalog_revision": policy["catalog"].revision if policy["catalog"] else None,
             "period_start": start, "period_end": end, "usage": usage,

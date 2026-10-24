@@ -222,7 +222,7 @@ export default function EquityDrawdownCharts() {
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(val) => `₹${Math.round(val / 1000)}k`}
+                    tickFormatter={(val) => `${formatCurrency(Math.round(val / 1000))}k`}
                     domain={["auto", "auto"]}
                   />
                   <Tooltip

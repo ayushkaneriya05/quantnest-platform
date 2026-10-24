@@ -28,6 +28,8 @@ class ExecutionRouteSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request and watch.strategy.user_id != request.user.pk:
             raise serializers.ValidationError("Select an instrument from your own strategy.")
+        if self.instance and watch.pk != self.instance.watchlist_instrument_id:
+            raise serializers.ValidationError('A route cannot be moved to another instrument.')
         return watch
 
     def validate(self, attrs):
@@ -47,9 +49,7 @@ class ExecutionRouteSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExecutionRoute
         fields = [
-            'id', 'watchlist_instrument', 'route_type', 'target_instrument',
-            'target_underlying_instrument', 'expiry_preference', 'avoid_same_day_expiry',
-            'buy_signal_option_type', 'sell_signal_option_type', 'strike_selection',
+            'id', 'watchlist_instrument', 'route_type',
             'override_sizing', 'sizing_method', 'fixed_quantity', 
             'capital_percentage',
             'created_at', 'updated_at'

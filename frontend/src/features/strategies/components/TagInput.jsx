@@ -34,17 +34,15 @@ export default function TagInput({
   };
 
   const handleCreate = () => {
-      if (typeof onCreateTag === 'function') {
-          onCreateTag(inputValue);
-          setInputValue("");
-          setOpen(false);
-      }
+      onCreateTag(inputValue);
+      setInputValue("");
+      setOpen(false);
   };
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2 mb-1">
-        {(Array.isArray(value) ? value : []).map(tag => (
+        {value.map(tag => (
           <Badge key={tag.id} variant="secondary" className="bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 border-indigo-500/30 pl-2 pr-1 py-1 flex items-center gap-1">
             {tag.name}
             <button 
@@ -116,4 +114,4 @@ export default function TagInput({
   );
 }
 TagInput.propTypes = { value: PropTypes.array, onChange: PropTypes.func.isRequired,
-  onCreateTag: PropTypes.func, placeholder: PropTypes.string };
+  onCreateTag: PropTypes.func.isRequired, placeholder: PropTypes.string };

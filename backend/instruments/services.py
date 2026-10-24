@@ -2,16 +2,23 @@ class InstrumentResolver:
     """Resolves the actual execution instrument from a signal instrument + route config."""
 
     @staticmethod
-    def validate_execution_instrument(instrument, *, allow_index=False):
-        supported = {"STOCK", "INDEX"} if allow_index else {"STOCK"}
-        if instrument.exchange != "NSE" or instrument.instrument_type not in supported or not instrument.is_active:
-            raise ValueError("Execution currently supports active NSE stocks. Futures, options and other markets are not enabled.")
+    def validate_execution_instrument(instrument):
+        if instrument.instrument_type in {'INDEX', 'MF'} or instrument.ex_inst_type == 20:
+            raise ValueError('Select a tradable instrument. Indices and underlying references are for analysis only.')
+        if not instrument.is_active or not instrument.is_tradeable:
+            raise ValueError('This instrument is not active for trading.')
 
     @staticmethod
     def validate_execution_snapshot(snapshot):
         from .models import Instrument
         watchlist = snapshot.get("watchlist_instruments", [])
-        ids = {int(item["instrument_id"]) for item in watchlist}
+        if any(not isinstance(item, dict) or type(item.get('instrument_id')) is not int or
+               item['instrument_id'] <= 0 or not isinstance(item.get('execution_routes', []), list) or
+               any(not isinstance(route, dict) for route in item.get('execution_routes', [])) for item in watchlist):
+            raise ValueError('Each watchlist item needs a positive integer instrument ID and a list of execution route objects.')
+        ids = {item['instrument_id'] for item in watchlist}
+        if len(ids) != len(watchlist):
+            raise ValueError('An execution version can contain each instrument only once.')
         instruments = Instrument.objects.in_bulk(ids)
         if not ids or set(instruments) != ids:
             raise ValueError("The execution version must contain available instruments.")
@@ -19,94 +26,31 @@ class InstrumentResolver:
             InstrumentResolver.validate_execution_instrument(instrument)
         if any(route.get("route_type") != "DIRECT" for item in watchlist for route in item.get("execution_routes", [])):
             raise ValueError("Execution currently supports Direct instrument routing only.")
+        if any(len(item.get('execution_routes', [])) > 1 for item in watchlist):
+            raise ValueError('Use one Direct execution configuration per instrument.')
+        return instruments
 
     @staticmethod
-    def validate_strategy_for_first_release(strategy):
-        """Validate that every watchlist instrument uses direct routing."""
-        for watch in strategy.watchlist_instruments.all():
-            for route in watch.execution_routes.all():
-                if route.route_type != "DIRECT":
-                    raise ValueError(
-                        f"Routing type '{route.route_type}' is disabled. Only DIRECT routing is supported."
-                    )
-        return True
-
-
-    @staticmethod
-    def execution_instrument_ids(session):
-        """Return the deployed watchlist instrument IDs for the active session.
-        Execution must always use the strategy version pinned to the active session.
-        The config snapshot contains the instruments selected for this deployment.
-        """
-        candidate = session
-        if hasattr(candidate, 'allocation') and candidate.allocation is not None:
-            candidate = candidate.allocation
-        if not hasattr(candidate, 'deployed_version') or candidate.deployed_version is None:
-            raise ValueError("Session has no deployed strategy version configured for execution.")
-
-        config = candidate.deployed_version.config_snapshot or {}
-        direct_ids = [item['instrument_id'] for item in config['watchlist_instruments']]
-        if not direct_ids:
+    def execution_instrument_ids(config: dict) -> list[int]:
+        """Read instrument IDs from a deployed strategy snapshot."""
+        ids = {item['instrument_id'] for item in config['watchlist_instruments']}
+        if not ids:
             raise ValueError("Deployed strategy snapshot has no watchlist instruments for execution.")
-        return sorted({int(item) for item in direct_ids if item is not None})
+        return sorted(ids)
 
     
     @staticmethod
-    def resolve(watchlist_instrument, signal_side, routes_data=None):
-        """
-        Returns a list of (execution_instrument, execution_side, route_sizing_dict).
-        If no routes → returns the original instrument and side unchanged.
-        
-        Args:
-            watchlist_instrument: WatchlistInstrument object or dict
-            signal_side: Trading side (BUY/SELL)
-            routes_data: Pre-loaded execution routes (to avoid DB query)
-        """
-        # Use routes_data if provided, otherwise query DB
-        if routes_data is not None:
-            routes = routes_data  # Use pre-loaded data
-        else:
-            # Model-backed callers provide execution routes through the relation
-            if hasattr(watchlist_instrument, 'execution_routes'):
-                routes = watchlist_instrument.execution_routes.all()
-            else:
-                routes = []
-        
-        if not routes or (hasattr(routes, 'exists') and not routes.exists()):
-            # DIRECT route - return base instrument
-            if isinstance(watchlist_instrument, dict):
-                # Handle dict format from config
-                inst_id = watchlist_instrument.get('instrument_id')
-                # Return instrument ID for deferred resolution
-                return [(inst_id, signal_side, None)]
-            else:
-                return [(watchlist_instrument.instrument, signal_side, None)]
-            
-        results = []
-        for route in routes:
-            # Handle both model objects and dict format
-            if isinstance(route, dict):
-                route_type = route.get('route_type')
-                sizing = dict(route) if route.get('override_sizing', False) else None
-            else:
-                route_type = route.route_type
-                sizing = route.get_sizing_dict()
-
-            if route_type != "DIRECT":
-                raise ValueError(
-                    f"Unsupported routing type '{route_type}'. Only DIRECT routing is enabled."
-                )
-            
-            def _enforce(sz, inst):
-                if sz and sz.get("sizing_method") == "FIXED" and sz.get("fixed_quantity"):
-                    lot = getattr(inst, 'lot_size', 1) or 1
-                    sz["fixed_quantity"] = max(lot, round(sz["fixed_quantity"] / lot) * lot)
-                return sz
-
-            if isinstance(watchlist_instrument, dict):
-                inst_id = watchlist_instrument.get('instrument_id')
-                results.append((inst_id, signal_side, _enforce(sizing, watchlist_instrument)))
-            else:
-                results.append((watchlist_instrument.instrument, signal_side, _enforce(sizing, watchlist_instrument.instrument)))
-
-        return results
+    def resolve(watch: dict, signal_side: str, default_sizing: dict) -> tuple[int, str, dict]:
+        """Resolve a snapshot's Direct route to an ID, side and flat sizing block."""
+        routes = watch.get('execution_routes', [])
+        if len(routes) > 1:
+            raise ValueError('Use one Direct execution configuration per instrument.')
+        sizing = default_sizing
+        if routes:
+            route = routes[0]
+            route_type = route['route_type']
+            if route_type != 'DIRECT':
+                raise ValueError(f"Unsupported routing type '{route_type}'. Only DIRECT routing is enabled.")
+            if route.get('override_sizing', False):
+                sizing = {key: route[key] for key in ('sizing_method', 'fixed_quantity', 'capital_percentage')}
+        return watch['instrument_id'], signal_side, sizing

@@ -27,13 +27,6 @@ class CustomRegisterSerializer(RegisterSerializer):
     first_name = serializers.CharField(required=True, max_length=30)
     last_name = serializers.CharField(required=True, max_length=30)
 
-    def save(self, request):
-        from django.db import transaction
-        from installations.licensing import require_active_licence
-        with transaction.atomic():
-            require_active_licence()
-            return super().save(request)
-
     def get_cleaned_data(self):
         data = super().get_cleaned_data()
         data["first_name"] = self.validated_data.get("first_name", "")

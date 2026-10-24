@@ -1,6 +1,6 @@
 # QuantNest business plan
 
-**Revised against the current product: 16 October 2026.**
+**Revised against the current product: 23 October 2026.**
 
 This is the business direction for QuantNest. The [implementation plan](implementation-plan.md)
 maps it to delivered code and remaining release work. [Commercial operations](commercial-operations.md)
@@ -18,9 +18,9 @@ version history, backtesting, a manual simulated Terminal, automated Paper,
 journaling, reports and account controls. It does not sell investment advice,
 ready-made return claims, managed money or a public strategy marketplace.
 
-Private is a separately scoped customer-owned installation. It can include agreed
-workspace modules and supported Live execution after qualification. It is not an
-automatic upgrade that makes every broker, market or strategy executable.
+Private is an operator-managed personal production instance. It is not offered to
+customers and has no sales, contract activation or licence renewal workflow.
+Personal Live code remains available separately from Public simulation.
 
 Current execution supports NSE stocks with DIRECT routes. NSE futures and options
 appear as **Coming soon** in Build and Pro; they are not enabled products.
@@ -32,7 +32,6 @@ Additional markets and global distribution remain future work.
 | --- | --- | --- | --- |
 | Individual systematic trader | Disconnected research, rule changes and manual review | Explore, then Build or Pro | Own logic; understands simulated results |
 | Developer or quantitative researcher | Needs a workflow around reusable rules and evidence | Workspace plus a scoped integration/tool project | Clear data and execution requirements |
-| Independent trading team | Needs a controlled customer-owned environment | Private installation and support | Named users, infrastructure owner and agreed broker/data arrangements |
 | Educator or training business | Needs software for structured practice | Custom simulation tooling or an agreed deployment | Audience, data permissions and teaching scope reviewed |
 | Registered financial firm or technology team | Needs a specific internal tool or adapter | Paid discovery, development and maintenance | Contract, security review and responsibilities agreed |
 | International customer | Similar workflow in another market | Discovery first | Market, provider, privacy, billing and local requirements must be implemented/reviewed |
@@ -57,7 +56,6 @@ research/testing allowance and more Paper capacity.
 | Explore | Free | Try the available workflow at small limits |
 | Build | ₹499 before applicable tax | Regular individual research, testing and Paper practice |
 | Pro | ₹1,499 before applicable tax | Larger saved work and more frequent use |
-| Private | Agreed quotation/contract | Customer-owned installation with unlimited software usage until licence expiry, agreed deployment and support |
 
 A free plan is not unlimited access. Execution scopes, numeric allowances,
 per-request bounds and host admission still apply. Live is not included in hosted
@@ -88,31 +86,23 @@ These are seed values, not a second configurable catalog. To change limits or
 pricing, publish a new validated catalog revision in Admin as described in
 Commercial operations. Preserve purchased terms and provider price mappings.
 
-### Private software
+### Personal Private
 
-Charge separately for installation/setup, the software licence, agreed support,
-and bespoke changes. Define included workflows, supported broker integrations,
-instruments, hosting responsibility and maintenance terms before quoting.
-
-Customer hosting does not remove the need to review the actual broker/API,
-exchange/data and applicable regulatory arrangement. A software-only description
-must accurately reflect the delivered service.
-
-Private licences are signed centrally and checked locally. Renewal can control
-new commercial work and updates. Expiry must not blindly cancel orders or abandon
-existing exposure. Customers retain their independent broker access. The exact
-lease, offline and support behavior is described in Commercial operations.
+Private has no current customer revenue or acquisition target. Preserve its
+separate environment and shared execution code for personal use. Any future
+customer offering requires its own product, broker/compliance and operating
+review before adding contracts, billing or marketing.
 
 ### Custom development
 
 Offer paid discovery when the scope is uncertain, then a written deliverable with
 milestones, acceptance criteria, exclusions and maintenance options. Useful early
 projects include research/reporting tools, workflow automation, data integration,
-internal dashboards and agreed broker adapters.
+internal dashboards and integrations. Scope execution-related work separately
+and assess applicable requirements before acceptance.
 
-Support tickets can become engagements and quotations. Accepted quotations produce
-milestone payment workflows. Staff still decide scope, price and acceptance;
-software creates and reconciles routine records.
+Custom development requests and replies use Support. All subsequent project agreements, payments, delivery and management are handled separately outside QuantNest.
+
 
 Avoid promising an exchange, instrument, broker or execution capability simply
 because an adapter interface exists.
@@ -123,19 +113,17 @@ because an adapter interface exists.
 2. Publish practical guides using the customer's own logic and neutral examples.
 3. Use product updates and educational articles to demonstrate workflow quality.
 4. Invite qualified prospects into Explore and offer a clear contact route for
-   Private or custom work.
+   custom software work.
 5. Ask for feedback after a completed research/test/Paper/review task.
-6. Measure activation and conversion with explicit consent and minimal local events.
-7. Use newsletter double opt-in; receiving support or creating an account is not
-   newsletter consent.
+6. Review customer feedback and subscription records without tracking website visits or product usage.
 
 Focus marketing on clarity, repeatability, saved configuration, reviewable evidence
 and customer control. Avoid profit promises, invented testimonials, fabricated
 performance, unsupported uptime claims and implying regulatory approval.
 
-The site includes product/features, pricing, documentation, services, Private,
-contact, feedback, FAQ, about, trust/security, methodology, policies, changelog,
-newsletter and status. Status is operator-published information, not independent
+The site includes product/features, pricing, documentation, services, a Private availability notice,
+contact, feedback, FAQ, about, trust/security, methodology, policies, changelog
+and status. Status is operator-published information, not independent
 automated availability evidence.
 
 ## 5. Regulation, data and business readiness
@@ -149,7 +137,7 @@ For launch:
 - Keep Public execution limited to simulation through Paper.
 - Review purpose-specific data rights for display, storage, derived calculations,
   backtesting, screening, simulation, research and hosted multi-user use.
-- Separately qualify each Private Live arrangement, broker authentication/IP
+- For personal Live, verify the applicable broker authentication/IP
   requirements, release, account ownership and recovery procedure.
 - Establish the business identity, terms, privacy, refunds, tax/invoicing treatment,
   merchant acceptance and processor arrangements.
@@ -168,15 +156,14 @@ dates as current evidence without checking the primary publication.
 | --- | --- |
 | Public backend | Oracle A1 VM, 2 OCPUs / 12 GB |
 | Public frontend | One React application on Cloudflare Pages |
-| Persistent services | PostgreSQL/TimescaleDB and separate durable/runtime and analytical Redis services |
+| Persistent services | PostgreSQL/TimescaleDB, persistent queue/coordination Redis and disposable research-cache Redis |
 | Transactional email | Existing Brevo SMTP |
-| Optional newsletter/inbound reply workflows | Brevo API and authenticated webhooks |
+| Support replies | Customer workspace and staff Admin; outgoing notifications through SMTP |
 | Payments | Razorpay after merchant and release acceptance |
 | Research | Private FastAPI service with reviewed Gemini processing |
 | Market data | Existing source integration; no TrueData migration |
-| Licence/release signing | Separate Oracle Vault keys on the central service |
-| Public backups/monitoring | Oracle host tooling and Object Storage/Monitoring |
-| Private hosting | Customer-controlled Linux host with Docker Compose, independent of Oracle |
+| Backups and health | Local encrypted database/media backups copied off-host; shared diagnostics and Docker logs |
+| Private hosting | Separate operator-controlled Linux host for personal use |
 
 Avoid adding analytics SaaS, a second website framework or more infrastructure
 providers before a real requirement justifies them. Optional Google sign-in and
@@ -189,7 +176,7 @@ promise until admission and real host resources are provisioned and validated.
 
 ## 7. Financial discipline
 
-Track workspace subscription receipts, Private receipts and project receipts
+Track workspace subscription receipts and custom-project receipts
 separately. Measure captured payments, taxes, provider fees, refunds, AI/data
 costs, hosting, delivery time and support effort.
 
@@ -250,7 +237,7 @@ Keep a short review record for:
 3. Cost and latency at actual admitted load.
 4. Data/AI/broker/merchant approvals and approaching expiry.
 5. Repeated support questions and the product/documentation fix.
-6. Private installation/support effort versus contracted revenue.
+6. Personal infrastructure costs kept separate from customer-project revenue.
 7. Whether the next feature improves retention, revenue or reliability enough to
    justify its ongoing complexity.
 

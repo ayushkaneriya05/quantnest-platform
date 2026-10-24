@@ -1,3 +1,4 @@
+import { formatDateTime, formatCurrency } from "@/shared/utils/formatters";
 import PropTypes from "prop-types";
 import { Wallet, Mail, User, Hash } from "lucide-react";
 import {
@@ -7,15 +8,14 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 
-function formatDateTime(value) {
-  if (!value) return "Not connected";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
+const fundLabels = [
+  ["cash_balance", "Clear cash balance"],
+  ["available_margin", "Available balance"],
+  ["used_margin", "Utilized amount"],
+  ["collateral", "Collateral"],
+  ["net_equity", "Total ledger balance"],
+  ["realized_pnl", "Realized profit / loss"],
+];
 
 export function BrokerDetailsModal({ isOpen, onClose, provider, profile, funds }) {
   if (!provider) return null;
@@ -82,17 +82,17 @@ export function BrokerDetailsModal({ isOpen, onClose, provider, profile, funds }
               <Wallet className="h-4 w-4" /> Funds Snapshot
             </h3>
             <div className="rounded-xl border border-border/60 bg-card/50 p-4 space-y-3">
-              {funds && funds.length > 0 ? (
-                funds.map((item, index) => (
+               {funds ? (
+                 fundLabels.map(([field, label]) => (
                   <div
-                    key={`${provider.broker_name}-${item.title || index}`}
+                     key={field}
                     className="flex items-center justify-between pb-3 border-b border-border/60 last:border-0 last:pb-0"
                   >
                     <span className="text-muted-foreground text-sm">
-                      {item.title || `Fund ${index + 1}`}
+                       {label}
                     </span>
                     <span className="text-foreground font-medium">
-                      Rs {item.equityAmount ?? item.commodityAmount ?? "-"}
+                       {funds[field] == null ? "—" : `${formatCurrency(Number(funds[field]), { maximumFractionDigits: 2 })}`}
                     </span>
                   </div>
                 ))
@@ -111,8 +111,7 @@ export function BrokerDetailsModal({ isOpen, onClose, provider, profile, funds }
 }
 
 BrokerDetailsModal.propTypes = {
-  ...BrokerDetailsModal.propTypes,
-  funds: PropTypes.array,
+   funds: PropTypes.object,
   isOpen: PropTypes.bool,
   onClose: PropTypes.func,
   profile: PropTypes.object,

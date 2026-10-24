@@ -36,6 +36,7 @@ export const backtestApi = {
   getMonteCarloRuns: () => axiosInstance.get(`${BASE_URL}/montecarlo/`),
   createMonteCarlo: (data) => axiosInstance.post(`${BASE_URL}/montecarlo/`, data),
   startMonteCarlo: (id) => axiosInstance.post(`${BASE_URL}/montecarlo/${id}/start/`),
+  cancelMonteCarlo: (id) => axiosInstance.post(`${BASE_URL}/montecarlo/${id}/cancel/`),
   getMonteCarloResults: (id) => axiosInstance.get(`${BASE_URL}/montecarlo/${id}/results/`),
 };
 

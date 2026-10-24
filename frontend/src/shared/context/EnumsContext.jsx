@@ -4,13 +4,14 @@ import PropTypes from "prop-types";
  * EnumsContext — fetches all backend enum choices once and caches them.
  *
  * Usage:
- *   const { enums, loading } = useEnums();
- *   enums.StrategyType → [{value: 'INTRADAY', label: 'Intraday'}, ...]
+ *   const { enums, values, loading } = useEnums();
+ *   enums.StrategyType → [{name, value, label}, ...] for dropdowns.
+ *   values.StrategyType.INTRADAY → the backend-defined value for comparisons.
  */
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { enumsApi } from '@/shared/services/enumsApi';
 
-const EnumsContext = createContext({ enums: {}, loading: true });
+const EnumsContext = createContext({ enums: {}, values: {}, loading: true });
 
 export function EnumsProvider({ children }) {
   const fetchEnums = useStableCallback(async (retryCount = 0) => {
@@ -37,9 +38,9 @@ export function EnumsProvider({ children }) {
   const [enums, setEnums] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-
-
+  const values = useMemo(() => Object.fromEntries(Object.entries(enums)
+    .filter(([, choices]) => Array.isArray(choices))
+    .map(([name, choices]) => [name, Object.fromEntries(choices.map((choice) => [choice.name, choice.value]))])), [enums]);
   useEffect(() => {
     fetchEnums();
   }, [fetchEnums]);
@@ -47,7 +48,7 @@ export function EnumsProvider({ children }) {
   const refreshEnums = () => fetchEnums(0);
 
   return (
-    <EnumsContext.Provider value={{ enums, loading, error, refreshEnums }}>
+    <EnumsContext.Provider value={{ enums, values, loading, error, refreshEnums }}>
       {children}
     </EnumsContext.Provider>
   );
@@ -56,7 +57,8 @@ export function EnumsProvider({ children }) {
 /**
  * Hook to access enum choices anywhere in the component tree.
  * @returns {{
- *   enums: Record<string, {value: string, label: string}[]>,
+ *   enums: Record<string, {name: string, value: string, label: string}[]>,
+ *   values: Record<string, Record<string, string>>,
  *   loading: boolean,
  *   error: Error | null,
  *   refreshEnums: () => Promise<void>

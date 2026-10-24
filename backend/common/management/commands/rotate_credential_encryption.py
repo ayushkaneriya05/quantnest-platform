@@ -8,7 +8,7 @@ class Command(BaseCommand):
         from brokers.models import BrokerCredential, BrokerSession
         from marketdata.models import MarketDataToken
         total = 0
-        for model, names in ((BrokerCredential, ["api_secret", "totp_secret"]),
+        for model, names in ((BrokerCredential, ["api_secret"]),
                              (BrokerSession, ["access_token"]),
                              (MarketDataToken, ["access_token"])):
             ids = model.objects.order_by("pk").values_list("pk", flat=True).iterator(chunk_size=100)

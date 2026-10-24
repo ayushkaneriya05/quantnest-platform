@@ -11,14 +11,13 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
-import { formatNumber } from "@/shared/utils/formatters";
+import { formatNumber, formatCurrency } from "@/shared/utils/formatters";
 import TablePagination from "@/shared/components/TablePagination";
 import LiveSyncStatus from "@/features/live/components/LiveSyncStatus.jsx";
 import { formatBrokerAccount, formatDateTime as formatLiveDateTime } from "@/shared/utils/formatters";
 
 const PAGE_SIZE = 25;
 const emptyPage = { count: 0, next: null, previous: null, results: [] };
-const responsePage = (response) => response.data?.results ? response.data : { ...emptyPage, results: Array.isArray(response.data) ? response.data : [] };
 const eventTone = (event) => {
   if (["FILLED", "PLACED"].includes(event)) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   if (["REJECTED", "CANCELLED"].includes(event)) return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
@@ -45,12 +44,12 @@ export default function ExecutionLogs() {
 
   const fetchLogs = useCallback(async (page = logPage, filter = eventType) => {
     const response = await liveTradingApi.getLogs({ page, page_size: PAGE_SIZE, ...(filter ? { event_type: filter } : {}) });
-    setLogs(responsePage(response));
+    setLogs(response.data);
     setLogPage(page);
   }, [eventType, logPage]);
   const fetchSlippage = useCallback(async (page = slippagePage) => {
     const response = await liveTradingApi.getSlippage({ page, page_size: PAGE_SIZE });
-    setSlippage(responsePage(response));
+    setSlippage(response.data);
     setSlippagePage(page);
   }, [slippagePage]);
 
@@ -134,7 +133,7 @@ export default function ExecutionLogs() {
           <Card className="overflow-hidden border-border bg-card/50">
             <CardHeader className="space-y-0 border-b border-border px-4 py-2"><p className="text-xl text-foreground font-semibold">Slippage</p></CardHeader>
             {loading ? <CardContent className="py-10 text-center text-muted-foreground">Loading execution quality…</CardContent> : slippage.results.length === 0 ? <CardContent className="flex items-center justify-center gap-2 py-12 text-muted-foreground"><ShieldAlert className="h-4 w-4 text-cyan-700 dark:text-cyan-300" />No completed slippage records.</CardContent> : <>
-              <CardContent className="divide-y divide-border p-0">{slippage.results.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-4 p-4"><div><p className="font-medium text-foreground">{row.order_symbol || "Order"}</p><p className="mt-1 text-xs text-muted-foreground">{formatBrokerAccount(row.broker_name, row.broker_label)}</p><p className="mt-1 text-xs text-muted-foreground">Expected ₹{formatNumber(Number(row.expected_price))} · Actual ₹{formatNumber(Number(row.actual_price))} · {formatLiveDateTime(row.created_at)}</p></div><div className="text-right"><p className="font-semibold text-foreground">{formatNumber(Number(row.slippage_pct))}%</p><p className="text-xs text-muted-foreground">Total impact ₹{formatNumber(Number(row.slippage_amount))}</p></div></div>)}</CardContent>
+              <CardContent className="divide-y divide-border p-0">{slippage.results.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-4 p-4"><div><p className="font-medium text-foreground">{row.order_symbol || "Order"}</p><p className="mt-1 text-xs text-muted-foreground">{formatBrokerAccount(row.broker_name, row.broker_label)}</p><p className="mt-1 text-xs text-muted-foreground">Expected {formatCurrency(Number(row.expected_price))} · Actual {formatCurrency(Number(row.actual_price))} · {formatLiveDateTime(row.created_at)}</p></div><div className="text-right"><p className="font-semibold text-foreground">{formatNumber(Number(row.slippage_pct))}%</p><p className="text-xs text-muted-foreground">Total impact {formatCurrency(Number(row.slippage_amount))}</p></div></div>)}</CardContent>
               <TablePagination page={slippagePage} count={slippage.count} onPageChange={(page) => fetchSlippage(page).catch((error) => notify.error(getApiErrorMessage(error, "Could not load slippage records")))} />
             </>}
           </Card>

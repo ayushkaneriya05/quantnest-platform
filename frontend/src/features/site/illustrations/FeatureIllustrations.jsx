@@ -32,7 +32,7 @@ export function BuilderIllustration() {
     <div className="site-version-strip"><History className="h-4 w-4 text-brand" /><span>Save your rules</span><ArrowRight className="h-4 w-4" /><span>Add version notes</span></div>
     <ChoiceNote label="Strategy configuration sections" choices={[
       ['Conditions', 'Choose indicator inputs, operators, parameters and AND/OR groups for your idea.'],
-      ['Safeguards', 'Describe trading windows, cooldown and auto-disable rules as part of the saved configuration.'],
+      ['Trading schedule', 'Define trading days, session hours and no-trade windows in the saved configuration.'],
       ['Versions', 'Inspect readable changes before testing or deploying a selected saved version.'],
     ]} />
   </IllustrationFrame>;
@@ -79,7 +79,7 @@ export function JournalIllustration() {
     <ChoiceNote label="Keep execution sources separate" choices={[
       ['Terminal', 'Review your manual simulation decisions in the Terminal source.'],
       ['Paper', 'Review automated strategy simulation in the Paper source.'],
-      ['Private Live', 'An activated Private installation can review recorded broker execution separately.'],
+      ['Your review', 'Keep notes and compare recorded simulation outcomes in context.'],
     ]} />
   </IllustrationFrame>;
 }

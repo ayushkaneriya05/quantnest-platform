@@ -1,16 +1,11 @@
 from django.contrib import admin
-from .models import TimeRule, SpecialEventFilter, RuleGroup, Rule
+from .models import PositionSizingRule, TimeRule, RuleGroup, Rule
 
 
 @admin.register(TimeRule)
 class TimeRuleAdmin(admin.ModelAdmin):
     list_display = ['strategy', 'candle_timeframe', 'market_session', 'start_time', 'end_time']
     list_filter = ['candle_timeframe', 'market_session']
-
-
-@admin.register(SpecialEventFilter)
-class SpecialEventFilterAdmin(admin.ModelAdmin):
-    list_display = ['strategy', 'avoid_earnings', 'avoid_news']
 
 
 class RuleInline(admin.TabularInline):
@@ -29,3 +24,8 @@ class RuleGroupAdmin(admin.ModelAdmin):
 class RuleAdmin(admin.ModelAdmin):
     list_display = ['rule_group', 'operand_a_type', 'comparison', 'operand_b_type', 'is_active']
     list_filter = ['operand_a_type', 'operand_b_type', 'is_active']
+
+
+@admin.register(PositionSizingRule)
+class PositionSizingRuleAdmin(admin.ModelAdmin):
+    list_display = ['strategy', 'sizing_method', 'fixed_quantity', 'capital_percentage']

@@ -7,9 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from brokers.models import BrokerCredential
 from live_trading.services import LiveExecutionService
-from paper_trading.services import PortfolioService
-from risk_management.models import PositionSizingRule, StrategyAutoDisable
-from rules_engine.models import TimeRule, SpecialEventFilter, RuleGroup, Rule
+from rules_engine.models import PositionSizingRule, TimeRule, RuleGroup, Rule
 from instruments.models import WatchlistInstrument, ExecutionRoute
 from .models import Strategy, StrategyTag, EntryOrderConfig, ExitOrderConfig, StrategyVersion
 from .serializers import (
@@ -34,7 +32,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter strategies by current user."""
         return Strategy.objects.filter(user=self.request.user).select_related(
-            'user'
+            'user', 'entry_order_config', 'exit_order_config', 'position_sizing_rule'
         ).prefetch_related('tags')
 
     def get_serializer_class(self):
@@ -68,7 +66,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 or strategy.live_orders.exists()
                 or strategy.live_trades.exists()
             )
-            has_backtest = strategy.backtest_runs.exists() if hasattr(strategy, 'backtest_runs') else False
+            has_backtest = strategy.backtest_runs.exists()
             return Response(
                 {
                     'error': str(e.message),
@@ -111,52 +109,17 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 if field.name not in excluded and field.primary_key is False
             }
 
-        # Clone configs
-        if hasattr(original, 'entry_order_config'):
-            config = original.entry_order_config
-            EntryOrderConfig.objects.update_or_create(
-                strategy=new_strategy,
-                defaults={
-                    'entry_side': config.entry_side,
-                    'entry_group_operator': config.entry_group_operator,
-                    'order_type': config.order_type,
-                    'price_offset': config.price_offset,
-                    'cooldown_seconds': config.cooldown_seconds,
-                }
-            )
-
-        # Clone exit config
-        if hasattr(original, 'exit_order_config'):
-            config = original.exit_order_config
-            ExitOrderConfig.objects.update_or_create(
-                strategy=new_strategy,
-                defaults={
-                    'stop_loss_group_operator': config.stop_loss_group_operator,
-                    'target_group_operator': config.target_group_operator,
-                }
-            )
-
-        if hasattr(original, 'position_sizing_rule'):
-            sizing = original.position_sizing_rule
-            PositionSizingRule.objects.update_or_create(
-                strategy=new_strategy,
-                defaults={
-                    'sizing_method': sizing.sizing_method,
-                    'fixed_quantity': sizing.fixed_quantity,
-                    'capital_percentage': sizing.capital_percentage,
-                }
-            )
-
         for relation_name, model in (
+            ('entry_order_config', EntryOrderConfig),
+            ('exit_order_config', ExitOrderConfig),
+            ('position_sizing_rule', PositionSizingRule),
             ('time_rule', TimeRule),
-            ('special_event_filter', SpecialEventFilter),
         ):
-            related = getattr(original, relation_name, None)
-            if related:
-                model.objects.update_or_create(
-                    strategy=new_strategy,
-                    defaults=copy_fields(related, {'id', 'strategy', 'created_at', 'updated_at'}),
-                )
+            model.objects.update_or_create(
+                strategy=new_strategy,
+                defaults=copy_fields(getattr(original, relation_name),
+                                     {'strategy', 'created_at', 'updated_at'}),
+            )
 
         for group in original.rule_groups.prefetch_related('rules'):
             cloned_group = RuleGroup.objects.create(
@@ -176,18 +139,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     watchlist_instrument=cloned_watch,
                     **copy_fields(route, {'id', 'watchlist_instrument', 'created_at', 'updated_at'}),
                 )
-
-        for auto_disable_rule in original.auto_disable_rules.all():
-            StrategyAutoDisable.objects.create(
-                strategy=new_strategy,
-                name=auto_disable_rule.name,
-                trigger_type=auto_disable_rule.trigger_type,
-                threshold_value=auto_disable_rule.threshold_value,
-                threshold_count=auto_disable_rule.threshold_count,
-                auto_reenable=auto_disable_rule.auto_reenable,
-                cooldown_hours=auto_disable_rule.cooldown_hours,
-                is_active=auto_disable_rule.is_active,
-            )
 
         # The creation signal records defaults; replace that snapshot with the cloned config.
         new_strategy.versions.all().delete()
@@ -214,155 +165,60 @@ class StrategyViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='deploy-paper')
-    @transaction.atomic
     def deploy_paper(self, request, pk=None):
-        from django.contrib.auth import get_user_model
-        get_user_model().objects.select_for_update().get(pk=request.user.pk)
         strategy = self.get_object()
-        allocation_id = request.data.get('allocation_id')
-        allocation_amount = request.data.get('allocation_amount')
-        version_id = request.data.get('version_id')
+        from rest_framework.fields import DecimalField, IntegerField
+        from decimal import Decimal
+        from paper_trading.services import PaperExecutionService
+        from paper_trading.serializers import PaperTradingSessionSerializer
+        from paper_trading.models import PaperAccount
+        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
+            request.data.get("allocation_amount")
+        )
+        version_id = IntegerField(min_value=1).run_validation(request.data.get("version_id"))
         try:
-            errors = StrategyDeploymentService.validate_for_deployment(strategy, mode='paper')
-            if errors:
-                return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
-            from paper_trading.services import PaperExecutionService
-            PaperExecutionService._resolve_cost_configuration(
-                request.user,
-                request.data.get('slippage_pct', 0),
-                request.data.get('charge_profile'),
-                request.data.get('include_charges', True),
-            )
-            portfolio = PortfolioService.get_or_create_portfolio(request.user)
-            deployed_version_id = None
-            deployed_version = None
-            if version_id:
-                try:
-                    deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
-                except StrategyVersion.DoesNotExist:
-                    return Response({'error': 'Selected strategy version was not found.'}, status=status.HTTP_400_BAD_REQUEST)
-                deployed_version_id = deployed_version.id
-
-            if allocation_id:
-                from paper_trading.models import CapitalAllocation, PaperPosition, PaperTradingSession
-                try:
-                    allocation = CapitalAllocation.objects.get(id=allocation_id, portfolio__user=request.user, strategy=strategy)
-                    existing_session = PaperTradingSession.objects.filter(
-                        user=request.user, strategy=strategy, allocation=allocation,
-                        status='RUNNING',
-                    ).exists()
-                    if existing_session:
-                        return Response({'error': 'This paper session is already running.'}, status=status.HTTP_400_BAD_REQUEST)
-                    existing_account = getattr(allocation, 'paper_account', None)
-                    if existing_account and PaperPosition.objects.filter(
-                        account=existing_account, strategy=strategy, quantity__gt=0
-                    ).exists():
-                        return Response(
-                            {'error': 'Close open positions before changing paper execution costs or deploying again.'},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    if deployed_version and allocation.deployed_version != deployed_version:
-                        allocation.deployed_version = deployed_version
-                        allocation.save(update_fields=['deployed_version', 'updated_at'])
-                except CapitalAllocation.DoesNotExist:
-                    return Response({'error': 'Allocation not found'}, status=status.HTTP_404_NOT_FOUND)
-            elif allocation_amount:
-                try:
-                    allocation = PortfolioService.allocate_to_strategy(portfolio, strategy, allocation_amount, 'FIXED',deployed_version_id=deployed_version_id)
-                except ValueError as e:
-                    return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-            else:
-                return Response({'error': 'allocation_id or allocation_amount is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-            account = PortfolioService.ensure_paper_account_for_allocation(allocation)
-
-
-            from commercial.usage import require_inventory_capacity
-            existing_session = account.sessions.filter(strategy=strategy).first()
-            require_inventory_capacity(request.user, paper_snapshot=allocation.deployed_version.config_snapshot,
-                                       paper_session_id=existing_session.pk if existing_session else None)
+            version = StrategyVersion.objects.get(pk=version_id, strategy=strategy)
             session = PaperExecutionService.deploy_session(
-                user=request.user,
-                strategy=strategy,
-                allocation=allocation,
-                account=account,
-                slippage_pct=request.data.get('slippage_pct', 0),
-                charge_profile_id=request.data.get('charge_profile'),
-                include_charges=request.data.get('include_charges', True),
+                user=request.user, strategy=strategy, version=version, allocation_amount=amount,
+                slippage_pct=request.data.get("slippage_pct", 0),
+                charge_profile_id=request.data.get("charge_profile"),
+                include_charges=request.data.get("include_charges", True),
             )
-
-            from paper_trading.serializers import PaperAccountSerializer
-            return Response(
-                {
-                    'strategy': StrategyDetailSerializer(strategy, context={'request': request}).data,
-                    'paper_account': PaperAccountSerializer(account).data,
-                    'session_id': session.id,
-                    'session_status': session.status,
-                    'message': 'Strategy deployed to paper trading',
-                }
-            )
+            session.account = PaperAccount.objects.with_totals().get(pk=session.account_id)
+            return Response(PaperTradingSessionSerializer(session).data, status=status.HTTP_201_CREATED)
+        except StrategyVersion.DoesNotExist:
+            return Response({"error": "Select a saved version of this strategy."}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
-            transaction.set_rollback(True)
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'], url_path='deploy-live')
-    @transaction.atomic
     def deploy_live(self, request, pk=None):
+        from rest_framework.fields import DecimalField, IntegerField
+        from decimal import Decimal
         strategy = self.get_object()
-        broker_credential_id = request.data.get('broker_credential')
-        version_id = request.data.get('version_id')
-        allocation_amount = request.data.get('allocation_amount')
-        allocation_percentage = request.data.get('allocation_percentage')
+        broker_id = IntegerField(min_value=1).run_validation(request.data.get("broker_credential"))
+        version_id = IntegerField(min_value=1).run_validation(request.data.get("version_id"))
+        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
+            request.data.get("allocation_amount")
+        )
         try:
-            errors = StrategyDeploymentService.validate_for_deployment(strategy, mode='live')
-            if errors:
-                return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
-
-            if not broker_credential_id:
-                return Response({'error': 'Select a verified broker account.'}, status=status.HTTP_400_BAD_REQUEST)
-            broker_credential = BrokerCredential.objects.get(id=broker_credential_id, user=request.user, is_verified=True)
-
-            deployed_version = None
-            if version_id:
-                try:
-                    deployed_version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
-                except StrategyVersion.DoesNotExist:
-                    return Response({'error': 'Selected strategy version was not found.'}, status=status.HTTP_400_BAD_REQUEST)
-            else:
-                return Response({'error': 'No deployed version found for this strategy'}, status=status.HTTP_400_BAD_REQUEST)
-
-            from brokers.services import BrokerService
-            BrokerService.ensure_session(broker_credential)
-            # Create allocation
-            allocation = LiveExecutionService.create_allocation(
-                user=request.user,
-                strategy=strategy,
-                credential=broker_credential,
-                allocation_amount=allocation_amount,
-                allocation_percentage=allocation_percentage,
-                deployed_version=deployed_version,
-            )
-
+            credential = BrokerCredential.objects.get(pk=broker_id, user=request.user, is_verified=True)
+            version = StrategyVersion.objects.get(pk=version_id, strategy=strategy)
             session = LiveExecutionService.deploy_session(
-                user=request.user,
-                strategy=strategy,
-                allocation=allocation,
-                broker_credential=broker_credential,
+                user=request.user, strategy=strategy, version=version,
+                allocation_amount=amount, broker_credential=credential,
             )
-            return Response(
-                {
-                    'strategy': StrategyDetailSerializer(strategy, context={'request': request}).data,
-                    'session_id': session.id,
-                    'allocation_id': session.allocation_id,
-                    'broker_credential': session.broker_credential_id,
-                    'status': session.status,
-                    'message': 'Strategy deployed to live trading',
-                }
-            )
+            return Response({
+                "session_id": session.pk, "allocation_id": session.allocation_id,
+                "broker_credential": session.broker_credential_id, "status": session.status,
+                "message": "Strategy deployed to Live trading",
+            }, status=status.HTTP_201_CREATED)
         except BrokerCredential.DoesNotExist:
-            return Response({'error': 'Selected broker account is not available'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Select your own verified broker account."}, status=status.HTTP_400_BAD_REQUEST)
+        except StrategyVersion.DoesNotExist:
+            return Response({"error": "Select a saved version of this strategy."}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError as exc:
-            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     @transaction.atomic
@@ -493,6 +349,7 @@ class EntryOrderConfigViewSet(viewsets.ModelViewSet):
     """ViewSet for entry order configuration."""
     serializer_class = EntryOrderConfigSerializer
     permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
         return EntryOrderConfig.objects.filter(strategy__user=self.request.user)
@@ -503,6 +360,7 @@ class ExitOrderConfigViewSet(viewsets.ModelViewSet):
     """ViewSet for exit order configuration."""
     serializer_class = ExitOrderConfigSerializer
     permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
         return ExitOrderConfig.objects.filter(strategy__user=self.request.user)

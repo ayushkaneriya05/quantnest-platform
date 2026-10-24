@@ -16,7 +16,7 @@ export default function PlatformProvider({ children }) {
     request.promise = api.get('/public/catalog/', { signal: controller.signal, publicRequest: true }).then(({ data }) => {
       if (!Array.isArray(data.execution_enabled_scopes) || !data.plans || !Array.isArray(data.features)
         || !Array.isArray(data.support?.request_types) || !data.support.ticket_status_labels
-        || !data.limit_labels || !data.privacy_policy_revision || !data.contact) {
+        || !data.limit_labels || !data.contact) {
         throw new Error('Missing platform configuration');
       }
       if (controller.signal.aborted) return null;

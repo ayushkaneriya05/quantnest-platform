@@ -1,162 +1,197 @@
-# QuantNest deployment guide
+# QuantNest deployment
 
-Choose one mode, then follow its README from the beginning. Each mode is a separate deployment of the same Django/React application.
+**New to deployment? Start with [Your deployment checklist](START-HERE.md).**
+It links the ordered [Development](development/SETUP.md),
+[Public](public/SETUP.md) and [Private](private/SETUP.md) walkthroughs, plus
+server/tool installation and provider-dashboard setup. This README is the
+architecture and configuration reference.
 
-After deploying, follow [Commercial operations](../docs/commercial-operations.md)
-to review the seeded catalog, change plan limits, configure actual
-merchant mappings and Private contracts, and operate customer support workflows.
+Use one mode on one Docker host. All modes run the same Django API, market-data
+layer and execution engine. The frontend, registration and support flows are shared.
 
-## 1. Choose a mode
-
-| Mode | Intended use and rules | Deployment | Instructions |
+| Mode | Purpose | Execution and allowance policy | Start here |
 | --- | --- | --- | --- |
-| Development | Local development; usage recorded and commercial allowances bypassed. Paper by default; data, AI and real broker development are opt-in | Docker and local Vite | [Development](development/README.md) |
-| Public | Explore/Build/Pro numeric limits and configured execution scopes. Simulation through Paper; Live blocked | Oracle A1 and Cloudflare Pages | [Public](public/README.md) |
-| Private | Customer-owned installation; unlimited software usage until licence expiry and qualified broker access. Qualified Live requires an active licence | Customer Linux host and Caddy | [Private](private/README.md) |
+| Development | Local work with Vite and console mail | Paper by default; usage recorded without plan enforcement; optional Live | [Development](development/README.md) |
+| Public | Hosted customer application | Paper and simulated Terminal; Public plan allowances enforced; configured subscription checkout | [Public](public/README.md) |
+| Private | Operator's personal production deployment | Paper, Live and simulated Terminal; no commercial quotas or checkout | [Private](private/README.md) |
 
-Compose owns the mode. Production forces DEBUG=False and Redis-backed Channels. Public excludes Live queues/broker events; Private disables hosted checkout and obtains its subscription rights from QuantNest's central licensing service.
+Public uses Cloudflare Pages for React and a Pages Function for API/WebSocket
+proxying. Private builds React inside Docker and serves it through Caddy.
+Private is currently personal use; no customer licence/installer service is included.
 
-Automated execution currently supports NSE stocks through Direct routing. The manual simulated Terminal also supports enabled NSE indices. Futures/options are coming soon, including on paid/Private plans.
+## What runs, and why
 
-## 2. Understand what runs
+```mermaid
+flowchart LR
+  Browser --> Gateway["Vite / Cloudflare + Caddy / Private Caddy"]
+  Gateway --> API["Django API + WebSockets"]
+  API --> DB["PostgreSQL + TimescaleDB"]
+  API --> Redis["Queues, quotes and coordination Redis"]
+  Feed["Market-data provider process"] --> Buffers["Host-local market buffers"]
+  Buffers --> Execution["Execution controller + CPU workers"]
+  Execution --> DB
+  Execution --> Broker["Personal Live broker"]
+  Events["Broker order events"] --> DB
+  Redis --> Celery["Background / compute workers"]
+  Celery --> DB
+  Celery --> Research["Private research service"]
+  API --> Cache["Research frames/evaluations cache"]
+  Research --> API
+```
 
-The browser reaches Vite, Cloudflare's gateway or customer Caddy. The gateway serves/proxies one main React frontend and Django ASGI API. API handles authentication, user operations and workspace/chart WebSockets.
+The diagram shows service responsibilities, not a database call on every tick.
+`python -m execution` starts one controller and `EXECUTION_WORKERS` persistent CPU
+workers. The controller prepares inputs, delivers commands, persists outcomes and
+performs broker I/O. Workers evaluate local buffered observations and update their
+owned in-memory account state. Orders, positions, trades, execution commands and
+account checkpoints are committed in PostgreSQL. Backtests use the shared execution
+logic in Celery's compute worker.
 
-The market-data service normalizes source observations and writes local shared market buffers and quote/chart projections. Execution owners evaluate strategy/instrument actors, dispatch bounded calculations to separate child processes and emit durable order intents. The order gateway serializes financial operations per account, runs Paper simulation or calls a qualified Private broker adapter, and commits financial records plus outbox events to PostgreSQL.
+Feed, execution and API containers mount the same `runtime` volume. This is
+required for local market buffers and the execution ownership lock. Scaling means
+more workers on this execution host; these files do not implement distributed
+execution across servers. No separate Terminal, orders, outbox or calculation
+service should be started.
 
-Broker WebSocket observations and REST reconciliation share ownership and cumulative-fill accounting. Outbox publishes committed results. The simulated manual Terminal has a separate order book. Celery compute runs historical backtests and AI research; Celery background runs reconciliation/notifications/maintenance; exactly one Beat schedules periodic work.
+## First-release scope
 
-Paper/Live/backtests share strategy configuration, rule evaluation, sizing and exits. Backtests have historical candle fill/timing limitations. This is a Python platform with measured workload limits, not an HFT latency guarantee.
+The supplied flow is: configure files → build → stop application services → migrate
+and configure Timescale → start → check health. Docker supervises services and
+rotates production console logs. Backups use one encrypted local archive containing
+PostgreSQL and media. Copy backups off the server yourself.
 
-The local runtime volume belongs to **one execution host**. Do not distribute these local buffers across unrelated hosts or start duplicate native runtime/Celery services beside Compose. More execution nodes require explicit ownership/topology configuration, not an extra Compose replica.
+Optional Terraform provisioning, OCI metric/timer automation, cloud backup uploads,
+signed Private distribution/installers and their host dependency lockfiles have
+been removed. This edits repository tooling only; it does not delete existing cloud
+resources, operator Terraform state or backups.
 
-Detailed references: [runtime](../docs/backend-runtime.md), [execution lifecycle](../docs/execution-technical-reference.md), [availability and allowance rules](../docs/commercial-operations.md#1-the-three-independent-controls). The [documentation index](../docs/README.md) identifies each guide's responsibility.
+Two Redis services remain. `redis` is persistent and does not evict queue/coordination
+data. `redis-cache` holds disposable research data and may evict it. The old separate
+`redis-runtime` service and synchronous fsync policy are removed: financial execution
+recovery is backed by PostgreSQL. See [shared components](shared/README.md) for each
+service, network, mount, memory limit and command option.
 
-## 3. Folder boundaries
+## Prerequisites
 
-| Folder | Responsibility |
+- Linux for production, or Docker Desktop's Linux engine for local development.
+- Docker Engine and Compose v2 with `up --wait` support.
+- Python 3.12 for the host scripts. They use the standard library; no OCI SDK or
+  host application virtual environment is required.
+- Node 22.14+ for native Vite or a local Public frontend build. Private's frontend
+  build runs in Docker and needs no host Node installation.
+- `age` for backup/restore, plus a recovery private key stored away from the host.
+- A domain and ports 80/443 for production Caddy. Databases, Redis and research
+  are not published to the Internet.
+
+Use your OS/Docker installation procedure. On Ubuntu 24.04, the distribution
+packages `docker.io`, `docker-compose-v2`, `python3` and `age` provide the host
+tools. Check `docker version`, `docker compose version` and `python3 --version`.
+Run Docker as an operator allowed to use its daemon; this access controls the host.
+
+Commands in production guides use a POSIX shell from the repository root. The
+Development guide also explains PowerShell. Paths such as `infra/public/backend.env`
+are relative to that root. Public and Private run on separate hosts/data volumes.
+
+## Configuration files
+
+Copy only the selected mode's examples. Never commit populated `*.env` files.
+Compose sets mode, internal service addresses, database port and runtime path.
+The application reads credentials from `backend.env`, and the research provider
+reads its own key from `research.env`.
+
+| Input | What it means and why it exists |
 | --- | --- |
-| development/ | Local stack and examples |
-| public/ | Hosted stack, Caddy API origin, production examples |
-| public/oracle/ | Public OCI Terraform |
-| public/scripts/ and public/systemd/ | Host bootstrap, monitoring and backup timers |
-| private/ | Customer stack, activation examples and public verification keys |
-| private/scripts/ | Signed packaging/verification/installation |
-| shared/docker/ | Mode-neutral application images |
-| shared/postgres/ | Empty-database extension/role initialization |
-| shared/redis/ | Durable runtime Redis policy |
-| shared/scripts/ | Explicit-mode deploy, diagnostics, backup and isolated restore/recovery |
+| `QUANTNEST_RELEASE` | Human-reviewed image tag; identifies backend/research/Private frontend images for an upgrade. Not a licence or Django access setting. |
+| `SECRET_KEY` | Django signing key for sessions, tokens and signed links. Preserve across normal upgrades. |
+| `CREDENTIAL_ENCRYPTION_KEYS` | Fernet key list protecting stored provider credentials; preserve for recovery. First key encrypts new values. |
+| `POSTGRES_ADMIN_PASSWORD` | Bootstrap database administrator password; used by initialization and backup/restore. |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Application database and non-superuser role. Password must differ from the bootstrap administrator's password. |
+| `REDIS_PASSWORD` | Shared Redis authentication. Use 64 hexadecimal characters so generated connection URLs need no escaping. |
+| `FRONTEND_URL` | Canonical browser origin, including scheme. Controls email links, CORS/CSRF and Private frontend build URL. |
+| `BACKEND_URL` | Externally reachable callback origin. Production uses the browser origin because the gateway proxies API routes. |
+| `ALLOWED_HOSTS` | Hosts Django accepts; include the browser host, `api`, `localhost`, `127.0.0.1`. Public also includes the origin host. |
+| `PUBLIC_HOSTNAME` | Browser domain without scheme/path. The name is also used in Private; it does not select deployment mode. |
+| `ORIGIN_HOSTNAME` | Public only: separate DNS-only hostname for the Caddy backend origin. |
+| `QUANTNEST_PROXY_TOKEN` | Random server-only gateway token. Public must match Cloudflare's Function secret; Private Caddy injects it. |
+| `EMAIL_BACKEND` | Development console output. Production uses Django SMTP by default. |
+| `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` | SMTP login, SMTP key and verified sender for account/support emails. Host/port/TLS default to Brevo on 587 with STARTTLS. |
+| `FYERS_CLIENT_ID`, `FYERS_SECRET` | Market-data app credentials. Live trading app credentials are entered per user through Broker Integration. |
+| `RESEARCH_SERVICE_TOKEN` | Shared Django/research secret; enter the same value in both server environment files. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Research provider credentials/model, read only by the research container. Use a model enabled in your provider project. |
+| `TURNSTILE_SECRET_KEY` | Server key for anonymous enquiry verification. Authenticated Support requests still use their signed-in flow. |
+| `VITE_TURNSTILE_SITE_KEY` | Public widget key. Private passes it to the frontend image build; Public sets it in its frontend build environment. |
+| `VITE_SITE_URL` | Public/Development frontend build canonical URL; must be HTTPS for production builds. Private derives it from `FRONTEND_URL`. |
+| `BILLING_ENABLED` | Public checkout switch. Keep false until provider configuration and capacity are ready; Private forces false. |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Public checkout and signed payment webhooks; configure when enabling billing. |
+| `BILLING_TAX_BPS`, `BILLING_TAX_ID` | Reviewed tax basis points and invoice identifier; 100 basis points equals one percent. |
+| `API_WORKERS` | Production ASGI processes, default one. It does not increase execution parallelism. |
+| `EXECUTION_WORKERS` | Persistent execution CPU processes, default one. Increase only with measured headroom. |
+| `EXECUTION_ENABLED_SCOPES` | Development's selectable scopes. Public/Private Compose supplies the production policy. |
+| `QUANTNEST_API_PROXY_TARGET` | Development Vite server's API destination; Compose sets `http://api:8000`. It stays out of the browser bundle. |
 
-Customer pages and workspace both use frontend/. No separate customer-site framework is deployed. The root functions/[[path]].js is required for the Public Cloudflare gateway.
+Optional contact overrides are `QUANTNEST_LEGAL_NAME`, `QUANTNEST_SUPPORT_EMAIL` and
+`QUANTNEST_SUPPORT_HOURS`. The catalog exposes them consistently to the site and
+workspace. Callback URLs derive from `BACKEND_URL`; see each mode guide for exact
+paths. Inbound email webhooks and in-platform project payments are not included.
 
-## 4. Environment ownership
-
-### Two settings with separate responsibilities
-
-- `QUANTNEST_DEPLOYMENT_MODE` selects deployment policy: `development`, hosted `public`, or customer-owned `private`. It controls billing/licensing, production security and deployment operations. Its default is `public`; `DEBUG` never selects a mode.
-- `EXECUTION_ENABLED_SCOPES` selects automated execution availability: `paper`, `live`, or `paper,live`. APIs, entry admission, workers and workspace controls use this setting. Manual Terminal simulation has no plan quota, scope gate or Private-licence gate. Historical records remain owned and readable independently of new-entry permission.
-
-Compose supplies both settings consistently to every process. Development defaults to Paper and can explicitly enable Live. Public fixes Paper scope; requesting Live in Public is a configuration error. Private supplies Paper and Live; the signed licence and broker qualification still decide whether new live exposure is permitted. Never use a UI setting as execution authorization.
-
-Worker counts, admission capacity, timeouts and transport addresses remain configurable where they affect real resource use or topology. Do not copy every setting into an environment file: ordinary installations use the source/Compose defaults. All modes use PostgreSQL and shared Redis; SQLite, local cache and in-memory Channels alternatives have been removed.
-
-| File | Consumer | Contents |
-| --- | --- | --- |
-| infra/<mode>/backend.env | Compose, Django, runtime and Celery | Protected server configuration |
-| infra/<mode>/research.env | Research FastAPI | AI key and shared service token |
-| frontend/.env copied from the mode's frontend.env.example | Vite/build | Site URL, public widget key and optional local proxy target; never server secrets |
-| /etc/quantnest/operations.env | Public host units | Oracle metadata and backup recipient |
-| backend/.env and research_service/.env | Native development only | Not loaded by Compose containers |
-
-Internal DB/Redis URLs, notification IP and runtime path are supplied by Compose. Mode examples contain only consumed operator inputs. Optional integration groups are labelled; leaving them empty keeps those integrations unavailable. Production replace-with-* values must be replaced. Celery and Channels use REDIS_URL directly; separate duplicate connection settings are unnecessary.
-
-The startup provider set is Oracle (Public hosting, signing, backup and monitoring), Cloudflare (Public frontend/gateway and form protection), Brevo (mail), the existing market source, Gemini (AI), Razorpay (when checkout is enabled), and Google (when social login is enabled). There is no external analytics SDK, error SDK, heartbeat service or automated Vault environment bundle. Product usage and website visits are not tracked; errors use bounded application logs. Brevo's optional API fields have a concrete purpose: newsletter confirmation and inbound support replies.
-
-### Operator inputs and their consumers
-
-This is the complete input inventory for the supplied examples. Do not add container-generated addresses or derived values to those files.
-
-| Inputs | Consumer and action |
-| --- | --- |
-| QUANTNEST_RELEASE | Django release identity and production image tags; use the reviewed release identifier, exactly matching a signed Private artifact |
-| SECRET_KEY / CREDENTIAL_ENCRYPTION_KEYS | Django signing / encrypted credentials; generate separate values and retain them for recovery |
-| DB_NAME / DB_USER / DB_PASSWORD | PostgreSQL initializer and Django; application database, non-superuser role and its password |
-| POSTGRES_ADMIN_PASSWORD | PostgreSQL bootstrap administrator only; use a different password from DB_PASSWORD |
-| REDIS_PASSWORD | Redis servers, health commands and generated client URLs; use hexadecimal |
-| QUANTNEST_PROXY_TOKEN | Trusted HTTP/WebSocket gateway authentication; Public must match the Cloudflare Function, Private Caddy receives it from Compose |
-| FRONTEND_URL / BACKEND_URL | Browser origin / externally reachable callback origin; keep the same HTTPS origin in production |
-| ALLOWED_HOSTS | Django host validation; include the browser hostname, internal api and loopback health hosts |
-| PUBLIC_HOSTNAME | Caddy's browser hostname, without scheme/path; this name is also used in Private and does not mean Public deployment mode |
-| ORIGIN_HOSTNAME | Public Caddy TLS origin hostname only, without scheme/path |
-| EMAIL_BACKEND | Development console email; production uses the SMTP settings default |
-| EMAIL_HOST_USER / EMAIL_HOST_PASSWORD / DEFAULT_FROM_EMAIL | Brevo SMTP login/key and verified sender; required for production account mail |
-| FYERS_CLIENT_ID / FYERS_SECRET | Market-source authorization; source app credentials, separate from execution credentials |
-| BROKER_FYERS_CLIENT_ID / BROKER_FYERS_SECRET | Private or intentional Development Live broker authorization; register the separate execution callback |
-| RESEARCH_SERVICE_TOKEN | Shared Django-to-research authentication; identical value in both mode files |
-| GEMINI_API_KEY / GEMINI_MODEL | Research container only; choose a model actually enabled in that Gemini project |
-| TURNSTILE_SECRET_KEY | Server-side form verification; match VITE_TURNSTILE_SITE_KEY. Required for production anonymous contact/newsletter submission |
-| BILLING_ENABLED | Hosted checkout switch; keep False until merchant configuration, webhook acceptance and capacity are ready. Private forces False |
-| RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET / RAZORPAY_WEBHOOK_SECRET | Public payments and verified webhook handling; configure only when enabling checkout |
-| BILLING_TAX_BPS / BILLING_TAX_ID | Public invoice/checkout tax configuration; basis points, e.g. 100 = 1 percent; use the applicable verified tax treatment |
-| BREVO_API_KEY / BREVO_NEWSLETTER_LIST_ID / BREVO_DOI_TEMPLATE_ID | Optional newsletter contact sync and double-opt-in confirmation; see the provider guide before enabling |
-| BREVO_WEBHOOK_TOKEN / BREVO_INBOUND_DOMAIN | Optional authenticated Brevo delivery/inbound support processing; SMTP account mail does not require these |
-| OCI_LICENSE_KEY_ID / OCI_LICENSE_KEY_VERSION / OCI_SIGNING_ENDPOINT | Central Public licence issuer only; dedicated Vault key, version and crypto endpoint |
-| LICENSE_INSTALLATION_ID / LICENSE_ACTIVATION_TOKEN / LICENSE_SERVER_URL | Private activation/lease refresh; issued installation identity/token and central HTTPS authority |
-| EXECUTION_ENABLED_SCOPES | Development example allows Paper or intentional Paper/Live; production Compose supplies the permitted scope set |
-| EXECUTION_MAX_ACTORS / EXECUTION_MAX_USER_ACTORS | Shared runtime admission; initially 8 per owner and 4 per user, subject to host and commercial limits |
-| VITE_SITE_URL | Public website URL for canonical links and build output; must use HTTPS for production builds |
-| VITE_TURNSTILE_SITE_KEY | Public widget key; safe to expose. The secret counterpart stays on the backend |
-| QUANTNEST_API_PROXY_TARGET | Native Vite server only; Development Compose supplies http://api:8000 instead |
-
-Host-only operations.env inputs and Terraform inputs/outputs have their own exact tables in [Public scripts](public/scripts/README.md) and [Oracle provisioning](public/oracle/README.md). They are not Django settings. The Cloudflare Function additionally needs BACKEND_ORIGIN and QUANTNEST_PROXY_TOKEN in its platform settings; [Public deployment](public/README.md#5-builddeploy-the-main-react-frontend) shows where to set them.
-
-Derived defaults are defined once in backend/backend/settings.py:
-
-- FYERS_REDIRECT_URI is BACKEND_URL plus `/api/v1/market/fyers/callback/`.
-- BROKER_FYERS_REDIRECT_URI is BACKEND_URL plus `/api/v1/brokers/credentials/fyers/callback/`.
-- TURNSTILE_HOSTNAMES defaults to FRONTEND_URL's hostname.
-- LICENSE_PUBLIC_KEYS_FILE defaults to `/etc/quantnest/license/public-keys.json`, matching Private's read-only mount. The `private/license/.gitkeep` only preserves that otherwise empty source directory; place the delivered public key mapping there.
-- Execution/calculation/order workers default to 1/1/1, order concurrency to 2, and calculation cache to 32 MiB. Add those real settings to backend.env only when intentionally changing resources; API_WORKERS defaults to 1 in the production Compose command. Increase matching container memory/CPU budgets when required.
-- The backend image fixes numerical library threads at one before importing libraries. Compose does not repeat these defaults. Django, Celery and runtime processes receive the same image/environment.
-
-Override a derived setting only for a deliberate nonstandard callback/widget setup. For ordinary deployment, edit the canonical URLs once and register their resulting callback paths. In a shell that already exports Compose interpolation inputs, those exported values override --env-file; unset stale values before deploying another installation. Use `config --quiet` to validate without displaying resolved secrets.
-
-Generate secrets locally, never with an online generator:
+Generate independent values locally:
 
 ```sh
 python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Use a separate URL-safe output for Django, each database password, ingress token and research token. The hex output is for Redis. Generate the Fernet credential key with the exact command in each mode guide and preserve it across upgrades/restores.
+The first command prints one strong secret; run separately for Django, database,
+gateway and research secrets. The second prints a URL-safe hexadecimal Redis
+password. Generate a Fernet key using the backend image after building it; the
+mode guides show the command. Save that key with the protected environment files.
 
-The backend defaults to legal name QuantNest and contact ayushkaneriya05@gmail.com. To change them, add QUANTNEST_LEGAL_NAME, QUANTNEST_SUPPORT_EMAIL and optionally QUANTNEST_SUPPORT_HOURS to the mode's backend file, then restart the API. Both the customer site and workspace read these values from the public catalog; there are no separate frontend copies. quantnest.site is the planned domain, not an assertion that it is purchased.
+## Deploy, maintain and restore
 
-## 5. Deployment sequence
+1. Follow the selected mode guide and replace credentials/domain values.
+2. Run `deploy.py --root . --mode <mode> --build`. It runs database migrations,
+   Timescale setup, Site configuration and static collection with applications stopped.
+3. Create the administrator and enrol Admin OTP; then authorize data and review
+   calendars/instruments before running strategies.
+4. Run `diagnostics.py` and inspect provider connection and execution logs.
+5. Stop applications and make a backup before each upgrade. Keep an off-host copy.
+6. Recover into an empty deployment only. Restore does not start trading workers.
 
-1. Prepare your machine; production also needs domain, HTTPS and provider accounts.
-2. Copy only the selected mode's examples and configure required credentials.
-3. Build/deploy; migrations and static collection precede application startup.
-4. Create your administrator, enrol its authenticator and configure the Django Site.
-5. Diagnose services; authorize the source, sync instruments/calendar and initialize history.
-6. Public: publish reviewed prices/limits and provision capacity before enabling checkout. Private: import/refresh the signed licence before new work.
-7. Make an encrypted backup, verify isolated recovery, configure monitoring, then launch.
-8. For upgrades stop or pause sessions, settle obligations, back up, deploy and inspect session states after diagnostics.
+All command arguments and recovery steps are explained in
+[the script runbook](shared/scripts/README.md). The mode READMEs explain their
+specific configuration and first-start sequence.
 
-[All shared script instructions](shared/scripts/README.md). [Provider account/callback guide](../docs/third-party-setup.md).
+## Upgrading the former infrastructure layout
 
-## 6. Production capacity
+Before changing a running old stack, stop/settle strategy work through the
+workspace, make a backup using that release's tool and retain its code/image tag.
+Then run your old mode's `docker compose ... --profile "*" down --remove-orphans`
+without `-v`. This removes old containers/networks while preserving database/media
+volumes. Deploy the new release against the same mode/project identity.
 
-Public's initial Oracle A1 profile is **2 OCPUs / 12 GB**. Its container memory ceilings total **9.5 GiB**; Private adds broker events and totals **9.875 GiB**. Ceilings are not idle usage. Reserve host/build/Redis rewrite headroom and run one production stack on that machine.
+The former runtime Redis volume may remain on disk; it is not used by the new
+configuration. Do not copy its old leases into Redis DB 3. Market buffers are rebuilt,
+and execution recovers committed commands/checkpoints from PostgreSQL. Celery work
+interrupted by maintenance still needs its normal outcome/recovery review.
 
-Start with one API worker, one execution worker and one calculation child, one order worker/two concurrent account operations, one compute job and one background job at a time, and one Beat. Compute is capped at 0.75 CPU; numeric library threads are one.
+Backup format 3 contains database/media only. Format 2 archives require the restore
+tool from the release that created them. Complete the retired licensing migration
+on that older release before upgrading a database that still has licensing tables.
 
-Per-user actor admission starts at four, below Build/Pro's Paper allowance. Checkout is withheld for plans exceeding that admission ceiling. Increase resources and validate larger admission before enabling those plans; changing plan names does not create capacity.
+## Capacity and acceptance
 
-Monitor CPU, RSS, PostgreSQL locks/connections, Redis persistence/memory, disk, queue age and actual order latency before increasing workers. Runtime Redis uses durable AOF, noeviction and synchronous fsync; analytical cache is independently bounded and evictable.
+The production defaults are a conservative starting configuration for a host with
+roughly 12 GiB RAM: one API process, one execution worker, one compute slot and two
+background slots. Memory limits are ceilings, not reservations or user-count promises.
+Leave additional memory for Docker, image builds and database/Redis maintenance.
+The compute CPU cap leaves time for execution; it does not reserve dedicated cores.
 
-Verify your tenancy's actual allowance before applying infrastructure. [Oracle's current Always Free documentation](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm) describes quotas and reclamation; free resources are not an uptime guarantee.
+Changing plan quotas does not add CPU capacity. Measure rule workload, instrument
+count, process memory, database writes, queue delay and broker latency before
+raising concurrency. Research/provider access, email delivery, HTTPS and actual
+broker authorization must be checked on the deployed host with its own credentials.
 
-## 7. Real deployment acceptance
-
-Local configuration/syntax checks do not prove email delivery, source entitlement, merchant approval, licence signing, broker reconciliation or recovery. Follow the selected mode's launch checklist on its actual host/accounts. Do not place real orders as a general health check.
+Docker readiness waits for configured health checks, not just container creation;
+see [Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/).
+Production certificates are managed by Caddy; see
+[automatic HTTPS requirements](https://caddyserver.com/docs/automatic-https).

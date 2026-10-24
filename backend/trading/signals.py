@@ -7,5 +7,5 @@ from django.dispatch import Signal
 order_status_changed = Signal()
 
 # Signal sent when a position is created, updated, or closed.
-# The sender will be the class, and 'position' and 'user_id' will be passed.
+# Pass a serialized 'position_data' dictionary and 'user_id', including on close.
 position_changed = Signal()

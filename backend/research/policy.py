@@ -21,8 +21,8 @@ def validate_customer_rules(run, draft):
     """A new draft must be traceable to explicit user-supplied trading choices."""
     if settings.QUANTNEST_DEPLOYMENT_MODE == "development":
         return
-    supplied = run.request.get("strategy_snapshot") or run.request.get("draft_context") or {}
-    baseline = supplied.get("draft", supplied) if isinstance(supplied, dict) else {}
+    baseline = (run.request.get("strategy_snapshot")
+                or run.request.get("draft_context", {}).get("draft", {}))
     from .models import ResearchRun
     prompts = [run.prompt, *ResearchRun.objects.filter(session_id=run.session_id, user_id=run.user_id,
         pk__lt=run.pk).order_by("-pk").values_list("prompt", flat=True)[:20]]

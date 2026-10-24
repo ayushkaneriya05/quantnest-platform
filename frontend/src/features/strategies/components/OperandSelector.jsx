@@ -44,8 +44,8 @@ export default function OperandSelector({
     (option) => !allowedValues || allowedValues.includes(option.value),
   );
   const parameterConfig = enums.OperandParameterConfig || {};
-  const mathVariableTypes =
-    enums.MathExpressionOperandTypes?.[ruleType || "ENTRY"] || [];
+  const mathVariableTypes = (enums.MathExpressionOperandTypes?.[ruleType || "ENTRY"] || [])
+    .filter((type) => !allowedValues || allowedValues.includes(type));
   const positionStateTypes = enums.OperandGroups?.["Position State (Exit)"] || [];
 
   const groupedOptions = Object.fromEntries(
@@ -63,18 +63,20 @@ export default function OperandSelector({
   const currentOption = options.find((option) => option.value === value);
   const paramConfig = parameterConfig[value] || [];
 
+  const getParamValue = (param) => {
+    const current = params?.[param.key] ?? param.default;
+    return param.type === "source" ? current.toUpperCase() : current;
+  };
+
   // Format params for badge display
   const formatParams = () => {
     if (!paramConfig.length || !params) return "";
     if (value === "CONSTANT") return params.value?.toString() || "0";
     if (value === "MATH_EXPRESSION") {
-      const expression =
-        typeof params.expression === "string"
-          ? params.expression
-          : params.expression?.expression;
+      const expression = params.expression?.expression;
       return expression ? `(${expression})` : "";
     }
-    return `(${paramConfig.map((p) => params[p.key] ?? p.default).join(", ")})`;
+    return `(${paramConfig.map(getParamValue).join(", ")})`;
   };
 
   const handleParamChange = (key, val, isString = false) => {
@@ -82,10 +84,6 @@ export default function OperandSelector({
     // through the intermediate "-" state before being saved.
     const parsed = isString ? val : val === "" ? null : parseFloat(val);
     onChangeParams({ ...(params || {}), [key]: parsed });
-  };
-
-  const getParamValue = (param) => {
-    return params?.[param.key] ?? param.default;
   };
 
   return (
@@ -195,7 +193,7 @@ export default function OperandSelector({
                       key={param.key}
                       className={
                         param.type === "source" &&
-                        parameterConfig[params?.[param.key]]
+                        parameterConfig[getParamValue(param)]
                           ? "col-span-2 space-y-1"
                           : "space-y-1"
                       }
@@ -299,13 +297,13 @@ export default function OperandSelector({
                       )}
 
                       {param.type === "source" &&
-                        parameterConfig[params?.[param.key]] && (
+                        parameterConfig[getParamValue(param)] && (
                           <div className="mt-2 p-2 border border-border rounded bg-muted/40">
                             <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-bold mb-1 block">
-                              Source ({params?.[param.key]}) Settings
+                              Source ({getParamValue(param)}) Settings
                             </span>
                             <div className="grid grid-cols-2 gap-2">
-                              {parameterConfig[params?.[param.key]]
+                              {parameterConfig[getParamValue(param)]
                                 .filter(
                                   (sourceParam) =>
                                     sourceParam.type !== "source" &&

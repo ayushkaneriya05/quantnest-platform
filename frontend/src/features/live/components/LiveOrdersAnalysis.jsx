@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { formatNumber, formatBrokerAccount, formatDateTime } from "@/shared/utils/formatters";
+import { formatNumber, formatBrokerAccount, formatDateTime, formatCurrency } from "@/shared/utils/formatters";
 import TablePagination from "@/shared/components/TablePagination";
 
 const ACTIVE = new Set(["PENDING", "PLACED", "PARTIAL_FILL", "UNKNOWN"]);
@@ -51,9 +51,9 @@ export default function LiveOrdersAnalysis({ orders = [], pagination, summary = 
                 <TableCell><Badge variant="outline" className={order.side === "BUY" ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300" : "border-rose-500/30 text-rose-700 dark:text-rose-300"}>{order.side || "—"}</Badge><div className="mt-1 text-xs text-muted-foreground">{order.order_type} · {order.product_type}</div></TableCell>
                 <TableCell className="text-right text-foreground">{formatNumber(order.quantity)}</TableCell>
                 <TableCell className="text-right text-foreground">{formatNumber(order.filled_quantity)} / {formatNumber(order.quantity)}</TableCell>
-                <TableCell className="text-right text-foreground">{order.avg_fill_price == null ? "—" : `₹${formatNumber(Number(order.avg_fill_price))}`}</TableCell>
+                <TableCell className="text-right text-foreground">{order.avg_fill_price == null ? "—" : `${formatCurrency(Number(order.avg_fill_price))}`}</TableCell>
                 <TableCell><Badge variant="outline" className={tone(order.status)}>{order.status || "UNKNOWN"}</Badge>{order.rejection_reason && <div className="mt-1 max-w-48 text-xs text-rose-700 dark:text-rose-300">{order.rejection_reason}</div>}</TableCell>
-                <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(order.placed_at)}</TableCell>
+                <TableCell className="whitespace-nowrap text-muted-foreground">{formatDateTime(order.broker_ordered_at ?? order.placed_at)}<div className="mt-1 text-xs">{order.broker_ordered_at ? "Broker time" : "Submitted locally"}</div></TableCell>
               </TableRow>)}</TableBody>
             </Table></div></CardContent>
             <TablePagination page={pagination?.page || 1} count={pagination?.count || 0} onPageChange={onPageChange} />

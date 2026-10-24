@@ -18,7 +18,7 @@ const BacktestTradeList = lazy(() => import("@/features/backtests/pages/Backtest
 const EquityDrawdownCharts = lazy(() => import("@/features/backtests/pages/EquityDrawdownCharts"));
 const MonteCarloSim = lazy(() => import("@/features/backtests/pages/MonteCarloSim"));
 const PaperPortfolio = lazy(() => import("@/features/paper/pages/PaperPortfolio"));
-const PaperTradingDashboard = lazy(() => import("@/features/paper/pages/PaperTradingDashboard"));
+const PaperDeployments = lazy(() => import("@/features/paper/pages/PaperDeployments"));
 const PaperCapital = lazy(() => import("@/features/paper/pages/PaperCapital"));
 const PaperAnalytics = lazy(() => import("@/features/paper/pages/PaperAnalytics"));
 const BrokerConnections = lazy(() => import("@/features/brokers/pages/BrokerConnections"));
@@ -44,8 +44,7 @@ const EntryRulesBuilder = lazy(() => import("@/features/strategies/pages/EntryRu
 const ExitRulesBuilder = lazy(() => import("@/features/strategies/pages/ExitRulesBuilder"));
 const TimeRulesEditor = lazy(() => import("@/features/strategies/pages/TimeRulesEditor"));
 const AssetRulesEditor = lazy(() => import("@/features/strategies/pages/AssetRulesEditor"));
-const RiskSettings = lazy(() => import("@/features/strategies/pages/RiskSettings"));
-const StrategyAutoDisableConfig = lazy(() => import("@/features/strategies/pages/StrategyAutoDisableConfig"));
+const PositionSizing = lazy(() => import("@/features/strategies/pages/PositionSizing"));
 const VersionHistory = lazy(() => import("@/features/strategies/pages/VersionHistory"));
 const StrategyPermissions = lazy(() => import("@/features/strategies/pages/StrategyPermissions"));
 const TradingTerminal = lazy(() => import("@/features/terminal/pages/TradingTerminal"));
@@ -83,8 +82,6 @@ export default function AppRoutes() {
         <Route path="/refunds" element={<CustomerPages />} />
         <Route path="/methodology" element={<CustomerPages />} />
         <Route path="/security" element={<CustomerPages />} />
-        <Route path="/newsletter" element={<CustomerPages />} />
-        <Route path="/newsletter/confirmed" element={<CustomerPages />} />
       </Route>
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
@@ -99,7 +96,7 @@ export default function AppRoutes() {
           <Route path="/backtests/trades/:id" element={<BacktestTradeList />} />
           <Route path="/backtests/charts/:id" element={<EquityDrawdownCharts />} />
           <Route path="/backtests/montecarlo" element={<MonteCarloSim />} />
-          <Route path="/paper" element={<PaperTradingDashboard />} />
+          <Route path="/paper" element={<PaperDeployments />} />
           <Route path="/paper/portfolio" element={<PaperPortfolio />} />
           <Route path="/paper/capital" element={<PaperCapital />} />
           <Route path="/paper/analytics" element={<PaperAnalytics />} />
@@ -121,8 +118,7 @@ export default function AppRoutes() {
           <Route path="/strategies/:id/exit" element={<ExitRulesBuilder />} />
           <Route path="/strategies/:id/time" element={<TimeRulesEditor />} />
           <Route path="/strategies/:id/assets" element={<AssetRulesEditor />} />
-          <Route path="/strategies/:id/risk" element={<RiskSettings />} />
-          <Route path="/strategies/:id/auto-disable" element={<StrategyAutoDisableConfig />} />
+          <Route path="/strategies/:id/sizing" element={<PositionSizing />} />
           <Route path="/strategies/:id/versions" element={<VersionHistory />} />
           <Route path="/strategies/:id/permissions" element={<StrategyPermissions />} />
           <Route path="/terminal" element={<TradingTerminal />} />

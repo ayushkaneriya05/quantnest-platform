@@ -5,6 +5,7 @@ from rest_framework import serializers
 from django.db import transaction
 from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig
 from common.enums import LogicalOperator
+from rules_engine.serializers import PositionSizingRuleSerializer
 
 
 class StrategyTagSerializer(serializers.ModelSerializer):
@@ -20,21 +21,15 @@ class EntryOrderConfigSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request and strategy.user_id != request.user.pk:
             raise serializers.ValidationError("Select one of your own strategies.")
+        if self.instance and strategy.pk != self.instance.strategy_id:
+            raise serializers.ValidationError('An entry configuration cannot be moved to another strategy.')
         return strategy
     
     class Meta:
         model = EntryOrderConfig
         fields = [
-            'id', 'strategy', 'entry_side', 'entry_group_operator', 'order_type', 'price_offset',
-            'cooldown_seconds'
+            'id', 'strategy', 'entry_side', 'entry_group_operator', 'order_type'
         ]
-
-    def validate(self, attrs):
-        cooldown = attrs.get('cooldown_seconds', getattr(self.instance, 'cooldown_seconds', None))
-
-        if cooldown is not None and cooldown < 0:
-            raise serializers.ValidationError({'cooldown_seconds': 'Cooldown cannot be negative.'})
-        return attrs
 
 
 class ExitOrderConfigSerializer(serializers.ModelSerializer):
@@ -56,6 +51,7 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
     )
     entry_order_config = EntryOrderConfigSerializer(read_only=True)
     exit_order_config = ExitOrderConfigSerializer(read_only=True)
+    position_sizing_rule = PositionSizingRuleSerializer(read_only=True)
     
     class Meta:
         model = Strategy
@@ -64,7 +60,7 @@ class StrategyDetailSerializer(serializers.ModelSerializer):
             'exchange', 'instrument_type', 'status', 'visibility',
             'paper_trading_enabled', 'live_trading_enabled',
             'user', 'user_username', 'tags', 'tag_ids',
-            'entry_order_config', 'exit_order_config',
+            'entry_order_config', 'exit_order_config', 'position_sizing_rule',
             'auto_version_enabled',
             'created_at', 'updated_at'
         ]

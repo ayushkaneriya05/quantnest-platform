@@ -35,7 +35,7 @@ def calculate_billing_totals(catalog, plan, subscription=None):
 
 def create_checkout(user, data, key, *, manual=False):
     if settings.QUANTNEST_DEPLOYMENT_MODE == "private":
-        reject_request("private_contract_required", "Private installations use their signed contract and licence, rather than Public plan checkout.")
+        reject_request("checkout_unavailable", "Personal Private does not use public subscription checkout.")
     require_verified_email(user)
     if not settings.BILLING_ENABLED:
         reject_request("checkout_unavailable", "Checkout is not open yet. You can use Explore or contact us.")
@@ -49,9 +49,6 @@ def create_checkout(user, data, key, *, manual=False):
         reject_request("idempotency_required", "Provide a unique request key.")
     if not manual and data.get("renewal_consent") is not True:
         reject_request("renewal_consent", "Confirm monthly automatic renewal or choose manual payment.")
-    terms = catalog.specification["plans"][plan]
-    if settings.QUANTNEST_DEPLOYMENT_MODE == "public" and terms["limits"]["paper_instruments"] > settings.EXECUTION_MAX_USER_ACTORS:
-        reject_request("plan_capacity_unavailable", "This plan's promised execution capacity has not been provisioned. Contact us; its allowances have not been reduced.")
     subscription = Subscription.objects.filter(user=user).first()
     reviewed = calculate_billing_totals(catalog, plan, subscription)
     base, tax, total = (reviewed[key] for key in ("base_minor", "tax_minor", "total_minor"))
@@ -177,14 +174,13 @@ def verify_payment(payment_id, *, user=None):
             payment.save(update_fields=["status", "fee_minor"])
             return payment
         now = timezone.now()
-        if attempt.kind in {"project", "private"}:
+        # Historical non-subscription receipts cannot grant a workspace subscription.
+        if attempt.kind not in {"manual", "subscription"}:
             payment.captured_at = now
             payment.applied_at = now
             payment.billing_snapshot = {"kind": attempt.kind, "base_minor": attempt.base_minor,
                 "tax_minor": attempt.tax_minor, "total_minor": attempt.total_minor}
             payment.save()
-            from customer_support.models import Milestone
-            Milestone.objects.filter(payment_attempt=attempt).update(paid_at=now)
             Invoice.objects.get_or_create(payment=payment, defaults={"number": f"QN-{payment.pk:010d}", "user": attempt.user,
                 "snapshot": {"seller": settings.QUANTNEST_LEGAL_NAME, "buyer_email": attempt.user.email,
                     "kind": attempt.kind, "base_minor": attempt.base_minor, "tax_minor": attempt.tax_minor,
@@ -273,7 +269,7 @@ def cancel_subscription_renewal(user):
 
 def schedule_plan_change(user, plan, approved_total=None):
     if settings.QUANTNEST_DEPLOYMENT_MODE == "private":
-        reject_request("private_contract_required", "Private installations have unlimited software usage while the licence is active.")
+        reject_request("checkout_unavailable", "Personal Private has no subscription or renewal.")
     if not isinstance(plan, str) or plan not in {"explore", "build", "pro"}:
         reject_request("invalid_plan", "Choose Explore, Build or Pro.")
     if plan == "explore":
@@ -284,9 +280,6 @@ def schedule_plan_change(user, plan, approved_total=None):
     if plan == subscription.plan and not subscription.scheduled_plan:
         return subscription
     catalog = get_active_catalog()
-    terms = catalog.specification["plans"][plan]
-    if settings.QUANTNEST_DEPLOYMENT_MODE == "public" and terms["limits"]["paper_instruments"] > settings.EXECUTION_MAX_USER_ACTORS:
-        reject_request("plan_capacity_unavailable", "Provision this plan's promised execution capacity before enabling it.")
     reviewed = calculate_billing_totals(catalog, plan, subscription)
     base, total = reviewed["base_minor"], reviewed["total_minor"]
     if approved_total != total:

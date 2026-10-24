@@ -9,7 +9,7 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import TablePagination from "@/shared/components/TablePagination";
 import { formatCurrency } from "@/shared/utils/formatters";
-import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
+import { usePaperPositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
 
 const PAGE_SIZE = 10;
@@ -57,7 +57,7 @@ export default function PaperPositions({ selectedAccountId }) {
       ),
     [positions, selectedAccountId],
   );
-  const { livePnLByPositionId } = useLivePositionsPnL(filteredPositions);
+  const { livePnLByPositionId } = usePaperPositionsPnL(filteredPositions);
 
   useEffect(() => setPage(1), [selectedAccountId]);
   const pageCount = Math.max(1, Math.ceil(filteredPositions.length / PAGE_SIZE));

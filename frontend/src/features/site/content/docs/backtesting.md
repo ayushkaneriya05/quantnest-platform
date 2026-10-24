@@ -12,15 +12,16 @@ order: 5
 ## Understand credits
 
 - One credit covers 100,000 instrument-candles, including indicator warmup history.
-- The estimate limits the approved workload; lower completed work releases unused reserved credits.
-- Processing failures restore the allowance. Cancellation before work starts releases the reservation; completed work follows the disclosed usage policy.
+- A successful run uses the reviewed credit amount. A smaller observed dataset does not change that accepted price.
+- Processing failures and cancellation restore the reservation. Completed runs keep their accepted charge.
 
 ## Read the result
 
 - Inspect trades, costs, drawdown and instrument/date concentration.
 - Empty totals are zero; undefined ratios are N/A.
 - Read recorded entry diagnostics when no trades occurred. If diagnostics were not recorded, the result cannot establish the reason.
-- Check coverage, warmup and remaining exposure before drawing a conclusion.
+- Check coverage and warmup before drawing a conclusion. Any remaining position is closed at its last available completed candle close, with modeled slippage and charges, and marked END_OF_BACKTEST. This is a test-ending assumption, not a strategy exit signal.
+- Charge settings are saved with the run. Editing a charge profile later does not change that run or a rerun's saved assumptions.
 
 ## Compare and investigate
 
@@ -31,5 +32,6 @@ order: 5
 ## Monte Carlo and simulation limits
 
 - A bounded Monte Carlo experiment explores the selected recorded trade outcomes, up to 1,000 simulations per experiment.
+- Cancel a pending or queued simulation from its history card to restore the reserved run allowance. Running simulations must finish.
 - It does not create future market evidence or establish likely profitability.
 - Candles do not reveal every price movement or queue position. Read the [simulation methodology](/methodology/) for fill assumptions and coverage limits.

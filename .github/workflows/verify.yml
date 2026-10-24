@@ -52,11 +52,14 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s infra/shared/scripts -p 'test_*.py'
       - run: docker build --platform linux/arm64 -f infra/shared/docker/backend.Dockerfile -t quantnest-backend:ci .
       - run: docker build --platform linux/arm64 -f infra/shared/docker/research.Dockerfile -t quantnest-research:ci .
+      - run: docker build --platform linux/arm64 -f infra/shared/docker/frontend.Dockerfile --build-arg VITE_SITE_URL=https://private.example.com -t quantnest-frontend:ci .
       - run: |
           cp infra/development/backend.env.example infra/development/backend.env
           cp infra/development/research.env.example infra/development/research.env
+          cp infra/development/frontend.env.example infra/development/frontend.env
           cp infra/public/backend.env.example infra/public/backend.env
           cp infra/public/research.env.example infra/public/research.env
           cp infra/private/backend.env.example infra/private/backend.env

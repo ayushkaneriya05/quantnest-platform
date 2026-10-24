@@ -64,7 +64,7 @@ export function TradeTable({ trades, page, onPage, onReview, loading }) {
         <TableCell><Button size="sm" variant={trade.review ? "outline" : "secondary"} onClick={() => onReview(trade)}>{trade.review ? "View review" : "Review"}</Button></TableCell>
       </TableRow>)}</TableBody>
     </Table>
-    <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted-foreground"><span>Partial exits are separate closes.</span><div className="flex items-center gap-2">
+    <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted-foreground"><span>Broker partial fills and manual reductions are separate closes.</span><div className="flex items-center gap-2">
       <Button size="icon" variant="ghost" disabled={loading || page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><ChevronLeft size={16} /></Button><span>Page {page}</span>
       <Button size="icon" variant="ghost" disabled={loading || !trades?.next} onClick={() => onPage(page + 1)} aria-label="Next page"><ChevronRight size={16} /></Button>
     </div></div>

@@ -1,37 +1,28 @@
+from common.enums import (
+    InstrumentType,
+    TerminalOrderStatus, Side, TERMINAL_USER_ORDER_TYPES,
+    TERMINAL_PRICE_REQUIRED_TYPES, TERMINAL_TRIGGER_REQUIRED_TYPES,
+)
 from decimal import Decimal
-from datetime import timezone as dt_timezone
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum, Q
 from django.shortcuts import get_object_or_404
-from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from common.enums import Exchange, InstrumentType
 from instruments.models import Instrument
-from marketdata.live_feed import LiveMarketDataRegistry
 
-from .models import Account, Order, Position, TradeHistory, Watchlist, ClosedPositionLog
-from .signals import order_status_changed, position_changed
-
-
-class TerminalOrderCache:
-    """Persist committed book updates in the financial transaction."""
-    @classmethod
-    def update_order(cls, order):
-        from core.outbox import enqueue
-        from quantnest_runtime.terminal import order_payload
-        enqueue("terminal", str(order.instrument_id), order_payload(order))
-
-    add_order = update_order
-    remove_order = update_order
+from .models import Account, Order, Position, Watchlist
+from .signals import order_status_changed
+from common.costs import snapshot_charge_profile
+from execution.preparation import contract_from_instrument
+from marketdata.calendar import MarketSessionCalendar
 
 
 class TradingInstrumentService:
     @staticmethod
-    def search(query, *, exchange=None, instrument_type=None):
+    def search(query, *, exchange='', instrument_type='', expiry_date=None):
         query = (query or "").strip()
         
         qs = Instrument.objects.filter(is_active=True)
@@ -39,9 +30,10 @@ class TradingInstrumentService:
             qs = qs.filter(exchange=exchange)
         if instrument_type:
             qs = qs.filter(instrument_type=instrument_type)
+        if expiry_date:
+            qs = qs.filter(expiry_date=expiry_date)
         
-        # Strict filter for NSE Equities and Indexes
-        qs = qs.filter(exchange__in=[Exchange.NSE, Exchange.MCX], instrument_type__in=[InstrumentType.STOCK, InstrumentType.INDEX, InstrumentType.FUTURE, InstrumentType.OPTION, InstrumentType.CURRENCY, InstrumentType.COMMODITY])
+        qs = qs.exclude(instrument_type=InstrumentType.MF)
 
         from django.db.models import Case, When, Value, IntegerField
         from datetime import date
@@ -50,12 +42,13 @@ class TradingInstrumentService:
         qs = qs.filter(Q(expiry_date__isnull=True) | Q(expiry_date__gte=date.today()))
 
         if not query:
-            return qs.order_by('-id')[:20]
+            return qs.order_by('expiry_date', 'sym_ticker')[:50]
 
         qs = qs.filter(
             Q(symbol__icontains=query)
             | Q(name__icontains=query)
             | Q(sym_ticker__icontains=query)
+            | Q(underlying_symbol__icontains=query)
         ).annotate(
             match_score=Case(
                 When(sym_ticker__iexact=query, then=Value(1)),
@@ -69,15 +62,7 @@ class TradingInstrumentService:
             )
         ).order_by('match_score', 'sym_ticker')
         
-        return qs[:20]
-
-    @staticmethod
-    def get_by_symbol(symbol):
-        return get_object_or_404(
-            Instrument,
-            Q(symbol=symbol) | Q(sym_ticker=symbol) | Q(sym_ticker=f"NSE:{symbol}-EQ"),
-        )
-
+        return qs[:50]
 
 class TradingAccountService:
     @staticmethod
@@ -87,630 +72,208 @@ class TradingAccountService:
 
 class TradingWatchlistService:
     @staticmethod
-    def get_watchlist(user):
-        return Watchlist.objects.get_or_create(user=user)[0]
+    def get_watchlist(user, watchlist_id=0):
+        if watchlist_id:
+            return get_object_or_404(Watchlist, user=user, pk=watchlist_id)
+        return Watchlist.objects.filter(user=user).order_by('id').first() or Watchlist.objects.get_or_create(user=user, name='Main')[0]
 
     @classmethod
-    def add_instrument(cls, user, instrument_id):
-        watchlist = cls.get_watchlist(user)
-        instrument = get_object_or_404(Instrument, id=instrument_id)
+    def add_instrument(cls, user, sym_ticker, watchlist_id=0):
+        watchlist = cls.get_watchlist(user, watchlist_id)
+        instrument = get_object_or_404(Instrument, sym_ticker=sym_ticker)
         watchlist.instruments.add(instrument)
         return watchlist
 
     @classmethod
-    def remove_instrument(cls, user, instrument_id):
-        watchlist = cls.get_watchlist(user)
-        instrument = get_object_or_404(Instrument, id=instrument_id)
+    def remove_instrument(cls, user, sym_ticker, watchlist_id=0):
+        watchlist = cls.get_watchlist(user, watchlist_id)
+        instrument = get_object_or_404(Instrument, sym_ticker=sym_ticker)
         watchlist.instruments.remove(instrument)
         return watchlist
 
 
 class TradingOrderService:
-    PRICE_REQUIRED_TYPES = {"LIMIT", "STOP_LIMIT"}
-    TRIGGER_REQUIRED_TYPES = {"STOP", "STOP_LIMIT"}
-    MARKET_QUOTE_MAX_AGE_SECONDS = int(getattr(settings, "TRADING_MAX_QUOTE_AGE_SECONDS", 30))
 
-    @classmethod
-    def validate_payload(cls, data):
+    @staticmethod
+    def validate_payload(data):
         order_type = data.get("order_type")
         quantity = int(data.get("quantity") or 0)
 
-        if order_type not in dict(Order.ORDER_TYPES):
+        if order_type not in TERMINAL_USER_ORDER_TYPES:
             raise ValueError("Unsupported order type.")
 
         if quantity <= 0:
             raise ValueError("Quantity must be greater than zero.")
 
-        if order_type in cls.PRICE_REQUIRED_TYPES and not data.get("price"):
+        if order_type in TERMINAL_PRICE_REQUIRED_TYPES and not data.get("price"):
             raise ValueError(f"price is required for {order_type} orders.")
 
-        if order_type in cls.TRIGGER_REQUIRED_TYPES and not data.get("trigger_price"):
+        if order_type in TERMINAL_TRIGGER_REQUIRED_TYPES and not data.get("trigger_price"):
             raise ValueError(f"trigger_price is required for {order_type} orders.")
 
         return data
 
     @classmethod
-    def _quote_age_seconds(cls, quote):
-        raw_timestamp = quote.get("updated_at") or quote.get("timestamp")
-        if not raw_timestamp:
-            return None
-        if isinstance(raw_timestamp, (int, float)):
-            return timezone.now().timestamp() - float(raw_timestamp)
-        parsed = parse_datetime(str(raw_timestamp))
-        if parsed is None:
-            return None
-        if timezone.is_naive(parsed):
-            parsed = timezone.make_aware(parsed, dt_timezone.utc)
-        return (timezone.now() - parsed).total_seconds()
-
-    @classmethod
     def get_market_fill_price(cls, instrument):
-        from marketdata.services import MarketStatusService
-
-        if not MarketStatusService.is_market_open():
-            raise ValidationError("Market is currently closed. Market orders are only allowed during trading hours.")
-
-        symbol = instrument.sym_ticker or instrument.symbol
-        from marketdata.quote_store import QuoteStore
-        quote = QuoteStore.get_latest(symbol)
-        
-        if not quote:
-            # Fallback to live API, then DB storage
-            from marketdata.services import MarketDataService
-            quote = MarketDataService.get_live_quote(symbol)
-            if not quote:
-                quote = MarketDataService.latest_quote_from_storage(symbol)
-
-        price = quote.get("price") if quote else None
-        if price in (None, "", 0, "0"):
-            raise ValidationError("Live quote is unavailable. Market order was not placed.")
-
-        age_seconds = cls._quote_age_seconds(quote)
-        if age_seconds is None or not 0 <= age_seconds <= cls.MARKET_QUOTE_MAX_AGE_SECONDS:
-            raise ValidationError("Live quote is stale. Please wait for a fresh tick before placing a market order.")
-
+        from marketdata.shared_memory import get_market_price
+        cls.require_session(instrument)
+        price = get_market_price(instrument.sym_ticker)
+        if price is None:
+            raise ValidationError("A market observation is required. Wait for the connected feed before placing a market order.")
         return Decimal(str(price))
 
     @staticmethod
     def pending_cash(account, exclude_id=None):
-        orders = Order.objects.filter(account=account, status="OPEN")
+        orders = Order.objects.filter(account=account, status=TerminalOrderStatus.OPEN)
         if exclude_id:
             orders = orders.exclude(pk=exclude_id)
         return orders.aggregate(total=Sum("reserved_cash"))["total"] or Decimal("0")
 
-    @classmethod
-    def reserve_order(cls, order, account, quote_price=None):
-        """Admit a user order using the account already locked by the caller."""
-        if not cls.reduces_exposure(account, order.instrument, order.transaction_type, order.quantity,
-                                    order_id=order.pk, position_link=order.position_link_id):
-            from instruments.services import InstrumentResolver
-            InstrumentResolver.validate_execution_instrument(order.instrument, allow_index=True)
-        from trading_domain.contracts import Contract
-        spec = Contract(order.instrument_id, order.instrument.exchange, order.instrument.instrument_type,
-                        order.instrument.currency_code, order.instrument.tick_size, order.instrument.lot_size or 1,
-                        order.instrument.qty_multiplier)
-        if spec.quantity(order.quantity) != order.quantity:
-            raise ValidationError("Quantity must be a multiple of the instrument lot size.")
-        for value in (order.price, order.trigger_price):
-            if value is not None and spec.price(value) != value:
-                raise ValidationError("Order prices must match the instrument tick size.")
-        if order.position_link_id:
-            order.reserved_cash = Decimal("0")
-        else:
-            price = Decimal(str(quote_price or order.price or order.trigger_price or cls.get_market_fill_price(order.instrument)))
-            quantity = order.quantity
-            if order.transaction_type == "SELL":
-                owned = Position.objects.filter(account=account, instrument=order.instrument, quantity__gt=0).first()
-                pending_sells = Order.objects.filter(account=account, instrument=order.instrument,
-                    status="OPEN", transaction_type="SELL", position_link__isnull=True).exclude(pk=order.pk)
-                closing = max((owned.quantity if owned else 0) - (pending_sells.aggregate(total=Sum("quantity"))["total"] or 0), 0)
-                quantity = max(quantity - closing, 0)
-            order.reserved_cash = (price * quantity).quantize(Decimal("0.01"))
-        margin = cls.calculate_used_margin(account)
-        if order.reserved_cash > max(account.balance - margin - cls.pending_cash(account, order.pk), Decimal("0")):
-            raise ValidationError("Insufficient unreserved capital for this order.")
-        order.save(update_fields=["reserved_cash"])
 
     @classmethod
-    def reduces_exposure(cls, account, instrument, side, quantity, *, order_id=None, position_link=None):
-        owned = Position.objects.filter(account=account, instrument=instrument).exclude(quantity=0).first()
-        if not owned or (owned.quantity > 0) == (side == "BUY") or quantity > abs(owned.quantity):
-            return False
-        if position_link:
-            return owned.pk == getattr(position_link, "pk", position_link)
-        pending = Order.objects.filter(account=account, instrument=instrument, status="OPEN", transaction_type=side, position_link__isnull=True)
-        if order_id:
-            pending = pending.exclude(pk=order_id)
-        return quantity + (pending.aggregate(total=Sum("quantity"))["total"] or 0) <= abs(owned.quantity)
+    def required_cash(cls, order, account, price):
+        from execution.ledger import margin
+        from execution.preparation import contract_from_instrument
+        from execution.types import Account as FinancialAccount
+        from common.enums import ExecutionMode
+        if order.reduce_only:
+            return Decimal('0')
+        position = Position.objects.filter(account=account, instrument=order.instrument).first()
+        signed = order.quantity if order.transaction_type == Side.BUY else -order.quantity
+        reducing = 0
+        if position and position.quantity * signed < 0:
+            pending = Order.objects.filter(account=account, instrument=order.instrument,
+                status=TerminalOrderStatus.OPEN, transaction_type=order.transaction_type).exclude(pk=order.pk)
+            already = pending.aggregate(total=Sum('quantity'))['total'] or 0
+            reducing = min(max(abs(position.quantity) - already, 0), order.quantity)
+        state = FinancialAccount((ExecutionMode.TERMINAL, account.pk), account.balance,
+            futures_margin_pct=account.futures_margin_pct, short_option_margin_pct=account.short_option_margin_pct)
+        return margin(state, contract_from_instrument(order.instrument),
+            (order.quantity - reducing) * (1 if signed > 0 else -1), price)
 
     @classmethod
     @transaction.atomic
     def create_order(cls, user, validated_data):
+        from uuid import uuid4
+        from execution.preparation import contract_from_instrument
+        from execution.repository import enqueue
+        from common.enums import ExecutionMode, ExecutionCommandType
         cls.validate_payload(validated_data)
-        instrument_symbol = validated_data.pop("instrument_symbol")
+        data = dict(validated_data)
+        instrument = data.pop('instrument')
         account = TradingAccountService.get_or_create_account(user)
-        instrument = Instrument.objects.filter(
-            Q(sym_ticker=instrument_symbol.upper())
-            | Q(symbol=instrument_symbol.upper())
-            | Q(sym_ticker__icontains=f":{instrument_symbol.upper()}-")
-        ).first()
-
-        if instrument is None:
-            raise ValueError("Instrument symbol was not found.")
-
         account = Account.objects.select_for_update().get(pk=account.pk)
-        from django.contrib.auth import get_user_model
-        if not get_user_model().objects.filter(pk=account.user_id, is_active=True).exists():
+        if not user.is_active:
             raise ValidationError("This account is inactive.")
-        # Ensure symbol is tracked in live market data
-        try:
-            LiveMarketDataRegistry.add_symbols([instrument.sym_ticker or instrument.symbol])
-        except Exception:
-            pass
-
-        fill_price = None
-        if validated_data.get("order_type") == "MARKET":
-            fill_price = cls.get_market_fill_price(instrument)
-
-        order = Order.objects.create(account=account, instrument=instrument, **validated_data)
-        cls.reserve_order(order, account, fill_price)
-
-        # Add to terminal order cache for matching engine
-        if order.status == "OPEN":
-            TerminalOrderCache.add_order(order)
-            if order.order_type != "MARKET":
-                order_status_changed.send(sender=cls, order=order)
-
-        # Immediate execution for MARKET orders with a fresh live quote.
-        if order.order_type == "MARKET":
-            cls.execute_order(order, fill_price)
-
-        return order
-
-    @classmethod
-    @transaction.atomic
-    def execute_order(cls, order, fill_price):
-        account = Account.objects.select_for_update().get(pk=order.account_id)
-        order = (
-            Order.objects.select_for_update(of=("self",))
-            .select_related("account", "instrument")
-            .get(pk=order.pk)
-        )
-        if order.status != "OPEN":
-            return order
-
-        quantity = order.quantity
-        if order.position_link_id:
-            linked = Position.objects.select_for_update().filter(pk=order.position_link_id, account=account, instrument=order.instrument).first()
-            if not linked or linked.quantity == 0 or (linked.quantity > 0) == (order.transaction_type == "BUY"):
-                return cls.cancel_order(order)
-            quantity = min(quantity, abs(linked.quantity))
-        order_value = fill_price * quantity
-
-        if order.transaction_type == "BUY" and account.balance < order_value and not order.position_link_id:
-            order.status = "REJECTED"
-            order.reserved_cash = Decimal("0")
-            order.save(update_fields=["status", "reserved_cash"])
-            TerminalOrderCache.remove_order(order)
-            order_status_changed.send(sender=cls, order=order)
-            return order
-
-        try:
-            position = Position.objects.select_for_update().get(
-                account=account,
-                instrument=order.instrument,
-            )
-        except Position.DoesNotExist:
-            position = Position(
-                account=account,
-                instrument=order.instrument,
-                quantity=0,
-                average_price=Decimal("0"),
-            )
-
-        old_quantity = position.quantity
-        transaction_qty = quantity if order.transaction_type == "BUY" else -quantity
-        new_quantity = old_quantity + transaction_qty
-
-        next_balance = account.balance - Decimal(transaction_qty) * fill_price
-        previous_short = Decimal(abs(min(old_quantity, 0))) * position.average_price * 2
-        next_short = Decimal(abs(min(new_quantity, 0))) * (position.average_price if old_quantity < 0 and new_quantity < 0 else fill_price) * 2
-        margin = cls.calculate_used_margin(account) - previous_short + next_short
-        closing_only = old_quantity != 0 and old_quantity * transaction_qty < 0 and abs(transaction_qty) <= abs(old_quantity)
-        if not closing_only and next_balance - margin - cls.pending_cash(account, order.pk) < 0:
-            order.status = "REJECTED"
-            order.reserved_cash = Decimal("0")
-            order.save(update_fields=["status", "reserved_cash"])
-            TerminalOrderCache.remove_order(order)
-            order_status_changed.send(sender=cls, order=order)
-            return order
-
-        account.balance -= (Decimal(str(transaction_qty)) * fill_price)
-        
-        if old_quantity > 0 and transaction_qty < 0:
-            closed_qty = min(abs(old_quantity), abs(transaction_qty))
-            pnl = (fill_price - position.average_price) * Decimal(str(closed_qty))
-            account.realized_pnl += pnl
-            
-            ClosedPositionLog.objects.create(
-                account=account,
-                instrument=order.instrument,
-                side="LONG",
-                quantity=closed_qty,
-                entry_price=position.average_price,
-                exit_price=fill_price,
-                realized_pnl=pnl,
-                entry_time=position.created_at
-            )
-            
-        elif old_quantity < 0 and transaction_qty > 0:
-            closed_qty = min(abs(old_quantity), abs(transaction_qty))
-            pnl = (position.average_price - fill_price) * Decimal(str(closed_qty))
-            account.realized_pnl += pnl
-            
-            ClosedPositionLog.objects.create(
-                account=account,
-                instrument=order.instrument,
-                side="SHORT",
-                quantity=closed_qty,
-                entry_price=position.average_price,
-                exit_price=fill_price,
-                realized_pnl=pnl,
-                entry_time=position.created_at
-            )
-
-        if new_quantity != 0:
-            if (old_quantity >= 0 and transaction_qty > 0) or (old_quantity <= 0 and transaction_qty < 0):
-                total_cost = (abs(old_quantity) * position.average_price) + (abs(transaction_qty) * fill_price)
-                position.average_price = total_cost / abs(new_quantity)
-            elif old_quantity != 0 and (old_quantity > 0 > new_quantity or old_quantity < 0 < new_quantity):
-                # Reversal: the remaining open leg starts at the reversal fill price.
-                position.average_price = fill_price
-            elif old_quantity == 0:
-                position.average_price = fill_price
-            
-            position.quantity = new_quantity
-            position.save()
-
-        # Update Order
-        order.status = "COMPLETE"
-        order.executed_at = timezone.now()
-        order.price = fill_price # Store the actual fill price
-        order.reserved_cash = Decimal("0")
-        order.save(update_fields=["status", "executed_at", "price", "reserved_cash"])
-
-        deleted_position_id = None
-        if new_quantity == 0:
-            position.quantity = 0
-            deleted_position_id = position.pk
-            cls.sync_position_sl_tp_orders(position)
-            if position.pk:
-                position.delete()
-
-        # Recalculate after removing a flat position; otherwise a completed
-        # short cover leaves its old collateral blocked in the account.
-        account.margin = cls.calculate_used_margin(account)
-        account.save()
-
-        # Remove from terminal order cache
-        TerminalOrderCache.remove_order(order)
-        
-        # Handle OCO Cancellation
-        if order.is_oco and order.oco_linked_order_id:
-            linked_order = Order.objects.filter(pk=order.oco_linked_order_id, status="OPEN").first()
-            if linked_order:
-                cls.cancel_order(linked_order)
-
-        # Create Trade History
-        TradeHistory.objects.create(
-            order=order,
-            executed_price=fill_price,
-            quantity=quantity,
-        )
-
-        # Emit Signals
+        calendar = cls.require_session(instrument)
+        contract_from_instrument(instrument).validate(data['quantity'],
+            tuple(data.get(key) for key in ('price', 'trigger_price', 'stop_loss', 'take_profit')),
+            timezone.now().astimezone(calendar.zone))
+        order = Order.objects.create(account=account, instrument=instrument, request_id=uuid4(),
+            charge_profile_snapshot=snapshot_charge_profile(account.charge_profile), **data)
+        enqueue(ExecutionMode.TERMINAL, account.pk, ExecutionCommandType.ORDER, {
+            'instrument_id': instrument.pk, 'side': order.transaction_type, 'quantity': order.quantity,
+            'order_type': order.order_type, 'limit_price': order.price, 'trigger_price': order.trigger_price,
+            'stop_loss': order.stop_loss, 'take_profit': order.take_profit,
+            'reduce_only': order.reduce_only, 'reason': 'Manual order',
+        }, request_id=order.request_id)
         order_status_changed.send(sender=cls, order=order)
-        position_payload = position if new_quantity != 0 else {
-            "id": deleted_position_id,
-            "instrument": {
-                "id": order.instrument_id,
-                "symbol": order.instrument.symbol,
-                "company_name": order.instrument.name,
-            },
-            "quantity": 0,
-            "deleted": True,
-        }
-        position_changed.send(sender=cls, position=position_payload, user_id=account.user_id)
-        
-        # Dynamically sync the Position's SL/TP exit orders based on the new quantity (if not already handled by deletion)
-        if new_quantity != 0:
-            cls.sync_position_sl_tp_orders(position)
-        
         return order
+
 
     @staticmethod
     @transaction.atomic
     def cancel_order(order):
-        Account.objects.select_for_update().get(pk=order.account_id)
+        from execution.repository import enqueue
+        from common.enums import ExecutionMode, ExecutionCommandType
         order = Order.objects.select_for_update().get(pk=order.pk)
-        if order.status != "OPEN":
+        if order.status != TerminalOrderStatus.OPEN:
             return order
-        order.status = "CANCELLED"
-        order.reserved_cash = Decimal("0")
-        order.save(update_fields=["status", "reserved_cash"])
-
-        # Remove from terminal order cache
-        TerminalOrderCache.remove_order(order)
-
-        # Bidirectional Sync: If a user manually cancels an SL/TP exit order, clear it from the position
-        if order.position_link_id:
-            position = order.position_link
-            if order.order_type == "STOP":
-                position.stop_loss = None
-            elif order.order_type == "LIMIT":
-                position.take_profit = None
-            position.save(update_fields=["stop_loss", "take_profit"])
-
-        order_status_changed.send(sender=TradingOrderService, order=order)
+        enqueue(ExecutionMode.TERMINAL, order.account_id, ExecutionCommandType.CANCEL,
+            {'identity': str(order.request_id)})
         return order
         
-    @classmethod
-    def sync_position_sl_tp_orders(cls, position):
-        """
-        Synchronizes Position SL/TP fields to real pending OCO (One Cancels Other) orders.
-        """
-        qty = position.quantity
-        account = position.account
-        instrument = position.instrument
-        
-        # 1. Fetch existing exit orders linked to this position
-        existing_orders = list(Order.objects.filter(position_link=position, status="OPEN"))
-        
-        if qty == 0:
-            # Position closed: Cancel all pending exit orders
-            for pending_order in existing_orders:
-                cls.cancel_order(pending_order)
-            return
-            
-        exit_transaction_type = "SELL" if qty > 0 else "BUY"
-        exit_quantity = abs(qty)
-        
-        # Find existing STOP and LIMIT
-        stop_order = next((o for o in existing_orders if o.order_type == "STOP"), None)
-        limit_order = next((o for o in existing_orders if o.order_type == "LIMIT"), None)
-        
-        # Process Stop Loss
-        if position.stop_loss:
-            if stop_order:
-                if stop_order.trigger_price != position.stop_loss or stop_order.quantity != exit_quantity or stop_order.transaction_type != exit_transaction_type:
-                    stop_order.trigger_price = position.stop_loss
-                    stop_order.quantity = exit_quantity
-                    stop_order.transaction_type = exit_transaction_type
-                    stop_order.save(update_fields=["trigger_price", "quantity", "transaction_type"])
-                    TerminalOrderCache.update_order(stop_order)
-            else:
-                stop_order = Order.objects.create(
-                    account=account,
-                    instrument=instrument,
-                    order_type="STOP",
-                    status="OPEN",
-                    transaction_type=exit_transaction_type,
-                    quantity=exit_quantity,
-                    trigger_price=position.stop_loss,
-                    position_link=position,
-                    is_oco=True if position.take_profit else False
-                )
-                TerminalOrderCache.add_order(stop_order)
-        elif stop_order:
-            cls.cancel_order(stop_order)
-            stop_order = None
-            
-        # Process Take Profit
-        if position.take_profit:
-            if limit_order:
-                if limit_order.price != position.take_profit or limit_order.quantity != exit_quantity or limit_order.transaction_type != exit_transaction_type:
-                    limit_order.price = position.take_profit
-                    limit_order.quantity = exit_quantity
-                    limit_order.transaction_type = exit_transaction_type
-                    limit_order.save(update_fields=["price", "quantity", "transaction_type"])
-                    TerminalOrderCache.update_order(limit_order)
-            else:
-                limit_order = Order.objects.create(
-                    account=account,
-                    instrument=instrument,
-                    order_type="LIMIT",
-                    status="OPEN",
-                    transaction_type=exit_transaction_type,
-                    quantity=exit_quantity,
-                    price=position.take_profit,
-                    position_link=position,
-                    is_oco=True if position.stop_loss else False
-                )
-                TerminalOrderCache.add_order(limit_order)
-        elif limit_order:
-            cls.cancel_order(limit_order)
-            limit_order = None
-            
-        # Secure OCO Links
-        if stop_order and limit_order:
-            if stop_order.oco_linked_order_id != limit_order.id:
-                stop_order.oco_linked_order = limit_order
-                stop_order.is_oco = True
-                stop_order.save(update_fields=["oco_linked_order", "is_oco"])
-            if limit_order.oco_linked_order_id != stop_order.id:
-                limit_order.oco_linked_order = stop_order
-                limit_order.is_oco = True
-                limit_order.save(update_fields=["oco_linked_order", "is_oco"])
-        elif stop_order and stop_order.is_oco:
-            stop_order.is_oco = False
-            stop_order.oco_linked_order = None
-            stop_order.save(update_fields=["is_oco", "oco_linked_order"])
-        elif limit_order and limit_order.is_oco:
-            limit_order.is_oco = False
-            limit_order.oco_linked_order = None
-            limit_order.save(update_fields=["is_oco", "oco_linked_order"])
 
-    @classmethod
-    def sync_order_to_position(cls, order):
-        """
-        Reverse Sync: If a user manually updates the price of a pending SL/TP exit order,
-        this updates the underlying Position so the chart UI stays perfectly synced.
-        """
-        if not order.position_link_id:
-            return
-
-        position = order.position_link
-        if order.order_type == "STOP":
-            position.stop_loss = order.trigger_price
-            position.save(update_fields=["stop_loss"])
-        elif order.order_type == "LIMIT":
-            position.take_profit = order.price
-            position.save(update_fields=["take_profit"])
-
-        # Update terminal order cache
-        TerminalOrderCache.update_order(order)
 
     @staticmethod
-    def calculate_used_margin(account):
-        total = Decimal("0")
-        for position in Position.objects.filter(account=account):
-            if position.quantity < 0:
-                total += Decimal(abs(position.quantity)) * Decimal(position.average_price) * 2
-        return total
+    def require_session(instrument):
+        try:
+            calendar = MarketSessionCalendar.for_instrument(instrument)
+            calendar.require_open(timezone.now())
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from None
+        return calendar
 
-    @classmethod
-    def unrealized_pnl_for_position(cls, position):
-        symbol = position.instrument.sym_ticker or position.instrument.symbol
-        from marketdata.quote_store import QuoteStore
-        quote = QuoteStore.get_latest(symbol)
-        
-        if not quote:
-            from marketdata.services import MarketDataService
-            quote = MarketDataService.get_live_quote(symbol)
-            if not quote:
-                quote = MarketDataService.latest_quote_from_storage(symbol)
-            
-        price = quote.get("price") if quote else None
-        if price in (None, "", 0, "0"):
-            price = position.average_price
-        current_price = Decimal(str(price))
-        quantity = Decimal(str(position.quantity))
-        return (current_price - Decimal(position.average_price)) * quantity, current_price
+    @staticmethod
+    def position_margin(account, instrument, quantity, price):
+        from execution.ledger import margin
+        from execution.preparation import contract_from_instrument
+        from execution.types import Account as FinancialAccount
+        from common.enums import ExecutionMode
+        state = FinancialAccount((ExecutionMode.TERMINAL, account.pk), account.balance,
+            futures_margin_pct=account.futures_margin_pct, short_option_margin_pct=account.short_option_margin_pct)
+        contract = contract_from_instrument(instrument)
+        collateral = margin(state, contract, quantity, price)
+        if instrument.instrument_type == InstrumentType.FUTURE:
+            return collateral
+        return collateral + contract.value(price, -quantity) if quantity < 0 else Decimal('0')
 
 
 
-class PaperTradingTerminalService:
-    @classmethod
-    def build_snapshot(cls, user):
-        account = Account.objects.filter(user=user).first()
 
-        if account is None:
-            account = TradingAccountService.get_or_create_account(user)
-
-        watchlist = TradingWatchlistService.get_watchlist(user)
-        positions = list(
-            Position.objects.filter(account=account).select_related("instrument").order_by("instrument__symbol")
+    @staticmethod
+    def get_position_mark(position):
+        """Valuation can use a stored close; execution requires an observed tick."""
+        from marketdata.quotes import read_quote
+        quote = read_quote(position.instrument.sym_ticker)
+        price, at, source = (
+            (Decimal(str(quote["price"])), quote["timestamp"], quote["source"]) if quote["available"] else
+            (position.average_price, position.created_at.isoformat(), "entry")
         )
-        open_orders = Order.objects.filter(account=account, status="OPEN").select_related("instrument").order_by("-created_at")
-        trades = list(
-            TradeHistory.objects.filter(order__account=account)
-            .select_related("order", "order__instrument")
-            .order_by("-timestamp")[:20]
-        )
+        pnl = contract_from_instrument(position.instrument).value(price - position.average_price, position.quantity)
+        return {'price': price, 'pnl': pnl, 'at': at, 'source': source}
 
-        return {
-            "account": cls.serialize_account(account, positions),
-            "watchlist": cls.serialize_watchlist(watchlist),
-            "positions": [cls.serialize_position(position) for position in positions],
-            "open_orders": [cls.serialize_order(order) for order in open_orders],
-            "recent_trades": [cls.serialize_trade(trade) for trade in trades],
-        }
 
+
+class TradingTerminalService:
     @staticmethod
-    def serialize_account(account, positions):
-        market_value = Decimal("0")
-        unrealized_pnl = Decimal("0")
-        for position in positions:
-            position_pnl, current_price = TradingOrderService.unrealized_pnl_for_position(position)
-            unrealized_pnl += position_pnl
-            market_value += current_price * abs(position.quantity)
+    def build_snapshot(user, watchlist_id=0):
+        from .serializers import InstrumentSerializer, OrderSerializer, PositionSerializer
 
+        account = TradingAccountService.get_or_create_account(user)
+        watchlist = TradingWatchlistService.get_watchlist(user, watchlist_id)
+        positions = list(Position.objects.filter(account=account).select_related("instrument").order_by("instrument__name", "id"))
+        orders = list(Order.objects.filter(account=account, status=TerminalOrderStatus.OPEN).select_related("instrument").order_by("-created_at"))
+
+        position_data = PositionSerializer(positions, many=True).data
+        unrealized_pnl = market_value = margin = Decimal("0")
+        for position, row in zip(positions, position_data):
+            mark = TradingOrderService.get_position_mark(position)
+            pnl, price = mark['pnl'], mark['price']
+            row.update(current_price=str(price), unrealized_pnl=str(pnl), mark_at=mark['at'], mark_source=mark['source'])
+            unrealized_pnl += pnl
+            spec = contract_from_instrument(position.instrument)
+            market_value += pnl if position.instrument.instrument_type == InstrumentType.FUTURE else spec.value(price, position.quantity)
+            margin += TradingOrderService.position_margin(account, position.instrument, position.quantity, position.average_price)
+
+        reserved = sum((order.reserved_cash for order in orders), Decimal("0"))
         return {
-            "id": account.id,
-            "balance": str(account.balance),
-            "margin": str(TradingOrderService.calculate_used_margin(account)),
-            "reserved_cash": str(TradingOrderService.pending_cash(account)),
-            "available_balance": str(max(account.balance - TradingOrderService.calculate_used_margin(account) - TradingOrderService.pending_cash(account), Decimal("0"))),
-            "realized_pnl": str(account.realized_pnl),
-            "unrealized_pnl": str(unrealized_pnl),
-            "market_value": str(market_value),
-            "created_at": account.created_at.isoformat(),
-        }
-
-    @staticmethod
-    def serialize_watchlist(watchlist):
-        instruments = watchlist.instruments.all().order_by("symbol")
-        return [
-            {
-                "id": instrument.id,
-                "symbol": instrument.symbol,
-                "sym_ticker": instrument.sym_ticker,
-                "company_name": instrument.name,
-            }
-            for instrument in instruments
-        ]
-
-    @staticmethod
-    def serialize_position(position):
-        position_pnl, current_price = TradingOrderService.unrealized_pnl_for_position(position)
-        return {
-            "id": position.id,
-            "instrument": {
-                "id": position.instrument.id,
-                "symbol": position.instrument.symbol,
-                "sym_ticker": position.instrument.sym_ticker,
-                "company_name": position.instrument.name,
+            "account": {
+                "id": account.pk, "balance": str(account.balance), "margin": str(margin),
+                "reserved_cash": str(reserved),
+                "available_balance": str(max(account.balance - margin - reserved, Decimal("0"))),
+                "realized_pnl": str(account.realized_pnl), "unrealized_pnl": str(unrealized_pnl),
+                "market_value": str(market_value), "equity": str(account.balance + market_value),
+                "created_at": account.created_at.isoformat(),
+                "charge_profile": account.charge_profile_id,
+                "charges_paid": str(account.charges_paid),
+                "futures_margin_pct": str(account.futures_margin_pct),
+                "short_option_margin_pct": str(account.short_option_margin_pct),
+                "starting_balance": str(account.starting_balance),
             },
-            "quantity": position.quantity,
-            "average_price": str(position.average_price),
-            "current_price": str(current_price),
-            "unrealized_pnl": str(position_pnl),
-            "stop_loss": str(position.stop_loss) if position.stop_loss is not None else None,
-            "take_profit": str(position.take_profit) if position.take_profit is not None else None,
-        }
-
-    @staticmethod
-    def serialize_order(order):
-        return {
-            "id": order.id,
-            "instrument": {
-                "id": order.instrument.id,
-                "symbol": order.instrument.symbol,
-                "company_name": order.instrument.name,
-            },
-            "order_type": order.order_type,
-            "status": order.status,
-            "transaction_type": order.transaction_type,
-            "quantity": order.quantity,
-            "price": str(order.price) if order.price is not None else None,
-            "trigger_price": str(order.trigger_price) if order.trigger_price is not None else None,
-            "created_at": order.created_at.isoformat(),
-            "executed_at": order.executed_at.isoformat() if order.executed_at else None,
-        }
-
-    @staticmethod
-    def serialize_trade(trade):
-        return {
-            "id": trade.id,
-            "order": trade.order_id,
-            "instrument": {
-                "id": trade.order.instrument.id,
-                "symbol": trade.order.instrument.symbol,
-                "company_name": trade.order.instrument.name,
-            },
-            "transaction_type": trade.order.transaction_type,
-            "order_type": trade.order.order_type,
-            "executed_price": str(trade.executed_price),
-            "quantity": trade.quantity,
-            "timestamp": trade.timestamp.isoformat(),
+            "watchlist": InstrumentSerializer(watchlist.instruments.order_by("symbol"), many=True).data,
+            "watchlist_id": watchlist.pk,
+            "watchlists": list(Watchlist.objects.filter(user=user).order_by('id').values('id', 'name')),
+            "positions": position_data,
+            "open_orders": OrderSerializer(orders, many=True).data,
         }

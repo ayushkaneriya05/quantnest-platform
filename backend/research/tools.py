@@ -14,19 +14,18 @@ from django.forms.models import model_to_dict
 from rest_framework.exceptions import ValidationError
 from common.enums import CandleTimeframe, LogicalOperator
 from instruments.models import Instrument
-from marketdata.access import StrategyMarketDataService
+from marketdata.candles import available_frame, prepare_frames
+from execution.compiler import source_windows
 from marketdata.calendar import MarketSessionCalendar
-from marketdata.services import MarketDataService
-from marketdata.quote_store import QuoteStore
-from rules_engine.evaluator import RuleEvaluator
-from rules_engine.indicators import IndicatorEngine
-from rules_engine.metadata import IndicatorRequirementAnalyzer
+from marketdata.history import data_revision
+from marketdata.quotes import read_quote
 from backtesting.models import BacktestRun
 from backtesting.services import backtest_configuration
 from .models import ResearchRun
 from .services import ACTIVE, publish_run, update_active_run
 from .validation import validate_draft, validate_rule, json_data
 from .context import research_instrument_ids
+from .evaluation import compile_conditions, evaluate_conditions
 
 logger = logging.getLogger(__name__)
 
@@ -54,55 +53,43 @@ def _screen_config(arguments):
 
 def _closed_data(run, instrument, config):
     calendar = MarketSessionCalendar.for_instrument(instrument)
-    base, timeframes = StrategyMarketDataService.required_timeframes(config)
-    required = MarketDataService.required_1m_candles(config, session_minutes=calendar.session_minutes)
+    program = compile_conditions(config, calendar)
+    base, requirements, depths = program.base_timeframe, program.counts, program.sources
+    timeframes = frozenset(requirements)
+    required = max(depths.get("1m", 0), depths.get("1D", 0) * calendar.session_minutes)
     source_limit = 2000 * calendar.session_minutes if timeframes <= {"1D", "1W"} else 60000
     if required > source_limit:
         raise ValidationError("Research warmup exceeds the source-data limit; reduce lookback parameters.")
-    extra_sessions = 10 if "1W" in timeframes else 5
-    start = calendar.warmup_start(run.as_of, required + calendar.session_minutes * extra_sessions, include_weekly="1W" in timeframes)
-    cache_key = f"research:frames:{run.pk}:{instrument.pk}"
+    windows = source_windows(timeframes, depths, calendar, run.as_of, run.as_of)
+    start = min(left for left, _ in windows.values())
+    revision = data_revision(instrument.sym_ticker)
+    calendar.load_holidays(start.astimezone(calendar.zone).date() - timedelta(days=7),
+                           run.as_of.astimezone(calendar.zone).date() + timedelta(days=7))
+    calendar_key = hashlib.sha256(repr(calendar.signature).encode()).hexdigest()[:16]
+    cache_key = f"research:frames:v2:{run.pk}:{instrument.pk}:{revision}:{calendar_key}"
     stored = cache.get(cache_key)
-    requirements = IndicatorRequirementAnalyzer.get_warmup_requirements(config)
     if stored and stored["start"] <= start and timeframes <= set(stored["frames"]):
         if all(len(stored["frames"][tf]) >= max(requirements.get(tf, 20), 21 if tf == base else 0) for tf in timeframes):
-            return base, stored["frames"], stored["quality"]
-    end = run.as_of.replace(second=0, microsecond=0) - timedelta(microseconds=1)
-    daily_end = end
-    day = end.astimezone(calendar.zone).date()
-    # Include the rest of the week when deciding a weekly candle's final trading day.
-    holidays = calendar.load_holidays(start.date(), day + timedelta(days=7))
-    while not calendar.is_trading_day(day, holidays) or calendar.session_close(day, holidays) > run.as_of:
-        day -= timedelta(days=1)
-    daily_end = calendar.session_close(day, holidays)
-    frames, quality, fetched = {}, {}, set()
+            return program, stored["frames"], stored["quality"]
+    loaded, data_quality = prepare_frames(instrument, timeframes, windows, calendar)
+    frames, quality = {}, data_quality["timeframes"]
     for timeframe in [base, *sorted(timeframes - {base})]:
-        family = "daily" if timeframe in {"1D", "1W"} else "intraday"
-        frame, coverage = StrategyMarketDataService.get_backtest_candles(
-            instrument.sym_ticker, timeframe, start, daily_end if family == "daily" else end,
-            fetch_missing=family not in fetched, calendar=calendar)
-        fetched.add(family)
-        quality[timeframe] = coverage
-        if not coverage["complete"] or frame.empty:
-            raise ValidationError(f"Incomplete {timeframe} history after broker backfill: {coverage['missing_count']} missing source candles.")
-        frame = frame.copy()
-        frame.index = pd.DatetimeIndex([calendar.candle_close(value.to_pydatetime(), timeframe, holidays)
-                                       for value in frame.index])
+        coverage = quality[timeframe]
+        frame = loaded.get(timeframe)
+        if not coverage["complete"] or frame is None or frame.empty:
+            raise ValidationError(f"Historical {timeframe} data is unavailable or still pending: {coverage.get('error') or 'no completed observations'}.")
+        frame = available_frame(frame, timeframe, calendar)
         frame = frame.loc[frame.index <= run.as_of]
-        if len(frame) < IndicatorRequirementAnalyzer.get_warmup_requirements(config).get(timeframe, 20):
+        if len(frame) < max(requirements.get(timeframe, 20), 21 if timeframe == base else 0):
             raise ValidationError(f"Insufficient completed {timeframe} candles for configured warmup.")
-        if timeframe == base and len(frame) < 21:
-            raise ValidationError("At least 21 completed candles are needed for 20-bar return and volatility.")
         frames[timeframe] = frame
+    revision = max(item["revision"] for item in quality.values())
+    cache_key = f"research:frames:v2:{run.pk}:{instrument.pk}:{revision}:{calendar_key}"
     cache.set(cache_key, {"start": start, "frames": frames, "quality": quality}, 660)
-    return base, frames, quality
+    return program, frames, quality
 
 
-def _last_value(value):
-    if isinstance(value, pd.Series):
-        if value.empty:
-            raise ValidationError("The configured operand has no completed observations.")
-        value = value.iloc[-1]
+def _finite_number(value: float) -> float:
     number = float(value)
     if not math.isfinite(number):
         raise ValidationError("The configured operand has no valid value after warmup.")
@@ -124,48 +111,34 @@ def market_rows(run, config, comparison=False, *, instrument_ids=None, charts=Fa
             continue
         try:
             update_active_run(run.pk, progress_message=f"Loading completed candles for {instrument.symbol}")
-            base, frames, quality = _closed_data(run, instrument, config)
-            frame = frames[base]
+            program, frames, quality = _closed_data(run, instrument, config)
+            frame = frames[program.base_timeframe]
             update_active_run(run.pk, progress_message=f"Evaluating conditions for {instrument.symbol}")
-            frame_signature = [(tf, len(values), str(values.index[0]), str(values.index[-1])) for tf, values in sorted(frames.items())]
-            indicator_key = f"research:indicators:{run.pk}:{instrument.pk}:{hashlib.sha256(str(frame_signature).encode()).hexdigest()}"
-            previous_indicators = cache.get(indicator_key, {})
-            engines = {tf: IndicatorEngine(values) for tf, values in frames.items()}
-            for tf, engine in engines.items():
-                engine._indicators_cached = previous_indicators.get(tf, {})
-            evaluator = RuleEvaluator(frame, mtf_data=frames, indicator_engine=engines[base],
-                                      mtf_indicator_engines=engines, instrument=instrument, strict=True)
-            operands = []
-            for rule in config["rule_groups"][0]["rules"]:
-                resolved = {}
-                for side in ("a", "b"):
-                    resolved[side] = evaluator._resolve_operand(
-                        rule[f"operand_{side}_type"], rule.get(f"operand_{side}_params") or {},
-                        timeframe=rule.get(f"operand_{side}_timeframe"))
-                if isinstance(resolved["a"], pd.Series) and isinstance(resolved["b"], pd.Series):
-                    resolved["b"] = resolved["b"].reindex(resolved["a"].index, method="ffill")
-                outcomes = evaluator.evaluate_rule(rule).reindex(frame.index, method="ffill").fillna(False)
-                operands.append({"a": _last_value(resolved["a"]), "b": _last_value(resolved["b"]),
-                                 "passed": bool(outcomes.iloc[-1]), "comparison": rule["comparison"]})
+            frame_signature = [(tf, quality[tf]["revision"], quality[tf]["updated_at"], len(values), str(values.index[0]), str(values.index[-1])) for tf, values in sorted(frames.items())]
+            signature = json.dumps(json_data([config, frame_signature, program.calendar.signature, run.as_of]), sort_keys=True)
+            evaluation_key = f"research:evaluation:{run.pk}:{instrument.pk}:{hashlib.sha256(signature.encode()).hexdigest()}"
+            operands = cache.get(evaluation_key)
+            if operands is None:
+                operands = evaluate_conditions(program, frames, as_of=run.as_of)
+                cache.set(evaluation_key, operands, 660)
             group = config["rule_groups"][0]
             matched = all(item["passed"] for item in operands) if group["logical_operator"] == "AND" else any(item["passed"] for item in operands)
-            cache.set(indicator_key, {tf: engine._indicators_cached for tf, engine in engines.items()}, 660)
-            quote = QuoteStore.get_latest(instrument.sym_ticker)
-            if quote and pd.Timestamp(quote.get("updated_at")) > run.as_of:
+            quote = read_quote(instrument.sym_ticker)
+            if not quote["available"] or pd.Timestamp(quote["timestamp"]) > run.as_of or pd.Timestamp(quote["updated_at"]) > run.as_of:
                 quote = None
-            reference = _last_value(frame["close"].iloc[-21])
-            close = _last_value(frame["close"].iloc[-1])
+            reference = _finite_number(frame["close"].iloc[-21])
+            close = _finite_number(frame["close"].iloc[-1])
             if reference <= 0 or close <= 0:
                 raise ValidationError("Historical prices must be positive for return calculations.")
             returns = frame["close"].pct_change().dropna().tail(20)
             rows.append({"instrument_id": instrument.pk, "symbol": instrument.symbol,
                          "ticker": instrument.sym_ticker, "matched": matched,
-                         "close": close, "volume": _last_value(frame["volume"].iloc[-1]),
+                         "close": close, "volume": _finite_number(frame["volume"].iloc[-1]),
                          "return_20_bars_pct": (close / reference - 1) * 100,
-                         "volatility_20_bars_pct": _last_value(returns.std(ddof=1) * 100),
+                         "volatility_20_bars_pct": _finite_number(returns.std(ddof=1) * 100),
                          "observed_at": frame.index[-1], "quote": quote,
                          "operand_values": operands, "coverage": quality,
-                         "chart": [{"time": stamp, **{key: _last_value(value[key]) for key in ("open", "high", "low", "close", "volume")}}
+                         "chart": [{"time": stamp, **{key: _finite_number(value[key]) for key in ("open", "high", "low", "close", "volume")}}
                                    for stamp, value in frame.tail(120).iterrows()] if charts else []})
         except (ValidationError, ValueError, TypeError, KeyError) as exc:
             excluded.append({"instrument_id": instrument.pk, "symbol": instrument.symbol, "reason": str(exc)})
@@ -202,7 +175,7 @@ def get_backtest_report(run, backtest_id=None):
                       "diagnostics": backtest.diagnostics or None,
                       "monthly": monthly, "instruments": instruments, "exit_reasons": exits,
                       "largest_winners": list(winners), "largest_losers": list(losers),
-                      "assumptions": ["Orders fill at the next candle open.", "Strategy auto-disable rules are not simulated.",
+                      "assumptions": ["Orders fill at the next candle open.",
                                       "Historical results do not establish out-of-sample performance."]})
 
 

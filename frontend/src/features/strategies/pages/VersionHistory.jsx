@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/shared/utils/formatters";
 /**
  * Version History - strategy version management and rollback
  */
@@ -97,7 +98,7 @@ export default function VersionHistory() {
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleString('en-IN', {
+    return formatDateTime(dateString, {
       day: 'numeric',
       month: 'short',
       year: 'numeric',

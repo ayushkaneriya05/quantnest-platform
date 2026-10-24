@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/shared/utils/formatters";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { 
   Table, 
@@ -160,7 +161,7 @@ export default function BrokerLogs() {
               logs.map((log) => (
                 <TableRow key={log.id} className="border-border hover:bg-muted/50 transition-colors group">
                   <TableCell className="text-muted-foreground text-xs font-mono">
-                    {new Date(log.created_at).toLocaleString()}
+                    {formatDateTime(log.created_at)}
                   </TableCell>
                   <TableCell className="text-foreground font-medium">
                     {log.broker_name}

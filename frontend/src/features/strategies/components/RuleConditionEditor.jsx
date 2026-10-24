@@ -18,6 +18,7 @@ export default function RuleConditionEditor({
   logicalOperator,
   showOperator = false,
   ruleType,
+  allowedValues,
   theme,
   deleteTitle,
   onChange,
@@ -65,6 +66,7 @@ export default function RuleConditionEditor({
             onChangeTimeframe={(value) => updateOperand("a", "timeframe", value)}
             placeholder="Select Data"
             ruleType={ruleType}
+            allowedValues={allowedValues}
           />
 
           <div className="flex w-fit items-center bg-muted/40 rounded-lg p-0.5 border border-border">
@@ -96,6 +98,7 @@ export default function RuleConditionEditor({
             onChangeTimeframe={(value) => updateOperand("b", "timeframe", value)}
             placeholder="Compare To"
             ruleType={ruleType}
+            allowedValues={allowedValues}
           />
         </div>
 
@@ -128,6 +131,7 @@ RuleConditionEditor.propTypes = {
   onDelete: PropTypes.func,
   rule: PropTypes.object,
   ruleType: PropTypes.string,
+  allowedValues: PropTypes.arrayOf(PropTypes.string),
   showOperator: PropTypes.bool,
   theme: PropTypes.object,
 };

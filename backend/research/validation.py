@@ -4,12 +4,11 @@ from datetime import time
 from django.core.serializers.json import DjangoJSONEncoder
 from rest_framework.exceptions import ValidationError
 from common.enums import (OperandType, OPERAND_GROUPS, RuleType, TradingDay, InstrumentType,
-                          RuleGroupAction, get_operand_parameter_config)
+                          get_operand_parameter_config)
 from instruments.models import Instrument
-from risk_management.serializers import PositionSizingRuleSerializer, StrategyAutoDisableSerializer
 from rules_engine.models import Rule, RuleGroup
-from rules_engine.serializers import (RuleSerializer, RuleGroupCreateSerializer,
-                                     TimeRuleSerializer, SpecialEventFilterSerializer)
+from rules_engine.serializers import (PositionSizingRuleSerializer, RuleSerializer, RuleGroupSerializer,
+                                     TimeRuleSerializer)
 from strategies.serializers import (StrategyCreateSerializer, EntryOrderConfigSerializer,
                                     ExitOrderConfigSerializer)
 
@@ -92,7 +91,6 @@ CONFIG_SERIALIZERS = {
     "exit_order_config": ExitOrderConfigSerializer,
     "position_sizing_rule": PositionSizingRuleSerializer,
     "time_rule": TimeRuleSerializer,
-    "special_event_filter": SpecialEventFilterSerializer,
 }
 
 
@@ -100,7 +98,7 @@ def validate_draft(draft, instrument_ids):
     if not isinstance(draft, dict):
         raise ValidationError("Strategy draft must be an object.")
     base_fields = {"name", "description", "strategy_type", "market_type", "exchange", "instrument_type"}
-    allowed = base_fields | set(CONFIG_SERIALIZERS) | {"rule_groups", "watchlist_instruments", "auto_disable_rules"}
+    allowed = base_fields | set(CONFIG_SERIALIZERS) | {"rule_groups", "watchlist_instruments"}
     if set(draft) - allowed:
         raise ValidationError(f"Unsupported draft fields: {', '.join(sorted(set(draft) - allowed))}.")
     serializer = StrategyCreateSerializer(data={key: draft[key] for key in base_fields if key in draft})
@@ -146,27 +144,18 @@ def validate_draft(draft, instrument_ids):
         raise ValidationError("Provide between 1 and 12 rule groups.")
     result["rule_groups"] = []
     for group in groups:
-        if not isinstance(group, dict) or set(group) - {"name", "rule_type", "logical_operator", "priority", "action", "action_params", "rules"}:
+        if not isinstance(group, dict) or set(group) - {"name", "rule_type", "logical_operator", "priority", "rules"}:
             raise ValidationError("Unsupported rule group fields.")
-        config = validate_config(RuleGroupCreateSerializer, {key: value for key, value in group.items() if key != "rules"})
+        config = validate_config(RuleGroupSerializer, {key: value for key, value in group.items() if key != "rules"})
         rules = group.get("rules", [])
         if not isinstance(rules, list) or not 1 <= len(rules) <= 12:
             raise ValidationError("Each group needs between 1 and 12 rules.")
         config["rules"] = [validate_rule(rule, config["rule_type"]) for rule in rules]
         if any(not rule.get("is_active", True) for rule in config["rules"]):
             raise ValidationError("Draft rules must be active; disable them later in the builder.")
-        action = config.get("action")
-        if action == RuleGroupAction.PARTIAL_EXIT:
-            percentage = (config.get("action_params") or {}).get("exit_pct")
-            if not isinstance(percentage, (float, int)) or not 0 < percentage < 100:
-                raise ValidationError("Partial exits require exit_pct between 0 and 100.")
         result["rule_groups"].append(config)
     if not any(group["rule_type"] == RuleType.ENTRY for group in result["rule_groups"]):
         raise ValidationError("A strategy needs an entry group.")
     if not any(group["rule_type"] != RuleType.ENTRY for group in result["rule_groups"]):
         raise ValidationError("Add an exit, stop-loss, or target group.")
-    auto_disable = draft.get("auto_disable_rules", [])
-    if not isinstance(auto_disable, list) or len(auto_disable) > 12:
-        raise ValidationError("Auto-disable rules must be a list with at most 12 rules.")
-    result["auto_disable_rules"] = [validate_config(StrategyAutoDisableSerializer, item) for item in auto_disable]
     return json_data(result)

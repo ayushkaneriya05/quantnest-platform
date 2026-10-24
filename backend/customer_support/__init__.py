@@ -1,1 +1,1 @@
-"""Customer-owned support, consent and engineering engagements."""
+"""Customer support enquiries and replies."""

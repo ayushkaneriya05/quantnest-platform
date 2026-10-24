@@ -18,14 +18,14 @@ class ImmutableAdmin(admin.ModelAdmin):
 
 @admin.register(ExchangeConfig)
 class ExchangeConfigAdmin(admin.ModelAdmin):
-    list_display = ('exchange', 'timezone', 'market_open', 'market_close', 'pre_market_open', 'pre_market_close', 'is_active')
-    list_filter = ('is_active',)
+    list_display = ('exchange', 'segment', 'timezone', 'market_open', 'market_close', 'is_active')
+    list_filter = ('exchange', 'segment', 'is_active')
     search_fields = ('exchange',)
 
 
 @admin.register(MarketHoliday)
 class MarketHolidayAdmin(admin.ModelAdmin):
-    list_display = ('exchange', 'date', 'description', 'is_partial', 'partial_close')
+    list_display = ('exchange', 'date', 'description', 'is_partial', 'partial_open', 'partial_close')
     list_filter = ('exchange', 'is_partial')
     search_fields = ('description',)
     date_hierarchy = 'date'

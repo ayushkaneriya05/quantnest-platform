@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/shared/utils/formatters";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
@@ -131,7 +132,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
   };
 
   const handleDownloadBackupCodes = () => {
-    const text = `QuantNest Backup Codes\n\nGenerate Date: ${new Date().toLocaleString()}\n\n${backupCodes.join('\n')}\n\nKeep these secure. Each code can only be used once.`;
+    const text = `QuantNest Backup Codes\n\nGenerate Date: ${formatDateTime(new Date())}\n\n${backupCodes.join('\n')}\n\nKeep these secure. Each code can only be used once.`;
     const element = document.createElement("a");
     const file = new Blob([text], {type: 'text/plain'});
     const url = URL.createObjectURL(file);

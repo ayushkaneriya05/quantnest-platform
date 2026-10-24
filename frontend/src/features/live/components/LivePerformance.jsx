@@ -1,7 +1,7 @@
 import PropTypes from "prop-types";
 import { BarChart3, CheckCircle2, TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardContent } from "@/shared/components/ui/card";
-import { formatNumber } from "@/shared/utils/formatters";
+import { formatCurrency } from "@/shared/utils/formatters";
 import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 
 function Metric({ title, value, detail, tone = "text-foreground", icon: Icon = BarChart3 }) {
@@ -30,11 +30,11 @@ export default function LivePerformance({ summary = {}, positions = [] }) {
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">Realized P&amp;L from trades closed today plus current open-position P&amp;L.</p>
+      <p className="text-sm text-muted-foreground">Recorded P&amp;L from trades closed today plus current open-position P&amp;L, before broker charges.</p>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric title="Today P&L" value={`₹${formatNumber(todayPnl)}`} detail={todayPnl >= 0 ? "Net gain" : "Net loss"} tone={todayPnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} icon={todayPnl >= 0 ? TrendingUp : TrendingDown} />
-        <Metric title="Realized today" value={`₹${formatNumber(realizedToday)}`} detail={`${closedTrades} closed trades`} tone={realizedToday >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} icon={CheckCircle2} />
-        <Metric title="Open P&L" value={`₹${formatNumber(unrealized)}`} detail={`${summary.open_positions || 0} open positions`} tone={unrealized >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} icon={unrealized >= 0 ? TrendingUp : TrendingDown} />
+        <Metric title="Today P&L" value={`${formatCurrency(todayPnl)}`} detail="Before broker charges" tone={todayPnl >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} icon={todayPnl >= 0 ? TrendingUp : TrendingDown} />
+        <Metric title="Realized today" value={`${formatCurrency(realizedToday)}`} detail={`${closedTrades} closed trades`} tone={realizedToday >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} icon={CheckCircle2} />
+        <Metric title="Open P&L" value={`${formatCurrency(unrealized)}`} detail={`${summary.open_positions || 0} open positions`} tone={unrealized >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"} icon={unrealized >= 0 ? TrendingUp : TrendingDown} />
         <Metric title="Winning closed trades" value={winRate == null ? "—" : `${winRate.toFixed(1)}%`} detail={closedTrades ? `${winningTrades} of ${closedTrades} closed today` : "No trades closed today"} icon={BarChart3} />
       </div>
       <div className="grid gap-4 sm:grid-cols-3">

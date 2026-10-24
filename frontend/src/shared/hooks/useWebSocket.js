@@ -11,6 +11,8 @@ import {
   resetReconnectAttempts,
 } from "../store/websocketSlice";
 import api, { ensureFreshAccessToken, getWebSocketUrl } from "../services/api";
+import { useNotifications } from "./useNotifications";
+import { isObservedQuote, isNewerQuote, normalizeMarketSymbol as normalizeSymbol } from "../utils/marketData";
 
 const socketRef = { current: null };
 const reconnectTimerRef = { current: null };
@@ -18,20 +20,20 @@ const reconnectAttemptsRef = { current: 0 };
 const intentionalCloseRef = { current: false };
 const subscriptionCallbacks = new Map();
 const subscriptionRefCounts = new Map();
-const fetchingPrices = new Set();
+const chartCallbacks = new Map();
+const terminalCallbacks = new Set();
+const fetchingPrices = new Map();
 let mountedConsumers = 0;
 
-const originalSymbolMap = new Map();
+// Deliver every ledger event before React batches renders.
+export function subscribeTerminalUpdates(callback) {
+  terminalCallbacks.add(callback);
+  return () => terminalCallbacks.delete(callback);
+}
 
-const getInstrumentKey = (instrumentOrSymbol) => {
-  if (!instrumentOrSymbol) return "";
-  if (typeof instrumentOrSymbol === "object") {
-    return (instrumentOrSymbol.sym_ticker || instrumentOrSymbol.symbol || instrumentOrSymbol);
-  }
-  return instrumentOrSymbol;
-};
 
 export function useWebSocket() {
+  const { notify } = useNotifications();
   const dispatch = useDispatch();
   const {
     isConnected,
@@ -65,8 +67,7 @@ export function useWebSocket() {
     return false;
   }, []);
 
-  const notifySymbolSubscribers = useCallback((fullSymbol, payload) => {
-    const symbol = getInstrumentKey(fullSymbol);
+  const notifySymbolSubscribers = useCallback((symbol, payload) => {
     if (!symbol || !subscriptionCallbacks.has(symbol)) return;
 
     subscriptionCallbacks.get(symbol).forEach((callback) => {
@@ -79,25 +80,17 @@ export function useWebSocket() {
   }, []);
 
   const handleTickData = useCallback(
-    (data) => {
-      const tick = data?.data || data;
-      const fullSymbol =
-        tick?.sym_ticker ||
-        tick?.instrument?.sym_ticker ||
-        tick?.symbol ||
-        data?.sym_ticker ||
-        data?.instrument?.sym_ticker ||
-        data?.symbol ||
-        data?.instrument;
-      const symbol = getInstrumentKey(fullSymbol);
+    ({ data: tick }) => {
+      const symbol = tick.symbol;
       if (!symbol) return;
+      if (!isNewerQuote(tick, tickDataRef.current[symbol])) return;
 
       const now = Date.now();
       if (!lastTickUpdateRef.current[symbol] || now - lastTickUpdateRef.current[symbol] > 200) {
         lastTickUpdateRef.current[symbol] = now;
         dispatch(updateTickData({ symbol, data: tick }));
       }
-      notifySymbolSubscribers(fullSymbol, tick);
+      notifySymbolSubscribers(symbol, tick);
     },
     [dispatch, notifySymbolSubscribers]
   );
@@ -148,11 +141,14 @@ export function useWebSocket() {
           }, 5000);
         }, 25000);
 
-        subscriptionRefCounts.forEach((count, normalizedSymbol) => {
+        subscriptionRefCounts.forEach((count, symbol) => {
           if (count > 0) {
-            const exactSymbol = originalSymbolMap.get(normalizedSymbol) || `NSE:${normalizedSymbol}-EQ`;
-            sendMessage({ type: "subscribe", instrument: exactSymbol });
+            sendMessage({ type: "subscribe", instrument: symbol });
           }
+        });
+        chartCallbacks.forEach((callbacks, key) => {
+          const [symbol, interval] = JSON.parse(key);
+          sendMessage({ type: 'subscribe_chart', instrument: symbol, interval });
         });
       };
 
@@ -165,12 +161,18 @@ export function useWebSocket() {
               clearTimeout(pongTimeoutRef.current);
               pongTimeoutRef.current = null;
             }
+          } else if (data.type === "subscription.error") {
+            notify.warning(data.message, { title: "Market data unavailable" });
+          } else if (data.type === "request.error") {
+            notify.error(data.message, { title: "Market data request failed" });
           } else if (data.type === "tick") {
             handleTickData(data);
           } else if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(data.event_type)) {
+            terminalCallbacks.forEach((callback) => callback(data));
             dispatch(setManualTradingTerminalUpdate(data));
-          } else if (data.type === "candle.update" || data.type === "candle.closed") {
-            notifySymbolSubscribers(data.symbol, data);
+          } else if (data.type === 'chart.candle') {
+            chartCallbacks.get(JSON.stringify([data.symbol, data.interval]))?.forEach((callback) => callback(data.candle));
+
           }
         } catch (error) {
           console.error("WS message parse error:", error);
@@ -207,7 +209,7 @@ export function useWebSocket() {
   }, [
     dispatch,
     handleTickData,
-    notifySymbolSubscribers,
+    notify,
     sendMessage,
   ]);
 
@@ -252,11 +254,8 @@ export function useWebSocket() {
 
   const subscribe = useCallback(
     (symbol, callback) => {
-      const normalizedSymbol = getInstrumentKey(symbol);
-      if (!normalizedSymbol) return () => {};
-
-      const exactSymbol = typeof symbol === "string" && symbol.includes(":") ? symbol : `NSE:${normalizedSymbol}-EQ`;
-      originalSymbolMap.set(normalizedSymbol, exactSymbol);
+      if (!symbol) return () => {};
+      const normalizedSymbol = normalizeSymbol(symbol);
 
       if (callback) {
         if (!subscriptionCallbacks.has(normalizedSymbol)) {
@@ -272,7 +271,7 @@ export function useWebSocket() {
         dispatch(addSubscription(normalizedSymbol));
         sendMessage({
           type: "subscribe",
-          instrument: exactSymbol,
+          instrument: normalizedSymbol,
         });
       }
 
@@ -291,7 +290,7 @@ export function useWebSocket() {
           dispatch(removeSubscription(normalizedSymbol));
           sendMessage({
             type: "unsubscribe",
-            instrument: exactSymbol,
+            instrument: normalizedSymbol,
           });
         } else {
           subscriptionRefCounts.set(normalizedSymbol, nextCount);
@@ -305,39 +304,50 @@ export function useWebSocket() {
     async (symbol, options = {}) => {
       if (!symbol) return null;
 
-      const normalizedSymbol = getInstrumentKey(symbol);
+      const normalizedSymbol = normalizeSymbol(symbol);
       const liveTick = tickDataRef.current[normalizedSymbol];
-      if (liveTick && !options.force) {
+      if (isObservedQuote(liveTick) && !options.force) {
         return liveTick;
       }
 
-      if (options.force || !fetchingPrices.has(normalizedSymbol)) {
-        fetchingPrices.add(normalizedSymbol);
-        try {
-          const exactSymbol = typeof symbol === "string" && symbol.includes(":") ? symbol : originalSymbolMap.get(normalizedSymbol) || `NSE:${normalizedSymbol}-EQ`;
-          originalSymbolMap.set(normalizedSymbol, exactSymbol);
-          const response = await api.get(
-            `/market/latest-tick/?instrument=${encodeURIComponent(exactSymbol)}`,
-          );
-          const lastKnownTick = response.data;
-
-          dispatch(updateTickData({ symbol: normalizedSymbol, data: lastKnownTick }));
-          fetchingPrices.delete(normalizedSymbol);
-          return lastKnownTick;
-        } catch (error) {
-          fetchingPrices.delete(normalizedSymbol);
-          return null;
-        }
+      if (!fetchingPrices.has(normalizedSymbol)) {
+        const request = api.get(`/market/latest-tick/?instrument=${encodeURIComponent(normalizedSymbol)}`)
+          .then(({ data }) => {
+            const current = tickDataRef.current[normalizedSymbol];
+            const latest = isNewerQuote(data, current) ? data : current;
+            if (latest) dispatch(updateTickData({ symbol: normalizedSymbol, data: latest }));
+            return latest ?? null;
+          })
+          .catch(() => null)
+          .finally(() => fetchingPrices.delete(normalizedSymbol));
+        fetchingPrices.set(normalizedSymbol, request);
       }
-      return null;
+      return fetchingPrices.get(normalizedSymbol);
     },
     [dispatch]
   );
 
   const getTickData = useCallback(
-    (symbol) => tickDataRef.current[getInstrumentKey(symbol)] ?? null,
+    (symbol) => symbol ? tickDataRef.current[normalizeSymbol(symbol)] ?? null : null,
     []
   );
+
+  const subscribeChart = useCallback((symbol, interval, callback) => {
+    const key = JSON.stringify([symbol, interval]);
+    if (!chartCallbacks.has(key)) {
+      chartCallbacks.set(key, new Set());
+      sendMessage({ type: 'subscribe_chart', instrument: symbol, interval });
+    }
+    chartCallbacks.get(key).add(callback);
+    return () => {
+      const callbacks = chartCallbacks.get(key);
+      callbacks?.delete(callback);
+      if (!callbacks?.size) {
+        chartCallbacks.delete(key);
+        sendMessage({ type: 'unsubscribe_chart', instrument: symbol, interval });
+      }
+    };
+  }, [sendMessage]);
 
   return {
     isConnected,
@@ -348,6 +358,7 @@ export function useWebSocket() {
     disconnect,
     sendMessage,
     subscribe,
+    subscribeChart,
     getLatestPrice,
     getTickData,
   };

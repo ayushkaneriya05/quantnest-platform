@@ -6,6 +6,7 @@ import subprocess
 
 DEPLOYMENT_MODES = ("development", "public", "private")
 DEVELOPMENT_PROFILES = ("market-data", "research", "live")
+DATA_SERVICES = ("postgres", "redis", "redis-cache")
 
 
 def compose_command(root, mode, *arguments, profiles=()):
@@ -36,3 +37,12 @@ def compose_configuration(root, mode, *, profiles=()):
         cwd=root, capture_output=True, text=True, timeout=30, check=True,
     )
     return json.loads(result.stdout)
+
+
+def running_application_services(root, mode):
+    """Backups require a quiet database/media boundary, including worker processes."""
+    result = subprocess.run(
+        compose_command(root, mode, "--profile", "*", "ps", "--status", "running", "--services"),
+        cwd=root, capture_output=True, text=True, timeout=30, check=True,
+    )
+    return sorted(set(result.stdout.split()) - set(DATA_SERVICES))

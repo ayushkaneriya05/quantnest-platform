@@ -1,121 +1,45 @@
-import PropTypes from "prop-types";
-import { useState, useEffect, useRef } from "react";
-import { cn } from "@/shared/lib/utils";
-import { Search, PlusCircle, Loader2 } from "lucide-react";
-import { Input } from "@/shared/components/ui/input";
-import { Button } from "@/shared/components/ui/button";
-import { Badge } from "@/shared/components/ui/badge";
-import { useInstrumentSearch } from "@/shared/hooks/useInstrumentSearch";
-import { searchTerminalInstruments } from "@/shared/services/instrumentsApi";
+import PropTypes from 'prop-types';
+import { useEnums } from '@/shared/context/EnumsContext';
+import { useState } from 'react';
+import { Search, Plus } from 'lucide-react';
+import { DatePicker } from '@/shared/components/ui/date-picker';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
+import { formatDate, formatDateInput, formatNumber } from '@/shared/utils/formatters';
+import { Input } from '@/shared/components/ui/input';
+import { Button } from '@/shared/components/ui/button';
+import { Dialog, DialogContent, DialogTitle } from '@/shared/components/ui/dialog';
+import { useInstrumentSearch } from '@/shared/hooks/useInstrumentSearch';
+import { searchTerminalInstruments } from '@/shared/services/instrumentsApi';
 
-export default function InstrumentSearch({
-  onAddToWatchlist,
-  existingWatchlistSymbols = [],
-}) {
-  const [query, setQuery] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
-  const { results, loading: isLoading, error } = useInstrumentSearch(query, {}, isOpen, searchTerminalInstruments);
-  const searchRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (searchRef.current && !searchRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const handleSelect = (instrument) => {
-    onAddToWatchlist(instrument);
-    setQuery("");
-    setIsOpen(false);
-  };
-
-  return (
-    <div className="relative group" ref={searchRef}>
-      <div className="relative">
-        <Search className={cn(
-          "absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 transition-colors duration-300",
-          isOpen ? "text-sky-700 dark:text-sky-400" : "text-muted-foreground"
-        )} />
-        <Input
-          type="text"
-          placeholder="Search for stocks (e.g. RELIANCE)..."
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
-          onFocus={() => setIsOpen(true)}
-          onKeyDown={(event) => { if (event.key === "Escape") setIsOpen(false); }}
-          className="pl-11 h-12 bg-card/60 border-border/80 text-foreground rounded-2xl focus-visible:ring-sky-500/20 focus-visible:border-sky-500/40 transition-all duration-300 placeholder:text-muted-foreground"
-        />
-        {isLoading && (
-          <div className="absolute right-4 top-1/2 -translate-y-1/2">
-            <Loader2 className="h-4 w-4 animate-spin text-sky-700 dark:text-sky-400" />
-          </div>
-        )}
+export default function InstrumentSearch({ onAddToWatchlist, existingWatchlistSymbols = [] }) {
+  const { enums } = useEnums();
+  const [query, setQuery] = useState(''), [open, setOpen] = useState(false);
+  const [exchange, setExchange] = useState('all'), [instrumentType, setInstrumentType] = useState('all'), [expiry, setExpiry] = useState(null);
+  const { results, loading, error } = useInstrumentSearch(query,
+    { ...(exchange !== 'all' ? { exchange } : {}), ...(instrumentType !== 'all' ? { instrument_type: instrumentType } : {}), ...(expiry ? { expiry_date: formatDateInput(expiry) } : {}) }, open, searchTerminalInstruments);
+  return <><Button variant="outline" size="sm" className="w-full justify-start" onClick={() => setOpen(true)}><Search className="mr-2 h-4 w-4" />Add instruments</Button>
+    <Dialog open={open} onOpenChange={setOpen}><DialogContent aria-describedby={undefined} className="max-h-[85dvh] overflow-auto sm:max-w-xl">
+      <DialogTitle>Find an instrument or contract</DialogTitle>
+      <Input autoFocus aria-label="Search instruments" placeholder="Symbol, company, underlying or contract ticker" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Select value={exchange} onValueChange={setExchange}><SelectTrigger aria-label="Exchange"><SelectValue /></SelectTrigger><SelectContent>
+          <SelectItem value="all">All exchanges</SelectItem>{enums.Exchange.map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent></Select>
+        <Select value={instrumentType} onValueChange={setInstrumentType}><SelectTrigger aria-label="Instrument type"><SelectValue /></SelectTrigger><SelectContent>
+          <SelectItem value="all">All instruments</SelectItem>{enums.InstrumentType.map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent></Select>
+        <DatePicker date={expiry} setDate={setExpiry} placeholder="Any expiry" className="h-10" />
       </div>
-
-      {isOpen && (
-        <div className="absolute z-50 w-full mt-2 bg-background/95 border border-border/80 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-          <div className="px-4 py-2 bg-card/40 border-b border-border/50">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{query ? "Matching instruments" : "Latest 20 instruments"}</span>
-          </div>
-          <ul className="py-1 max-h-[300px] overflow-y-auto scrollbar-thin-theme">
-            {results.map((instrument) => {
-              const isInWatchlist = existingWatchlistSymbols.includes(instrument.sym_ticker);
-              return (
-                <li
-                  key={instrument.id}
-                  className="px-4 py-3 hover:bg-muted/50 cursor-pointer flex justify-between items-center transition-colors border-b border-border/30 last:border-0"
-                  onClick={() => !isInWatchlist && handleSelect(instrument)}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-black text-foreground">{instrument.symbol}</span>
-                      <Badge variant="outline" className="text-[8px] h-3.5 px-1 py-0 border-border bg-card text-muted-foreground">
-                        {instrument.exchange}
-                      </Badge>
-                    </div>
-                    <div className="text-[10px] text-muted-foreground font-medium truncate mt-0.5">
-                      {instrument.company_name}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={isInWatchlist}
-                    className={cn(
-                      "h-8 rounded-xl font-bold text-xs transition-all",
-                      isInWatchlist
-                        ? "text-muted-foreground cursor-not-allowed bg-transparent"
-                        : "text-sky-700 dark:text-sky-400 hover:bg-sky-500/10 hover:text-sky-800 dark:hover:text-sky-300"
-                    )}
-                  >
-                    {isInWatchlist ? (
-                      <span className="flex items-center gap-1">Added</span>
-                    ) : (
-                      <span className="flex items-center gap-1">
-                        <PlusCircle className="h-3 w-3" /> Add
-                      </span>
-                    )}
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-          {isLoading && <p role="status" className="px-4 py-3 text-sm text-muted-foreground">Loading instruments…</p>}
-          {error && <p role="alert" className="px-4 py-3 text-sm text-rose-700 dark:text-rose-300">{error}</p>}
-          {!isLoading && !error && !results.length && <p className="px-4 py-3 text-sm text-muted-foreground">No instruments found.</p>}
-        </div>
-      )}
-    </div>
-  );
+      {(expiry || exchange !== 'all' || instrumentType !== 'all') && <Button size="sm" variant="ghost" onClick={() => { setExpiry(null); setExchange('all'); setInstrumentType('all'); }}>Clear filters</Button>}
+      <p className="text-xs text-muted-foreground">First 50 matches. Narrow options by underlying, expiry and strike in the search. Indices are chart-only.</p>
+      <div className="max-h-[50dvh] divide-y divide-border overflow-y-auto">{results.map((instrument) => {
+        const added = existingWatchlistSymbols.includes(instrument.sym_ticker);
+        return <button type="button" key={instrument.sym_ticker} disabled={added} className="flex w-full items-center gap-3 p-3 text-left hover:bg-muted disabled:opacity-50" onClick={() => { onAddToWatchlist(instrument); setOpen(false); }}>
+          <div className="min-w-0 flex-1"><strong className="block truncate text-sm">{instrument.name}</strong>
+            <span className="text-xs text-muted-foreground">{instrument.exchange} · {enums.InstrumentType.find((choice) => choice.value === instrument.instrument_type)?.label} · {instrument.expiry_date ? formatDate(instrument.expiry_date) : ''} {enums.OptionType.find((choice) => choice.value === instrument.option_type)?.label} · Lot {instrument.lot_size} · Tick {formatNumber(instrument.tick_size, { maximumFractionDigits: 8 })}{!instrument.orderable ? ' · Analysis only' : ''}</span></div>
+          {added ? <span className="text-xs">Added</span> : <Plus className="h-4 w-4 shrink-0" />}</button>;
+      })}</div>
+      {loading && <p role="status" className="text-sm text-muted-foreground">Searching…</p>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {!loading && !error && !results.length && <p className="text-sm text-muted-foreground">No matching instruments.</p>}
+    </DialogContent></Dialog></>;
 }
-
-
-InstrumentSearch.propTypes = {
-  ...InstrumentSearch.propTypes,
-  existingWatchlistSymbols: PropTypes.array,
-  onAddToWatchlist: PropTypes.func,
-};
+InstrumentSearch.propTypes = { onAddToWatchlist: PropTypes.func.isRequired, existingWatchlistSymbols: PropTypes.array };

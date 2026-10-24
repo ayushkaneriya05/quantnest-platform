@@ -11,8 +11,13 @@ class PortfolioAdmin(admin.ModelAdmin):
 class PaperAccountAdmin(admin.ModelAdmin):
     list_display = ['name', 'user', 'initial_balance', 'current_balance', 'total_pnl', 'today_pnl']
     search_fields = ['name', 'user__username']
-    search_fields = ['name', 'user__username']
-    readonly_fields = ['created_at', 'updated_at']
+    readonly_fields = [field.name for field in PaperAccount._meta.concrete_fields]
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(PaperPosition)
@@ -41,4 +46,10 @@ class PaperTradeAdmin(admin.ModelAdmin):
 class PaperTradingSessionAdmin(admin.ModelAdmin):
     list_display = ['user','allocation', 'status', 'started_at', 'ended_at']
     search_fields = ['user__username']
-    readonly_fields = ['started_at', 'ended_at']
+    readonly_fields = [field.name for field in PaperTradingSession._meta.concrete_fields]
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_add_permission(self, request):
+        return False

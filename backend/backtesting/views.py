@@ -89,9 +89,10 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         serializer = BacktestRunSerializer(data={"strategy": run.strategy_id, "name": f"{run.name} (Rerun)",
             "start_date": run.start_date, "end_date": run.end_date, "initial_capital": run.initial_capital,
             "slippage_pct": run.slippage_pct, "charge_profile": run.charge_profile_id,
-            "include_charges": run.include_charges, "estimate_token": request.data.get("estimate_token", "")}, context={"request": request})
+            "include_charges": run.include_charges, "estimate_token": request.data.get("estimate_token", "")},
+            context={"request": request, "charge_profile_snapshot": run.charge_profile_snapshot})
         serializer.is_valid(raise_exception=True)
-        new_run = create_backtest(serializer, request.user, approved_snapshot=backtest_configuration(run))
+        new_run = create_backtest(serializer, request.user, approved_snapshot=backtest_configuration(run), charge_profile_snapshot=run.charge_profile_snapshot)
         start_backtest(new_run)
 
         serializer = self.get_serializer(new_run)
@@ -195,7 +196,7 @@ class MonteCarloRunViewSet(viewsets.ModelViewSet):
         from commercial.usage import require_request_limits, reserve_usage
         import uuid
         user = self.request.user
-        payload = {key: getattr(value, "pk", value) for key, value in serializer.validated_data.items()}
+        payload = {**serializer.validated_data, "backtest_run": serializer.validated_data["backtest_run"].pk}
         key = self.request.headers.get("Idempotency-Key") or f"mc:{uuid.uuid4()}"
         policy = require_request_limits(user, mc_simulations=serializer.validated_data.get("num_simulations", 1000))
         run = serializer.save()
@@ -222,6 +223,18 @@ class MonteCarloRunViewSet(viewsets.ModelViewSet):
         queue_compute_work("backtesting.run_monte_carlo", run.pk)
 
         return Response({'success': True, 'message': 'Monte Carlo simulation started', 'status': run.status})
+
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def cancel(self, request, pk=None):
+        run = self.get_object()
+        updated = MonteCarloRun.objects.filter(pk=run.pk, status__in=['PENDING', 'QUEUED']).update(
+            status=BacktestStatus.CANCELLED, completed_at=timezone.now())
+        if not updated:
+            return Response({'error': 'Only pending or queued simulations can be cancelled.'}, status=409)
+        from commercial.usage import complete_usage
+        complete_usage('monte_carlo', run.pk, BacktestStatus.CANCELLED)
+        return Response({'success': True, 'status': BacktestStatus.CANCELLED})
 
     @action(detail=True, methods=['get'])
     def results(self, request, pk=None):

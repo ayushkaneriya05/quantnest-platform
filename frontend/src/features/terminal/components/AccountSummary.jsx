@@ -1,242 +1,81 @@
-import PropTypes from "prop-types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
-import { Badge } from "@/shared/components/ui/badge";
-import {
-  Activity,
-  ArrowDownRight,
-  ArrowUpRight,
-  Banknote,
-  CreditCard,
-  PieChart,
-  ShieldCheck,
-  TrendingUp,
-  Zap,
-} from "lucide-react";
-import { useWebSocket } from "@/shared/hooks/useWebSocket";
-import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
+import PropTypes from 'prop-types';
+import { useEnums } from '@/shared/context/EnumsContext';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Button } from '@/shared/components/ui/button';
+import { Input } from '@/shared/components/ui/input';
+import { Label } from '@/shared/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/shared/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
+import { useTerminalPositionsPnL } from '@/shared/hooks/useLivePositionsPnL';
+import brokersApi from '@/shared/services/brokersApi';
+import api from '@/shared/services/api';
+import { useNotifications } from '@/shared/hooks/useNotifications';
+import { formatCurrency, formatDateTime } from '@/shared/utils/formatters';
+import { getApiErrorMessage } from '@/shared/utils/apiErrors';
+import terminalApi from '../services/tradingTerminalApi';
 
-const StatCard = ({ icon: Icon, title, value, subtitle, variant = "default" }) => (
-  <Card className="bg-card/50 border-border hover:border-border transition-colors">
-    <CardContent className="p-6">
-      <div className="flex items-start justify-between mb-4">
-        <div
-          className={`p-3 rounded-2xl ${
-            variant === "positive"
-              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-              : variant === "negative"
-              ? "bg-rose-500/10 text-rose-700 dark:text-rose-400"
-              : variant === "warning"
-              ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
-              : "bg-sky-500/10 text-sky-700 dark:text-sky-400"
-          }`}
-        >
-          <Icon className="h-6 w-6" />
-        </div>
-      </div>
-      <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-1">
-        {title}
-      </p>
-      <p className="text-2xl font-black text-foreground mb-1">{value}</p>
-      {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-    </CardContent>
-  </Card>
-);
-
-const formatCurrency = (value, maximumFractionDigits = 0) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: 0,
-    maximumFractionDigits,
-  }).format(Number(value || 0));
-
-export default function AccountSummary({ account, trades = [], positions = [], metrics }) {
-  const { connectionStatus } = useWebSocket();
-  const isLiveDataConnected = connectionStatus === "connected";
-  const { totals } = useLivePositionsPnL(positions);
-  const dynamicUnrealizedPnl = totals.totalUnrealizedPnL || 0;
-  const equityValue = Number(metrics?.balance || 0) + dynamicUnrealizedPnl;
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard
-          icon={Banknote}
-          title="Available Balance"
-          value={formatCurrency(metrics?.balance || 0)}
-          subtitle="Cash available to trade"
-          variant="positive"
-        />
-        <StatCard
-          icon={TrendingUp}
-          title="Realized P&L"
-          value={formatCurrency(metrics?.realizedPnl || 0)}
-          subtitle="Cleared profit/loss"
-          variant={metrics?.realizedPnl >= 0 ? "positive" : "negative"}
-        />
-        <StatCard
-          icon={CreditCard}
-          title="Used Margin"
-          value={formatCurrency(metrics?.margin || 0)}
-          subtitle="Blocked short exposure"
-          variant="warning"
-        />
-        <StatCard
-          icon={PieChart}
-          title="Total Equity"
-          value={formatCurrency(equityValue)}
-          subtitle="Cash plus unrealized P&L"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card className="bg-card/50 border-border overflow-hidden">
-          <CardHeader className="border-b border-border bg-card/30">
-            <CardTitle className="text-lg text-foreground flex items-center gap-2">
-              <Activity className="h-5 w-5 text-sky-700 dark:text-sky-400" />
-              Recent Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0 max-h-[500px] overflow-y-auto scrollbar-theme">
-            {trades.length > 0 ? (
-              <div className="divide-y divide-border">
-                {trades.map((trade) => {
-                  const value = Number(trade.executed_price) * Number(trade.quantity || 0);
-                  return (
-                    <div
-                      key={trade.id}
-                      className="p-4 flex items-center justify-between hover:bg-secondary/10 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`p-2 rounded-lg ${
-                            trade.transaction_type === "BUY"
-                              ? "bg-rose-500/10 text-rose-700 dark:text-rose-400"
-                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                          }`}
-                        >
-                          {trade.transaction_type === "BUY" ? (
-                            <ArrowDownRight className="h-4 w-4" />
-                          ) : (
-                            <ArrowUpRight className="h-4 w-4" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-bold text-foreground leading-none">
-                            {trade.instrument.symbol}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground uppercase mt-1">
-                            {trade.order_type} • {new Date(trade.timestamp).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p
-                          className={`font-bold ${
-                            trade.transaction_type === "BUY"
-                              ? "text-rose-700 dark:text-rose-400"
-                              : "text-emerald-700 dark:text-emerald-400"
-                          }`}
-                        >
-                          {trade.transaction_type === "BUY" ? "-" : "+"} {formatCurrency(value)}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {trade.quantity} units @ ₹{Number(trade.executed_price).toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="p-12 text-center">
-                <Activity className="h-10 w-10 text-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">No recent trades found</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/50 border-border h-fit">
-          <CardHeader className="border-b border-border bg-card/30">
-            <CardTitle className="text-lg text-foreground flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
-              Terminal Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-6 space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                  Market Data
-                </p>
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`h-2 w-2 rounded-full ${
-                      isLiveDataConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-                    }`}
-                  />
-                  <span
-                    className={`text-sm font-bold ${
-                      isLiveDataConnected ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"
-                    }`}
-                  >
-                    {connectionStatus.toUpperCase()}
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                  Execution Engine
-                </p>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">PAPER</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-border">
-              <div className="flex items-center justify-between p-4 bg-sky-500/5 rounded-2xl border border-sky-500/20">
-                <div className="flex items-center gap-3">
-                  <Zap className="h-5 w-5 text-sky-700 dark:text-sky-400" />
-                  <div>
-                    <p className="text-sm font-bold text-foreground">Paper Trading Mode</p>
-                    <p className="text-xs text-muted-foreground">All executions are virtual</p>
-                  </div>
-                </div>
-                <Badge className="bg-sky-500/20 text-sky-700 dark:text-sky-400 border-sky-500/30">
-                  ENABLED
-                </Badge>
-              </div>
-            </div>
-
-            <p className="text-[10px] text-center text-muted-foreground italic">
-              Terminal session active since{" "}
-              {account?.created_at
-                ? new Date(account.created_at).toLocaleDateString()
-                : "initialization"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+export default function AccountSummary({ account, positions, onSaved }) {
+  const { values } = useEnums();
+  const [profiles, setProfiles] = useState([]), [runtime, setRuntime] = useState(null);
+  const [profile, setProfile] = useState(String(account.charge_profile || 'none'));
+  const [futures, setFutures] = useState(account.futures_margin_pct);
+  const [options, setOptions] = useState(account.short_option_margin_pct), [busy, setBusy] = useState(false);
+  const { notify } = useNotifications();
+  const { livePnLByPositionId, totals } = useTerminalPositionsPnL(positions);
+  const marketValue = positions.reduce((total, row) => {
+    const mark = livePnLByPositionId[row.id];
+    return total + (mark ? row.instrument.instrument_type === values.InstrumentType.FUTURE ? mark.pnl : mark.livePrice * row.quantity * Number(row.instrument.qty_multiplier) : 0);
+  }, 0);
+  useEffect(() => {
+    let mounted = true;
+    brokersApi.getChargeProfiles().then((response) => { if (mounted) setProfiles(response.data); })
+      .catch((error) => { if (mounted) notify.error(getApiErrorMessage(error, 'Could not load charge profiles.')); });
+    api.get('/trading/status/').then((response) => { if (mounted) setRuntime(response.data); }).catch(() => {});
+    return () => { mounted = false; };
+  }, [notify]);
+  const save = async (event) => {
+    event.preventDefault(); setBusy(true);
+    try {
+      await terminalApi.updateAccount({ charge_profile: profile === 'none' ? null : Number(profile),
+        futures_margin_pct: futures, short_option_margin_pct: options });
+      notify.success('Account settings submitted for application'); onSaved();
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Could not save account settings.')); }
+    finally { setBusy(false); }
+  };
+  const stats = [
+    ['Account equity', Number(account.balance) + marketValue], ['Available capital', account.available_balance],
+    ['Cash balance', account.balance], ['Open P&L · gross', totals.totalUnrealizedPnL],
+    ['Position collateral', account.margin], ['Reserved for orders', account.reserved_cash],
+    ['Realized P&L · net', account.realized_pnl], ['Recorded charges', account.charges_paid],
+  ];
+  return <div className="space-y-6">
+    <div><h2 className="text-lg font-semibold">Simulation account</h2>
+      <p className="mt-1 text-sm text-muted-foreground">Your terminal balance, recorded activity and account settings.</p></div>
+    <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([label,value]) => <div key={label} className="rounded-xl border bg-card p-4">
+      <dt className="text-xs text-muted-foreground">{label}</dt><dd className={'mt-2 text-xl font-semibold tabular-nums ' + (label.includes('P&L') ? Number(value) >= 0 ? 'text-emerald-500' : 'text-rose-500' : '')}>{formatCurrency(value)}</dd></div>)}</dl>
+    <div className="grid items-start gap-6 lg:grid-cols-2">
+      <Card><CardHeader><CardTitle>Charges and margin</CardTitle><CardDescription>Configure the estimates used by this simulation account.</CardDescription></CardHeader>
+        <CardContent><form onSubmit={save} className="space-y-5">
+          <div className="space-y-2"><Label htmlFor="terminal-charge-profile">Charge profile</Label>
+            <Select value={profile} onValueChange={setProfile}><SelectTrigger id="terminal-charge-profile"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="none">No simulated charges</SelectItem>{profiles.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent></Select>
+            <Link className="inline-block text-xs text-primary underline underline-offset-4" to="/brokers/charge-profiles">Manage charge profiles</Link></div>
+          <div className="space-y-2"><Label htmlFor="terminal-futures-margin">Futures margin (%)</Label>
+            <Input id="terminal-futures-margin" type="number" min="1" max="100" step=".01" value={futures} onChange={(event) => setFutures(event.target.value)} required /></div>
+          <div className="space-y-2"><Label htmlFor="terminal-option-margin">Short-option collateral (%)</Label>
+            <Input id="terminal-option-margin" type="number" min="1" max="100" step=".01" value={options} onChange={(event) => setOptions(event.target.value)} required /></div>
+          <p className="text-xs leading-relaxed text-muted-foreground">New orders use the selected fee profile. Margin changes recalculate positions and pending reservations. These percentages are simulation estimates.</p>
+          <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</Button>
+        </form></CardContent></Card>
+      <Card><CardHeader><CardTitle>Account details</CardTitle><CardDescription>This account is separate from automated Paper deployments.</CardDescription></CardHeader>
+        <CardContent><dl className="divide-y text-sm">
+          {[['Created', formatDateTime(account.created_at)], ['Account type', 'Manual simulation'],
+            ['Market data', runtime ? runtime.market_data ? 'Running' : 'Stopped' : 'Unavailable'],
+            ['Order matching', runtime ? runtime.execution_running ? 'Running' : 'Stopped' : 'Unavailable']]
+            .map(([label,value]) => <div key={label} className="flex justify-between gap-4 py-3 first:pt-0"><dt className="text-muted-foreground">{label}</dt><dd className="text-right font-medium">{value}</dd></div>)}
+        </dl></CardContent></Card>
     </div>
-  );
+  </div>;
 }
-
-StatCard.propTypes = {
-  ...StatCard.propTypes,
-  icon: PropTypes.elementType,
-  subtitle: PropTypes.string,
-  title: PropTypes.string,
-  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
-  variant: PropTypes.string,
-};
-
-AccountSummary.propTypes = {
-  ...AccountSummary.propTypes,
-  account: PropTypes.object,
-  metrics: PropTypes.array,
-  positions: PropTypes.array,
-  trades: PropTypes.array,
-};
+AccountSummary.propTypes = { account: PropTypes.object.isRequired, positions: PropTypes.array.isRequired, onSaved: PropTypes.func.isRequired };

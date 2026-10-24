@@ -35,7 +35,6 @@ import {
 } from 'lucide-react';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { brokersApi } from '@/shared/services/brokersApi';
-import { portfolioApi } from '@/shared/services/portfolioApi';
 import api from '@/shared/services/api';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
@@ -73,7 +72,7 @@ export default function StrategyList() {
     try {
       setLoading(true);
       const data = await strategyApi.getAll();
-      setStrategies(Array.isArray(data) ? data : (data?.results || []));
+      setStrategies(data);
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load strategies"));
       console.error(error);
@@ -92,16 +91,12 @@ export default function StrategyList() {
   const [liveDeployOpen, setLiveDeployOpen] = useState(false);
   const [liveDeployStrategy, setLiveDeployStrategy] = useState(null);
   const [selectedBroker, setSelectedBroker] = useState("");
-  const [allocationMode, setAllocationMode] = useState("FIXED");
   const [allocationAmount, setAllocationAmount] = useState("");
-  const [allocationPercentage, setAllocationPercentage] = useState("");
 
   const [versions, setVersions] = useState([]);
   const [selectedVersion, setSelectedVersion] = useState("");
   const [paperDeployOpen, setPaperDeployOpen] = useState(false);
   const [paperDeployStrategy, setPaperDeployStrategy] = useState(null);
-  const [strategyAllocations, setStrategyAllocations] = useState([]);
-  const [selectedAllocation, setSelectedAllocation] = useState("new");
   const [newAllocationAmount, setNewAllocationAmount] = useState(100000);
   const [chargeProfiles, setChargeProfiles] = useState([]);
   const [paperSlippagePct, setPaperSlippagePct] = useState("0");
@@ -153,10 +148,8 @@ export default function StrategyList() {
         strategyApi.getVersions(strategy.id),
         brokersApi.getChargeProfiles().catch(() => ({ data: [] })),
       ]);
-      const fetchedVersions = Array.isArray(data) ? data : data?.results || [];
-      const profiles = Array.isArray(profileResponse.data)
-        ? profileResponse.data
-        : profileResponse.data?.results || [];
+      const fetchedVersions = data;
+      const profiles = profileResponse.data;
       setVersions(fetchedVersions);
       setSelectedVersion(fetchedVersions.length > 0 ? fetchedVersions[0].id.toString() : "");
       setChargeProfiles(profiles);
@@ -165,15 +158,7 @@ export default function StrategyList() {
       setPaperSlippagePct("0");
       setPaperIncludeCharges(true);
 
-      const allocRes = await portfolioApi.getAllocationByStrategy(strategy.id);
-      const fetchedAllocations = Array.isArray(allocRes.data) ? allocRes.data : allocRes.data?.results || [];
-      // Filter out allocations that already have an active/running session if needed,
-      // but for now we just show all allocations that don't have a RUNNING session,
-      // or we can just show all of them and let the backend throw if they try to reuse.
-      // Wait, let's just show all allocations for this strategy so they can reuse STOPPED ones.
-      setStrategyAllocations(fetchedAllocations);
-      setSelectedAllocation(fetchedAllocations.length > 0 ? String(fetchedAllocations[0].id) : "new");
-
+      setNewAllocationAmount(100000);
       setPaperDeployStrategy(strategy);
       setPaperDeployOpen(true);
     } catch (error) {
@@ -189,11 +174,7 @@ export default function StrategyList() {
       setDeployingId(paperDeployStrategy.id);
       const payload = {};
       if (selectedVersion) payload.versionId = selectedVersion;
-      if (selectedAllocation === "new") {
-          payload.allocationAmount = newAllocationAmount;
-      } else {
-          payload.allocationId = selectedAllocation;
-      }
+      payload.allocationAmount = newAllocationAmount;
       payload.slippagePct = Number(paperSlippagePct || 0);
       payload.chargeProfile = paperChargeProfile;
       payload.includeCharges = paperIncludeCharges;
@@ -218,12 +199,10 @@ export default function StrategyList() {
         return;
       }
       setLiveDeployStrategy(strategy);
-      setAllocationMode("FIXED");
       setAllocationAmount("");
-      setAllocationPercentage("");
 
       const vData = await strategyApi.getVersions(strategy.id);
-      const fetchedVersions = Array.isArray(vData) ? vData : vData?.results || [];
+      const fetchedVersions = vData;
       setVersions(fetchedVersions);
       setSelectedVersion(fetchedVersions.length > 0 ? fetchedVersions[0].id.toString() : "");
 
@@ -243,8 +222,7 @@ export default function StrategyList() {
         liveDeployStrategy.id,
         {
           brokerCredential: selectedBroker ? Number(selectedBroker) : null,
-          allocationAmount: allocationMode === "FIXED" && allocationAmount ? Number(allocationAmount) : null,
-          allocationPercentage: allocationMode === "PERCENTAGE" && allocationPercentage ? Number(allocationPercentage) : null,
+          allocationAmount,
           versionId: selectedVersion || undefined,
         },
       );
@@ -411,7 +389,7 @@ export default function StrategyList() {
             </h3>
             <p className="text-muted-foreground text-sm max-w-sm mx-auto">
               {filter === 'all'
-                ? 'Create your first algorithmic trading strategy to get started. Define entry rules, exit conditions, and risk parameters.'
+                ? 'Create your first algorithmic trading strategy to get started. Define entry rules, full-position exits, and position sizing.'
                 : `You don't have any ${filter} strategies. Try changing the filter.`}
             </p>
             {filter === 'all' && (
@@ -623,36 +601,10 @@ export default function StrategyList() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-foreground">Allocation Mode</Label>
-                <Select value={allocationMode} onValueChange={setAllocationMode}>
-                  <SelectTrigger className="bg-card border-border text-foreground">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-card border-border text-foreground">
-                    <SelectItem value="FIXED">Fixed Capital</SelectItem>
-                    <SelectItem value="PERCENTAGE">Percentage of Broker Equity</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-foreground">
-                  {allocationMode === "FIXED" ? "Allocated Capital (Rs)" : "Allocated Percentage (%)"}
-                </Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step={allocationMode === "FIXED" ? "1" : "0.5"}
-                  value={allocationMode === "FIXED" ? allocationAmount : allocationPercentage}
-                  onChange={(e) => {
-                    if (allocationMode === "FIXED") {
-                      setAllocationAmount(e.target.value);
-                    } else {
-                      setAllocationPercentage(e.target.value);
-                    }
-                  }}
-                  className="bg-card border-border text-foreground"
-                  placeholder={allocationMode === "FIXED" ? "50000" : "10"}
-                />
+                <Label className="text-foreground">Allocated capital (₹)</Label>
+                <Input type="number" min="0.01" step="0.01"
+                  value={allocationAmount} onChange={(event) => setAllocationAmount(event.target.value)}
+                  className="bg-card border-border text-foreground" placeholder="50000" />
               </div>
               <div className="space-y-2">
                 <Label className="text-foreground">Strategy Version</Label>
@@ -675,7 +627,7 @@ export default function StrategyList() {
 
             </div>
             <p className="text-xs text-muted-foreground">
-              This live allocation acts as the strategy wallet on the broker account. New entries are blocked once the strategy wallet or broker margin is exhausted.
+              One deployment per strategy and broker account. To change the version on this account, manage the existing deployment. New entries require both allocated capital and broker margin.
             </p>
           </div>
           <DialogFooter>
@@ -692,8 +644,7 @@ export default function StrategyList() {
               disabled={
                 !selectedBroker
                 || deployingId === liveDeployStrategy?.id
-                || (allocationMode === "FIXED" && !allocationAmount)
-                || (allocationMode === "PERCENTAGE" && !allocationPercentage)
+                || !selectedVersion || !(Number(allocationAmount) > 0)
               }
             >
               {deployingId === liveDeployStrategy?.id ? (
@@ -721,35 +672,15 @@ export default function StrategyList() {
             </div>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label className="text-foreground">Capital Allocation</Label>
-                <Select resource="paper-allocations" filters={{ strategy_id: paperDeployStrategy?.id }} value={selectedAllocation} onValueChange={setSelectedAllocation}>
-                  <SelectTrigger className="bg-card border-border text-foreground">
-                    <SelectValue placeholder="Select allocation" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-card border-border text-foreground">
-                    {strategyAllocations.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        Existing: ₹{Number(a.allocated_amount).toLocaleString()} (Alloc #{a.id})
-                      </SelectItem>
-                    ))}
-                    <SelectItem persistent value="new" className="text-indigo-700 dark:text-indigo-400 font-medium">
-                      + Create New Allocation
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label className="text-foreground">Allocated capital (₹)</Label>
+                <Input type="number" min="0.01" step="0.01"
+                  value={newAllocationAmount} onChange={(event) => setNewAllocationAmount(event.target.value)}
+                  className="bg-card border-border text-foreground" />
+                <p className="text-xs text-muted-foreground">
+                  Capital comes from your Paper wallet. Each strategy version has its own deployment and balance.
+                  Add funds in Paper Trading → Wallet before deploying.
+                </p>
               </div>
-
-              {selectedAllocation === "new" && (
-                <div className="space-y-2">
-                  <Label className="text-foreground">Allocation Amount (₹)</Label>
-                  <Input
-                    type="number"
-                    value={newAllocationAmount}
-                    onChange={(e) => setNewAllocationAmount(e.target.value)}
-                    className="bg-card border-border text-foreground"
-                  />
-                </div>
-              )}
 
               <div className="space-y-2">
                 <Label className="text-foreground">Strategy Version</Label>
@@ -829,7 +760,7 @@ export default function StrategyList() {
             <Button
               className="text-white bg-cyan-700 hover:bg-cyan-800"
               onClick={handleConfirmPaperDeploy}
-              disabled={deployingId === paperDeployStrategy?.id}
+              disabled={deployingId === paperDeployStrategy?.id || !selectedVersion || !(Number(newAllocationAmount) > 0)}
             >
               {deployingId === paperDeployStrategy?.id ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

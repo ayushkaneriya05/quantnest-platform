@@ -1,32 +1,26 @@
-# Deployment and recovery scripts
+# Deployment, diagnostics, backup and restore
 
-These are operator tools, not running application services. Use Python 3.12 and Docker Compose v2. Run commands from the repository/release root. Every application operation selects **one** mode: `development`, `public` or `private`.
+Run these Python 3.12 scripts from the repository root. They are one-shot operator
+tools, not extra servers. Docker runs application processes. All helpers select
+one of `development`, `public` or `private`, and preserve its project/volume name.
 
-## 1. Before using a script
+## 1. Common arguments and files
 
-1. Follow the selected mode's README and create its `backend.env` and `research.env` files.
-2. Docker must be running, and your operator must have permission to access it.
-3. On Linux restrict environment files to their operator: `chmod 600 infra/<mode>/*.env`. Docker group membership grants administrative power on that host.
-4. Use a reviewed release. Keep configuration, signing/encryption keys and backup identities outside source control.
-5. Before an upgrade, use the workspace to stop or pause strategies and settle open orders/positions. The deploy script stops application services while applying the update.
+| Argument/file | Meaning |
+| --- | --- |
+| `--root .` | Repository/release root, containing `backend`, `frontend`, `research_service` and `infra`. |
+| `--mode <mode>` | Selects exactly one mode's `compose.yaml` and `backend.env`. |
+| `--profile market-data`, `--profile research`, `--profile live` | Development only; repeat for each provider service needed. Production has a fixed complete topology. |
+| `backend.env` | Both Compose interpolation inputs and backend runtime settings. Never print resolved `docker compose config` to a shared log. |
+| `research.env` | AI provider key/token; needed as a file even when Development's research profile is off. |
+| `frontend.env` | Development public Vite inputs. Public has a separate Pages build configuration; Private builds from backend public URL/widget inputs. |
 
-Production scripts run on the Linux host, **outside** the API container. The container runs `manage.py` commands on their behalf. `--root .` means the current directory is the complete release; it does not mean `backend/`.
-
-Normal operations use the selected mode's project name, quantnest-development/public/private. The helpers reject an inherited COMPOSE_PROJECT_NAME from another mode, protecting against accidental reuse of its volumes. Leave that variable unset. Helpers pass the selected project name explicitly; recovery uses its own --project argument.
-
-| Script | When to use it | Dependencies |
-| --- | --- | --- |
-| `compose_config.py` | Imported by the other scripts; not a command to run | Python standard library |
-| `deploy.py` | First installation or reviewed application upgrade | Python, Docker/Compose |
-| `diagnostics.py` | After startup, after upgrades, or when investigating an incident | Python, Docker/Compose |
-| `backup.py` | Encrypted backups; optionally upload Public backups to OCI | Python, Docker/Compose, `age`; OCI SDK only for upload |
-| `restore.py` | Disaster recovery into a new isolated state-only project | Python, Docker/Compose, `age`, matching backend image |
-
-`compose_config.py` owns valid mode/profile names, resolves the selected mode's file paths, fixes its project identity and privately reads effective Compose configuration. Deploy and diagnostics derive service names from that configuration rather than maintaining separate service lists. The helper's standard-library code does not require Django or a host application virtual environment.
+The mode must match the data you intend to operate on. Unset stale
+`COMPOSE_PROJECT_NAME`/`COMPOSE_PROFILES` and shell exports from another mode.
+Shell environment values override `--env-file` interpolation. Helpers explicitly
+use `quantnest-<mode>`; a conflicting `COMPOSE_PROJECT_NAME` is rejected.
 
 ## 2. Initialize or upgrade
-
-Examples for each mode:
 
 ```sh
 python3 infra/shared/scripts/deploy.py --root . --mode development --build
@@ -34,138 +28,168 @@ python3 infra/shared/scripts/deploy.py --root . --mode public --build
 python3 infra/shared/scripts/deploy.py --root . --mode private --build
 ```
 
-Run **only the line for your mode**. `--build` rebuilds the backend and research images. Omit it only when those exact release images have already been built or loaded.
+Run only the command for your selected mode. `--build` builds that mode's backend,
+research and, for Private, frontend images. Omit it only when the matching tagged
+images are already installed. No package installation runs inside production API
+containers at startup.
 
-The sequence is:
+Deployment performs these actions in order:
 
-1. Resolve Compose privately. Validate Live scope/broker-events consistency, matching research tokens, enabled AI credentials, and required TLS/frontend/licence files.
-2. Build images and run Django configuration checks before stopping the application. Production configuration warnings fail the deployment at this stage.
-3. Start/check the database and Redis services.
-4. Stop application producers, scheduler, frontend/ingress and workers. Database and Redis services remain available.
-5. For a Private installer upgrade, create the required encrypted backup of the stopped application state.
-6. Run migrations, configure the Django Site from FRONTEND_URL, and collect static assets.
-7. Start the services and wait up to 180 seconds for configured health checks.
+1. Resolve the effective Compose model without printing secrets. Reject a Live
+   scope without broker-events, or broker-events without Live scope.
+2. If research is enabled, verify that its key is configured and its token matches
+   Django's token. This is a configuration check, not a provider API request.
+3. Build requested images. A build failure happens before stopping the old app.
+4. Run Django checks. Production uses `check --deploy --fail-level WARNING`.
+5. Start/wait for PostgreSQL, Redis and research-cache Redis.
+6. Stop all application services, including previously selected Development profiles.
+7. Run `migrate --noinput`, `setup_timescale`, `configure_site` and
+   `collectstatic --noinput` as one-shot API-image commands.
+8. Start selected services with `up -d --wait --wait-timeout 180 --remove-orphans`.
 
-A failure exits nonzero; it does not silently undo schema changes. Read the reported error and use the recovery procedure if necessary. A failure after services are stopped leaves them stopped until the update/recovery is completed.
+`--rm` deletes a completed one-shot container, not its named volumes. `--no-deps`
+prevents management commands from implicitly starting the API or trading services.
+`--wait` is a readiness wait where healthchecks exist, and a running-state check
+for other services. Readiness does not prove broker/provider connectivity.
 
-Development supports optional profiles:
+Before an upgrade, stop/settle active strategy work through the workspace, take
+a backup, retain the old release tag/code and then run deployment. If a migration
+or Timescale setup fails, the helper stops there with applications stopped. Fix
+the reported issue and rerun; do not skip a failed schema operation.
+
+### Development profiles
 
 ```sh
+python3 infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data
 python3 infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data --profile research
 ```
 
-`--profile live` starts broker observations only for intentionally configured Development Live execution. Set `EXECUTION_ENABLED_SCOPES=paper,live` and the execution app credentials first. Live sends real broker orders even though the deployment is called Development.
+For intentional Live development, set `EXECUTION_ENABLED_SCOPES=paper,live` in
+Development's backend.env and also add `--profile live`. It uses real broker access.
+One execution container still handles Paper, Live and Terminal together.
 
-After startup, run diagnostics for the selected mode and inspect your sessions.
-Deploying preserves saved session statuses. A session left Running can recover
-when execution services restart; stop or pause it in the workspace before an
-update if it must remain inactive. Resume or redeploy through the normal UI.
-
-## 3. Diagnose startup and services
+## 3. Diagnostics and everyday commands
 
 ```sh
-python3 infra/shared/scripts/diagnostics.py --root . --mode development
 python3 infra/shared/scripts/diagnostics.py --root . --mode public
-python3 infra/shared/scripts/diagnostics.py --root . --mode private
-```
-
-The report contains disk free space, Compose validity, service state/health, missing required services, application configuration checks and fresh execution-worker heartbeats. Exit code `0` means these checks passed. It does not certify source entitlement, broker fills, AI output, email delivery, payment settlement or customer capacity.
-
-Pass the same Development `--profile` flags when those services are required. `ps --all` includes exited containers so a dead process cannot disappear from the report.
-
-For a failing Public report:
-
-```sh
-docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml ps --all
-docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml logs --tail 100 api execution orders outbox background compute research
-docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml exec api python manage.py check --deploy --fail-level WARNING
+docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml ps
+docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml logs --tail=100 execution
 docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml exec api python manage.py deployment_health --require-mode public --workers
 ```
 
-Use the corresponding mode paths and `--require-mode` in the other modes. Do not publish raw environment output or OAuth callback query strings in support messages. `docker compose config --quiet` checks configuration without displaying secret values; plain `config` displays resolved secrets.
+Replace both `public` path segments and the mode value for another mode. Pass your
+Development profiles to diagnostics so it knows which optional services to expect.
 
-## 4. Prepare backup encryption once
+Diagnostics reports free disk bytes, configuration validity, missing/unhealthy
+containers, Django checks and execution-worker readiness. Nonzero exit means a
+required check failed. It does not publish metrics to an external service.
+The plain `ps` and bounded `logs` commands help identify which process failed.
+The management command checks database/runtime Redis and the reported worker count.
 
-On a separate trusted recovery computer install [age](https://github.com/FiloSottile/age#installation), then run:
-
-```sh
-age-keygen -o quantnest-recovery.key
-```
-
-The command prints the **public recipient** (`age1...`). Put that public value on the server. Store `quantnest-recovery.key` offline in at least two protected locations; do not store your only decryption identity on the VM being backed up. Without the identity an encrypted backup cannot be restored.
-
-Backup requires available disk for temporary unencrypted dump/media/RDB files, the assembled archive and the encrypted result. Temporary files are restricted to the operator and removed when the command exits normally. Keep the backup directory on the protected data volume.
-
-## 5. Run a backup
-
-Local encryption works for all modes. Here is a Private example:
+To stop all application processes while retaining data services:
 
 ```sh
-python3 infra/shared/scripts/backup.py --root . --mode private --output /mnt/quantnest-data/backups --recipient age1YOUR_PUBLIC_RECIPIENT
+docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml stop api feed execution background compute beat research ingress
 ```
 
-Replace the recipient with your actual public value. Select `--mode public` or `--mode development` with the respective deployment root to back up those modes. Repeat `--recipient` to encrypt for more than one recovery identity.
+For Private add `broker-events`. For Development omit `ingress`, add `frontend`,
+and add any active `feed`, `research`, `broker-events` services using the same
+`--profile` flags. `stop` preserves containers and volumes. Do not use `down -v`
+as routine maintenance. Reuse the deployment helper to start the reviewed stack.
 
-A rejected Redis snapshot or failed encryption exits nonzero. The encrypted archive is published only after encryption succeeds. Filenames include UTC microseconds to separate independently started backups.
+## 4. Encrypted local backup
 
-The archive contains a PostgreSQL custom dump, private media, durable general/runtime Redis RDB snapshots and a checksum manifest. It does not contain environment files, encryption keys, TLS keys, frontend builds, local market buffers or the offline recovery identity. Keep those configuration/release records separately. Analytical caches and runtime files rebuild from authoritative data; they are not backup artifacts.
+For first-time Windows setup, file copying and a beginner recovery drill, follow
+[the recovery setup walkthrough](../RECOVERY-SETUP.md). The steps below are the
+command/format reference.
 
-The snapshots are sequential, not one distributed transaction. Online backups can have a recovery gap between the database and Redis captures. Recovery stays in an isolated data-only project; reconcile database intents/outbox records and, for Live, broker activity since the backup before starting the application.
-
-Public optional OCI upload, run on the authorized Oracle VM with the operations interpreter:
+Install `age` and generate a recovery identity once, on a protected operator machine:
 
 ```sh
-/opt/quantnest/operations/bin/python infra/shared/scripts/backup.py --root . --mode public --output /mnt/quantnest-data/backups --recipient age1YOUR_PUBLIC_RECIPIENT --namespace YOUR_OCI_NAMESPACE --bucket quantnest-encrypted-backups
+age-keygen -o /secure/quantnest-backup.key
+age-keygen -y /secure/quantnest-backup.key
 ```
 
-`--namespace` and `--bucket` must be supplied together. The host's instance principal needs scoped Object Storage access. The uploaded marker is written only after both archive and checksum uploads succeed. `--local-retention-days` defaults to three: cleanup removes only older confirmed-uploaded backups, retaining at least the two newest local archives. Unuploaded backups remain local; investigate failed uploads before they fill disk.
+The first command creates the private decryption key and prints its public recipient.
+The second prints the public recipient again. Keep the private key away from the
+deployment host; the backup command needs only its `age1...` public value.
 
-Verify the `.tar.age`, `.sha256` and (for OCI) `.uploaded` files. Copy/download the archive and checksum to the recovery computer. Keep archives from different modes separate: restore checks the recorded mode.
-
-## 6. Restore without touching the active installation
-
-Use a complete compatible release directory and its mode environment files. Preserve the original credential encryption key and signing key where existing encrypted credentials/signed records require them. Changing a database password for the **new** recovery database is possible; changing the credential encryption key loses access to encrypted application secrets.
-
-Ensure Docker has the matching backend image (or build it before recovery). Choose an unused recovery project name, then run on Linux:
+After stopping application services, with PostgreSQL still running:
 
 ```sh
-python3 infra/shared/scripts/restore.py --root . --mode private --backup /secure/backups/quantnest-TIMESTAMP.tar.age --identity /secure/quantnest-recovery.key --project quantnest-recovery-review-20261015 --confirm-empty-database
+python3 infra/shared/scripts/backup.py --root . --mode public --output /secure/backups --recipient age1YOUR_PUBLIC_RECIPIENT
 ```
 
-The same command works in PowerShell with `python` instead of `python3` and local file paths. No recovery environment variable is needed.
+| Argument | Meaning |
+| --- | --- |
+| `--output` | Local destination directory; make sure there is room for temporary plaintext and final encrypted files. |
+| `--recipient` | Public encryption key. Repeat to allow another recovery owner. No private key is used for encryption. |
 
-Use the archive's actual filename and matching mode. `--confirm-empty-database` does not bypass the empty-store checks. The script renders a temporary protected Compose configuration with:
+The helper refuses to run while application services are running. It takes a
+custom-format `pg_dump`, archives media from its named volume, hashes both files
+into a format-3 manifest, creates a tar archive, encrypts it with age and atomically
+moves the completed archive to `quantnest-<mode>-<UTC timestamp>.tar.age`.
+A `.sha256` sidecar contains the encrypted archive's hash. Plaintext temporary
+files are removed on normal completion/error; they must not be on shared storage.
 
-- only PostgreSQL, Redis and an API utility container;
-- no published host ports;
-- separate project volumes/networks and no production subnet;
-- no feed, execution, order, broker, frontend, ingress or scheduler service.
+Copy the encrypted archive and checksum off-host, for example with your existing
+SSH/SCP backup procedure. No cloud credentials, automatic deletion or upload SDK
+is included. Verify recovery regularly using a separate empty deployment. A backup
+stored only on the same failed disk is not a recovery copy.
 
-It decrypts and checks the manifest, uses TimescaleDB pre/post restore hooks, restores ownership to the non-superuser application role and rebuilds durable Redis AOF from RDB. The temporary configuration containing resolved secrets is then deleted. Only recovered volumes and data services remain running for inspection; the API, scheduler and execution workers are not started.
+Retain the corresponding code/image tag, protected environments, Django key and
+credential encryption keys separately. They are deliberately not bundled into
+the database/media archive. Redis queues/cache/leases and market buffers are not
+financial backups and are not restored by this tool.
 
-Recovery refuses writable host bind mounts, external/shared networks and external/custom-driver volumes. Those need an explicitly reviewed provider/storage recovery procedure. Standard mode stacks use local named volumes; generated recovery drops resolved resource names so it cannot accidentally reuse a production volume/network.
+## 5. Restore into an empty deployment
 
-Inspect them without starting the normal stack:
+Use a separate clean server or empty mode/project volumes. Configure the same
+mode's environment, preserving the original credential encryption key, and build
+the backend image without running `deploy.py` first (deployment would create tables):
 
 ```sh
-docker ps --all --filter label=com.docker.compose.project=quantnest-recovery-review-20261015
-docker volume ls --filter label=com.docker.compose.project=quantnest-recovery-review-20261015
+docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml build
+python3 infra/shared/scripts/restore.py --root . --mode public --backup /secure/backups/quantnest-public-TIMESTAMP.tar.age --identity /secure/quantnest-backup.key
 ```
 
-**Do not run a normal mode `up` command with the recovery project name**: it would introduce application producers and the mode's regular ports/subnet. The shared helpers reject a foreign COMPOSE_PROJECT_NAME. The restore script passes its protected, temporary configuration explicitly and deletes it afterwards. Promotion requires a separate reviewed migration/cutover on the destination host. Reconcile broker orders/fills, licence revision/renewal, pending intents, payment events and records created after the backup. Account-wide broker totals must not overwrite individual strategy positions.
+| Argument | Meaning |
+| --- | --- |
+| `--backup` | Existing format-3 encrypted archive matching the selected mode. |
+| `--identity` | Existing age private recovery key; never put its contents in environment files or command arguments. |
 
-## 7. Recover an earlier release
+Restore refuses running applications. It decrypts in a private temporary directory,
+checks allowed archive members, mode, manifest and hashes, then starts data services.
+It refuses any existing public-schema tables rather than replacing a working DB.
+The Timescale pre/post restore hooks preserve extension metadata; application table
+ownership is reassigned to `DB_USER`. Media paths are checked before extraction.
+Failures exit nonzero and leave applications stopped for inspection. A partially
+restored database is not retried over itself; use a new empty recovery deployment.
 
-```sh
-python3 infra/shared/scripts/restore.py --root /opt/quantnest/releases/PREVIOUS_RELEASE --mode private --backup /secure/backups/quantnest-TIMESTAMP.tar.age --identity /secure/quantnest-recovery.key --project quantnest-recovery-previous-release --confirm-empty-database
-```
+After restore, review recovered execution commands/checkpoints and reconcile real
+broker orders before enabling Live execution. Once reviewed, run the normal deploy
+helper to apply any later migrations, configure Site/static assets and start services.
+Recovery does not start execution automatically and does not restore old provider
+leases. Supply the backed-up encryption keys to decrypt stored broker credentials.
 
-This is restore with an explicitly selected previous release. It does not reverse Django migrations against active financial data and does not switch ingress or start trading. An old backup may omit later fills/payments/contract revisions; reconcile them before a cutover. Recover the old **matching** schema/release together.
+Format-2 backups used the former Redis snapshot machinery. Restore them with the
+matching older release's tools, then upgrade. This tool does not guess formats.
 
-## 8. Configuration changes and scaling
+## 6. Internal methods and responsibilities
 
-Changing a file does not change running containers. `restart` also does not reload Compose environment values; a reviewed deployment recreates affected containers. Back up before changing encryption keys, schema, topology or resource allocation.
+| Method/module | Why it exists |
+| --- | --- |
+| `compose_command()` | Builds one explicit argument list with mode/project/env-file/profile paths; no shell-built commands. |
+| `compose_configuration()` | Reads Compose JSON privately so consumers see the same effective topology. |
+| `running_application_services()` | Prevents backup/restore while API, workers or provider services can change state. |
+| `deploy()` | Owns the stopped-service upgrade sequence. It does not start hidden native processes. |
+| `service_status()` | Compares configured services against Docker's running/health state. |
+| `backup.create()` | Owns the consistent database/media snapshot and encrypted archive. |
+| `backup.file_hash()` | Streamed SHA-256 for archive/manifest integrity checks. |
+| `restore.safe_extract()` | Rejects unexpected file types and paths outside the private recovery directory. |
+| `restore.restore()` | Empty-database validation, Timescale restore, ownership and media recovery. |
+| `test_scripts.py` | Regression checks for stopped-service sequencing, profile consistency and safe backup/archive handling. Run `python3 -m unittest discover -s infra/shared/scripts -p 'test_*.py'`. |
 
-Scale on measured CPU, RSS, worker queue age, PostgreSQL locks/connections, Redis memory/persistence and receipt-to-order latency. Keep execution/order partition and node settings consistent. When changing topology, stop financial producers, run `python manage.py rebuild_execution_assignments` in an API utility container, then restart the complete topology. Calculation child count is `EXECUTION_WORKERS × CALCULATION_WORKERS` per node. Do not use `docker compose --scale execution`: this stack has one local runtime directory and a fixed notification address and requires explicit ownership/topology changes for another execution node.
-
-See [shared architecture](../README.md) and each mode's capacity/launch requirements before raising admission limits.
+Python script arguments use `Path` for filesystem values and strings for mode/profile
+names. Docker receives argument arrays; quoted shell snippets are limited to commands
+that expand container-owned PostgreSQL environment variables.

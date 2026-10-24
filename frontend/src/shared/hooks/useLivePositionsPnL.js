@@ -1,34 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
+import { useEnums } from "@/shared/context/EnumsContext";
 import { useWebSocket } from "./useWebSocket";
-
-const getPositionSymbol = (position) =>
-  position?.instrument?.sym_ticker ||
-  position?.instrument_sym_ticker ||
-  position?.instrument?.symbol ||
-  position?.instrument_symbol ||
-  position?.symbol ||
-  "";
-
-const safeNumber = (value, fallback = 0) => {
-  if (value === undefined || value === null || value === "") return fallback;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
-};
+import { isObservedQuote } from "../utils/marketData";
 
 /**
- * Hook to manage live PnL calculations for a list of positions.
- * Subscribes to market data ticks for all position symbols.
- *
- * @param {Array} positions - Array of position objects
- * @returns {Object} - { livePnLByPositionId, totals, getLivePrice }
+ * Calculate P&L from LivePosition serializer rows and the central quote store.
+ * Paper and Terminal adapters below supply this same row format.
  */
 export function useLivePositionsPnL(positions = []) {
-  const { subscribe, tickData } = useWebSocket();
-  const [liveTickPrices, setLiveTickPrices] = useState({});
+  const { values } = useEnums();
+  const sell = values.Side?.SELL;
+  const { subscribe, tickData, isConnected } = useWebSocket();
   const symbols = useMemo(
-    () => [...new Set((Array.isArray(positions) ? positions : [])
-      .filter((position) => position?.status !== "CLOSED")
-      .map(getPositionSymbol)
+    () => [...new Set(positions
+      .map((position) => position.instrument_symbol)
       .filter(Boolean))].sort(),
     [positions],
   );
@@ -38,90 +23,71 @@ export function useLivePositionsPnL(positions = []) {
   // when the instrument set changes, not on every refresh.
   useEffect(() => {
     const symbolsToSubscribe = symbolsKey ? symbolsKey.split("\u001f") : [];
-    const unsubscribe = symbolsToSubscribe.map((symbol) => subscribe(symbol, (tick) => {
-      const price = safeNumber(tick?.price ?? tick?.ltp, NaN);
-      if (!Number.isFinite(price) || price <= 0) return;
-      setLiveTickPrices((current) => current[symbol] === price
-        ? current
-        : { ...current, [symbol]: price });
-    }));
-    return () => unsubscribe.forEach((cleanup) => cleanup?.());
+    const unsubscribe = symbolsToSubscribe.map((symbol) => subscribe(symbol));
+    return () => unsubscribe.forEach((cleanup) => cleanup());
   }, [subscribe, symbolsKey]);
 
   // Calculate live data
-  const { livePnLByPositionId, totals, livePrices } = useMemo(() => {
+  return useMemo(() => {
     const livePnLByPositionId = {};
-    const livePrices = {};
     const resultTotals = {
       totalInvested: 0,
       totalUnrealizedPnL: 0,
       totalCurrentValue: 0,
     };
 
-    if (!positions || !Array.isArray(positions)) {
-      return { livePnLByPositionId, totals: resultTotals, livePrices };
-    }
-
     positions.forEach((pos) => {
-      if (pos.status === "CLOSED") return;
-
-      const symbol = getPositionSymbol(pos);
-      const quantity = safeNumber(pos.quantity);
-      const avgPrice = safeNumber(pos.average_price, safeNumber(pos.avg_price));
-
-      // Tick payloads carry canonical Fyers symbols and expose the LTP as price.
-      const tick = tickData[symbol];
-      const tickPrice = safeNumber(liveTickPrices[symbol] ?? tick?.price ?? tick?.ltp, NaN);
-      const hasLivePrice = Number.isFinite(tickPrice) && tickPrice > 0;
-      const livePrice = hasLivePrice ? tickPrice : safeNumber(pos.current_price, avgPrice);
-
-      livePrices[symbol] = livePrice;
-
-      // Calculate PnL based on side (LONG vs SHORT)
-      let calculatedPnl = 0;
-      const side = (pos.side || "").toUpperCase();
-
-      if (side === "LONG" || side === "BUY" || !side) {
-        calculatedPnl = (livePrice - avgPrice) * quantity;
-      } else if (side === "SHORT" || side === "SELL") {
-        calculatedPnl = (avgPrice - livePrice) * quantity;
-      }
-      const pnl = hasLivePrice
-        ? calculatedPnl
-        : safeNumber(pos.unrealized_pnl, calculatedPnl);
-      const calculatedPnlPercent = avgPrice > 0 && quantity > 0
-        ? (calculatedPnl / (avgPrice * quantity)) * 100
+      const quantity = Number(pos.quantity) * Number(pos.qty_multiplier ?? 1);
+      const avgPrice = Number(pos.avg_price);
+      const tickPrice = Number(tickData[pos.instrument_symbol]?.price);
+      const quote = tickData[pos.instrument_symbol];
+      const hasLivePrice = isConnected && isObservedQuote(quote)
+        && (!pos.mark_at || Date.parse(quote.timestamp) >= Date.parse(pos.mark_at));
+      const storedPrice = Number(pos.current_price);
+      const livePrice = hasLivePrice ? tickPrice : storedPrice > 0 ? storedPrice : avgPrice;
+      const calculatedPnl = (livePrice - avgPrice) * quantity * (pos.side === sell ? -1 : 1);
+      const pnl = hasLivePrice ? calculatedPnl : Number(pos.unrealized_pnl ?? calculatedPnl);
+      const invested = avgPrice * quantity;
+      const pnlPercent = invested > 0
+        ? (pnl / invested) * 100
         : 0;
-      const persistedPnlPercent = safeNumber(
-        pos.unrealized_pnl_pct,
-        safeNumber(pos.return_percent, calculatedPnlPercent),
-      );
 
       livePnLByPositionId[pos.id] = {
         pnl,
-        pnlPercent: hasLivePrice ? calculatedPnlPercent : persistedPnlPercent,
+        pnlPercent,
         livePrice,
         isLive: hasLivePrice,
       };
-
-      const invested = avgPrice * quantity;
 
       resultTotals.totalInvested += invested;
       resultTotals.totalUnrealizedPnL += pnl;
       resultTotals.totalCurrentValue += livePrice * quantity;
     });
 
-    return { livePnLByPositionId, totals: resultTotals, livePrices };
-  }, [liveTickPrices, positions, tickData]);
+    return { livePnLByPositionId, totals: resultTotals };
+  }, [positions, tickData, isConnected, sell]);
+}
 
-  const getLivePrice = (symbol) => {
-    return liveTickPrices[symbol] ?? tickData[symbol]?.price ?? tickData[symbol]?.ltp;
-  };
+export function usePaperPositionsPnL(positions = []) {
+  const rows = useMemo(() => positions.map((position) => ({
+    ...position,
+    instrument_symbol: position.instrument_sym_ticker,
+  })), [positions]);
+  return useLivePositionsPnL(rows);
+}
 
-  return {
-    livePnLByPositionId,
-    totals,
-    getLivePrice,
-    livePrices,
-  };
+export function useTerminalPositionsPnL(positions = []) {
+  const { values } = useEnums();
+  const buy = values.Side?.BUY, sell = values.Side?.SELL;
+  const rows = useMemo(() => positions.map((position) => ({
+    id: position.id,
+    instrument_symbol: position.instrument.sym_ticker,
+    quantity: Math.abs(position.quantity) * Number(position.instrument.qty_multiplier),
+    side: position.quantity < 0 ? sell : buy,
+    avg_price: position.average_price,
+    current_price: position.current_price,
+    mark_at: position.mark_at,
+    unrealized_pnl: position.unrealized_pnl,
+  })), [positions, buy, sell]);
+  return useLivePositionsPnL(rows);
 }

@@ -5,8 +5,8 @@ from collections import Counter
 IGNORED_FIELDS = {"id", "user", "user_id", "strategy", "rule_group", "watchlist_instrument", "created_at", "updated_at", "instrument_symbol", "instrument_name", "target_instrument_symbol", "target_underlying_symbol"}
 SECTIONS = {
     "rule_groups": "Trading rules", "watchlist_instruments": "Instruments and routes",
-    "position_sizing_rule": "Position sizing", "auto_disable_rules": "Auto-disable rules",
-    "time_rule": "Trading schedule", "special_event_filter": "Event restrictions",
+    "position_sizing_rule": "Position sizing",
+    "time_rule": "Trading schedule",
     "entry_order_config": "Entry settings", "exit_order_config": "Exit settings",
 }
 LABELS = {
@@ -40,7 +40,7 @@ def snapshot_changes(previous, current):
 
     def item_name(item, index, path):
         name = (item.get("name") or item.get("instrument_symbol")) if isinstance(item, dict) else None
-        label = {"Conditions": "Condition", "Execution routes": "Route", "Groups": "Group", "Auto disable rules": "Rule"}.get(path[-1], "Item")
+        label = {"Conditions": "Condition", "Execution routes": "Route", "Groups": "Group"}.get(path[-1], "Item")
         return name or f"{label} {index + 1}"
 
     def visit(old, new, path, section):

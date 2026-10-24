@@ -6,10 +6,6 @@ import { liveTradingApi } from "@/shared/services/liveTradingApi";
 const PAGE_SIZE = 25;
 const PNL_POSITION_PAGE_SIZE = 200;
 const emptyPage = () => ({ count: 0, next: null, previous: null, results: [] });
-const rowsFrom = (response) => {
-  const data = response?.data;
-  return Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
-};
 
 export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
   const [summary, setSummary] = useState(null);
@@ -35,7 +31,7 @@ export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
 
   const fetchSessions = useCallback(async () => {
     const response = await liveTradingApi.getSessions();
-    setSessions(rowsFrom(response));
+    setSessions(response.data);
   }, []);
 
   const fetchSummary = useCallback(async () => {
@@ -45,7 +41,7 @@ export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
 
   const fetchPositions = useCallback(async (page = positionsPage, allocation = positionAllocation) => {
     const response = await liveTradingApi.getPositions({ page, page_size: PAGE_SIZE, ...(allocation ? { allocation } : {}) });
-    setPositions(response.data?.results ? response.data : { ...emptyPage(), results: rowsFrom(response) });
+    setPositions(response.data);
     setPositionsPage(page);
   }, [positionAllocation, positionsPage]);
 
@@ -56,8 +52,8 @@ export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
 
   const fetchAllPositionsForPnL = useCallback(async () => {
     const firstResponse = await liveTradingApi.getPositions({ page: 1, page_size: PNL_POSITION_PAGE_SIZE });
-    const allPositions = rowsFrom(firstResponse);
-    const count = Number(firstResponse.data?.count ?? allPositions.length);
+    const allPositions = [...firstResponse.data.results];
+    const count = firstResponse.data.count;
     const pageCount = Math.ceil(count / PNL_POSITION_PAGE_SIZE);
     if (pageCount > 1) {
       const remainingPages = await Promise.all(
@@ -65,14 +61,14 @@ export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
           liveTradingApi.getPositions({ page: index + 2, page_size: PNL_POSITION_PAGE_SIZE }),
         ),
       );
-      remainingPages.forEach((response) => allPositions.push(...rowsFrom(response)));
+      remainingPages.forEach((response) => allPositions.push(...response.data.results));
     }
     setPnlPositions(allPositions);
   }, []);
 
   const fetchOrders = useCallback(async (page = ordersPage, status = orderStatus, allocation = orderAllocation) => {
     const response = await liveTradingApi.getOrders({ page, page_size: PAGE_SIZE, ...(status ? { status } : {}), ...(allocation ? { allocation } : {}) });
-    setOrders(response.data?.results ? response.data : { ...emptyPage(), results: rowsFrom(response) });
+    setOrders(response.data);
     setOrdersPage(page);
   }, [orderStatus, orderAllocation, ordersPage]);
 
@@ -83,7 +79,7 @@ export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
 
   const fetchTrades = useCallback(async (page = tradesPage, allocation = tradeAllocation) => {
     const response = await liveTradingApi.getTrades({ page, page_size: PAGE_SIZE, ...(allocation ? { allocation } : {}) });
-    setTrades(response.data?.results ? response.data : { ...emptyPage(), results: rowsFrom(response) });
+    setTrades(response.data);
     setTradesPage(page);
   }, [tradesPage, tradeAllocation]);
 

@@ -1,6 +1,6 @@
 import logging
-from common.enums import Side, OperandType
-from common.trading_utils import to_float, get_any_field
+import math
+from common.enums import Side, OperandType, QuantityType
 
 logger = logging.getLogger(__name__)
 
@@ -8,15 +8,14 @@ DEFAULT_SL_FALLBACK_PCT = 0.01  # 1% of entry price
 
 # ─── SL Distance Extraction ─────────────────────────────────────────
 
-def compute_sl_distance_from_config(strategy_config, entry_price):
+def compute_sl_distance_from_config(strategy_config: dict, entry_price: float) -> float:
     """
     Extract the effective stop-loss distance from a strategy's configuration.
-    Works with both dict snapshots (backtest) and Django model instances (paper).
+    Reads the immutable strategy snapshot used by every execution mode.
 
     Returns the SL distance in absolute price points, falling back to
     entry_price * DEFAULT_SL_FALLBACK_PCT if no SL rule is configured.
     """
-    entry_price = to_float(entry_price, 0.0)
     if entry_price <= 0:
         return max(entry_price * DEFAULT_SL_FALLBACK_PCT, 0.01)
 
@@ -27,7 +26,7 @@ def compute_sl_distance_from_config(strategy_config, entry_price):
     return max(entry_price * DEFAULT_SL_FALLBACK_PCT, 0.01)
 
 
-def derive_protection_levels(strategy_config, side, entry_price):
+def derive_protection_levels(strategy_config: dict, side: str, entry_price: float) -> dict:
     """
     Build static stop-loss / target levels that can be enforced by the app
     even when the broker adapter does not support native OCO/bracket orders.
@@ -35,8 +34,6 @@ def derive_protection_levels(strategy_config, side, entry_price):
     Dynamic rules such as indicator-based or time-based exits are flagged so
     the strategy engine can continue evaluating them from market data.
     """
-    entry_price = to_float(entry_price, 0.0)
-    side = Side.SELL if str(side).upper() == Side.SELL else Side.BUY
     if entry_price <= 0:
         return {
             "protected_stop_price": None,
@@ -47,31 +44,51 @@ def derive_protection_levels(strategy_config, side, entry_price):
             "has_dynamic_target": False,
         }
 
-    groups = get_any_field(strategy_config, "rule_groups", []) or []
+    groups = strategy_config.get("rule_groups", []) or []
     stop_candidates = []
     target_candidates = []
     stop_rule_types = []
     target_rule_types = []
+    stop_inclusive, target_inclusive = {}, {}
     has_dynamic_stop = False
     has_dynamic_target = False
     sl_distance = compute_sl_distance_from_config(strategy_config, entry_price)
 
     for group in groups:
-        group_type = get_any_field(group, "group_type") or get_any_field(group, "rule_type")
+        if not group.get('is_active', True):
+            continue
+        group_type = group['rule_type']
+        if group_type not in {'STOP_LOSS', 'TARGET'}:
+            continue
+        rules = _get_active_rules(group)
+        operator = 'stop_loss_group_operator' if group_type == 'STOP_LOSS' else 'target_group_operator'
+        exit_config = strategy_config.get('exit_order_config', {}) or {}
+        peers = [item for item in groups if item.get('is_active', True) and
+                 item['rule_type'] == group_type]
+        # Only compile a complete, unconditional full-exit predicate. All other
+        # groups retain their conditions in the shared rule evaluator.
+        eligible = (len(rules) == 1 and
+                    not (exit_config.get(operator, 'OR') == 'AND' and len(peers) > 1))
+        if not eligible:
+            has_dynamic_stop |= group_type == 'STOP_LOSS' and bool(rules)
+            has_dynamic_target |= group_type == 'TARGET' and bool(rules)
+            continue
         if group_type == "STOP_LOSS":
-            for rule in _get_active_rules(group):
+            for rule in rules:
                 level = _derive_static_stop_price(rule, side, entry_price)
                 if level is not None:
                     stop_candidates.append(level)
-                    stop_rule_types.append(get_any_field(rule, "operand_a_type"))
+                    stop_rule_types.append(rule.get("operand_a_type"))
+                    stop_inclusive[level] = stop_inclusive.get(level, False) or rule.get('comparison') == 'LTE'
                 else:
                     has_dynamic_stop = True
         elif group_type == "TARGET":
-            for rule in _get_active_rules(group):
+            for rule in rules:
                 level = _derive_static_target_price(rule, side, entry_price, sl_distance)
                 if level is not None:
                     target_candidates.append(level)
-                    target_rule_types.append(get_any_field(rule, "operand_a_type"))
+                    target_rule_types.append(rule.get("operand_a_type"))
+                    target_inclusive[level] = target_inclusive.get(level, False) or rule.get('comparison') == 'GTE'
                 else:
                     has_dynamic_target = True
 
@@ -80,6 +97,8 @@ def derive_protection_levels(strategy_config, side, entry_price):
     return {
         "protected_stop_price": stop_price,
         "protected_target_price": target_price,
+        "protected_stop_inclusive": stop_inclusive.get(stop_price, True),
+        "protected_target_inclusive": target_inclusive.get(target_price, True),
         "stop_rule_type": stop_rule_types[0] if stop_rule_types else None,
         "target_rule_type": target_rule_types[0] if target_rule_types else None,
         "has_dynamic_stop": has_dynamic_stop,
@@ -91,7 +110,7 @@ def derive_protection_levels(strategy_config, side, entry_price):
 def _extract_from_config(strategy_config, entry_price):
     """
     Try to extract SL distance from rule groups in a strategy config.
-    Supports both dict (backtest snapshot) and Django model (paper trading).
+    Reads STOP_LOSS groups from a strategy snapshot.
     """
     rule_groups = _get_rule_groups(strategy_config)
     if not rule_groups:
@@ -108,54 +127,29 @@ def _extract_from_config(strategy_config, entry_price):
 
 
 def _get_rule_groups(strategy_config):
-    """Get STOP_LOSS rule groups from config (dict or model)."""
-    if isinstance(strategy_config, dict):
-        return [
-            g for g in strategy_config.get("rule_groups", [])
-            if (get_any_field(g, "rule_type") or get_any_field(g, "group_type")) == "STOP_LOSS"
-            and get_any_field(g, "is_active", True)
-        ]
-    # Django model
-    if hasattr(strategy_config, "rule_groups"):
-        try:
-            return list(strategy_config.rule_groups.filter(
-                rule_type="STOP_LOSS", is_active=True
-            ))
-        except Exception:
-            return []
-    return []
+    return [group for group in strategy_config.get('rule_groups', [])
+            if group['rule_type'] == 'STOP_LOSS' and group.get('is_active', True)]
 
 
 def _get_active_rules(group):
-    """Get active rules from a rule group (dict or model)."""
-    if isinstance(group, dict):
-        rules = group.get("rules", [])
-        return [r for r in rules if get_any_field(r, "is_active", True)]
-    if hasattr(group, "rules"):
-        try:
-            return list(group.rules.filter(is_active=True))
-        except Exception:
-            return []
-    return []
+    return [rule for rule in group.get('rules', []) if rule.get('is_active', True)]
 
 
 def _sl_rule_to_distance(rule, entry_price):
     """Convert a single SL rule to an absolute price distance using the new Operand Architecture."""
-    op_a = get_any_field(rule, "operand_a_type")
+    op_a = rule.get("operand_a_type")
+    if (rule.get('operand_b_type') != OperandType.CONSTANT or
+            rule.get('comparison') not in {'LT', 'LTE'}):
+        return None
+    value = float(rule['operand_b_params']['value'])
+    if not math.isfinite(value) or value >= 0:
+        return None
     
     if op_a == OperandType.POSITION_PNL_PERCENTAGE:
-        val = 0.0
-        op_b_params = get_any_field(rule, "operand_b_params")
-        if isinstance(op_b_params, dict):
-            val = to_float(op_b_params.get("value"), 0.0)
-        return entry_price * (abs(val) / 100) if val != 0 else None
+        return entry_price * abs(value) / 100
 
     if op_a == OperandType.POSITION_PNL_POINTS:
-        val = 0.0
-        op_b_params = get_any_field(rule, "operand_b_params")
-        if isinstance(op_b_params, dict):
-            val = to_float(op_b_params.get("value"), 0.0)
-        return abs(val) if val != 0 else None
+        return abs(value)
 
     return None
 
@@ -170,27 +164,21 @@ def _derive_static_stop_price(rule, side, entry_price):
 
 
 def _derive_static_target_price(rule, side, entry_price, sl_distance):
-    op_a = get_any_field(rule, "operand_a_type")
+    if (rule.get('operand_b_type') != OperandType.CONSTANT or
+            rule.get('comparison') not in {'GT', 'GTE'}):
+        return None
+    value = float(rule['operand_b_params']['value'])
+    if not math.isfinite(value) or value <= 0:
+        return None
+    op_a = rule.get("operand_a_type")
     distance = None
     
     if op_a == OperandType.POSITION_PNL_PERCENTAGE:
-        val = 0.0
-        op_b_params = get_any_field(rule, "operand_b_params")
-        if isinstance(op_b_params, dict):
-            val = to_float(op_b_params.get("value"), 0.0)
-        distance = entry_price * (abs(val) / 100) if val != 0 else None
+        distance = entry_price * value / 100
     elif op_a == OperandType.POSITION_PNL_POINTS:
-        val = 0.0
-        op_b_params = get_any_field(rule, "operand_b_params")
-        if isinstance(op_b_params, dict):
-            val = to_float(op_b_params.get("value"), 0.0)
-        distance = abs(val) if val != 0 else None
+        distance = value
     elif op_a == OperandType.POSITION_RR_RATIO:
-        val = 0.0
-        op_b_params = get_any_field(rule, "operand_b_params")
-        if isinstance(op_b_params, dict):
-            val = to_float(op_b_params.get("value"), 0.0)
-        distance = (sl_distance * abs(val)) if (sl_distance and sl_distance > 0 and val != 0) else None
+        distance = sl_distance * value if sl_distance > 0 else None
 
     if distance is None:
         return None
@@ -200,7 +188,6 @@ def _derive_static_target_price(rule, side, entry_price, sl_distance):
 
 
 def _select_stop_price(prices, side):
-    prices = [to_float(price, 0.0) for price in (prices or []) if price is not None]
     if not prices:
         return None
     if side == Side.BUY:
@@ -209,12 +196,24 @@ def _select_stop_price(prices, side):
 
 
 def _select_target_price(prices, side):
-    prices = [to_float(price, 0.0) for price in (prices or []) if price is not None]
     if not prices:
         return None
     if side == Side.BUY:
         return min(prices)
     return max(prices)
+
+def calculate_quantity(sizing: dict, price: float, capital: float, *, lot_size: int, multiplier: float) -> int:
+    """Calculate order units from fixed/capital sizing and round down to whole lots."""
+    if not all(math.isfinite(value) and value > 0 for value in (price, multiplier, lot_size)):
+        return 0
+    method = sizing["sizing_method"]
+    if method == QuantityType.FIXED:
+        quantity = int(sizing["fixed_quantity"])
+    elif method == QuantityType.CAPITAL_BASED:
+        quantity = int(max(capital, 0) * float(sizing["capital_percentage"]) / 100 / (price * multiplier))
+    else:
+        raise ValueError(f"Unsupported sizing method: {method}")
+    return max(quantity, 0) // lot_size * lot_size
 
 
 

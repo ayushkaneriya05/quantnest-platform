@@ -1,6 +1,6 @@
 """Backtest creation, queue submission and user updates."""
 from copy import deepcopy
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -72,7 +72,7 @@ def backtest_configuration(run):
 
 
 @transaction.atomic
-def create_backtest(serializer, user, *, approved_snapshot=None):
+def create_backtest(serializer, user, *, approved_snapshot=None, charge_profile_snapshot=None):
     from django.contrib.auth import get_user_model
     from strategies.models import Strategy
     get_user_model().objects.select_for_update().get(pk=user.pk)
@@ -83,13 +83,16 @@ def create_backtest(serializer, user, *, approved_snapshot=None):
     snapshot_current = approved_snapshot is None
     if snapshot_current:
         approved_snapshot = StrategySnapshotService._serialize_strategy(strategy)
-    if not approved_snapshot.get("watchlist_instruments"):
-        raise ValidationError({"strategy": "Strategy has no watchlist instruments."})
-    if not any(group.get("rule_type") == "ENTRY" and group.get("is_active", True) and
-               any(rule.get("is_active", True) for rule in group.get("rules", []))
-               for group in approved_snapshot.get("rule_groups", [])):
-        raise ValidationError({"strategy": "Strategy needs at least one active entry rule."})
-    run = serializer.save(user=user, config_snapshot=approved_snapshot)
+    from strategies.services import StrategyDeploymentService
+    from common.costs import snapshot_charge_profile
+    draft = BacktestRun(config_snapshot=approved_snapshot, parameters=serializer.validated_data.get('parameters', {}))
+    try:
+        StrategyDeploymentService.validate_snapshot(backtest_configuration(draft), 'backtest')
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from None
+    costs = (snapshot_charge_profile(serializer.validated_data.get('charge_profile'))
+             if charge_profile_snapshot is None else deepcopy(charge_profile_snapshot))
+    run = serializer.save(user=user, config_snapshot=approved_snapshot, charge_profile_snapshot=costs)
     if snapshot_current and not run.strategy_version_id:
         version = StrategySnapshotService.create_snapshot(
             strategy, user=user, change_notes=f"Auto-snapshot for backtest: {run.name}",
@@ -116,37 +119,26 @@ def start_backtest(run):
 
 def estimate_source_workload(config, start_date, end_date):
     """Bound source-candle work using each market's calendar and strategy warmup."""
-    from instruments.models import Instrument
     from instruments.services import InstrumentResolver
     from marketdata.calendar import MarketSessionCalendar
-    from marketdata.services import MarketDataService
-    from marketdata.access import StrategyMarketDataService
+    from execution.compiler import strategy_requirements, source_windows
     if end_date < start_date or (end_date - start_date).days > 3660:
         raise ValidationError("Choose a valid test range of up to ten years.")
-    ids = {int(item["instrument_id"]) for item in config.get("watchlist_instruments", [])}
-    instruments = Instrument.objects.in_bulk(ids)
-    if not ids or set(instruments) != ids:
-        raise ValidationError("All saved instruments must still exist.")
     try:
-        InstrumentResolver.validate_execution_snapshot(config)
+        instruments = InstrumentResolver.validate_execution_snapshot(config)
     except ValueError as exc:
         raise ValidationError(str(exc))
     total, rows = 0, []
-    _, timeframes = StrategyMarketDataService.required_timeframes(config)
-    families = {"daily" if value in {"1D", "1W"} else "intraday" for value in timeframes}
     for instrument in instruments.values():
         calendar = MarketSessionCalendar.for_instrument(instrument)
-        required = MarketDataService.required_1m_candles(config, session_minutes=calendar.session_minutes)
         start = datetime.combine(start_date, time.min, tzinfo=calendar.zone)
-        warmup = calendar.warmup_start(start, required, include_weekly="1W" in timeframes)
+        end = datetime.combine(end_date, time.max, tzinfo=calendar.zone)
+        _, requirements, depths = strategy_requirements(config, calendar)
+        timeframes = frozenset(requirements)
+        windows = source_windows(timeframes, depths, calendar, start, end)
+        warmup = min(left for left, _ in windows.values())
         calendar.load_holidays(warmup.date(), end_date)
-        count, day = 0, warmup.date()
-        while day <= end_date:
-            if calendar.is_trading_day(day):
-                count += 1 if "daily" in families else 0
-                if "intraday" in families:
-                    count += max(0, int((calendar.session_close(day) - calendar.session_open(day)).total_seconds() // 60))
-            day += timedelta(days=1)
+        count = sum(calendar.source_count(source, left, right) for source, (left, right) in windows.items())
         total += count
         rows.append({"instrument_id": instrument.pk, "source_candles": count, "warmup_start": warmup.isoformat()})
     return {"instrument_candles": total, "start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "rows": rows}

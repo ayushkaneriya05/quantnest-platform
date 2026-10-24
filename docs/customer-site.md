@@ -32,7 +32,6 @@ contexts remain in frontend/src/shared/; that folder is application code.
 | Published plans/prices/limits/markets and feature descriptions | Backend commercial catalog | PlatformProvider, pricing, PlanMarkets, Billing |
 | Effective scope and contact identity | Public catalog response | Layout guards, footer, contact and account pages |
 | Support types/status labels | Backend customer_support/catalog.py | Public forms and workspace Support |
-| Privacy policy revision | Backend response | Consent forms/preferences |
 | Operand/timeframe/default choices | Backend common enums | EnumsContext, builder and builder reference |
 | Routes | AppRoutes.jsx | Router and build-generated route files |
 | Product explanations | features/site/content | Customer layouts and illustrations |
@@ -60,7 +59,7 @@ The home page proceeds through:
 2. The research → rules → historical test → Paper → review workflow.
 3. Direct access to all public feature pages.
 4. Conversational research explanation.
-5. Private installation and custom development offers.
+5. A separate custom development offering and an unavailable-to-customers Private notice.
 6. Authoritative Explore/Build/Pro pricing.
 7. FAQ and documentation.
 8. A final registration/contact action.
@@ -82,7 +81,6 @@ Other pages have different jobs:
 | Contact / feedback | How do I ask, report or suggest something? |
 | Privacy / terms / refunds | What responsibilities and rights apply? |
 | Changelog / status | What is current and what has the operator announced? |
-| Newsletter | How do I explicitly subscribe and confirm email? |
 
 Status/changelog content is editorial. It must not be mistaken for an external
 automated monitoring service.
@@ -105,7 +103,7 @@ automated monitoring service.
 - [site.css](../frontend/src/features/site/site.css) owns public-site presentation.
 
 Each feature has its own illustration. Controls explains sessions/security/activity;
-Private explains customer-owned execution. Generic workflow/configuration artwork
+Private displays an unavailable-to-customers notice. Generic workflow/configuration artwork
 should not be repeated across unrelated pages.
 
 Figures explain the workflow. They do not fabricate execution results or expose
@@ -113,35 +111,34 @@ working trading controls. Motion respects reduced-motion preference; explanatory
 selectors remain keyboard usable. Keep component layout responsive and text readable
 rather than enforcing fixed screenshot dimensions.
 
-## 5. Support, consent and payment actions
+## 5. Support and payment actions
 
 Public enquiries call /api/v1/public/enquiries/. Signed-in support uses the owned
 ticket APIs. Both use the same backend labels and shared HTTP error handling.
 Anonymous forms require the configured Turnstile action/hostname verification.
 
-Product update email consent is managed in Account or through the newsletter
-form. Submission does not imply confirmation; the provider/signed-return workflow
-must complete. Product usage and website visits are not tracked. Application error
-reporting accepts fixed categories without support or strategy content.
+Product usage and website visits are not tracked. Application error reporting
+accepts fixed categories without support or strategy content. Account settings
+provide data export and safe deactivation/deletion.
 
 Billing has Plan and renewal, Usage and limits, and Payments and invoices.
 The backend calculates checkout totals and verifies provider state. A successful
 browser callback is not authority to grant access.
 
-For detailed ticket replies, quotation acceptance, payment recovery, privacy actions
-and Private support authorization, follow Commercial operations.
+For detailed ticket replies, subscription payment recovery, privacy actions
+and personal deployment setup, follow Commercial operations.
 
 ## 6. Markets and Live communication
 
 Explore shows NSE stocks. Build/Pro show NSE stocks and **Coming soon** futures/
 options. The current catalog does not enable derivatives or provide a release date.
 
-Public plans are simulation products. Private explains supported Live execution of
-customer-defined logic in an agreed customer-owned installation. Broker access,
-qualification and activation are agreed separately.
+Public plans are simulation products. Customer Live and Private deployments are
+not offered. Personal Live code remains available only on the separate operator
+instance. Previous Private marketing source is archived outside the application bundle.
 
-Navigation keeps Broker Integration and Live Trading visible. AppLayout shows an
-execution-scope notice where appropriate. Charge Profiles belongs to Trading Tools,
+Navigation shows Broker Integration and Live Trading only when Live scope is
+enabled. Direct links still enforce the execution-scope notice in AppLayout. Charge Profiles belongs to Trading Tools,
 even though its retained route is /brokers/charge-profiles; it is not broker-owned.
 
 ## 7. Theme, responsive layout and account navigation
@@ -180,7 +177,7 @@ action feedback; keep the form and its draft available after a failed request.
 
 Field validation stays beside the relevant input. Failed content loads use
 `WorkspaceState` or the feature's persistent error/retry view. Saved execution
-statuses, licence restrictions and email confirmation results remain part of the
+statuses, account restrictions and email confirmation results remain part of the
 page content. Background polling should not repeatedly create toasts.
 
 Notifications are announced to assistive technology and stay visible above
@@ -226,7 +223,7 @@ production server.
 1. Update the owning backend catalog/metadata when changing data or entitlement.
 2. Update explanatory copy/illustrations to match actual functionality.
 3. Add routes in AppRoutes; add feature/doc content in its owning directory.
-4. Use the shared API/session/consent components.
+4. Use the shared API and session components.
 5. Keep provider/secrets/hosting details out of ordinary product copy except where
    relevant to a customer's decision or privacy disclosure.
 6. Review phone/tablet/desktop widths, both themes, keyboard focus and reduced motion.

@@ -1,3 +1,4 @@
+import { formatDateTime } from "@/shared/utils/formatters";
 import PropTypes from "prop-types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
@@ -40,7 +41,7 @@ export default function LogDetailsModal({ log, open, onOpenChange }) {
             </div>
             <div>
               <p className="text-muted-foreground text-xs uppercase tracking-wider">Timestamp</p>
-              <p className="font-medium whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</p>
+              <p className="font-medium whitespace-nowrap">{formatDateTime(log.created_at)}</p>
             </div>
             <div>
               <p className="text-muted-foreground text-xs uppercase tracking-wider">Latency</p>

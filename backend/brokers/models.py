@@ -1,6 +1,10 @@
 from django.conf import settings
-from django.db import models
-from core.encryption import EncryptedTextField
+from django.contrib.auth import get_user_model
+from django.db import models, transaction
+from django.db.models.deletion import ProtectedError
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from common.encryption import EncryptedTextField
 from django.utils import timezone
 
 from common.enums import BrokerName
@@ -15,10 +19,8 @@ class BrokerCredential(BaseTimestampModel):
     )
     broker_name = models.CharField(max_length=20, choices=BrokerName.choices)
     label = models.CharField(max_length=80, blank=True)
-    client_id = models.CharField(max_length=120)
-    api_key = models.TextField(blank=True)
-    api_secret = EncryptedTextField(blank=True)
-    totp_secret = EncryptedTextField(blank=True)
+    client_id = models.CharField(max_length=120, blank=True, help_text="Owner's broker App ID, distinct from the trading account ID")
+    api_secret = EncryptedTextField(blank=True, help_text="Owner's App Secret, encrypted at rest")
     permissions = models.JSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False)
@@ -87,10 +89,10 @@ class BrokerFundsSnapshot(BaseTimestampModel):
     available_margin = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     used_margin = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     collateral = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    withdrawable_balance = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    withdrawable_balance = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     net_equity = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     raw_payload = models.JSONField(default=dict, blank=True)
     snapshot_time = models.DateTimeField(default=timezone.now)
 
@@ -144,13 +146,17 @@ class BrokerChargeProfile(BaseTimestampModel):
         help_text='STT on equity intraday (sell side only) as % of turnover'
     )
     stt_futures_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.02,
+        max_digits=6, decimal_places=4, default=0.05,
         help_text='STT on futures (sell side only) as % of turnover'
     )
     stt_options_sell_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.1,
+        max_digits=6, decimal_places=4, default=0.15,
         help_text='STT on options (sell side, on premium) as % of turnover'
     )
+    ctt_futures_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=0,
+        help_text='Configured commodity futures sell tax rate; set the rate applicable to the contract')
+    ctt_options_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=0,
+        help_text='Configured commodity options sell tax rate; set the rate applicable to the contract')
 
     # --- Exchange Transaction Charges ---
     exchange_txn_pct = models.DecimalField(
@@ -186,7 +192,36 @@ class BrokerChargeProfile(BaseTimestampModel):
         db_table = 'broker_charge_profiles'
         ordering = ['-is_default', '-created_at']
         unique_together = ['user', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'], condition=models.Q(is_default=True),
+                name='unique_default_charge_profile_per_user',
+            ),
+        ]
+
+    @transaction.atomic
+    def set_default(self):
+        """Switch the user's default as one transaction."""
+        get_user_model().objects.select_for_update().get(pk=self.user_id)
+        type(self).objects.filter(user_id=self.user_id, is_default=True).exclude(pk=self.pk).update(is_default=False)
+        self.is_default = True
+        self.save(update_fields=['is_default', 'updated_at'])
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        get_user_model().objects.select_for_update().get(pk=self.user_id)
+        self.refresh_from_db(fields=['is_default'])
+        if self.is_default:
+            raise ProtectedError('Set another charge profile as default before deleting this one.', [self])
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         default_tag = ' [Default]' if self.is_default else ''
         return f"{self.name}{default_tag} ({self.user.username})"
+
+
+@receiver(post_save, sender=settings.AUTH_USER_MODEL, dispatch_uid='brokers.create_default_charge_profile')
+def create_default_charge_profile(sender, instance, created, raw, **kwargs):
+    """Provision simulation costs for every new account, including social signups."""
+    if created and not raw:
+        BrokerChargeProfile.objects.create(user=instance, name='QuantNest', is_default=True)

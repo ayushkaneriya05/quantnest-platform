@@ -1,12 +1,17 @@
 # QuantNest: third-party configuration and launch guide
 
-**Configuration review: 16 October 2026.** Read this with the [implementation plan](implementation-plan.md), [commercial operations guide](commercial-operations.md) and [runtime reference](execution-technical-reference.md). For complete host commands and each script's purpose, start with the [three-mode infrastructure guides](../infra/README.md). This document owns external account setup; infrastructure READMEs own deployment commands.
+For the ordered beginner procedure, use [Start here](../infra/START-HERE.md)
+and [Integration setup](../infra/shared/INTEGRATIONS.md). The mode-specific
+`SETUP.md` files own first-deployment instructions; this document retains the
+deeper provider and broker contract reference.
+
+**Configuration review: 16 October 2026.** Read this with the [implementation plan](implementation-plan.md), [commercial operations guide](commercial-operations.md) and [Live trading guide](live-trading.md). For complete host commands and each script's purpose, start with the [three-mode infrastructure guides](../infra/README.md). This document owns external account setup; infrastructure READMEs own deployment commands.
 
 This guide distinguishes preparing software from activating external accounts. No merchant account, domain ownership, data permission, Live approval or deployed recovery test is inferred from working code. Configure test accounts first. Keep real secrets out of Git, screenshots, tickets and browser build variables.
 
 Use [Commercial operations](commercial-operations.md) for database initialization,
-feature controls, no-code Public plan changes and Private licence renewal, operator actions and
-the frontend-to-backend lifecycle of billing, support, consent and licensing.
+feature controls, no-code Public plan changes and personal Private setup, operator actions and
+the frontend-to-backend lifecycle of billing, support, account privacy and deployment.
 Migrations create launch terms; provider identifiers and
 customer contracts must be configured by the operator. Keep permission evidence
 in operating records rather than application approval rows.
@@ -18,35 +23,30 @@ in operating records rather than application approval rows.
 | Public site and React workspace | One Cloudflare Pages project | Static pages, explicit application rewrites and scoped backend proxy |
 | API, PostgreSQL, Redis, workers, market feed and Paper | Oracle A1 Ubuntu ARM64 | Persistent application services |
 | Private AI service | Oracle private container/network | Paid Gemini calls and authenticated internal tools |
-| Licence/release private keys | Oracle Vault | Signing; installations receive only public verification keys |
-| Backups | Oracle Object Storage | Encrypted recovery artifacts; site illustrations are bundled assets |
+| Backups | Operator-managed off-host storage | age-encrypted PostgreSQL/media archives |
 | Payments | Razorpay | Captured payments, mandates, refunds and authoritative billing periods |
-| Email | Brevo | Existing SMTP, authenticated delivery events, newsletter confirmation and inbound support replies |
+| Email | Brevo | SMTP for account and support notifications |
 | Sign-in | Google OAuth | Existing redirect-based OAuth flow |
 | Application errors | Application logs | Fixed error categories; no external error service |
 | Host monitoring | Oracle Monitoring and Notifications | Readiness, capacity, persistence and backup alarms |
 | Historical/streaming observations | Existing FYERS source | Retained pipeline, with purpose-specific permissions |
 
-Private customer hosts follow [Private deployment](../infra/private/README.md) on
-their own Linux/Docker platform. They do not need an Oracle account for local
-licence verification. Central signing/backup/monitoring setup below applies to
-the Public operator; customer host monitoring/backup ownership is agreed separately.
+The personal Private host follows [Private deployment](../infra/private/README.md).
+It has no central activation dependency. Public and personal hosting use separate secrets, data and backups.
 
-Configure integrations in dependency order: canonical domain/gateway → database
-and email → operator authentication and data preparation → approved AI/forms →
-payments → Private signing/distribution when offering that service. Google sign-in,
-newsletter sync and inbound email are optional. Leave their groups unconfigured
-until you intend to support those workflows; basic support still works in-app.
+Configure the domain/gateway first, then database/email, operator authentication
+and market data, AI/forms, and finally payments. Google sign-in can be configured
+when needed. Customer Support replies use the workspace, with SMTP notifications.
 
-Public Workspace ends at simulated Paper. Private Live activation is separately qualified. Terminal, Paper and Live records remain distinct.
+Public Workspace ends at simulated Paper. Personal Live uses its own broker authorization; customer Live is not offered. Terminal, Paper and Live records remain distinct.
 
 ### Initial identity
 
 - Planned domain: `quantnest.site`; it has not yet been purchased or verified.
 - Working business name: QuantNest. This is not a claim of incorporation or trademark registration.
 - Initial contact: `ayushkaneriya05@gmail.com`.
-- Support hours: Monday–Friday, 10 am–6 pm IST, with no response-time SLA.
-- After buying the domain, a Brevo-verified sending address does **not** require running your own email server. A real receiving inbox or Brevo inbound domain is a separate configuration.
+- Support hours: Mondayâ€“Friday, 10 amâ€“6 pm IST, with no response-time SLA.
+- After buying the domain, a Brevo-verified sending address does **not** require running your own email server. A receiving inbox is separate from sending mail; customers reply to tickets through workspace Support.
 
 ## 2. Prepare accounts and a configuration inventory
 
@@ -54,88 +54,32 @@ Public Workspace ends at simulated Paper. Private Live activation is separately 
 2. Keep billing/test and production credentials separate. Use separate callback URLs and provider secrets for staging.
 3. Record the owner, purpose, expiry and rotation procedure for every credential.
 4. Choose one mode and copy only its environment examples to untracked `backend.env` and `research.env` files. The separate Compose stacks and mode boundaries are documented in [the infrastructure guide](../infra/README.md). Empty values mean an integration is not configured; do not replace them with fake production secrets.
-5. Review actual domain/legal/tax/merchant/source/AI arrangements and keep the evidence in your operating records. Publish reviewed plan prices/allowances through Commercial → Catalog revisions.
+5. Review actual domain/legal/tax/merchant/source/AI arrangements and keep the evidence in your operating records. Publish reviewed plan prices/allowances through Commercial â†’ Catalog revisions.
 6. Keep BILLING_ENABLED=False until merchant configuration, webhook acceptance and capacity are ready.
 7. Use synthetic data and the Live execution scope disabled while preparing the deployment.
 
-`DEBUG` is a Boolean setting: use `DEBUG=False` for production. Set the separate `QUANTNEST_DEPLOYMENT_MODE` value to `public` or `private`; do not put an environment name such as `release` in `DEBUG`. Use `infra/development` only on developer machines, `infra/public` for the hosted Paper product, and `infra/private` for a licensed customer-owned installation. Do not combine a mode's Compose file with another mode's environment files.
+`DEBUG` is a Boolean setting: use `DEBUG=False` for production. Set the separate `QUANTNEST_DEPLOYMENT_MODE` value to `public` or `private`; do not put an environment name such as `release` in `DEBUG`. Use `infra/development` only on developer machines, `infra/public` for the hosted Paper product, and `infra/private` for a personal production instance. Do not combine a mode's Compose file with another mode's environment files.
 
-Only public `VITE_` settings belong in the React browser build. They must never contain payment secrets, SMTP passwords, Gemini keys, activation tokens, database credentials or OCI private keys. Compose supplies internal service URLs and mode policy; use the selected mode's examples rather than merging unrelated provider/operator variables.
+Only public `VITE_` settings belong in the React browser build. They must never contain payment secrets, SMTP passwords, Gemini keys, database credentials or OCI private keys. Compose supplies internal service URLs and mode policy; use the selected mode's examples rather than merging unrelated provider/operator variables.
 
-## 3. Oracle Cloud Infrastructure
+## 3. Linux host and recovery storage
 
-### 3.1 Tenancy, region and resource budget
+Prepare a Linux Docker host with a stable address, persistent disk and enough
+memory for the configured limits and image builds. An Oracle VM is one hosting
+option; provision it through the console using your actual tenancy capacity and
+budget. Application deployment does not require Terraform, Vault, OCI SDKs or
+instance-principal IAM policies.
 
-1. Register/sign in to OCI. Enable MFA for the tenancy administrator.
-2. Choose the tenancy's **home region** and verify Always Free eligibility and actual quotas in the Console.
-3. Create a `quantnest-production` compartment. Keep staging resources/credentials separately scoped.
-4. Prepare one Ubuntu ARM64 `VM.Standard.A1.Flex` instance with **2 OCPUs and 12 GB RAM**, matching the agreed host.
-5. Use a 50 GB boot volume and a 150 GB data volume only where the actual tenancy confirms the free allocation.
-6. Enable usage/budget alerts and compartment quotas. Review the cost estimate before creating any resource. Capacity availability, free quotas and UI labels can change.
-7. Keep the deployment conservative: one numerical calculation worker and one heavy compute queue worker initially. Measure the host before increasing admission.
+Install Docker/Compose, Python 3.12 and age. Restrict administration access and
+open 80/443 for Caddy HTTPS. Database/Redis/research ports stay private. For Public,
+keep the Pages gateway token configured; for Private use the direct personal
+Caddy hostname. Environment files are managed by the operator and kept out of Git.
 
-Oracle's current quotas and reclamation conditions are described in [Always Free resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm). Free infrastructure is not an uptime guarantee. Do not generate artificial activity to avoid reclamation.
-
-### 3.2 Network and host access
-
-1. Create a VCN, subnet, Internet Gateway and appropriate route table.
-2. Allow inbound SSH only from your administrator IP/CIDR. Use an SSH key, disable password authentication and keep the private key in your password manager.
-3. Reserve a stable public address for the accepted API/source arrangement.
-4. Expose only HTTPS ingress. PostgreSQL, Redis, research endpoints and execution transports must have no public published ports.
-5. Restrict origin access at the firewall/security-group layer where feasible and enforce the configured edge token at application ingress.
-6. Set host firewall rules consistently with the OCI security list/NSG. An OCI rule alone does not configure the Linux firewall.
-7. Mount the data volume at the documented deployment path. Verify its device/UUID and ownership before formatting or mounting; never run a formatting command against an unverified device.
-8. Use Ubuntu 24.04 ARM64 and verify `uname -m` reports ARM64/aarch64. After mounting the verified data disk at `/mnt/quantnest-data`, run `sudo bash infra/public/scripts/bootstrap_host.sh /mnt/quantnest-data /opt/quantnest/current`. It installs Docker/Compose, age, the locked OCI operations environment and timer units, and moves Docker's configured data root onto the mounted disk for a fresh host. It does not format a device or migrate an existing Docker installation.
-9. Copy `infra/public/operations.env.example` to `/etc/quantnest/operations.env`; give the `quantnest` service user read access and restrict it to mode 600. Create the application environment files directly from the Public examples, owned by the deployment operator with mode 600. Ensure the service user can read the release and its mode environment files.
-10. Start the reviewed stack with `python infra/shared/scripts/deploy.py --root . --mode public --build`. Run diagnostics, start `quantnest-backup.service` once and verify its uploaded marker. Then enable `quantnest-backup.timer` and `quantnest-monitor.timer` with `systemctl enable --now`. Confirm the OCI alert subscription before relying on alarms. The timer operations environment is separate from container app secrets.
-
-### 3.3 Storage and backups
-
-1. Create a private Object Storage bucket for backups in the production compartment.
-2. Keep public access disabled. Encrypt backup files before upload; retain the decryption identity outside the VM.
-3. Configure retention/lifecycle to fit the actual storage quota. The shared archive contains the database (including billing/outbox and local licence records), private media and general/runtime Redis snapshots. Preserve environment files, activation/encryption credentials, public verification keys, TLS material and the exact release separately; they are not included in that archive. There is no separate licence-state volume.
-4. Public workflow illustrations and branding are bundled frontend assets. No public media bucket or video-hosting configuration is required for the current customer site.
-5. Restore to an isolated environment and verify financial records and runtime recovery. A successful upload is not a tested backup.
-
-The shared restore command uses the Timescale pre/post-restore hooks and restores application ownership after administrator-led recovery. Follow the [TimescaleDB recovery sequence](https://www.tigerdata.com/docs/deploy/self-hosted/backup-and-restore/logical-backup) and test the encrypted format-2 archive against an empty recovery project before production use.
-
-See [Object Storage documentation](https://docs.oracle.com/en-us/iaas/Content/Object/Concepts/objectstorageoverview.htm) and [pre-authenticated requests](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingpreauthenticatedrequests.htm).
-
-### 3.4 Instance principals and permissions
-
-1. Create a dynamic group matching only the intended production instance/compartment.
-2. Give narrowly scoped access to the specific backup bucket, licence/release signing keys and monitoring namespace.
-3. Do not grant `manage all-resources in tenancy` to the application.
-4. Keep separate principals/roles for licence signing, release signing, backups and provisioning when practical.
-5. Verify that the runtime can perform its required operation and is denied access to an unrelated bucket/key/secret.
-6. Avoid embedding a broad OCI user API private key inside containers. Instance principals use the instance's accepted identity.
-
-Read [instance-principal authentication](https://docs.oracle.com/en-us/iaas/Content/Identity/Tasks/callingservicesfrominstances.htm). An instance principal is shared by processes able to access the instance identity; network/container isolation and IAM scope still matter.
-
-### 3.5 Vault, licence signing and rotation
-
-1. Create a standard shared Vault in the approved compartment; check pricing before selecting a dedicated/virtual-private vault.
-2. Create an HSM-protected **ECDSA P-256** licence key. Keep software-release signing on a separate key.
-3. Record the key OCID, key-version OCID and cryptographic endpoint.
-4. Set `OCI_LICENSE_KEY_ID`, `OCI_LICENSE_KEY_VERSION` and `OCI_SIGNING_ENDPOINT` in the Public backend environment. The SDK derives its region from the instance principal. Put the separate release key's `OCI_RELEASE_KEY_ID`, `OCI_RELEASE_KEY_VERSION` and `OCI_RELEASE_SIGNING_ENDPOINT` in the host operations environment; the [release script guide](../infra/private/scripts/README.md) gives the exact signing command.
-5. Export the public verification key for that exact version. Do not export or distribute a private signing key.
-6. Store installation verification keys as a JSON mapping from key-version identifier to PEM public key, referenced by `LICENSE_PUBLIC_KEYS_FILE`.
-7. The signer uses SHA-256, converts OCI's ECDSA DER signature to the standard 64-byte JWS representation, and produces ES256 tokens.
-8. Issue a test lease and verify it locally using the distributed public key. Test wrong installation IDs, altered payloads, stale revisions and unknown keys.
-9. Rotation: publish the new public key before issuing with the new version; keep valid older public keys through the overlap period. Track key-version service limits.
-10. Keep licences and secrets out of public Object Storage, support tickets and application error events.
-
-Sources: [OCI signing](https://docs.oracle.com/en-us/iaas/Content/KeyManagement/Tasks/usingkeys_topic-To_sign_data_by_using_your_Vault_master_encryption_key.htm), [Python signing contract](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/key_management/models/oci.key_management.models.SignDataDetails.html).
-
-### 3.6 Configuration, monitoring and infrastructure ownership
-
-1. Create application environment files from the selected mode's examples on the host and restrict their ownership/permissions.
-2. There is no automatic Vault secret-bundle fetcher in this implementation. Vault signing uses the configured signing key through instance principals; ordinary application secrets remain operator-managed. If adding an external secret manager later, design its startup/rotation behavior explicitly.
-3. Keep environment files out of Git, Terraform variables/state, container images and browser builds. Preserve encryption/signing verification material through recovery. Never fetch secrets during tick evaluation.
-4. Set alarms for VM memory/CPU, volume capacity, database health, Redis persistence, queue age, worker heartbeat and backup failure.
-5. Keep infrastructure logs and sanitised application diagnostics separate. Rotate/bound local logs.
-6. Use Resource Manager for reviewed infrastructure code. Pin the OCI provider, inspect its plan, and apply only the reviewed free-eligible resources. Keep state private.
-7. Test rebuilding the instance from the repository, configured secrets and encrypted backup rather than depending on the original VM remaining available.
+Follow [Public setup](../infra/public/README.md) or
+[Private setup](../infra/private/README.md). The
+[shared runbook](../infra/shared/scripts/README.md) documents encrypted database/media
+backups, an off-host copy and empty-database recovery. Keep encryption keys and
+reviewed image tags separately. No cloud upload or monitoring timer is installed.
 
 ## 4. Cloudflare: domain, Pages, TLS and proxy
 
@@ -144,7 +88,7 @@ Sources: [OCI signing](https://docs.oracle.com/en-us/iaas/Content/KeyManagement/
 1. Purchase the domain only after completing name/trademark checks appropriate to your business.
 2. Add it to Cloudflare and follow the registrar's nameserver instructions. Verify ownership and propagation.
 3. Choose one canonical public origin, for example `https://quantnest.site`. Redirect `www` consistently.
-4. Give the Oracle ingress an origin hostname with a valid TLS certificate. Use strict TLS verification rather than disabling certificate checks.
+4. Give the backend ingress a DNS-only origin hostname pointing at the Docker host. Open 80/443 so Caddy can obtain its publicly trusted certificate.
 5. Create email DNS records only from the verified Brevo/domain setup instructions; do not guess SPF/DKIM/MX values.
 
 ### 4.2 One Pages project
@@ -181,7 +125,7 @@ Watch actual Functions requests and CPU usage, including APIs and reconnects. Co
 1. Create a Turnstile widget for the exact staging/production hostnames.
 2. Put its site key in `VITE_TURNSTILE_SITE_KEY` and its secret only in Django `TURNSTILE_SECRET_KEY`.
 3. Set `TURNSTILE_HOSTNAMES` to the exact accepted hosts, including a Pages preview hostname only for the isolated preview environment.
-4. Enquiry forms use action `enquiry`; newsletter forms use action `newsletter`.
+4. Enquiry forms use action `enquiry`.
 5. Test missing, expired, reused and wrong-host/action responses. Django validates them using Siteverify, not just a browser checkbox.
 6. Failed verification should preserve the entered form and offer retry/contact details.
 
@@ -201,8 +145,8 @@ See [server-side validation](https://developers.cloudflare.com/turnstile/get-sta
 ### 5.2 Monthly provider plans
 
 1. Create monthly Build and Pro plans with interval one, INR currency and the reviewed checkout total.
-2. The launch seed base amounts are ₹499 and ₹1,499. Read the active catalog revision rather than assuming these never change; add only the approved applicable tax.
-3. Record each provider plan ID in Operations Admin → Price mappings, linked to the immutable catalog revision, plan, total in paise and tax basis points.
+2. The launch seed base amounts are â‚¹499 and â‚¹1,499. Read the active catalog revision rather than assuming these never change; add only the approved applicable tax.
+3. Record each provider plan ID in Operations Admin â†’ Price mappings, linked to the immutable catalog revision, plan, total in paise and tax basis points.
 4. Fetch/verify the provider plan before checkout. A mismatched amount/currency/interval is rejected.
 5. Protect the founding cohort's accepted price; a new amount may need a new provider plan and renewed mandate authorisation.
 6. Do not edit a purchased catalog revision. Publish a new revision for changes and preserve current paid-period terms.
@@ -242,7 +186,7 @@ See [server-side validation](https://developers.cloudflare.com/turnstile/get-sta
 
 The provider's **Live payment mode is unrelated to Live trading capability**. Activating merchant payments does not approve broker execution.
 
-## 6. Brevo: keep SMTP and add service workflows
+## 6. Brevo SMTP
 
 ### 6.1 Existing SMTP
 
@@ -252,42 +196,9 @@ The provider's **Live payment mode is unrelated to Live trading capability**. Ac
 4. Set the existing Django `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` and `DEFAULT_FROM_EMAIL` using the Brevo SMTP values.
 5. Use the SMTP key for SMTP, not an assumed account login password or API key.
 6. Test registration verification, password reset and service notifications with an authorised test address.
-7. Keep the Celery default worker running for support emails and newsletter updates. These tasks retry failures up to five times; check worker logs when retries are exhausted. A failure to publish an optional email is logged, while the saved ticket/reply remains available in the workspace.
+7. Keep the Celery background worker running for support emails. These tasks retry failures up to five times; check worker logs when retries are exhausted. A failure to publish an optional email is logged, while the saved ticket/reply remains available in the workspace.
 
-### 6.2 API and authenticated delivery events
-
-1. Create a scoped Brevo API key; put it only in `BREVO_API_KEY`.
-2. Configure a webhook to `/api/v1/support/webhooks/brevo/` for the reviewed delivery/marketing events.
-3. Configure Brevo's supported bearer-token authentication. Set the same dedicated token in `BREVO_WEBHOOK_TOKEN`.
-4. Test a request without the token and with the wrong token; both must fail.
-5. Test a duplicate event, hard bounce and unsubscribe. Marketing withdrawal must not disable essential security/service messages.
-6. Track provider delivery events in Operations Admin → Customer support → Email events, and task errors in Celery logs.
-
-Use [Brevo's secured webhook mechanism](https://developers.brevo.com/docs/secured-webhooks); do not assume Razorpay-style webhook signatures.
-
-### 6.3 Newsletter double opt-in
-
-1. Create a dedicated marketing list and approved double-opt-in template.
-2. Record `BREVO_NEWSLETTER_LIST_ID` and `BREVO_DOI_TEMPLATE_ID`.
-3. Keep newsletter consent separate from registration, checkout and service communication.
-4. The form records the policy revision and pending consent, then queues the Brevo confirmation request.
-5. Follow the confirmation email. The return route verifies the signed confirmation and provider list/blacklist state.
-6. Test confirmation expiry, a reused link, unsubscribe and later withdrawal from account settings.
-7. Do not import non-consenting support/custom-development contacts into the marketing list.
-
-[Brevo double-opt-in API](https://developers.brevo.com/reference/create-doi-contact).
-
-### 6.4 Inbound support replies
-
-1. After acquiring the domain, choose a receiving subdomain such as `reply.quantnest.site`.
-2. Configure it using Brevo's inbound parse instructions and exact supplied MX records. This is not the same as verifying an SMTP sender.
-3. Set `BREVO_INBOUND_DOMAIN` and configure the authenticated inbound webhook at `/api/v1/support/webhooks/brevo-inbound/`.
-4. Support acknowledgements/staff replies use a bounded signed Reply-To local part identifying only that ticket.
-5. Test an actual reply, a wrong token, a duplicate Message ID, an unrelated recipient and an oversized payload.
-6. Inbound email never signs someone in or assigns account ownership based only on the sender address.
-7. Attachments/external URLs are not automatically downloaded. Keep broker secrets out of correspondence.
-
-[Brevo inbound parsing](https://developers.brevo.com/docs/inbound-parse-webhooks).
+Customers reply through workspace Support; staff reply in Admin. Brevo SMTP sends the existing support notifications. No inbound email webhook or receiving domain is required by the application.
 
 ## 7. Google OAuth
 
@@ -329,6 +240,15 @@ Use [Brevo's secured webhook mechanism](https://developers.brevo.com/docs/secure
 6. Approve only those `data_*` purposes actually covered. A working token is not redistribution permission.
 7. Public explanatory illustrations do not load market data or open trading sockets.
 
+The FYERS adapter admits subscriptions after a successful server `cn` message,
+which the [FYERS Data Socket documentation](https://fyers.in/api-docs/v3/api/websockets/data-socket/overview/data-socket-connect-and-subscribe/)
+identifies as a connection message. This avoids sending subscriptions before a slow
+SDK reconnect actually opens. Reauthentication resets cumulative-volume baselines
+and forces history preparation before the feed is considered ready for execution.
+The subscription thread's heartbeat is separate from each symbol's observations.
+Inspect subscription state and incoming ticks when diagnosing frozen prices;
+quiet symbols do not lose price validity after a fixed age threshold.
+
 Fyers refresh-token requests, their API endpoint, stored refresh tokens and the unused `FYERS_PIN`/`BROKER_FYERS_PIN` settings have been removed. Broker execution sessions also use fresh broker sign-in after expiry. Apply the `marketdata.0007` and `brokers.0010` schema migrations and restart backend, Celery and runtime processes together after upgrading.
 
 #### Local market-data authorization
@@ -347,22 +267,327 @@ can restart the flow. Do not copy authorization codes or state into logs or tick
 ### Private broker integration
 
 1. Public Workspace does not activate broker Live execution.
-2. Record the accepted Private contract, classification, broker arrangement, source permissions, approved release and execution verification.
-3. Configure the customer broker application/callback/static-IP and authentication requirements for the accepted hosting route.
+2. Record the personal broker/data arrangements, server setup and reviewed release.
+3. Configure the personal broker application/callback/static-IP and authentication requirements for the accepted hosting route.
 4. Test account-scoped order matching, the verified QN tag fallback, saved-session ownership, cumulative fills, REST/WebSocket reconciliation, unknown outcomes and protective reductions.
 5. Keep unmatched activity outside strategy P&L. Do not overwrite individual strategy positions from account-wide broker totals.
-6. Enable the Live scope only after separate acceptance and broker qualification. Customer hosting is a deployment choice, not a compliance exemption.
-7. Verify direct broker access and incident procedures remain available independently of commercial renewal.
+6. Enable personal Live only after verifying applicable broker requirements. Private mode does not establish a compliance exemption.
+7. Verify direct broker access and incident procedures remain available independently of the application.
 
 No TrueData account, key, adapter or replacement source is required by this implementation.
 
-## 10. Monitoring without extra providers
+### 9.3 FYERS wire contracts and adding a broker
 
-1. Use the Public Oracle monitoring timer and Terraform alarms described in [host operations](../infra/public/scripts/README.md).
-2. Confirm the Oracle Notifications subscription. Verify missing-metric, database, worker, persistence, disk and overdue-backup alerts on the real host.
-3. Inspect bounded container logs using the mode-specific Compose commands. Browser errors send fixed categories to these logs; no external error SDK is configured.
-4. Product usage and website visits are not tracked. Account erasure and retention controls still apply to saved service records.
-5. Private operators run the shared diagnostics and connect their own host monitoring. No Oracle account or external heartbeat service is required on a customer server.
+Reviewed on 19 October 2026 against the official V3 references and the installed,
+pinned Python SDK `fyers-apiv3==3.1.18`. This covers the APIs QuantNest consumes;
+unused holdings, trade-book, position-book, smart-order and GTT APIs are not added.
+
+#### Exact vendor formats
+
+| Operation | Format used by QuantNest | Official reference |
+| --- | --- | --- |
+| OAuth redirect | `auth_code`, `state`; exact registered redirect URI | [Generate auth code](https://fyers.in/api-docs/v3/api/authentication/individual-app/generate-auth-code/) |
+| Token exchange | SDK `set_token` then `generate_token`; successful `s` and `access_token` | [Validate auth code](https://fyers.in/api-docs/v3/api/authentication/individual-app/validate-auth-code/) |
+| Profile | `data.name`, `fy_id`, `email_id`, `mobile_number` | [Profile](https://fyers.in/api-docs/v3/api/account/profile/) |
+| Capital ledger | `fund_limit`, exact `title`, `equityAmount` | [Funds](https://fyers.in/api-docs/v3/api/account/funds/) |
+| Submit | `symbol`, `qty`, numeric `type`/`side`, `productType`, prices, `DAY`, disclosed quantity, AMO flag, tag, slicing flag | [Single order](https://fyers.in/api-docs/v3/api/trading/order-placement/sync/single-order/) |
+| Cancel | `DELETE /api/v3/orders/sync` with JSON `id`; inspect `s`, `code`, `message` | [Cancel single order](https://fyers.in/api-docs/v3/api/trading/order-management/sync/cancel-single-order/) |
+| Order book | `orderBook` list; `id`, `exchOrdId`, `qty`, `filledQty`, `remainingQuantity`, `tradedPrice`, `status`, `side`, `symbol`, `productType`, `orderTag` | [Order schema](https://fyers.in/api-docs/v3/api/trading/order-book/get-order-by-order-id/) |
+| Order stream | Only SDK `OnOrders`; callback `{s, orders}` with the same camel-case order keys | [Order events](https://fyers.in/api-docs/v3/api/websockets/general-socket/general-socket-order-events/) |
+| Broker clocks | `orderDateTime`: IST `DD-MMM-YYYY hh:mm:ss`; raw `update_time_epoch_oms` retained by the SDK mapper as `brokerUpdateTime` | [Socket mapping](https://fyers.in/api-docs/v3/api/websockets/general-socket/overview/general-socket-subscribe/) |
+| Quote snapshot | Check top-level `s`, then each `d` entry's `s`/`n`; read `v.lp`, OHLC, changes, volume and epoch `tt` | [Quotes](https://fyers.in/api-docs/v3/api/market-data/quotes/) |
+| History | Explicit timeframe mapping; `date_format="0"`, epoch-string bounds, `cont_flag="1"`; six-value candle arrays | [History](https://fyers.in/api-docs/v3/api/market-data/historical-data/) |
+| Streaming symbols | Dictionary `type="sf"`, `ltp`, day OHLC, `vol_traded_today`, `last_traded_time`, quantity and average price | [Symbol update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-symbol-update/) |
+| Streaming indices | Dictionary `type="if"`; price/day fields, without trade time or volume. Local receipt time timestamps the observation; volume delta is zero | [Index update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-indices-update/) |
+| Market status | NSE equity matches `exchange=10`, `segment=10`, `market_type="NORMAL"`, `status="OPEN"` | [Market status](https://fyers.in/api-docs/v3/api/market-information/market-status/) |
+| Instrument master | Ticker-keyed JSON; documented camel-case identity, contract and trading fields. Expiry uses epoch seconds; `lastUpdate` uses `YYYY-MM-DD` | [Symbol Master JSON](https://fyers.in/api-docs/v3/api/market-information/symbol-master/symbol-master-json/) |
+
+The seven public master files were also inspected for their actual key/value
+types. Presentation fields `short_name`, `display_format_mob`, `has_options` and
+`has_futures` come from those public files; they are optional. No alternate field
+names are probed. Invalid required fields fail mapping instead of silently
+assigning NSE, stock type, a lot size or a tick size.
+
+The SDK can deliver a transport exception to its error callback as well as a
+protocol-error dictionary. That vendor boundary logs either value; only a
+dictionary carrying the known `invalid_symbols` key changes the subscription set.
+Required trading and market payloads each have one schema. Optional unfilled-order
+fields may be absent in an initial acknowledgement and remain zero/empty until the
+broker reports a fill or exchange ID; that does not fabricate a trade.
+
+Placement and cancellation use direct HTTPS requests to the documented synchronous
+endpoint with `Authorization: app_id:access_token`, a JSON body and a ten-second
+timeout. The pinned SDK catches request exceptions and fabricates error responses;
+using that for mutations would lose the distinction between broker rejection and
+an unknown transport outcome. Network, malformed-response and server failures now
+propagate to the existing recovery path. Explicit broker JSON errors remain broker
+errors; response code `201` remains unacknowledged. Other REST operations and both
+socket transports use the pinned SDK.
+
+This calls the same FYERS API as SDK `place_order`/`cancel_order`; the direct path
+preserves request exceptions and applies a finite timeout. It is not a measured
+latency advantage over the SDK. An unknown submission must be reconciled before
+another order is sent for that request.
+
+#### Funds and order semantics
+
+- Cash maps to Clear Balance; available margin to Available Balance; used margin
+  to Utilized Amount; collateral to Collaterals; realized P&L to Realized Profit
+  and Loss. Exact title lookup preserves zeros and negatives.
+- `net_equity` is the existing schema's name for Total Balance in the capital
+  ledger. It is not demat asset valuation. Commodity balances are not added to
+  equity balances; current execution is NSE stock execution.
+- FYERS Funds does not report withdrawable cash or unrealized P&L. Both are null
+  in new snapshots; the migration clears the old guessed FYERS values.
+- Place-order response `201` remains UNKNOWN pending reconciliation, including
+  when a broker ID is present. It is not safe to submit the same request again.
+- `isSliceOrder=False` keeps one local order mapped to one broker order. Live
+  submission still supports MARKET only; no unsupported order modes are inferred.
+- A cancel acknowledgement does not write fills. Order observations establish
+  final state. REST and WebSocket use the same cumulative-fill handler.
+- Broker order time and broker event time remain separate from local receipt
+  time. See [timestamp handling](live-trading.md#broker-timestamps)
+  for the limits of reconstructing historical execution times.
+
+#### Source ownership and common interfaces
+
+| File | Responsibility |
+| --- | --- |
+| `backend/brokers/base.py` | Broker-neutral interface, local session validity, verification, JSON conversion, API log storage |
+| `backend/brokers/services.py` | One adapter registry; customer connection, activation, account metadata, session and funds-snapshot orchestration |
+| `backend/brokers/fyers.py` | `FyersAuth` for individual-app OAuth; `FyersAdapter` uses each credentialâ€™s App ID/Secret for trading REST and streams |
+| `backend/brokers/websocket/base_websocket.py` | Common connection state and normalized order callbacks |
+| `backend/brokers/websocket/fyers_websocket.py` | FYERS SDK connection, `OnOrders` subscription and SDK mapper extension |
+| `backend/marketdata/providers.py` | Select the configured market-data provider |
+| `backend/marketdata/fyers.py` | FYERS quote/history/status APIs and market socket transport/normalization |
+| `backend/marketdata/live_feed.py` | Provider-neutral subscriptions, history preparation, memory buffers and UI publication |
+| `backend/instruments/fyers.py` | FYERS master URLs, source filters and instrument decoding |
+| `sync_instruments` management command | Provider-neutral download orchestration and database upserts/cleanup |
+
+Every broker adapter returns these common shapes:
+
+1. `connection_details()` returns the registered installation callback URL for setup. `generate_auth_url(state)` accepts signed browser state from the common connection view. The adapter's `configuration_serializer` validates that broker's credential fields; the common API selects it by `broker_name`.
+2. `get_profile()` returns `name`, `account_reference`, `email`, `mobile`.
+   The customer UI and credential verification consume those keys directly.
+3. `get_funds()` returns `cash_balance`, `available_margin`, `used_margin`,
+   `collateral`, `withdrawable_balance`, `net_equity`, `realized_pnl`,
+   `unrealized_pnl` and `raw_payload`. Monetary fields are Decimal or explicitly
+   nullable where the database supports it; API serialization converts Decimals
+   to strings. `record_funds_snapshot()` does not decode vendor payloads.
+4. `get_orderbook()` returns canonical order dictionaries. Its order stream emits
+   the same dictionary: broker/exchange IDs, tag, symbol, product, side, quantities,
+   cumulative average price, local status, rejection text and ISO broker clocks.
+5. `place_order(payload, session)` accepts QuantNest's instrument, side, quantity,
+   MARKET order type, product and unique order tag. It returns canonical broker ID,
+   exchange ID, status and message. An acknowledgement is not a fill.
+6. `create_order_stream()` returns a `BaseBrokerWebSocket` implementation. Connect,
+   disconnect, subscription and order callback registration have one interface.
+
+To integrate another broker:
+
+1. Add its class in `backend/brokers/<broker>.py`, subclassing
+   `BaseBrokerAdapter`. Implement its authentication, profile, funds, submission,
+   cancellation, orderbook and stream factory. Keep its SDK, key mappings,
+   timestamps, product/status codes and request limits inside that integration.
+2. Implement its stream adapter in `backend/brokers/websocket/`; normalize events
+   before emitting them. Subscription names and SDK callbacks belong there.
+3. Register the class in `BROKER_ADAPTERS`, and add/enable its public connection
+   metadata in `BROKER_CATALOG`. Add credentials and a callback appropriate for
+   that broker's real authorization protocol, rather than reusing FYERS's route.
+4. Preserve account-scoped order IDs, verified tags, cumulative fill values and
+   the saved QuantNest session. Keep ambiguous submissions pending recovery.
+   Do not import broker net positions into strategy positions.
+5. Follow the execution acceptance checks in the reference before enabling Live.
+   Adding an adapter does not itself add futures/options, a new calendar, symbol
+   identity or market routing support.
+
+#### Operator upgrade and daily authorization
+
+1. Stop the API, Celery and runtime services using your selected mode's guide.
+2. Install the pinned backend dependencies and run `python manage.py migrate`
+   from `backend/`. This includes `brokers.0012_documented_fyers_contracts` and
+   `marketdata.0008_documented_fyers_contracts` and `brokers.0013_individual_app_credentials`. No manual Admin data insertion
+   is required for these changes.
+3. Set `FYERS_CLIENT_ID`, `FYERS_SECRET` and the exact market-source callback.
+   The adapter declares the enhanced source-account limits directly: 5,000 Data
+   Socket symbols and 500,000 Data API requests per day. Shared request pacing is
+   120 ms (within 10 requests/second and 500/minute). There is no plan setting.
+   Quotes, history and SDK symbol conversion share this Redis request budget.
+   The provider still controls available history and access to expired contracts.
+   The current application uses minute/daily history and SymbolUpdate; the extra
+   seconds-history and TBT entitlements do not require another runtime service.
+   For Live, each user creates an individual FYERS app and saves its App ID and
+   App Secret through Broker Integration. Global trading App ID/Secret settings
+   have been removed. `BROKER_FYERS_REDIRECT_URI` remains the installation-wide
+   callback, defaulting to `BACKEND_URL` plus the broker callback path.
+4. Start the API. Complete source authorization using the staff flow above and
+   broker setup through **Broker Integration â†’ Connect â†’ Save and connect** for each user.
+5. Start/restart the `market-data` runtime after source authorization, then the
+   remaining services for your mode. An existing market socket does not acquire a
+   newly stored source token automatically. Broker-events supervision notices a
+   new broker session and recreates that account's order stream.
+6. FYERS documents daily expiry at 06:30 IST. `FyersAuth` stores the next such
+   boundary; there are no guessed `expires_in`, `expiresIn` or alternate token
+   keys. Authorize again after the daily boundary and restart the market-data
+   runtime after the new source token is stored. Broker token expiry follows the
+   same provider schedule. Existing expiry records change on fresh authorization.
+
+An individual FYERS app serves its creator. QuantNest now implements that ownerâ€™s
+app connection, with backend token exchange. A saved secret is never returned to
+React; it is entered once through the authenticated configuration form and
+encrypted in the database. An individual app is not permission to operate a
+centrally hosted third-party trading service. Follow the arrangement applicable
+to the actual deployment; see [FYERS app types](https://fyers.in/api-docs/v3/getting-started/create-an-app/).
+
+### 9.4 Individual-app connection: step by step
+
+QuantNest now supports **each user bringing their own FYERS individual API app**.
+It does not use one shared QuantNest trading App ID/Secret. Source authorization
+remains the administrator's separate `MarketDataToken` connection; connecting a
+broker does not replace the platform's data source or create another market feed.
+
+#### What the installation operator configures
+
+1. Configure `BACKEND_URL` and `FRONTEND_URL` for this installation. Use HTTPS
+   outside local development. The default trading callback is:
+   `BACKEND_URL` + `/api/v1/brokers/credentials/fyers/callback/`.
+2. If the externally reachable callback differs, set
+   `BROKER_FYERS_REDIRECT_URI` to that exact URL. It must use the same callback
+   path and have no query string, fragment or credentials. The workspace reads
+   this configured URL from the broker catalog and displays it for copying.
+3. Use the same browser hostname for API requests and the callback. Local Vite
+   normally proxies the API on `localhost`; a login started against `127.0.0.1`
+   cannot return its cookie to `localhost`. Keep the frontend proxy and callback
+   on the same hostname. A Private installation normally uses one HTTPS origin.
+4. Establish the execution server's approved public outbound static IP. Give the
+   owner that address for their FYERS app configuration. Order requests originate
+   from the execution backend, not from the customer's browser address.
+5. Configure `CREDENTIAL_ENCRYPTION_KEYS` before saving app credentials. Back up
+   the database together with its encryption keys. Rotation uses the existing
+   `rotate_credential_encryption` command; there is no plaintext secret fallback.
+6. Use the mode's execution scope and personal broker setup for Live. App
+   configuration alone does not grant Live execution. Public Workspace keeps
+   its existing scope boundary.
+
+No global trading App ID or App Secret belongs in an environment file. The
+source's `FYERS_CLIENT_ID`/`FYERS_SECRET` remain required for the separate source
+integration. These are not used for customer trading requests.
+
+#### What each user does
+
+1. Sign in to their own FYERS API dashboard and create an **Individual App**.
+   FYERS documents this app type for its creator's own trading account.
+2. Open QuantNest **Broker Integration â†’ Connect**. Copy the exact Callback URL
+   shown in the setup dialog into the FYERS app's Redirect URL.
+3. Configure the approved execution-server static IP and Order Placement
+   permissions in FYERS. These permissions include transaction information needed
+   for account verification, funds and order reconciliation. Source market-data
+   permissions/configuration remain separate.
+4. Copy the complete FYERS **App ID**, including its suffix, and **App Secret**
+   into the QuantNest dialog. The App ID is not the FYERS trading-account ID.
+5. Select **Save and connect**. QuantNest saves the secret encrypted, creates a
+   signed browser-bound sign-in request and redirects to FYERS.
+6. Enter the account's password/OTP only on FYERS. After authorization, FYERS
+   redirects to the registered QuantNest callback with `auth_code` and `state`.
+7. The backend verifies the browser cookie, state signature, fifteen-minute
+   window, active owner, unchanged saved app credentials and single-use nonce.
+   It exchanges the code using this user's App ID/Secret and verifies the profile.
+8. A successful connection becomes active and the workspace returns to Broker
+   Integration. Broker-events supervision starts or recreates its order stream
+   using `saved App ID:that credential's access token`.
+9. Review the account details and session expiry before deploying a Live strategy.
+   A connection does not automatically start stopped/paused strategies.
+
+The browser does not store the App Secret in local/session storage. The API never
+returns a saved secret. The dialog clears the entered value after saving, and
+the Admin connection screen only displays metadata. Activity History records
+which credential fields changed without storing their values.
+
+#### Reconnect and change app settings
+
+- **Reconnect:** use the existing saved app; no secret entry is needed. Complete
+  a new FYERS sign-in after token expiry. The documented daily boundary is
+  06:30 IST. A new broker session replaces the old token and causes its supervised
+  order stream to reconnect; order/account history stays with the same credential.
+- **App settings:** enter the App ID and a replacement App Secret. Leaving the
+  secret blank keeps it only when the App ID is unchanged and a secret is saved.
+  A new App ID always requires its matching secret.
+- **Changing app credentials:** stop running/stopping Live sessions, close open
+  positions and reconcile all nonterminal orders first. The server rejects a
+  change while these resources depend on the current app. An ordinary reconnect
+  with unchanged app credentials can still recover an expired live connection.
+- Saving a changed app/secret invalidates its existing broker sessions and clears
+  active/verified flags. Any older in-progress callback is rejected. Finish a new
+  authorization; the broker stream will use the newly saved App ID/token.
+- Sign-in must return the same broker account already linked to this connection.
+  App replacement can authorize the same account, but cannot silently reassign
+  historical orders, positions or trades to another FYERS account.
+- **Disconnect:** retains app settings for reconnect and invalidates sessions;
+  the existing session-stop behaviour remains. It does not claim broker-side
+  positions have been closed. Use broker access separately when needed.
+
+#### API and code ownership
+
+| User action | API | Backend owner |
+| --- | --- | --- |
+| Load connection cards / callback URL | `GET /api/v1/brokers/credentials/catalog/` | `BrokerService.get_broker_catalog`; adapter `connection_details` |
+| Save app credentials | `POST /api/v1/brokers/credentials/configure/` | `BrokerConfigurationSerializer` and `configure_connection` |
+| Start / repeat authorization | `POST /api/v1/brokers/credentials/<id>/connect/` | Owned connection action; signs state and sets an HttpOnly cookie |
+| Complete FYERS redirect | `GET /api/v1/brokers/credentials/fyers/callback/` | State/cookie checks, `FyersAuth`, profile verification, owned session |
+| Disconnect | `POST /api/v1/brokers/credentials/<id>/disconnect/` | Common connection/session lifecycle |
+
+Configuration JSON contains `broker_name`, `client_id`, and `api_secret`; the
+last field is optional only when retaining a saved secret. Responses include
+metadata and App ID, without the secret. Credential list/detail endpoints are
+read-only. Duplicate raw CRUD, `auth-url`, `create-session`, and manual
+`exchange-auth-code` endpoints were removed so callers cannot bypass the flow.
+Session history, normalized profile/funds and orderbook read APIs remain.
+
+FYERS setup lives in `FyersAppDialog.jsx`; its App ID and App Secret validation
+lives in `FyersConfigurationSerializer` beside `FyersAdapter`. The
+`brokerSetupDialogs` registry in `BrokerConnections.jsx` selects a setup form by
+broker name. FYERS instructions, callback guidance and session-expiry details
+appear in that FYERS form, rather than on the shared connections page.
+
+When adding a broker, implement its own setup form and adapter configuration
+serializer, authentication and credential persistence requirements. Do not
+reuse FYERS field labels, validation or callback assumptions. The current
+persistence flow stores App ID and encrypted App Secret; a broker needing other
+stored credentials also needs the corresponding encrypted fields and lifecycle
+handling. Register the adapter and its form before enabling the catalog entry.
+Zerodha and Angel One remain unavailable until their integrations are implemented.
+The common service orchestrates credential changes; vendor App ID/Secret usage
+belongs to `FyersAdapter`. `BaseBrokerAdapter` contains no FYERS app credentials.
+
+#### Existing installations
+
+1. Stop API, Celery and runtime processes; install the updated code and run
+   `python manage.py migrate` from `backend/`.
+2. Migration `brokers.0013_individual_app_credentials` removes unused API-key and
+   TOTP-secret columns. Legacy shared-app connections lose their placeholder App
+   ID/secret and active/verified flags; their old sessions are invalidated.
+3. Existing orders, positions, trades, allocations, account identity and ownership
+   are retained. No new App ID or secret is invented, and no Admin data insertion
+   is needed. A legacy blank app can be configured for recovery, with profile
+   matching preserving its previously linked trading account.
+4. Start the services and complete individual-app setup from Broker Integration.
+   New sign-in is required for retired shared-app connections. Review existing
+   strategy session state explicitly; this migration does not restart strategies.
+
+Official references: [Individual app setup](https://fyers.in/api-docs/v3/getting-started/create-an-app/individual-app/),
+[authorization](https://fyers.in/api-docs/v3/api/authentication/individual-app/generate-auth-code/)
+and [permission templates](https://fyers.in/api-docs/v3/getting-started/create-an-app/permission-templates/).
+
+## 10. Deployment checks
+
+Run the shared `diagnostics.py` for your mode and inspect bounded Docker logs,
+CPU/RAM usage and disk space. The API readiness endpoint checks the database and
+runtime coordination Redis; `deployment_health --workers` checks the execution
+worker count. These checks do not verify live provider permissions.
+
+Keep encrypted backup copies off-host and practice recovery into an empty
+deployment. External cloud monitoring can be added later; first-release tooling
+does not provision alarms, signing keys or automatic uploads.
 
 ## 11. Production activation and evidence
 
@@ -372,11 +597,11 @@ Before accepting customers, record evidence for:
 - Legal identity/contact/tax/refund decisions and processor agreements.
 - Merchant acceptance, mandate behaviour and sandbox payment scenarios.
 - Purpose-specific FYERS data rights and paid AI processing review.
-- Verified Brevo sender, confirmation and receiving-domain workflows.
+- Verified Brevo sender and outgoing account/support notifications.
 - Actual ARM64 image startup and resource admission measurements.
 - Restored encrypted backups and worker/crash recovery.
 - Privacy/tenant isolation, owned exports and safe account shutdown.
-- Separate Private contract/licence and independently accepted Live qualification.
+- Personal-only Private with instance-local accounts, shared registration/UI, no quotas or checkout and applicable broker authorization.
 
 The software can be configured before these external prerequisites exist. Keep the affected feature in qualified beta/unavailable and checkout disabled until they are accepted. Record public, Private non-live and Private Live readiness separately.
 
@@ -391,10 +616,7 @@ The software can be configured before these external prerequisites exist. Keep t
 | Paid access not applied | Captured provider state, amount/currency, owned Payment attempt, webhook HTTP errors and checkout reconciliation |
 | Duplicate renewal/refund concern | Provider notes/receipt and persisted attempt/payment/refund IDs; never repeat an uncertain POST blindly |
 | Support email not sent | SMTP credentials/sender, provider limit, Celery default worker, API publication errors and worker retry logs |
-| Newsletter remains pending | DOI template/list, signed return link and provider contact/list/blacklist state |
-| Support email reply ignored | Receiving MX/domain, bearer token, signed Reply-To and duplicate Message ID |
-| Research unavailable | Remaining numeric allowance, Private licence validity where applicable, service health/token and model/budget configuration |
-| Licence unavailable | Exact installation ID, public-key version, paid-through/lease/grace, clock and highest revision |
+| Research unavailable | Public numeric allowance where applicable, service health/token and model/budget configuration |
 | Paper remains blocked after renewal | Explicit resumption, current inventory limits and independent risk/manual restrictions |
 
 Use redacted diagnostics. Do not paste provider secrets into support tickets or logs.

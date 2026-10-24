@@ -26,7 +26,6 @@ export default function StrategyConfiguration({ snapshot }) {
   const sections = [
     ["Entry settings", "entry_order_config"], ["Exit settings", "exit_order_config"],
     ["Position sizing", "position_sizing_rule"], ["Trading schedule", "time_rule"],
-    ["Event restrictions", "special_event_filter"],
   ];
   const groupOperand = (rule, side) => {
     const type = rule[`operand_${side}_type`];
@@ -37,7 +36,7 @@ export default function StrategyConfiguration({ snapshot }) {
   return <div className="space-y-4">
     <Section title="Strategy details" open>
       <ConfigurationFields enums={enums} value={Object.fromEntries(Object.entries(snapshot).filter(([key]) =>
-        !["rule_groups", "watchlist_instruments", "auto_disable_rules", ...sections.map(([, field]) => field)].includes(key)))} />
+        !["rule_groups", "watchlist_instruments", ...sections.map(([, field]) => field)].includes(key)))} />
     </Section>
     <Section title={`Trading rules (${snapshot.rule_groups?.length || 0} groups)`} open>
       {!snapshot.rule_groups?.length && <p className="text-sm text-muted-foreground">No trading rules configured.</p>}
@@ -59,10 +58,7 @@ export default function StrategyConfiguration({ snapshot }) {
         {!item.execution_routes?.length && <p className="text-sm text-muted-foreground">Trade the selected instrument directly.</p>}
       </section>)}
     </Section>
-    <Section title={`Auto-disable rules (${snapshot.auto_disable_rules?.length || 0})`}>
-      {!snapshot.auto_disable_rules?.length && <p className="text-sm text-muted-foreground">No auto-disable rules configured.</p>}
-      {(snapshot.auto_disable_rules || []).map((rule, index) => <section key={index} className="space-y-3"><h4 className="text-sm font-medium">{rule.name || `Rule ${index + 1}`}</h4><ConfigurationFields value={rule} enums={enums} /></section>)}
-    </Section>
+
   </div>;
 }
 StrategyConfiguration.propTypes = { snapshot: PropTypes.object };

@@ -64,7 +64,7 @@ def get_catalog_specification():
     return deepcopy({"revision": REVISION, "plans": PLANS, "features": FEATURES,
                      "markets": [market["name"] for market in MARKETS.values() if market["status"] == "available"],
                      "market_catalog": list(MARKETS.values()),
-                     "live": "private-qualified", "credit_candles": 100000,
+                     "live": "not-offered", "credit_candles": 100000,
                      "refund_days": 7, "rollover": False, "paid_overages": False,
                      "pricing": "Prices exclude applicable taxes. No automatic overages.",
                      "simulation": "Simulated fills differ from actual broker execution."})

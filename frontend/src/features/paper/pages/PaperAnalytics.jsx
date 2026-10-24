@@ -19,7 +19,7 @@ import { usePageTitle } from "@/shared/hooks/use-page-title";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency } from "@/shared/utils/formatters";
 import { TooltipHint } from "@/shared/components/ui/tooltip";
-import { useLivePositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
+import { usePaperPositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 
 export default function PaperAnalytics() {
   const fetchData = useStableCallback(async () => {
@@ -31,8 +31,8 @@ export default function PaperAnalytics() {
         paperApi.getPositions(),
       ]);
       setPortfolio(portRes.data);
-      setTrades(Array.isArray(tradesRes.data) ? tradesRes.data : tradesRes.data?.results || []);
-      setPositions(Array.isArray(positionsRes.data) ? positionsRes.data : positionsRes.data?.results || []);
+      setTrades(tradesRes.data);
+      setPositions(positionsRes.data);
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load analytics data"));
     } finally {
@@ -45,11 +45,11 @@ export default function PaperAnalytics() {
   const [trades, setTrades] = useState([]);
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { livePnLByPositionId } = useLivePositionsPnL(positions);
+  const { livePnLByPositionId } = usePaperPositionsPnL(positions);
 
   usePageTitle({
     title: "Paper Performance Analytics",
-    subtitle: "Portfolio-wide performance across all paper accounts",
+    subtitle: "Portfolio-wide performance across all Paper sessions",
   });
 
 
