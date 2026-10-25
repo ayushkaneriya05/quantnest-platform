@@ -351,7 +351,9 @@ version_id. Standalone allocation/account creation is removed.
    Development records period credits without enforcing numeric ceilings.
 3. Public checks inventory capacity or request size. For period work, the API
    reserves credits in the transaction that creates the job. The formula is
-   **used + reserved + requested <= limit**.
+   **used + reserved + requested <= limit** for fixed/workload-priced work.
+   AI Research instead requires a positive balance and creates a zero-amount
+   record tied to the admission period; actual tokens are not estimated.
 4. The saved job is submitted directly to Celery after commit. A backtest/Monte Carlo job
    moves Pending → Queued → Running. Its own atomic status transition prevents
    duplicate execution; this transition does not inspect plans or credits.
@@ -359,7 +361,18 @@ version_id. Standalone allocation/account creation is removed.
    check plan limits, heartbeat accounting records or compare work against credits.
 6. A central completion handler receives the final task outcome. Completed work
    consumes the full reserved amount; Failed/Cancelled restores it. Repeated
-   callbacks do not charge/refund twice.
+   callbacks do not charge/refund twice. AI Research saves its validated answer
+   and settles reported tokens in the same transaction, even if that accepted
+   request exceeds the remaining balance. Failed/cancelled AI requests cost no
+   customer credits. Subsequent Public requests need a positive remaining balance.
+
+AI Research uses `research_tokens`: 1 credit equals 1,000 reported tokens.
+Explore/Build/Pro start with 150/500/1,500 credits per period. Store exact integer
+tokens; the catalog Admin edits credits to three decimal places. Old message
+buckets and published catalogs are retained; migration 0016 starts a new catalog
+and empty token buckets without rewriting history. Period-crossing answers charge
+their original bucket; renewal starts fresh without debt. See
+[AI Research architecture and rollout](ai-research.md) for contracts and examples.
 
 The backtest price is the reviewed source-candle estimate, rounded to credits
 before acceptance. Successful runs use that fixed reviewed price, without a
@@ -940,9 +953,10 @@ configurations are updated by the migration; no manual database editing is neede
 3. The browser downloads `quantnest-account-export.json`. Store it appropriately
    for its personal/trading content. It is an export record, not a complete
    restorable infrastructure/database backup or an automatic migration package.
-4. Current self-service bounds are two requests per day, 100 strategies, up to
-   1,000 rows in each exported collection and 10 MiB overall. If those bounds are
-   exceeded, the API asks the user to contact Support for a scoped export.
+4. Current self-service bounds are two requests per day and 10 MiB overall.
+   Records are read in database batches and encoded incrementally; there is no
+   per-collection row cap or strategy-count cap. Oversized exports stop before
+   sending a file and ask the user to contact Support for a scoped export.
 
 The export omits authentication secrets and other customers' data. It is not an
 export of every internal table: for example, the ticket export includes ticket
@@ -1447,7 +1461,7 @@ session that should stay paused or stopped.
 | Reply exists but email did not arrive | Read the workspace conversation | Durable email state, SMTP/sender, inbound address where relevant and provider suppression/delivery events |
 | Profile photo falls back to initials | Save a valid image and reload profile | Signed avatar URL, backend media storage/content response and proxy path; do not add another frontend image copy |
 | Cannot deactivate/delete | Cancel automatic renewal and settle all listed activity | Preflight plus confirmation-time exposure checks; no force-exit path exists in this action |
-| Export is rejected as too large | Request a scoped export through Support | Per-collection, strategy-count, total-size and daily request bounds protect the self-service action |
+| Export is rejected as too large | Request a scoped export through Support | Incremental encoding enforces the total-size bound; the daily request limit still applies |
 | Retained records remain after erasure | Read the purpose/retention explanation | Financial/contract/incident history is retained; optional-content cleanup runs for inactive accounts after claimed work finishes |
 | A client error report returns 200 | Use Retry/Reload or submit a reproducible support request | This acknowledges a category log, not a successful page render or a repaired application |
 | Financial margin is missing/null | No customer action needed | Complete reviewed costs/FX and price known provider observations; never substitute invented token use or zero-cost assumptions |

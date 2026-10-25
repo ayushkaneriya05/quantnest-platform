@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.cache import caches
 
 from .contracts import SOURCE_TIMEFRAMES, normalize_symbol
+from .streaming import MarketDataStreamer
 
 cache = caches["marketdata"]
 
@@ -86,7 +87,9 @@ def read_quote(sym_ticker: str) -> QuoteSnapshot:
     provider_quote = cache.get(f"marketdata:rest-quote:{source}:{symbol}")
     observations = [value for value in (observed, provider_quote) if value]
     if observations:
-        return max(observations, key=lambda value: datetime.fromisoformat(value['timestamp']))
+        # REST's `tt` can identify the quote date rather than an exact trade time.
+        # Compare acquisition/receipt time across the two independent transports.
+        return max(observations, key=lambda value: datetime.fromisoformat(value['updated_at']))
     # History is cached by data revision; opening many positions does not repeat
     # the same database lookups. A later provider correction changes this key.
     from .history import data_revision
@@ -102,15 +105,23 @@ def read_quote(sym_ticker: str) -> QuoteSnapshot:
 
 
 def refresh_quote(sym_ticker: str) -> QuoteSnapshot:
-    """Explicit, bounded HTTP refresh used by the quote endpoint, never execution."""
+    return refresh_quotes([sym_ticker])[normalize_symbol(sym_ticker)]
+
+
+def refresh_quotes(symbols: list[str]) -> dict[str, QuoteSnapshot]:
+    """Load a display snapshot in batches, then let WebSocket ticks keep it current."""
     from .providers import provider
-    symbol = normalize_symbol(sym_ticker)
-    key = f"marketdata:rest-quote:{settings.MARKET_DATA_PROVIDER}:{symbol}"
-    if not cache.add(f"{key}:loading", True, 5):
-        return read_quote(symbol)
-    # Keep the short acquisition marker through its TTL, including failed calls.
-    # Concurrent browser requests reuse the observation or last known close.
-    value = provider().quote(symbol)
-    if value and isfinite(float(value["price"])) and value["price"] > 0:
-        cache.set(key, {**value, "symbol": symbol, "available": True}, 60)
-    return read_quote(symbol)
+    symbols = list(dict.fromkeys(normalize_symbol(symbol) for symbol in symbols))
+    keys = {symbol: f"marketdata:rest-quote:{settings.MARKET_DATA_PROVIDER}:{symbol}" for symbol in symbols}
+    cached = cache.get_many(keys.values())
+    # Reuse a short-lived REST snapshot across browsers; reserve only missing symbols.
+    pending = [symbol for symbol, key in keys.items()
+               if key not in cached and cache.add(f"{key}:loading", True, 5)]
+    if pending:
+        for symbol, value in provider().quotes(pending).items():
+            if symbol in keys and isfinite(float(value["price"])) and value["price"] > 0:
+                snapshot = {**value, "symbol": symbol, "available": True}
+                cache.set(keys[symbol], snapshot, 60)
+                # Other browsers may have reused the in-flight acquisition marker.
+                MarketDataStreamer.publish(MarketDataStreamer.symbol_group(symbol), {"type": "tick", "data": snapshot})
+    return {symbol: read_quote(symbol) for symbol in symbols}

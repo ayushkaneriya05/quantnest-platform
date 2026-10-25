@@ -6,21 +6,32 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { useInstrumentSearch } from "@/shared/hooks/useInstrumentSearch";
 
-export default function ResearchUniverse({ value, onChange, disabled, strategies = [], maxInstruments }) {
+export default function ResearchUniverse({ value, onChange, disabled, maxInstruments }) {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const source = value.watchlist_id ? "watchlist" : value.strategy_id ? "strategy" : value.source || "manual";
   const { results: instruments, loading, error } = useInstrumentSearch(query,
-    { exchange: "NSE", type: "STOCK" }, searchOpen && !disabled && !value.strategy_id && !value.use_watchlist);
+    { exchange: "NSE", type: "STOCK" }, searchOpen && !disabled && source === "manual");
   const selected = value.instruments || [];
   return <div className="space-y-3">
-    <Select resource="strategies" disabled={disabled} value={value.use_watchlist ? "watchlist" : String(value.strategy_id || "selected")} onValueChange={(id, option) => onChange({ ...value, strategy_id: ["selected", "watchlist"].includes(id) ? null : Number(id), use_watchlist: id === "watchlist", instruments: [] }, option.timeframe)}>
-      <SelectTrigger><SelectValue placeholder="Choose a watchlist" /></SelectTrigger>
-      <SelectContent><SelectItem persistent value="selected">Select instruments manually</SelectItem>
-        <SelectItem persistent value="watchlist">Terminal watchlist</SelectItem>
-        {strategies.map((strategy) => <SelectItem key={strategy.id} value={String(strategy.id)}>{strategy.name}</SelectItem>)}
+    <Select disabled={disabled} value={source} onValueChange={(source) => onChange({ source, strategy_id: null, watchlist_id: null, instruments: [] })}>
+      <SelectTrigger aria-label="Research instrument source"><SelectValue /></SelectTrigger>
+      <SelectContent><SelectItem value="manual">Select instruments manually</SelectItem>
+        <SelectItem value="watchlist">Terminal watchlist</SelectItem>
+        <SelectItem value="strategy">Saved strategy</SelectItem>
       </SelectContent>
     </Select>
-    {!value.strategy_id && !value.use_watchlist && <div className="space-y-3" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
+    {source === "watchlist" && <Select resource="terminal-watchlists" disabled={disabled} value={String(value.watchlist_id || "")}
+      onValueChange={(id, option) => onChange({ ...value, watchlist_id: Number(id), watchlist_name: option.name, instruments: [] })}>
+      <SelectTrigger aria-label="Terminal watchlist"><SelectValue placeholder="Choose a terminal watchlist" /></SelectTrigger>
+      <SelectContent searchPlaceholder="Search terminal watchlists" />
+    </Select>}
+    {source === "strategy" && <Select resource="strategies" disabled={disabled} value={String(value.strategy_id || "")}
+      onValueChange={(id, option) => onChange({ ...value, strategy_id: Number(id), instruments: [] }, option.timeframe)}>
+      <SelectTrigger aria-label="Strategy"><SelectValue placeholder="Choose a strategy" /></SelectTrigger>
+      <SelectContent searchPlaceholder="Search strategies" />
+    </Select>}
+    {source === "manual" && <div className="space-y-3" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
       <Input aria-label="Search NSE instruments" placeholder="Search NSE stocks…" value={query} disabled={disabled}
         onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }}
         onKeyDown={(event) => { if (event.key === "Escape") setSearchOpen(false); }} />
@@ -34,4 +45,4 @@ export default function ResearchUniverse({ value, onChange, disabled, strategies
     <p className="text-xs text-muted-foreground">NSE stocks{maxInstruments != null ? ` · up to ${maxInstruments} per request` : ''} · calculations use completed candles.</p>
   </div>;
 }
-ResearchUniverse.propTypes = { value: PropTypes.object.isRequired, onChange: PropTypes.func.isRequired, disabled: PropTypes.bool, strategies: PropTypes.array, maxInstruments: PropTypes.number };
+ResearchUniverse.propTypes = { value: PropTypes.object.isRequired, onChange: PropTypes.func.isRequired, disabled: PropTypes.bool, maxInstruments: PropTypes.number };

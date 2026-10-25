@@ -1,5 +1,6 @@
 """The only historical acquisition/writing path, shared by all application features."""
 import logging
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -163,7 +164,8 @@ def _save_history(request: HistoryRequest, candles: list[dict]) -> int:
     return len(changed)
 
 
-def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_requests: int = 0) -> HistoryResult:
+def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_requests: int = 0,
+                   on_progress: Callable[[float, str], None] | None = None) -> HistoryResult:
     """Acquire missing source windows. A chart may bound the work to one request."""
     from .providers import provider
 
@@ -175,6 +177,8 @@ def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_reques
     pending = [_trading_range(request, request.start, request.end)] if refresh else result.missing
     if not any(pending):
         return result
+    # Progress describes the remaining acquisition range, not simulated returns.
+    total_seconds = sum((right - left).total_seconds() for left, right in pending)
     adapter, client = provider(), runtime_redis()
     lock_key = f"quantnest:history-lock:{settings.MARKET_DATA_PROVIDER}:{request.instrument.pk}:{request.timeframe}"
     try:
@@ -190,6 +194,12 @@ def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_reques
                     opening = request.calendar.session_open(day + timedelta(days=1))
                 chunk_start = max(left, opening)
             chunk = replace(request, start=chunk_start, end=right)
+            if on_progress:
+                remaining = sum((end - start).total_seconds() for start, end in pending)
+                on_progress(1 - remaining / total_seconds,
+                    f'Fetching {request.timeframe} history for {request.instrument.sym_ticker}: '
+                    f'{chunk.start.astimezone(request.calendar.zone):%d %b %Y} to '
+                    f'{(chunk.end - timedelta(microseconds=1)).astimezone(request.calendar.zone):%d %b %Y}...')
             # Release after each bounded window. Overlapping callers recheck
             # coverage inside the same per-instrument/source lock.
             with client.lock(lock_key, timeout=180, blocking_timeout=3):
@@ -215,6 +225,8 @@ def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_reques
         logger.warning("History preparation failed symbol=%s source=%s: %s",
                        request.instrument.sym_ticker, request.timeframe, result.error)
     result.missing = pending if refresh else missing_history(request)
+    if on_progress and result.complete:
+        on_progress(1, f'History ready for {request.instrument.sym_ticker} ({request.timeframe}).')
     return result
 
 

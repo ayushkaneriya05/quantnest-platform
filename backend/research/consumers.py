@@ -1,5 +1,5 @@
-from users.websocket import AuthSessionConsumerMixin
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from users.websocket import AuthSessionConsumerMixin
 
 
 class ResearchConsumer(AuthSessionConsumerMixin, AsyncJsonWebsocketConsumer):

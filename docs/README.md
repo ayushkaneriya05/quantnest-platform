@@ -40,7 +40,8 @@ For data delivery to the UI, use
 | Manage subscriptions/support | [Commercial operations](commercial-operations.md) | Customer/Admin decisions, allowances and routine automation |
 | Understand sign-in/security | [Authentication](authentication.md) | Sessions, CSRF, 2FA, OAuth and recovery |
 | Maintain the site/frontend | [Customer site](customer-site.md) | Routing, content, shared presentation and feature structure |
-| Run research | [Research service](../research_service/README.md) | Separate service setup, tools, models and isolation |
+| Understand AI research | [AI Research](ai-research.md) | End-to-end flow, period credits, provider adapters, tools, contracts and rollout |
+| Start the AI service | [Research service](../research_service/README.md) | Native/Compose configuration, isolation and verification |
 
 The [original strategy-builder proposal](archive/strategy-builder-original-proposal.md)
 is retained as historical input to the future design. Its proposed behaviour and

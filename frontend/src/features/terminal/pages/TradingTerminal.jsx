@@ -29,16 +29,17 @@ export default function TradingTerminal() {
   const [view, setView] = useState('workspace'), [side, setSide] = useState('');
   const [watchlistOpen, setWatchlistOpen] = useState(false), [ticketOpen, setTicketOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
-  const [bottomHeight, setBottomHeight] = useState(() => Number(localStorage.getItem('terminal.panelHeight')) || 240);
-  const [watchlistWidth, setWatchlistWidth] = useState(() => Number(localStorage.getItem('terminal.watchlistWidth')) || 240);
+  const [bottomExpanded, setBottomExpanded] = useState(false);
+  const [bottomHeight, setBottomHeight] = useState(() => Number(localStorage.getItem('terminal.panelHeight')) || null);
+  const [watchlistWidth, setWatchlistWidth] = useState(() => Number(localStorage.getItem('terminal.watchlistWidth')) || 260);
   const [session, setSession] = useState(null), [draft, setDraft] = useState(null);
-  const workspace = useRef(null), row = useRef(null), drag = useRef(null);
+  const workspace = useRef(null), drag = useRef(null);
   const { isConnected } = useWebSocket();
   const { setPageHeader, clearPageHeader } = usePageActions();
   const buy = values.Side?.BUY, sell = values.Side?.SELL;
   const trade = useCallback((value) => {
     if (!value) return;
-    setSide(value); setView('workspace');
+    setSide(value); setView('workspace'); setBottomExpanded(false);
     if (window.innerWidth < 1280) setTicketOpen(true);
   }, []);
   useEffect(() => {
@@ -58,7 +59,7 @@ export default function TradingTerminal() {
         </span>
         {view === 'workspace' && <>
           <Button size="icon" variant="ghost" className="h-8 w-8 lg:hidden" aria-label="Open watchlist" onClick={() => setWatchlistOpen(true)}><List className="h-4 w-4" /></Button>
-          <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Toggle order panel" onClick={() => setBottomOpen((value) => !value)}>
+          <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Toggle order panel" title={bottomOpen ? 'Hide positions and orders' : 'Show positions and orders'} onClick={() => setBottomOpen((value) => !value)}>
             {bottomOpen ? <PanelBottomClose className="h-4 w-4" /> : <PanelBottomOpen className="h-4 w-4" />}
           </Button>
         </>}
@@ -77,35 +78,54 @@ export default function TradingTerminal() {
     return () => window.removeEventListener('keydown', handle);
   }, [trade, buy, sell]);
 
+  // Clamp saved sizes to this viewport, leaving room for the chart and ticket.
+  const panelBounds = (vertical) => {
+    const height = workspace.current?.clientHeight || 600;
+    const width = workspace.current?.clientWidth || 1000;
+    return vertical ? [140, Math.max(140, height - 260)]
+      : [200, Math.max(200, Math.min(380, width * 0.32, width - (window.innerWidth >= 1280 ? 640 : 360)))];
+  };
+  useEffect(() => {
+    if (!workspace.current) return undefined;
+    const observer = new ResizeObserver(() => {
+      const [minHeight, maxHeight] = panelBounds(true);
+      const [minWidth, maxWidth] = panelBounds(false);
+      setBottomHeight((height) => Math.round(Math.max(minHeight, Math.min(height ?? workspace.current.clientHeight * 0.33, maxHeight))));
+      setWatchlistWidth((width) => Math.round(Math.max(minWidth, Math.min(width, maxWidth))));
+    });
+    observer.observe(workspace.current);
+    return () => observer.disconnect();
+  }, [view, loadingEnums, enumError]);
+
   // Both handles use pointer capture, keyboard arrows and persisted dimensions.
   const resizeHandle = (panel) => {
     const vertical = panel === 'bottom';
     const size = vertical ? bottomHeight : watchlistWidth;
     const axis = vertical ? 'clientY' : 'clientX';
+    const [minimum, maximum] = panelBounds(vertical);
     const update = (next) => {
-      const maximum = vertical ? (workspace.current?.clientHeight || 600) - 270
-        : Math.min(420, (row.current?.clientWidth || 1000) * 0.35,
-          (row.current?.clientWidth || 1000) - (window.innerWidth >= 1280 ? 650 : 360));
-      const value = Math.round(Math.max(vertical ? 130 : 200, Math.min(next, maximum)));
+      const value = Math.round(Math.max(minimum, Math.min(next, maximum)));
       (vertical ? setBottomHeight : setWatchlistWidth)(value);
+      if (drag.current) drag.current.value = value;
       return value;
     };
     return {
       role: 'separator', tabIndex: 0, 'aria-orientation': vertical ? 'horizontal' : 'vertical',
       'aria-label': vertical ? 'Resize positions and orders panel' : 'Resize watchlist',
-      'aria-valuenow': size, 'aria-valuemin': vertical ? 130 : 200,
+      'aria-valuenow': size ?? minimum, 'aria-valuemin': minimum, 'aria-valuemax': maximum,
       onPointerDown: (event) => {
         if (event.button !== 0) return;
-        event.preventDefault(); drag.current = { panel, origin: event[axis], size };
+        event.preventDefault(); drag.current = { panel, origin: event[axis], size: size ?? minimum, value: size ?? minimum };
         event.currentTarget.setPointerCapture(event.pointerId);
       },
       onPointerMove: (event) => {
         if (drag.current?.panel === panel) update(drag.current.size + (event[axis] - drag.current.origin) * (vertical ? -1 : 1));
       },
       onPointerUp: (event) => {
+        const finalSize = drag.current?.value;
         drag.current = null;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-        localStorage.setItem(vertical ? 'terminal.panelHeight' : 'terminal.watchlistWidth', String(size));
+        if (finalSize != null) localStorage.setItem(vertical ? 'terminal.panelHeight' : 'terminal.watchlistWidth', String(finalSize));
       },
       onPointerCancel: () => { drag.current = null; },
       onKeyDown: (event) => {
@@ -118,7 +138,7 @@ export default function TradingTerminal() {
       },
     };
   };
-  const select = (symbol) => { terminal.setSelectedSymbol(symbol); setWatchlistOpen(false); setSession(null); setDraft(null); };
+  const select = (symbol) => { terminal.setSelectedSymbol(symbol); setWatchlistOpen(false); setBottomExpanded(false); setSession(null); setDraft(null); };
   const selectPrice = useCallback((value) => { setDraft(value); if (window.innerWidth < 1280) setTicketOpen(true); }, []);
   if (loadingEnums) return <RouteLoading />;
   if (enumError) return <div className="space-y-3 p-6"><p className="text-sm text-muted-foreground">Could not load trading choices.</p><Button variant="outline" onClick={refreshEnums}>Retry</Button></div>;
@@ -131,33 +151,34 @@ export default function TradingTerminal() {
       onSymbolSelect={select} onAddToWatchlist={terminal.addToWatchlist} onRemoveFromWatchlist={terminal.removeFromWatchlist} /></div>
   </div>;
   return <div role="tabpanel" id={'terminal-panel-' + view} aria-labelledby={'terminal-tab-' + view}
-    className="flex min-h-0 min-w-0 flex-1 flex-col p-3 outline-none sm:p-4" tabIndex={0}>
+    className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2 outline-none sm:p-3" tabIndex={0}>
     {view === 'workspace' && <div ref={workspace} className="flex min-h-0 flex-1 flex-col">
-      <div ref={row} className="flex min-h-[270px] flex-1 gap-3">
-        <aside className="hidden min-w-0 shrink-0 lg:block" style={{ width: watchlistWidth, maxWidth: '35%' }}>{watchlist}</aside>
-        <div {...resizeHandle('watchlist')} className="group -mx-2 hidden w-2 shrink-0 touch-none cursor-col-resize items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex">
-          <GripVertical className="h-6 w-2 rounded-full text-muted-foreground group-hover:bg-primary/20 group-hover:text-primary" />
+      <div className={bottomOpen && bottomExpanded ? 'hidden' : 'flex min-h-0 flex-1 gap-2'}>
+        <aside className="hidden min-h-0 min-w-0 shrink-0 lg:block" style={{ width: watchlistWidth, maxWidth: '32%' }}>{!watchlistOpen && watchlist}</aside>
+        <div {...resizeHandle('watchlist')} className="group -mx-1 hidden w-2 shrink-0 touch-none cursor-col-resize items-center justify-center rounded transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex">
+          <GripVertical className="h-7 w-3 text-muted-foreground/60 group-hover:text-primary" />
         </div>
         <div className="min-w-0 flex-1"><ChartView symbol={selectedSymbol} instrument={selectedInstrument}
           onBuyClick={() => trade(buy)} onSellClick={() => trade(sell)} onSessionChange={setSession} onPriceSelect={selectPrice} className="h-full" /></div>
-        <aside className="scrollbar-thin-theme hidden w-[290px] shrink-0 overflow-y-auto rounded-xl border bg-card xl:block">{ticket}</aside>
+        <aside aria-label="Order ticket" className="hidden min-h-0 w-[280px] shrink-0 overflow-hidden rounded-xl border bg-card xl:block">{!ticketOpen && ticket}</aside>
       </div>
       {bottomOpen && <>
-        <div {...resizeHandle('bottom')} className="group flex h-4 shrink-0 touch-none cursor-row-resize items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <span className="flex h-2 items-center rounded-full bg-muted px-3 transition-colors group-hover:bg-primary/20"><GripHorizontal className="h-3 w-4 text-muted-foreground group-hover:text-primary" /></span>
-        </div>
-        <div className="flex min-h-[130px] min-w-0 shrink-0" style={{ height: bottomHeight, maxHeight: '55%' }}>
-          <TerminalBlotter positions={positions} orders={openOrders} onSelect={select} />
+        {!bottomExpanded && <div {...resizeHandle('bottom')} className="group flex h-3 shrink-0 touch-none cursor-row-resize items-center justify-center rounded transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span className="flex h-2 items-center rounded-full bg-muted px-4"><GripHorizontal className="h-3 w-5 text-muted-foreground/70 group-hover:text-primary" /></span>
+        </div>}
+        <div className={'flex min-h-0 min-w-0 ' + (bottomExpanded ? 'flex-1' : 'shrink-0')} style={bottomExpanded ? undefined : { height: bottomHeight ?? '33%', maxHeight: 'max(140px, calc(100% - 260px))' }}>
+          <TerminalBlotter positions={positions} orders={openOrders} onSelect={select} expanded={bottomExpanded}
+            onToggleExpand={() => setBottomExpanded((value) => !value)} onCollapse={() => setBottomOpen(false)} />
         </div>
       </>}
     </div>}
-    {view === 'history' && <div className="scrollbar-theme min-h-0 flex-1 overflow-auto"><HistoryDisplay /></div>}
+    {view === 'history' && <HistoryDisplay />}
     {view === 'account' && <div className="scrollbar-theme min-h-0 flex-1 overflow-auto">
       {account && <AccountSummary account={account} positions={positions} onSaved={refreshSnapshot} />}
     </div>}
     <Dialog open={watchlistOpen} onOpenChange={setWatchlistOpen}><DialogContent aria-describedby={undefined} className="flex h-[80dvh] flex-col">
       <DialogTitle>Watchlist</DialogTitle><div className="min-h-0 flex-1">{watchlist}</div></DialogContent></Dialog>
-    <Dialog open={ticketOpen} onOpenChange={setTicketOpen}><DialogContent aria-describedby={undefined} className="max-h-[90dvh] overflow-auto p-0 sm:max-w-sm">
+    <Dialog open={ticketOpen} onOpenChange={setTicketOpen}><DialogContent aria-describedby={undefined} className="flex h-[85dvh] max-h-[720px] flex-col gap-0 overflow-hidden p-0 sm:max-w-sm sm:p-0">
       <DialogTitle className="sr-only">Simulated order</DialogTitle>{ticket}</DialogContent></Dialog>
   </div>;
 }

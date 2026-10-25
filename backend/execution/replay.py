@@ -4,7 +4,6 @@ OHLC candles do not contain a real tick path. This adapter explicitly assumes
 open -> adverse extreme -> favourable extreme -> close for the strategy side.
 The two extreme timestamps are synthetic. Orders fill on a later observation;
 a decision using a completed candle can therefore only fill in the next bar.
-Persist this policy in every report instead of presenting it as tick replay.
 """
 from collections import Counter
 from dataclasses import replace
@@ -22,11 +21,6 @@ from .ledger import ACTIVE_STATUSES, accept_intent, acknowledge, apply_fill, can
 from .matching import match_order, OrderBook
 from .preparation import PreparedMarket
 from .types import Account, ClosedTrade, Intent, Tick, ZERO
-
-OHLC_POLICY = ('OHLC approximation: open, adverse extreme, favourable extreme, close; '
-    'extreme times are synthetic, orders fill on the next observation, completed-candle '
-    'signals fill no earlier than the next bar. This is not historical tick replay.')
-
 
 class Replay:
     def __init__(self, *, identity: int, version: int, config: dict, markets: list[PreparedMarket],

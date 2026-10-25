@@ -217,12 +217,12 @@ Customers reply through workspace Support; staff reply in Admin. Brevo SMTP send
 
 1. Create/use the reviewed Google project and enable the accepted paid Gemini processing arrangement for private customer content. Follow the separate [research service guide](../research_service/README.md) for its complete API/tool configuration.
 2. Review the provider's current data-processing terms and rates for the selected model. Do not assume free-tier processing terms match paid processing.
-3. Set `GEMINI_API_KEY` only in the private research service and explicitly set the accepted `GEMINI_MODEL`.
+3. Set `GEMINI_API_KEY` only in the private research service and explicitly set the accepted `RESEARCH_MODEL`.
 4. Generate a strong `RESEARCH_SERVICE_TOKEN` and configure the same value in Django and FastAPI.
 5. Set Django `RESEARCH_SERVICE_URL` to the private service URL, and service `RESEARCH_INTERNAL_API_URL` to the private Django tools endpoint.
 6. Keep the FastAPI port private; public users call Django, not the provider or internal tools.
 7. Publish the Research feature as Available or Qualified beta when its service, provider configuration and processing arrangement are ready. Paused or Coming soon blocks new research in Public and Private.
-8. Confirm budgets: one active turn/user, eight tool attempts, 40,000 aggregate input tokens and 6,000 output/thinking tokens across calls/retries. Unknown failed provider attempts retain conservative budget reservations.
+8. Confirm controls: one active turn per user, eight uncached tool executions and a ten-minute execution deadline. Successful saved answers settle actual reported tokens against period credits (1 credit = 1,000 tokens); no per-request customer token ceiling applies. Configure `RESEARCH_PROVIDER=gemini` and `RESEARCH_MODEL` in the AI service.
 9. Test cancellation, provider timeout, invalid citation, missing evidence and attempted investment recommendations using synthetic/mock inputs first.
 10. Reconcile observed usage with provider billing. An unpriced expenditure observation is not proof of free processing or a measured margin.
 
@@ -616,7 +616,7 @@ The software can be configured before these external prerequisites exist. Keep t
 | Paid access not applied | Captured provider state, amount/currency, owned Payment attempt, webhook HTTP errors and checkout reconciliation |
 | Duplicate renewal/refund concern | Provider notes/receipt and persisted attempt/payment/refund IDs; never repeat an uncertain POST blindly |
 | Support email not sent | SMTP credentials/sender, provider limit, Celery default worker, API publication errors and worker retry logs |
-| Research unavailable | Public numeric allowance where applicable, service health/token and model/budget configuration |
+| Research unavailable | Public remaining credits where applicable, service health/token and provider/model configuration |
 | Paper remains blocked after renewal | Explicit resumption, current inventory limits and independent risk/manual restrictions |
 
 Use redacted diagnostics. Do not paste provider secrets into support tickets or logs.

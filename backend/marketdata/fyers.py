@@ -23,6 +23,7 @@ class FyersProvider:
     quota_timezone = "Asia/Kolkata"
     # Enhanced source-account entitlement. Keep vendor limits in this adapter.
     subscription_limit = 5000
+    quote_batch_size = 50  # The SDK uses the GET quotes endpoint.
     request_interval_ms = 120  # Within 10/second and 500/minute.
     daily_request_limit = 500000
 
@@ -40,30 +41,35 @@ class FyersProvider:
     def live_client(self):
         return FyersLiveFeedClient()
 
-    def quote(self, symbol: str):
-        symbol = normalize_symbol(symbol)
-        try:
-            from .providers import acquire_data_request
-            acquire_data_request(self, wait_seconds=0)
-            response = self._client().quotes(data={"symbols": symbol})
-            if response["s"] != "ok":
-                raise ValueError(response["message"])
-            row = response["d"][0]
-            if row["s"] != "ok" or row["n"] != symbol:
-                raise ValueError(f"FYERS did not return a quote for {symbol}.")
-            values = row["v"]
-            timestamp = datetime.fromtimestamp(int(values["tt"]), timezone.utc).isoformat()
-            return {
-                "symbol": row["n"], "price": values["lp"],
-                "timestamp": timestamp,
-                "change_percent": values["chp"], "updated_at": datetime.now(timezone.utc).isoformat(),
-                "source": "provider",
-            }
-        except ProviderError:
-            return None
-        except Exception:
-            logger.exception("FYERS quote failed symbol=%s", symbol)
-            return None
+    def quotes(self, symbols: list[str]) -> dict[str, dict]:
+        """Acquire watchlist snapshots together; one bad symbol does not hide others."""
+        from .providers import acquire_data_request
+        symbols = list(dict.fromkeys(normalize_symbol(symbol) for symbol in symbols))
+        quotes = {}
+        for start in range(0, len(symbols), self.quote_batch_size):
+            batch = symbols[start:start + self.quote_batch_size]
+            try:
+                acquire_data_request(self)
+                requested_at = datetime.now(timezone.utc).isoformat()
+                response = self._client().quotes(data={"symbols": ",".join(batch)})
+                if response["s"] != "ok":
+                    raise ValueError(response["message"])
+                for row in response["d"]:
+                    if row["s"] != "ok" or row["n"] not in batch:
+                        continue
+                    values = row["v"]
+                    quotes[row["n"]] = {
+                        "symbol": row["n"], "price": values["lp"],
+                        "timestamp": datetime.fromtimestamp(int(values["tt"]), timezone.utc).isoformat(),
+                        # A live tick received during this request must stay newer.
+                        "change_percent": values["chp"], "updated_at": requested_at,
+                        "source": "provider",
+                    }
+            except ProviderError:
+                break
+            except Exception:
+                logger.exception("FYERS quotes failed symbols=%s", batch)
+        return quotes
 
     def history(self, window: HistoryRequest):
         from .providers import acquire_data_request

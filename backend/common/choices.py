@@ -12,12 +12,18 @@ from live_trading.models import LiveStrategyAllocation
 from paper_trading.models import PaperAccount
 from research.models import ResearchSession
 from strategies.models import Strategy, StrategyTag, StrategyVersion
+from trading.models import Watchlist
 
 
 PAGE_SIZE = 20
 
 # Only these fields are exposed; full configurations and credentials are never loaded.
 SOURCES = {
+    "terminal-watchlists": {
+        "model": Watchlist, "owner": "user", "fields": ("name",),
+        "search": ("name",), "filters": (), "ordering": ("name", "id"),
+        "label": lambda row: row["name"],
+    },
     "strategies": {
         "model": Strategy, "owner": "user", "fields": ("name",),
         "annotations": {"timeframe": F("time_rule__candle_timeframe")},

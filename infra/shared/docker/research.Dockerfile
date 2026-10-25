@@ -1,5 +1,6 @@
 FROM python:3.12-slim-bookworm
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 RESEARCH_PROVIDER=gemini
+LABEL org.quantnest.research-contract="period-credits-v1"
 WORKDIR /opt/quantnest
 COPY research_service/requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock

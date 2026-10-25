@@ -2,6 +2,7 @@ import api from "./api";
 
 export const researchApi = {
   schema: () => api.get("/research/schema/"),
+  allowance: () => api.get("/research/allowance/"),
   sessions: (params) => api.get("/research/sessions/", { params }),
   createSession: (payload) => api.post("/research/sessions/", payload),
   session: (id, config) => api.get(`/research/sessions/${id}/`, config),

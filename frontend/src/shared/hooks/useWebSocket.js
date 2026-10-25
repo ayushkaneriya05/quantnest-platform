@@ -4,7 +4,7 @@ import {
   setConnected,
   setConnectionStatus,
   setManualTradingTerminalUpdate,
-  updateTickData,
+  updateQuotes,
   addSubscription,
   removeSubscription,
   incrementReconnectAttempts,
@@ -13,6 +13,7 @@ import {
 import api, { ensureFreshAccessToken, getWebSocketUrl } from "../services/api";
 import { useNotifications } from "./useNotifications";
 import { isObservedQuote, isNewerQuote, normalizeMarketSymbol as normalizeSymbol } from "../utils/marketData";
+import { store } from "../store/index";
 
 const socketRef = { current: null };
 const reconnectTimerRef = { current: null };
@@ -23,7 +24,15 @@ const subscriptionRefCounts = new Map();
 const chartCallbacks = new Map();
 const terminalCallbacks = new Set();
 const fetchingPrices = new Map();
+let pendingQuotes = {}, quoteTimer = null;
 let mountedConsumers = 0;
+
+// Coalesce display updates without discarding the last tick of a quiet symbol.
+function flushQuotes(dispatch) {
+  clearTimeout(quoteTimer); quoteTimer = null;
+  const quotes = pendingQuotes; pendingQuotes = {};
+  if (Object.keys(quotes).length) dispatch(updateQuotes(quotes));
+}
 
 // Deliver every ledger event before React batches renders.
 export function subscribeTerminalUpdates(callback) {
@@ -47,12 +56,6 @@ export function useWebSocket() {
 
   const pingIntervalRef = useRef(null);
   const pongTimeoutRef = useRef(null);
-  const lastTickUpdateRef = useRef({});
-
-  const tickDataRef = useRef(tickData);
-  useEffect(() => {
-    tickDataRef.current = tickData;
-  }, [tickData]);
 
   const sendMessage = useCallback((message) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -83,13 +86,9 @@ export function useWebSocket() {
     ({ data: tick }) => {
       const symbol = tick.symbol;
       if (!symbol) return;
-      if (!isNewerQuote(tick, tickDataRef.current[symbol])) return;
-
-      const now = Date.now();
-      if (!lastTickUpdateRef.current[symbol] || now - lastTickUpdateRef.current[symbol] > 200) {
-        lastTickUpdateRef.current[symbol] = now;
-        dispatch(updateTickData({ symbol, data: tick }));
-      }
+      if (!isNewerQuote(tick, pendingQuotes[symbol] ?? store.getState().websocket.tickData[symbol])) return;
+      pendingQuotes[symbol] = tick;
+      if (quoteTimer === null) quoteTimer = setTimeout(() => flushQuotes(dispatch), 200);
       notifySymbolSubscribers(symbol, tick);
     },
     [dispatch, notifySymbolSubscribers]
@@ -180,6 +179,7 @@ export function useWebSocket() {
       };
 
       socketRef.current.onclose = (event) => {
+        flushQuotes(dispatch);
         dispatch(setConnected(false));
         dispatch(setConnectionStatus("disconnected"));
 
@@ -214,6 +214,7 @@ export function useWebSocket() {
   ]);
 
   const disconnect = useCallback(() => {
+    flushQuotes(dispatch);
     intentionalCloseRef.current = true;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -300,35 +301,43 @@ export function useWebSocket() {
     [dispatch, sendMessage]
   );
 
+  const getLatestPrices = useCallback(async (symbols) => {
+    const normalized = [...new Set(symbols.map(normalizeSymbol))];
+    const missing = normalized.filter((symbol) => !fetchingPrices.has(symbol));
+    // Share in-flight snapshots with the selected chart and other consumers.
+    for (let start = 0; start < missing.length; start += 1000) {
+      const batch = missing.slice(start, start + 1000);
+      const request = api.post('/market/quotes/', { symbols: batch }).then(({ data }) => {
+        flushQuotes(dispatch);
+        dispatch(updateQuotes(data));
+        const current = store.getState().websocket.tickData;
+        batch.forEach((symbol) => { if (current[symbol]) notifySymbolSubscribers(symbol, current[symbol]); });
+        return current;
+      });
+      batch.forEach((symbol) => fetchingPrices.set(symbol, request.then((quotes) => quotes[symbol] ?? null)
+        .finally(() => fetchingPrices.delete(symbol))));
+    }
+    return Object.fromEntries(await Promise.all(normalized.map(async (symbol) => [symbol, await fetchingPrices.get(symbol)])));
+  }, [dispatch, notifySymbolSubscribers]);
+
   const getLatestPrice = useCallback(
     async (symbol, options = {}) => {
       if (!symbol) return null;
 
       const normalizedSymbol = normalizeSymbol(symbol);
-      const liveTick = tickDataRef.current[normalizedSymbol];
+      const liveTick = store.getState().websocket.tickData[normalizedSymbol];
       if (isObservedQuote(liveTick) && !options.force) {
         return liveTick;
       }
 
-      if (!fetchingPrices.has(normalizedSymbol)) {
-        const request = api.get(`/market/latest-tick/?instrument=${encodeURIComponent(normalizedSymbol)}`)
-          .then(({ data }) => {
-            const current = tickDataRef.current[normalizedSymbol];
-            const latest = isNewerQuote(data, current) ? data : current;
-            if (latest) dispatch(updateTickData({ symbol: normalizedSymbol, data: latest }));
-            return latest ?? null;
-          })
-          .catch(() => null)
-          .finally(() => fetchingPrices.delete(normalizedSymbol));
-        fetchingPrices.set(normalizedSymbol, request);
-      }
-      return fetchingPrices.get(normalizedSymbol);
+      try { return (await getLatestPrices([normalizedSymbol]))[normalizedSymbol]; }
+      catch { return null; }
     },
-    [dispatch]
+    [getLatestPrices]
   );
 
   const getTickData = useCallback(
-    (symbol) => symbol ? tickDataRef.current[normalizeSymbol(symbol)] ?? null : null,
+    (symbol) => symbol ? store.getState().websocket.tickData[normalizeSymbol(symbol)] ?? null : null,
     []
   );
 
@@ -360,6 +369,7 @@ export function useWebSocket() {
     subscribe,
     subscribeChart,
     getLatestPrice,
+    getLatestPrices,
     getTickData,
   };
 }

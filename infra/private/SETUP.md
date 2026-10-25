@@ -287,6 +287,11 @@ Live. Use [the restore procedure](../shared/scripts/README.md#5-restore-into-an-
 
 ## Step 12. Daily operation and updates
 
+For the AI Research upgrade, follow the
+[research rollout steps](../../docs/ai-research.md#deployment-and-verification).
+Update backend and research together. Private retains per-answer provider usage
+but does not create commercial reservations or enforce period credits.
+
 ```sh
 python3 infra/shared/scripts/diagnostics.py --root . --mode private
 docker compose --env-file infra/private/backend.env -f infra/private/compose.yaml logs --tail=100 execution

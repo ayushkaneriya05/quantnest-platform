@@ -1,4 +1,5 @@
 """Shared historical reads and pure candle aggregation, including live observations."""
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import hashlib
@@ -165,19 +166,26 @@ def read_candles(request: CandleRequest) -> CandleBatch:
     return batch
 
 
-def prepare_frames(instrument, timeframes: frozenset[str], windows: dict, calendar):
+def prepare_frames(instrument, timeframes: frozenset[str], windows: dict, calendar, *, on_progress: Callable[[float, str], None] | None = None):
     """Prepare each source once; callers supply requirements rather than rule JSON."""
     from .history import ensure_history
 
     sources, quality = {}, {}
-    for source, (start, end) in sorted(windows.items()):
+    for index, (source, (start, end)) in enumerate(sorted(windows.items())):
+        def report(fraction, message):
+            if on_progress:
+                on_progress((index + 0.8 * fraction) / len(windows), message)
+
         request = HistoryRequest(instrument, source, start, end, calendar)
-        result = ensure_history(request)
+        result = ensure_history(request, on_progress=report if on_progress else None)
+        report(1, f'Reading confirmed {source} candles for {instrument.sym_ticker}...')
         batch = read_source(request)
         sources[source] = batch.frame
         quality[source] = {**batch.quality, "fetched": result.fetched, "error": result.error,
                            "complete": result.complete and batch.quality["complete"]}
     as_of = max(end for _, end in windows.values())
+    if on_progress:
+        on_progress(1, f'Building strategy candle timeframes for {instrument.sym_ticker}...')
     frames = build_frames(sources, timeframes, calendar, as_of)
     return frames, {
         "instrument": instrument.sym_ticker, "complete": all(item["complete"] for item in quality.values()),

@@ -308,6 +308,11 @@ on a separate empty instance; never restore over the active production database.
 
 ## Step 12. Everyday operation and updates
 
+For the AI Research credit upgrade, follow the
+[research rollout steps](../../docs/ai-research.md#deployment-and-verification)
+before restarting services. Update backend and research together; the migration
+publishes the new credit catalog while preserving historical conversations and usage.
+
 ```sh
 docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml ps
 docker compose --env-file infra/public/backend.env -f infra/public/compose.yaml logs --tail=100 execution

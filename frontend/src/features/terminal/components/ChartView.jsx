@@ -78,7 +78,11 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
     const navigate = () => { navigating.current = true; };
     node.addEventListener('wheel', navigate, { passive: true });
     node.addEventListener('pointerdown', navigate);
-    const observer = new ResizeObserver(([entry]) => instance.resize(entry.contentRect.width, entry.contentRect.height));
+    const observer = new ResizeObserver(([entry]) => {
+      // Expanding the bottom panel hides this chart. Keep its visible range intact.
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) instance.resize(width, height);
+    });
     observer.observe(node);
     return () => {
       observer.disconnect(); node.removeEventListener('wheel', navigate); node.removeEventListener('pointerdown', navigate);
@@ -140,20 +144,20 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
   }, [instrument, onPriceSelect]);
 
   return <section className={'flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card ' + className}>
-    <header className="shrink-0 border-b px-3 py-3">
+    <header className="shrink-0 border-b px-3 py-2">
       <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1"><h2 className="break-words text-sm font-semibold leading-5">{instrument?.name || 'Select an instrument'}</h2>
+        <div className="min-w-0 flex-1"><h2 className="line-clamp-2 break-words text-sm font-semibold leading-5" title={instrument?.name}>{instrument?.name || 'Select an instrument'}</h2>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">{instrument ? instrument.exchange + ' · ' + enums.InstrumentType.find((choice) => choice.value === instrument.instrument_type)?.label : 'Add an instrument to your watchlist'}</p></div>
-        <div className="text-right"><strong ref={priceNode} className="text-lg tabular-nums">—</strong>
+        <div className="shrink-0 text-right"><strong ref={priceNode} className="text-lg leading-6 tabular-nums">—</strong>
           <p className="text-[11px] text-muted-foreground">{data.session?.is_open ? 'Session open' : 'Session closed'}</p></div>
-        <div className="flex gap-1 xl:hidden"><Button size="sm" onClick={onBuyClick}>Buy</Button><Button size="sm" variant="outline" onClick={onSellClick}>Sell</Button></div>
+        <div className="flex shrink-0 flex-col gap-1 sm:flex-row xl:hidden"><Button className="h-7 bg-emerald-700 px-2 text-xs text-white hover:bg-emerald-800" size="sm" onClick={onBuyClick}>Buy</Button><Button className="h-7 px-2 text-xs" size="sm" variant="outline" onClick={onSellClick}>Sell</Button></div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <Select value={interval} onValueChange={setInterval}><SelectTrigger aria-label="Chart timeframe" className="h-8 w-24"><SelectValue /></SelectTrigger>
           <SelectContent>{enums.ChartTimeframe.map(({ value, label }) => <SelectItem key={value} value={value} title={label}>{value}</SelectItem>)}</SelectContent></Select>
         <Select value={kind} onValueChange={setKind}><SelectTrigger aria-label="Chart type" className="h-8 w-36"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="candles">Candlesticks</SelectItem><SelectItem value="line">Line</SelectItem></SelectContent></Select>
-        <div className="ml-auto hidden items-center gap-3 text-xs tabular-nums text-muted-foreground sm:flex">
+        <div className="ml-auto hidden flex-wrap items-center gap-x-2 gap-y-1 text-[11px] tabular-nums text-muted-foreground sm:flex">
           {hover && ['open','high','low','close'].map((key) => <span key={key} className="inline-flex items-center gap-1 whitespace-nowrap">
             <strong className="font-bold text-primary">{key[0].toUpperCase()}</strong>
             <span>{formatNumber(hover[key], { maximumFractionDigits: 8 })}</span>
@@ -161,13 +165,13 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
         </div>
       </div>
     </header>
-    <div className="relative flex min-h-[180px] flex-1 flex-col">
+    <div className="relative flex min-h-[96px] flex-1 flex-col">
       <div ref={container} className="absolute inset-0" />
       {data.status === 'loading' && !data.historicalData.length && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 bg-card/80 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading chart…</div>}
       {data.status === 'empty' && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center text-sm text-muted-foreground">No candles returned for this range.</div>}
     </div>
-    <footer className="flex min-h-8 shrink-0 items-center gap-2 border-t px-3 py-1 text-[11px] text-muted-foreground">
-      {data.fetchingHistory || data.isLoadingOlder ? <><Loader2 className="h-3 w-3 animate-spin" />Fetching provider history…</> : <span>Scroll left for older history · IST</span>}
+    <footer className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t px-3 py-1 text-[11px] text-muted-foreground">
+      {data.fetchingHistory || data.isLoadingOlder ? <><Loader2 className="h-3 w-3 animate-spin" />Fetching provider history…</> : <><span className="hidden sm:inline">Scroll left for older history · IST</span><span className="sm:hidden">History · IST</span></>}
       {symbol && <Button variant="ghost" size="sm" className="h-6 px-2" disabled={data.status === 'loading' || data.fetchingHistory || data.isLoadingOlder} onClick={data.loadOlder}>Older history</Button>}
       {data.error && <span role="alert" className="min-w-0 flex-1 text-destructive">{data.error}</span>}
       <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={data.reload} aria-label="Reload chart"><RotateCw className="h-3 w-3" /></Button>

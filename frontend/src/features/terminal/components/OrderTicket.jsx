@@ -67,9 +67,13 @@ export default function OrderTicket({ instrument, account, side, onSideChange, o
     finally { setBusy(false); }
   };
   if (!instrument) return <p className="p-4 text-sm text-muted-foreground">Select an instrument to place an order.</p>;
-  return <form onSubmit={submit} className="flex min-h-full flex-col gap-4 p-4 [&>*]:shrink-0">
-    <div><h2 className="text-sm font-semibold">Order ticket</h2><p className="mt-1 break-words text-xs text-muted-foreground">{instrument.name} · {instrument.exchange}</p></div>
+  return <form onSubmit={submit} className="flex h-full min-h-0 flex-col">
+    <header className="shrink-0 border-b px-3 py-2.5 pr-10 xl:pr-3"><h2 className="text-sm font-semibold">Order ticket</h2>
+      <p className="mt-0.5 truncate text-xs text-muted-foreground" title={instrument.name}>{instrument.name} · {instrument.exchange}</p></header>
+    {/* Only the fields scroll; funds and the submit button remain visible. */}
+    <div className="scrollbar-thin-theme flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [&>*]:shrink-0 [&_input]:h-9 [&_label]:text-xs [&_[role=combobox]]:h-9">
     <div className="grid grid-cols-2 gap-2">{enums.Side.map(({ value, label }) => <Button key={value} type="button" variant={side === value ? 'default' : 'outline'}
+      size="sm" aria-pressed={side === value}
       onClick={() => onSideChange(value)} className={side === value ? value === values.Side.BUY ? 'bg-emerald-700 text-white hover:bg-emerald-800' : 'bg-rose-600 text-white hover:bg-rose-700' : ''}>{label}</Button>)}</div>
     <div className="space-y-1.5"><Label htmlFor="terminal-type">Order type</Label>
       <Select value={type} onValueChange={setType}><SelectTrigger id="terminal-type"><SelectValue /></SelectTrigger>
@@ -79,10 +83,12 @@ export default function OrderTicket({ instrument, account, side, onSideChange, o
       <Input id="terminal-size" type="number" min={derivative ? 1 : unitStep} step={derivative ? 1 : unitStep} value={size} onChange={(event) => setSize(event.target.value)} required /></div>
     {needsPrice && <div className="space-y-1.5"><Label htmlFor="terminal-price">Limit price</Label><Input id="terminal-price" type="number" min={instrument.tick_size} step={instrument.tick_size} value={price} onChange={(event) => setPrice(event.target.value)} required /></div>}
     {needsTrigger && <div className="space-y-1.5"><Label htmlFor="terminal-trigger">Trigger price</Label><Input id="terminal-trigger" type="number" min={instrument.tick_size} step={instrument.tick_size} value={trigger} onChange={(event) => setTrigger(event.target.value)} required /></div>}
-    <details className="rounded-lg border bg-muted/20 p-3 text-sm"><summary className="cursor-pointer font-medium">Stop loss & take profit</summary>
+    <details className="rounded-lg border bg-muted/20 p-2.5 text-xs"><summary className="cursor-pointer font-medium">Stop loss & take profit</summary>
       <div className="mt-3 space-y-3"><div className="space-y-1.5"><Label htmlFor="terminal-stop">Stop loss</Label><Input id="terminal-stop" type="number" min={instrument.tick_size} step={instrument.tick_size} value={stop} onChange={(event) => setStop(event.target.value)} /></div>
         <div className="space-y-1.5"><Label htmlFor="terminal-target">Take profit</Label><Input id="terminal-target" type="number" min={instrument.tick_size} step={instrument.tick_size} value={target} onChange={(event) => setTarget(event.target.value)} /></div></div></details>
-    <dl className="mt-auto space-y-2 border-t pt-4 text-xs">
+    </div>
+    <footer className="shrink-0 space-y-2.5 border-t bg-muted/20 p-3">
+    <dl className="space-y-1.5 text-xs">
       <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Available capital</dt><dd className="tabular-nums">{formatCurrency(account?.available_balance)}</dd></div>
       <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Estimated funds</dt><dd className="tabular-nums">{preview?.available ? formatCurrency(preview.estimated_funds) : '—'}</dd></div>
     </dl>
@@ -92,6 +98,7 @@ export default function OrderTicket({ instrument, account, side, onSideChange, o
     <Button type="submit" disabled={busy || !instrument.orderable || !open || !valid || type === values.TerminalOrderType.MARKET && !hasPrice}
       className={side === values.Side.BUY ? 'w-full bg-emerald-700 text-white hover:bg-emerald-800' : 'w-full bg-rose-600 text-white hover:bg-rose-700'}>
       {busy ? 'Submitting…' : (side === values.Side.BUY ? 'Buy' : 'Sell') + ' ' + formatNumber(size, { maximumFractionDigits: 0 }) + (derivative ? Number(size) === 1 ? ' lot' : ' lots' : Number(size) === 1 ? ' unit' : ' units')}</Button>
+    </footer>
   </form>;
 }
 OrderTicket.propTypes = { instrument: PropTypes.object, account: PropTypes.object, side: PropTypes.string,

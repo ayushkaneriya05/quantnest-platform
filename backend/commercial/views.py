@@ -17,7 +17,7 @@ from .usage import get_account_policy, get_account_usage, reject_request
 @permission_classes([AllowAny])
 @authentication_classes([])
 def get_public_catalog(request):
-    from .catalog import LIMIT_LABELS, PLANS, get_active_catalog
+    from .catalog import LIMIT_LABELS, LIMIT_DIVISORS, PLANS, get_active_catalog
     from customer_support.catalog import get_support_specification
     data = deepcopy(get_active_catalog().specification)
     data["features"] = [{key: feature[key] for key in ("code", "name", "documentation", "description")}
@@ -28,6 +28,7 @@ def get_public_catalog(request):
         data.pop(unused, None)
     data["support"] = get_support_specification()
     data["limit_labels"] = LIMIT_LABELS
+    data["limit_divisors"] = LIMIT_DIVISORS
     data["checkout_available"] = settings.BILLING_ENABLED
     for plan in data["plans"].values():
         plan["checkout_available"] = bool(data["checkout_available"])

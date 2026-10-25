@@ -1,150 +1,104 @@
-# QuantNest AI research
+# QuantNest research service
 
-The research assistant replaces the old AI Engine. Django owns users, jobs,
-history, market-data loading, screening calculations, saved evidence and strategy
-confirmed actions. This private FastAPI service calls Gemini and requests nine
-allowlisted Django tools. It has no trading credentials, database connection,
-order API or strategy activation API.
+This internal FastAPI service runs the AI conversation loop. Django owns users,
+admission, evidence, tools, saved answers, confirmations and commercial credits.
+The browser calls Django only. Do not expose service port 8001 publicly.
 
-## Setup and startup
+Read [AI Research architecture](../docs/ai-research.md) for the complete flow,
+token accounting, tool list, contracts, extension points, verification and migration.
 
-Follow the beginner [Development](../infra/development/SETUP.md),
-[Public](../infra/public/SETUP.md) or [Private](../infra/private/SETUP.md) walkthrough.
-[Gemini integration setup](../infra/shared/INTEGRATIONS.md#5-gemini-ai-research)
-explains obtaining the provider key, selecting a supported model and verifying
-the first response.
+## Files
 
-For Compose, use the selected mode's `research.env` for `GEMINI_API_KEY`,
-`GEMINI_MODEL` and `RESEARCH_SERVICE_TOKEN`. Put the same service token in that
-mode's `backend.env`. These files are separate from native `backend/.env` and
-`research_service/.env`; do not merge the two deployment methods.
+| File | Responsibility |
+|---|---|
+| `main.py` | HTTP authentication, streaming, deadline, disconnect cleanup and concurrency |
+| `schemas.py` | Request and structured-answer contract; tested against Django's actual payload |
+| `workflow.py` | Provider-independent model/tool loop and cumulative reported usage |
+| `providers.py` | Adapter interface, Gemini SDK integration, native continuation, retries and usage normalization |
 
-Development enables the `research` profile. Public/Private include it in their
-normal full deployment. Docker installs the locked dependencies and supplies
-internal service/tool URLs. The browser calls Django only; do not expose 8001.
+## Configuration
 
-Research and screening jobs run on the existing **compute** Celery queue.
-Background and Beat services handle maintenance/expiry. There is no separate
-research Celery queue or worker command to add. Screening does not require a
-Gemini request; AI answers additionally need the internal FastAPI service.
+```dotenv
+RESEARCH_PROVIDER=gemini
+RESEARCH_MODEL=gemini-3.5-flash
+GEMINI_THINKING_LEVEL=low
+RESEARCH_PROVIDER_TIMEOUT_SECONDS=60
+GEMINI_API_KEY=your-provider-key
+RESEARCH_SERVICE_TOKEN=your-shared-internal-token
+RESEARCH_INTERNAL_API_URL=http://127.0.0.1:8000/api/v1/research/tools/
+```
 
-If maintaining a native setup, configure the two internal URLs and matching
-tokens explicitly and keep its processes separate from Compose. Use a model
-supporting Interactions function calling and structured output; a configured
-default name is not a guarantee of access for your Google project.
+Use a model enabled in your project that supports Interactions, function calling
+and structured output together. The model default does not guarantee account
+access. Put the same internal service token in Django; never send either secret
+to the frontend. Model requests use `store=False`; only the adapter retains native
+steps/signatures while the request runs. Application history is provider-independent.
 
-## Workflow
+`GEMINI_THINKING_LEVEL=low` reduces generation latency; use `medium` or `high`
+when additional reasoning is worth the wait. Choose a level supported by your
+model. `RESEARCH_PROVIDER_TIMEOUT_SECONDS` bounds one complete model round,
+including connection and retry time. The adapter permits one retry for transient
+HTTP errors; SDK retries are disabled so attempts do not multiply. A timeout is
+reported directly and does not trigger another potentially billed generation.
+The ten-minute research deadline still covers multiple model/tool rounds.
+Gemini receives compact schemas describing field types and allowed choices;
+Pydantic and Django enforce length, count, ownership and value limits. This
+avoids constrained-decoder state explosions from nested bounded tool arguments.
 
-1. Open AI Research Assistant and ask a question. Starter cards fill the composer
-   without sending. Stock attachments are optional for general explanations;
-   named stocks use the existing instrument search, with explicit selection for
-   ambiguous names. Attach a terminal watchlist, owned strategy, or owned
-   completed backtests within the request allowance when useful.
-2. Each conversation is a `ResearchSession`; each question is a `ResearchRun`.
-   API admission freezes selected attachments, effective strategy snapshots and the
-   observation cutoff. The pending reply displays actual research stages, then
-   becomes a complete validated answer. Refresh/reconnect restores saved turns.
-3. Inline citations open a details drawer with backend tables, condition outcomes,
-   charts and readable rules. Numbers come from Django tools; Gemini writes the
-   narrative. Missing data is an exclusion, never a failed trading condition.
-4. Follow-up questions keep prior run/evidence references and the latest validated
-   draft, even beyond the six recent answers sent to the provider. Earlier evidence
-   is retrieved through a tool restricted to the current conversation. Its original
-   run and observation time remain visible.
-5. Review a proposed strategy draft, watchlist addition, or single backtest. Only
-   explicit confirmation executes the action. Django validates permissions and
-   settings, creates resources atomically, and records the outcome. Repeating the
-   same confirmation returns the recorded result. Each new experiment requires
-   its own preview and confirmation.
-6. Backtest previews include the exact approved snapshot, dates, capital, slippage
-   and charge profile. Execution uses shared backtest creation/start services and
-   queues work after commit. Strategy changes after preview cannot change the
-   approved experiment. Queue failures retain the created run for an explicit retry.
-7. Completed backtests can be attached from their existing **Research review**
-   action. Reviews and comparisons use actual trades, costs, configuration
-   differences, monthly/instrument/exit breakdowns, and recorded diagnostics.
-   Older runs without diagnostics state that entry-blocking causes were not recorded.
+Service logs record slot wait, model-round duration, tool calls and token counts
+without recording prompts or credentials. A `200 OK` means the research event
+stream opened; the final result/error event determines whether research succeeded.
 
-The standalone Market Screener uses backend presets, named saved screens, the
-existing rule editor/evaluator, and the same evidence components. Results can be
-searched, sorted and selected for AI research with their exact saved observation.
-Saving a screen reuses `ResearchSession`, without another history model. The unused
-Alternative Data placeholder is removed from navigation until it has a data source.
+For native development, from the repository root:
 
-## Contracts and limits
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn research_service.main:app --env-file research_service/.env --host 127.0.0.1 --port 8001
+```
 
-- REST: `/api/v1/research/sessions/`, `/runs/`, `/schema/`; user-scoped, paginated
-  conversations and turns. Detail endpoints have no recent-history restriction.
-- Actions: `/runs/{id}/cancel/`, `/runs/{id}/propose-action/`,
-  `/actions/{id}/confirm/`; evidence: `/runs/{id}/evidence/{E1}/`.
-- WebSocket: `/ws/research/`, using the existing authenticated cookies. Compact
-  `{type: "research.update", run: {id, session, revision, status, progress_message,
-  error_message}}` events omit artifacts. Clients reject older revisions and load
-  completed replies through REST.
-- Private tool gateway: `/api/v1/research/tools/`. Requires the service token and
-  a signed, expiring token binding one active run to its user. IDs come from that
-  run's frozen context; the model cannot choose another user or arbitrary routes.
-- Tools: `screen_instruments`, `compare_instruments`, `analyze_stock`,
-  `resolve_instruments`, `get_strategy_snapshot`, `get_backtest_report`,
-  `compare_backtests`, `get_conversation_evidence`, `validate_strategy_draft`.
-- One active run per user; eight tool attempts reserved before work, including
-   failed calls; ten-minute deadline; 12 conditions/group; five charted stocks
-   per chart tool with at most eight indicators. Public stock/attachment sizes
-   come from catalog allowances; Private/Development have no plan ceilings.
-   Symbol resolution may suggest a stock for a new request but cannot expand
-   the current run's accepted universe.
-- Default timeframe: daily. Intraday warmup is capped at 60,000 source minutes;
-  daily/weekly history at 2,000 trading sessions. This permits daily EMA 50 warmup.
-  Loaded frames, calculated indicators and identical artifacts are reused within
-  a run. Charts are bounded to 120 bars and stay outside model tool responses.
-- NSE stocks and one direct execution route per draft instrument in this version.
-- Warmup comes from the shared execution compiler and `MarketSessionCalendar`.
-  Data comes through `marketdata.candles.prepare_frames` and the common history
-  path, including missing-candle provider backfill and coverage checks. Candle series are indexed by scheduled close,
-  including holiday-aware weekly closes, so incomplete future bars are excluded.
-- Returns/volatility in comparison tables use 20 completed bars. Volatility is
-  the sample standard deviation of bar returns, not annualized volatility.
-- Screening condition outcomes use `research.evaluation.evaluate_conditions`
-  with the shared execution compiler/evaluator, including crossover semantics.
-  Undefined ratios render as N/A; empty trade totals are zero.
-- Backtest diagnostics describe the evaluation and admission outcomes recorded
-  with that run. Older runs may not include the current diagnostic fields.
-- Reloading saved results keeps original dates. Refresh analysis creates a new
-  observation. Closed candles and separately timestamped quotes remain distinct.
-- Gemini requests use `store=False`; complete interaction steps are preserved
-  locally for tool results. Django stores the application conversation/evidence.
-  Prompt contents and selected data still go to the configured Gemini API.
-- REST polling recovers missed socket events. Cancellation prevents subsequent
-  tool publication and prevents an in-flight job from overwriting cancelled state.
-  Provider work already submitted may still consume tokens after cancellation.
+Run Django and its existing compute Celery worker too. Research shares that worker
+with backtests; queue delays are expected while it is busy. Standalone screening
+uses deterministic Django tools and needs no AI call. Do not add another queue.
 
-## Migrations and removal
+For Compose, use your mode's `research.env`. Compose supplies the internal Django
+URL. Development enables the `research` profile; Public/Private include research
+in their normal deployment. See [Development](../infra/development/SETUP.md),
+[Public](../infra/public/SETUP.md), [Private](../infra/private/SETUP.md) and
+[integration setup](../infra/shared/INTEGRATIONS.md#5-gemini-ai-research).
 
-`research.0001_initial` adds the two research models.
-`research.0003` adds session context, revisions, attempt counters and `ResearchAction`.
-`research.0004` converts saved attachments and provenance once, retaining research
-history and already-created drafts. `backtesting.0018` adds aggregate diagnostics.
-`research.0002_remove_old_ai_engine` irreversibly drops only the four removed AI
-Engine tables and deletes its obsolete content types. This removes the unused
-AI recommendations, regime, health and overfit history as approved. The migration
-is part of the versioned migration history applied by the normal deploy flow.
+## Upgrading existing deployments
+
+Rename `GEMINI_MODEL` to `RESEARCH_MODEL`, set `RESEARCH_PROVIDER=gemini`, and
+remove `RESEARCH_INPUT_TOKEN_BUDGET` / `RESEARCH_OUTPUT_TOKEN_BUDGET` from Django.
+Deploy backend and research images together after research has finished. Apply
+`commercial.0016_research_token_credits` and rebuild the frontend. The migration
+preserves history and starts fresh token accounting; it refuses active research
+or subscriptions needing a reviewed terms transition.
+
+One credit is 1,000 reported tokens. Successful saved answers settle actual usage;
+failed/cancelled requests charge no customer credits. There is no cumulative
+customer token cap per request. The service retains technical provider limits,
+a ten-minute deadline supplied by Django, eight uncached tool executions, bounded
+retries and bounded model rounds. A valid structured answer returns immediately.
+
+The system instruction separates educational replies, admitted data/evidence,
+customer-defined drafts, report reviews and confirmed UI actions. A rejected tool
+call is returned to the model as an explicit error. One malformed final answer
+may be repaired using validation feedback; that repair cannot fetch new data.
+Blank answers and follow-up text beyond the application limits are validated in
+the service before saving. Invalid optional proposals do not remove valid ones.
 
 ## Verification
 
 ```powershell
-cd backend
-..\.venv\Scripts\python.exe manage.py check
-..\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run
-cd ../frontend
-npx eslint src/features/research src/shared/services/researchApi.js
-npm run build
+.\.venv\Scripts\python.exe -m compileall -q research_service
+.\.venv\Scripts\python.exe backend/manage.py check
 ```
 
-Validate the research workflow against your configured deployment before release.
-A real Gemini request requires your service token/API key and running services.
-Logs record tool latency, provider token usage, failures and action outcomes;
-they do not include credentials or request headers.
+Repository test suites are removed; CI retains compilation and configuration checks.
+After deployment, submit one real educational question and compare saved
+`usage.total_tokens / 1000` with the displayed credits and Billing. `/health`
+confirms startup only; it does not verify provider access.
 
-Provider documentation: [Interactions](https://ai.google.dev/gemini-api/docs/interactions-overview),
-[function calling](https://ai.google.dev/gemini-api/docs/function-calling),
-[structured output](https://ai.google.dev/gemini-api/docs/structured-output).
+Provider references: [Interactions](https://ai.google.dev/gemini-api/docs/interactions-overview),
+[structured output](https://ai.google.dev/gemini-api/docs/structured-output),
+[reported usage](https://ai.google.dev/gemini-api/docs/tokens).

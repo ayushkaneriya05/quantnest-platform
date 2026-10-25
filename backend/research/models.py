@@ -1,15 +1,17 @@
 import uuid
 
+from common.models import BaseTimestampModel
 from django.conf import settings
 from django.db import models
-from common.models import BaseTimestampModel
 
 
 class ResearchSession(BaseTimestampModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     title = models.CharField(max_length=160)
     context = models.JSONField(default=dict)
-    kind = models.CharField(max_length=12, choices=[("CHAT", "Conversation"), ("SCREEN", "Saved screen")], default="CHAT")
+    kind = models.CharField(
+        max_length=12, choices=[("CHAT", "Conversation"), ("SCREEN", "Saved screen")], default="CHAT"
+    )
 
     class Meta:
         ordering = ["-updated_at", "-id"]
@@ -46,7 +48,9 @@ class ResearchRun(BaseTimestampModel):
         ordering = ["created_at", "id"]
         constraints = [
             models.UniqueConstraint(fields=["user", "request_id"], name="research_request_unique"),
-            models.UniqueConstraint(fields=["user"], condition=models.Q(status__in=["PENDING", "RUNNING"]), name="research_one_active_run"),
+            models.UniqueConstraint(
+                fields=["user"], condition=models.Q(status__in=["PENDING", "RUNNING"]), name="research_one_active_run"
+            ),
         ]
 
 
@@ -70,3 +74,7 @@ class ResearchAction(BaseTimestampModel):
 
     class Meta:
         ordering = ["id"]
+
+
+# Shared by admission, transport, calculations and cancellation.
+ACTIVE_RUN_STATUSES = (ResearchRun.Status.PENDING, ResearchRun.Status.RUNNING)

@@ -98,6 +98,14 @@ Provider callbacks write local shared-memory observations. Background publishers
 
 A stored/cache hit can render before provider history finishes. Missing data necessarily includes provider/network work; a fast stored chart does not prove provider authorization is valid. The UI shows acquisition errors rather than fabricated candles.
 
+Watchlist prices load independently of chart selection and the WebSocket handshake. On initial load, membership changes and reconnect, `Watchlist` calls `useWebSocket.getLatestPrices()` with the active list's `sym_ticker` values. The authenticated `POST /api/v1/market/quotes/` endpoint accepts `{"symbols": ["NSE:INFY-EQ", "NSE:MRF-EQ"]}` and returns a symbol-keyed map of price snapshots. The selected chart shares in-flight requests with this load.
+
+`refresh_quotes()` reuses provider snapshots for 60 seconds across browsers and batches missing prices through `FyersProvider.quotes()`. The SDK's GET endpoint receives up to 50 symbols per provider call. Acquired snapshots also reach subscribed browsers through the existing quote channel. This does not create execution observations or chart candles. During market hours, existing WebSocket subscriptions update every watchlist instrument; there is no quote polling loop.
+
+The watchlist renders Redux quote state directly. Display updates combine received ticks every 200 ms and retain the last tick even if no more arrive; chart/ticket subscription callbacks receive accepted ticks immediately. Actual provider/observed prices take precedence over candle-derived fallback prices, and older real quotes cannot replace newer real quotes. If provider acquisition is unavailable, the shared quote service can still return its last known price or an explicit unavailable snapshot.
+
+REST snapshots record acquisition start time in `updated_at`; WebSocket quotes record receive time there. Cross-transport ordering uses that field because FYERS REST `tt` can have date precision. A tick received during an HTTP acquisition therefore remains newer than that snapshot. Within one transport, event timestamps and `updated_at` break ties as usual; no tick-age expiry is applied.
+
 There is no fixed tick-age cutoff. Quiet symbols retain their observed price. A stored close may be used for display, but execution requires an actual observation from the connected feed. A detected disconnect/generation change invalidates execution observations until new data arrives. A silent frozen feed cannot be identified merely by the removed age check.
 
 A visible historical chart, a connected browser socket and a running execution worker are separate states.

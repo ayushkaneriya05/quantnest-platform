@@ -67,7 +67,7 @@ Current seed allowances:
 | --- | ---: | ---: | ---: |
 | Saved strategies | 3 | 10 | 50 |
 | Backtest credits per period | 5 | 20 | 100 |
-| AI messages per period | 3 | 10 | 30 |
+| AI research credits per period (1 credit = 1,000 tokens) | 150 | 500 | 1,500 |
 | Screener runs per period | 10 | 100 | 300 |
 | Saved screens | 2 | 10 | 30 |
 | Stocks per research request | 5 | 20 | 50 |

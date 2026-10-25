@@ -124,7 +124,7 @@ The data path is:
 
 Internal historical ranges are timezone-aware `[start, end)`. The engine derives date boundaries using the market/strategy timezone. Intraday aggregation respects exchange/segment opening times, breaks, holidays and overnight sessions. Daily/weekly/monthly sources use the daily family; intraday intervals use minute sources.
 
-An incomplete warmup fails the run visibly instead of allowing indicators to start from arbitrary zeros. `data_quality` retains per-instrument acquisition information and the simulation policy.
+An incomplete warmup fails the run visibly instead of allowing indicators to start from arbitrary zeros. `data_quality` retains per-instrument acquisition information.
 
 ## Compilation and rule evaluation
 
@@ -231,4 +231,4 @@ Backtests require the API, PostgreSQL/TimescaleDB, configured Redis/Celery servi
 | [History](../backend/marketdata/history.py), [candles](../backend/marketdata/candles.py) | Confirmed source acquisition and calendar-aligned aggregation |
 | [Usage](../backend/commercial/usage.py) | Admission, reservation and terminal-outcome accounting |
 
-Add an operand in shared compiler/evaluation/metadata validation, not only in the backtest engine. Add a matching rule in the shared matcher. A different historical simulation policy belongs in the replay adapter and must be recorded in results. Keep provider I/O and ORM reporting outside numerical evaluation.
+Add an operand in shared compiler/evaluation/metadata validation, not only in the backtest engine. Add a matching rule in the shared matcher. A different historical simulation policy belongs in the replay adapter; update this guide when changing it. Keep provider I/O and ORM reporting outside numerical evaluation.

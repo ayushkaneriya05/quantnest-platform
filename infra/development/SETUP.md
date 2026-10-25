@@ -204,6 +204,11 @@ Pass every profile you want each time. Omitting a previous profile from the depl
 command disables that optional service. The supported research jobs use the
 `compute` worker already in Compose; do not start a separate research Celery queue.
 
+When upgrading an existing research installation, follow the
+[AI Research rollout steps](../../docs/ai-research.md#deployment-and-verification).
+The backend and research service must use the same release. Development records
+actual token usage without enforcing the period credit allowance.
+
 Google login can now be configured through
 [its optional Admin setup](../shared/INTEGRATIONS.md#8-google-sign-in-optional-backend-client).
 Brevo and Turnstile can remain deferred for local console-mail/DEBUG development.

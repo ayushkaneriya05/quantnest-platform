@@ -12,8 +12,8 @@ export const featureDetails = {
   screener: {
     task: 'Find stocks that match the conditions you choose.',
     summary: 'Compare selected stocks against your technical filters and see why each result matches.',
-    steps: ['Select stocks, a watchlist or instruments from a saved strategy.', 'Choose a preset or build your own conditions. Set the timeframe and whether all or any conditions must pass.', 'Review matches, condition values and observation times. Save a named screen or send selected results to AI research.'],
-    capabilities: [['Your own filters', 'Combine supported indicators, price conditions and crossovers. Presets are editable starting points.'], ['Readable results', 'See the conditions behind a match and exclusions caused by missing data.'], ['Saved screens', 'Name your configuration and return to it without rebuilding filters.'], ['Research handoff', 'Take the exact screening result into a conversation for further investigation.']],
+    steps: ['Select stocks, a named Terminal watchlist or instruments from a saved strategy.', 'Build your own conditions. Set the timeframe and whether all or any conditions must pass.', 'Review matches, condition values and observation times. Save a named screen or send selected results to AI research.'],
+    capabilities: [['Your own filters', 'Combine supported indicators, price conditions and crossovers.'], ['Readable results', 'See the conditions behind a match and exclusions caused by missing data.'], ['Saved screens', 'Name your configuration and return to it without rebuilding filters.'], ['Research handoff', 'Take the exact screening result into a conversation for further investigation.']],
     inputs: 'A selected stock list, technical conditions and timeframe. Screen your selected universe, up to 50 stocks and within your plan limits.',
     outputs: 'A sortable table with condition values, candle times and explanations of exclusions.',
     limitations: 'A match means your conditions passed at the recorded observation. It is not a recommendation. This is not an exchange-wide scanner.',

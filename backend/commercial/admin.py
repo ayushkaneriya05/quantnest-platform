@@ -1,5 +1,6 @@
 from copy import deepcopy
 from functools import partial
+from decimal import Decimal
 from django import forms
 from django.contrib import admin, messages
 from django.db import transaction
@@ -7,6 +8,7 @@ from django.utils import timezone
 from common.admin import ImmutableAdmin
 from .catalog import (
     LIMIT_LABELS,
+    LIMIT_DIVISORS,
     PLANS,
     publish_catalog,
     get_catalog_specification,
@@ -31,7 +33,11 @@ class CatalogForm(forms.ModelForm):
             self.fields[f"{code}_price"] = forms.IntegerField(label="Monthly price (paise)", initial=plan["price_minor"], min_value=0,
                 help_text="49900 means ₹499. Explore must remain 0.")
             for key, label in LIMIT_LABELS.items():
-                self.fields[f"{code}_{key}"] = forms.IntegerField(label=label, initial=plan["limits"].get(key, 0), min_value=0)
+                divisor = LIMIT_DIVISORS[key]
+                self.fields[f"{code}_{key}"] = forms.DecimalField(label=label,
+                    initial=Decimal(plan["limits"].get(key, 0)) / divisor, min_value=0,
+                    decimal_places=3 if divisor > 1 else 0,
+                    help_text=f"One credit = {divisor:,} reported AI tokens." if divisor > 1 else "")
         self.fields["credit_candles"] = forms.IntegerField(label="Source candles per backtest credit", min_value=1, initial=data["credit_candles"],
             help_text="Existing approved previews retain their saved unit when work settles.")
 
@@ -43,7 +49,7 @@ class CatalogForm(forms.ModelForm):
         data["revision"] = values["revision"]
         for code in PLANS:
             data["plans"][code].update(name=values[f"{code}_name"], price_minor=values[f"{code}_price"],
-                limits={key: values[f"{code}_{key}"] for key in LIMIT_LABELS})
+                limits={key: int(values[f"{code}_{key}"] * LIMIT_DIVISORS[key]) for key in LIMIT_LABELS})
         data["credit_candles"] = values["credit_candles"]
         validate_catalog_specification(data, values["revision"])
         self.instance.specification = data

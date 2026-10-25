@@ -1,9 +1,11 @@
 import PropTypes from 'prop-types';
 import { useState } from 'react';
+import { Maximize2, Minimize2, ChevronDown } from 'lucide-react';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { Badge } from '@/shared/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table';
 import { Button } from '@/shared/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/shared/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import { Checkbox } from '@/shared/components/ui/checkbox';
 import { formatNumber, formatCurrency } from '@/shared/utils/formatters';
@@ -17,7 +19,7 @@ import terminalApi from '../services/tradingTerminalApi';
 
 const price = (value) => value == null ? '—' : formatNumber(value, { maximumFractionDigits: 8 });
 
-export default function TerminalBlotter({ positions, orders, onSelect }) {
+export default function TerminalBlotter({ positions, orders, onSelect, expanded, onToggleExpand, onCollapse }) {
   const { enums, values } = useEnums();
   const orderTypes = enums.TerminalOrderType.filter((choice) => choice.user_selectable);
   const [tab, setTab] = useState('positions');
@@ -65,20 +67,27 @@ export default function TerminalBlotter({ positions, orders, onSelect }) {
   };
   const field = (key, label) => <label className="block space-y-1 text-sm">{label}<Input type="number" min="0" step={editing.row.instrument.tick_size}
     value={fields[key]} onChange={(e) => setFields((current) => ({ ...current, [key]: e.target.value }))} /></label>;
-  return <section className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border bg-card">
-    <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
-      {['positions', 'orders'].map((value) => <Button key={value} size="sm" variant={tab === value ? 'secondary' : 'ghost'} onClick={() => setTab(value)}>
-        {value === 'positions' ? 'Positions (' + positions.length + ')' : 'Orders (' + orders.length + ')'}</Button>)}
-      {tab === 'orders' && <Button className="ml-auto" size="sm" variant="outline" disabled={busy || !selected.length}
-        onClick={() => act(() => terminalApi.cancelOrders(selected))}>Cancel selected ({selected.length})</Button>}
+  return <Tabs value={tab} onValueChange={setTab} asChild><section aria-label="Positions and orders" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+    <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1.5">
+      <TabsList aria-label="Trading activity" className="h-8 gap-1 bg-transparent p-0">{['positions', 'orders'].map((value) => <TabsTrigger key={value} value={value}
+        className="h-8 gap-2 px-2.5 text-xs data-[state=active]:bg-secondary data-[state=active]:shadow-none">
+        {value === 'positions' ? 'Positions' : 'Orders'}<span className="rounded bg-background/80 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">{value === 'positions' ? positions.length : orders.length}</span></TabsTrigger>)}</TabsList>
+      <div className="ml-auto flex items-center gap-1">
+        {tab === 'orders' && selected.length > 0 && <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled={busy}
+          onClick={() => act(() => terminalApi.cancelOrders(selected))}>Cancel ({selected.length})</Button>}
+        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={expanded ? 'Restore trading panel' : 'Expand trading panel'} title={expanded ? 'Restore panel' : 'Expand panel'} onClick={onToggleExpand}>
+          {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</Button>
+        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Collapse trading panel" title="Collapse panel" onClick={onCollapse}><ChevronDown className="h-4 w-4" /></Button>
+      </div>
     </div>
-    <Table containerClassName="min-h-0 flex-1" className="whitespace-nowrap">
+    <TabsContent value={tab} className="m-0 flex min-h-0 flex-1 flex-col">
+    <Table containerClassName="min-h-0 flex-1" className="min-w-[720px] whitespace-nowrap text-xs [&_th]:h-9 [&_th]:px-3 [&_th]:text-xs [&_td]:px-3 [&_td]:py-2 [&_td_button]:text-xs">
       <TableHeader className="sticky top-0 z-10 bg-card [&_tr]:bg-secondary/50">
         <TableRow className="border-border hover:bg-transparent">
           {tab === 'orders' && <TableHead><Checkbox aria-label="Select all working orders" checked={!!orders.length && selected.length === orders.length}
             onCheckedChange={(checked) => setSelected(checked ? orders.map((order) => order.id) : [])} /></TableHead>}
           {(tab === 'positions' ? ['Instrument', 'Quantity', 'Average', 'LTP', 'P&L', 'Actions'] : ['Instrument', 'Order', 'Quantity', 'Price', 'Actions'])
-            .map((label) => <TableHead key={label} className={['Quantity', 'Average', 'LTP', 'P&L', 'Price'].includes(label) ? 'text-right text-foreground' : 'text-foreground'}>{label}</TableHead>)}
+            .map((label) => <TableHead key={label} className={label === 'Instrument' ? 'min-w-48 text-foreground' : ['Quantity', 'Average', 'LTP', 'P&L', 'Price'].includes(label) ? 'text-right text-foreground' : 'text-foreground'}>{label}</TableHead>)}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -92,9 +101,9 @@ export default function TerminalBlotter({ positions, orders, onSelect }) {
             <TableCell className="text-right tabular-nums">{price(row.average_price)}</TableCell>
             <TableCell className="text-right tabular-nums" title={live?.isLive ? 'Latest observed price' : 'Stored valuation'}>{price(live?.livePrice)}{!live?.isLive ? '*' : ''}</TableCell>
             <TableCell className={'text-right tabular-nums ' + (live?.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500')}>{formatCurrency(live?.pnl)}</TableCell>
-            <TableCell><div className="flex gap-1"><Button size="sm" variant="ghost" onClick={() => open('action', row)}>Manage</Button>
-              <Button size="sm" variant="ghost" onClick={() => open('protection', row)}>Protect</Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => open('action', row, values.TerminalPositionAction.CLOSE)}>Close</Button></div></TableCell>
+            <TableCell><div className="flex gap-1"><Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => open('action', row)}>Manage</Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => open('protection', row)}>Protect</Button>
+              <Button size="sm" variant="outline" className="h-7 px-2" disabled={busy} onClick={() => open('action', row, values.TerminalPositionAction.CLOSE)}>Close</Button></div></TableCell>
           </TableRow>;
         }) : orders.map((row) => <TableRow key={row.id} className="border-border">
           <TableCell><Checkbox aria-label={'Select order ' + row.id} checked={selected.includes(row.id)}
@@ -115,6 +124,7 @@ export default function TerminalBlotter({ positions, orders, onSelect }) {
           className="h-24 text-center text-muted-foreground">No {tab === 'positions' ? 'open positions' : 'working orders'}.</TableCell></TableRow>}
       </TableBody>
     </Table>
+    </TabsContent>
     <Dialog open={!!editing} onOpenChange={(value) => { if (!value) setEditing(null); }}><DialogContent aria-describedby={undefined} className="max-w-md">
       <DialogTitle>{editing?.row.instrument.name} · {editing?.kind === 'protection' ? 'Protection' : editing?.kind === 'order' ? 'Modify order' : 'Position action'}</DialogTitle>
       {editing && <form onSubmit={save} className="space-y-4">
@@ -133,6 +143,7 @@ export default function TerminalBlotter({ positions, orders, onSelect }) {
         <Button type="submit" disabled={busy} className="w-full">{busy ? 'Applying…' : 'Confirm'}</Button>
       </form>}
     </DialogContent></Dialog>
-  </section>;
+  </section></Tabs>;
 }
-TerminalBlotter.propTypes = { positions: PropTypes.array.isRequired, orders: PropTypes.array.isRequired, onSelect: PropTypes.func.isRequired };
+TerminalBlotter.propTypes = { positions: PropTypes.array.isRequired, orders: PropTypes.array.isRequired, onSelect: PropTypes.func.isRequired,
+  expanded: PropTypes.bool.isRequired, onToggleExpand: PropTypes.func.isRequired, onCollapse: PropTypes.func.isRequired };

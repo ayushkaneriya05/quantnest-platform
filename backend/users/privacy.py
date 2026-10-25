@@ -1,11 +1,34 @@
 """Owned, bounded exports and safe account shutdown preconditions."""
-import json
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 from commercial.usage import reject_request
+
+
+def encode_account_export(account, collections):
+    """Build one complete JSON file, stopping at 10 MiB without loading all rows."""
+    content = bytearray()
+    encoder = DjangoJSONEncoder(ensure_ascii=False, separators=(",", ":"))
+
+    def write(text):
+        chunk = text.encode("utf-8")
+        if len(content) + len(chunk) > 10 * 1024 * 1024:
+            reject_request("export_size_limit", "The export exceeds 10 MiB. Request a scoped export through support.")
+        content.extend(chunk)
+
+    write('{"account":')
+    write(encoder.encode(account))
+    for name, rows in collections.items():
+        write("," + encoder.encode(name) + ":[")
+        for index, row in enumerate(rows):
+            if index:
+                write(",")
+            write(encoder.encode(row))
+        write("]")
+    write("}")
+    return bytes(content)
 
 
 def shutdown_account(user, *, erase=False):
@@ -139,14 +162,13 @@ class AccountExportView(APIView):
             "live_positions": LivePosition.objects.filter(user=user).values("id", "instrument_id", "side", "quantity", "avg_price"),
             "live_trades": LiveTrade.objects.filter(user=user).values(),
         }
-        if any(query.count() > 1000 for query in queries.values()) or Strategy.objects.filter(user=user).count() > 100:
-            reject_request("export_range_required", "This account needs a scoped export. Contact support for a bounded export of the remaining records.")
-        data = {name: list(query) for name, query in queries.items()}
-        data["account"] = {"username": user.username, "email": user.email, "first_name": user.first_name, "last_name": user.last_name}
-        data["strategies"] = [StrategySnapshotService._serialize_strategy(row) for row in Strategy.objects.filter(user=user)]
-        content = json.dumps(data, cls=DjangoJSONEncoder, ensure_ascii=False).encode()
-        if len(content) > 10 * 1024 * 1024:
-            reject_request("export_size_limit", "The export exceeds 10 MiB. Request a scoped export through support.")
+        collections = {name: query.order_by("pk").iterator(chunk_size=200) for name, query in queries.items()}
+        collections["strategies"] = (
+            StrategySnapshotService._serialize_strategy(row)
+            for row in Strategy.objects.filter(user=user).order_by("pk").iterator(chunk_size=100)
+        )
+        account = {"username": user.username, "email": user.email, "first_name": user.first_name, "last_name": user.last_name}
+        content = encode_account_export(account, collections)
         response = HttpResponse(content, content_type="application/json")
         response["Content-Disposition"] = 'attachment; filename="quantnest-account-export.json"'
         response["Cache-Control"] = "no-store"

@@ -20,16 +20,20 @@ ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="127.0.0.1,localhost", cast=Csv(
 REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/0")
 CELERY_BROKER_URL = REDIS_URL
 RUNTIME_REDIS_URL = config("RUNTIME_REDIS_URL", default=REDIS_URL)
+
 EXECUTION_WORKERS = config("EXECUTION_WORKERS", default=1, cast=int)
 if EXECUTION_WORKERS < 1:
     raise ValueError("EXECUTION_WORKERS must be positive.")
+
 EXECUTION_ENABLED_SCOPES = set(config("EXECUTION_ENABLED_SCOPES", default=ExecutionScope.PAPER, cast=Csv()))
 if not EXECUTION_ENABLED_SCOPES or not EXECUTION_ENABLED_SCOPES <= set(ExecutionScope.values):
     raise ValueError("EXECUTION_ENABLED_SCOPES must contain paper, live or both")
+
 MARKET_DATA_PROVIDER = config("MARKET_DATA_PROVIDER", default="fyers")
 
-RESEARCH_INPUT_TOKEN_BUDGET = config("RESEARCH_INPUT_TOKEN_BUDGET", default=40000, cast=int)
-RESEARCH_OUTPUT_TOKEN_BUDGET = config("RESEARCH_OUTPUT_TOKEN_BUDGET", default=6000, cast=int)
+# One execution bound shared by admission, worker and tool gateway.
+RESEARCH_TIMEOUT_SECONDS = 600
+RESEARCH_MAX_TOOL_CALLS = 8
 
 RESEARCH_SERVICE_URL = config("RESEARCH_SERVICE_URL", default="http://127.0.0.1:8001")
 RESEARCH_SERVICE_TOKEN = config("RESEARCH_SERVICE_TOKEN", default="")

@@ -5,7 +5,8 @@ the active database revision; published and purchased snapshots are immutable.
 """
 from copy import deepcopy
 
-REVISION = "2026-10-markets-2"
+REVISION = "2026-10-research-credits-1"
+TOKENS_PER_CREDIT = 1000
 MARKETS = {
     "nse_stocks": {"code": "nse_stocks", "name": "NSE stocks", "status": "available"},
     "nse_futures": {"code": "nse_futures", "name": "NSE futures", "status": "coming_soon"},
@@ -27,7 +28,8 @@ ALLOWANCES = {
     "backtest_credits": {"label": "Backtest credits per period", "kind": "period", "defaults": (5, 20, 100),
                          "resource_type": "backtest", "model": "backtesting.BacktestRun", "task": "backtesting.run_backtest",
                          "pricing": "source_candles"},
-    "research_turns": {"label": "AI messages per period", "kind": "period", "defaults": (3, 10, 30),
+    "research_tokens": {"label": "AI research credits per period", "kind": "period", "defaults": (150000, 500000, 1500000),
+                       "pricing": "reported_tokens", "display_divisor": TOKENS_PER_CREDIT,
                        "resource_type": "research", "model": "research.ResearchRun", "task": "research.start_research"},
     "screens": {"label": "Screener runs per period", "kind": "period", "defaults": (10, 100, 300),
                 "resource_type": "research", "model": "research.ResearchRun", "task": "research.start_research"},
@@ -39,6 +41,7 @@ ALLOWANCES = {
     "mc_simulations": {"label": "Simulations per Monte Carlo run", "kind": "per_request", "defaults": (1000, 1000, 1000)},
 }
 LIMIT_LABELS = {key: definition["label"] for key, definition in ALLOWANCES.items()}
+LIMIT_DIVISORS = {key: definition.get("display_divisor", 1) for key, definition in ALLOWANCES.items()}
 PLANS = {
     code: {"code": code, "name": name, "price_minor": price, "currency": "INR",
            "interval": "month", "limits": {key: definition["defaults"][i] for key, definition in ALLOWANCES.items()},

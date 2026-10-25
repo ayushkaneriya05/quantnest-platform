@@ -17,7 +17,9 @@ def deploy(root, mode, *, build=False, profiles=()):
         raise ValueError("Live scope and the broker-events service must be enabled together; use the development live profile")
     if "research" in services:
         research_environment = services["research"]["environment"]
-        if not research_environment.get("GEMINI_API_KEY") or research_environment["GEMINI_API_KEY"].startswith("replace-with-"):
+        if research_environment.get("RESEARCH_PROVIDER", "gemini") == "gemini" and (
+            not research_environment.get("GEMINI_API_KEY") or research_environment["GEMINI_API_KEY"].startswith("replace-with-")
+        ):
             raise ValueError("Configure GEMINI_API_KEY before enabling the research service")
         if not backend_environment.get("RESEARCH_SERVICE_TOKEN") or backend_environment["RESEARCH_SERVICE_TOKEN"] != research_environment.get("RESEARCH_SERVICE_TOKEN"):
             raise ValueError("RESEARCH_SERVICE_TOKEN must match in backend.env and research.env")

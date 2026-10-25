@@ -188,7 +188,6 @@ matching older release's tools, then upgrade. This tool does not guess formats.
 | `backup.file_hash()` | Streamed SHA-256 for archive/manifest integrity checks. |
 | `restore.safe_extract()` | Rejects unexpected file types and paths outside the private recovery directory. |
 | `restore.restore()` | Empty-database validation, Timescale restore, ownership and media recovery. |
-| `test_scripts.py` | Regression checks for stopped-service sequencing, profile consistency and safe backup/archive handling. Run `python3 -m unittest discover -s infra/shared/scripts -p 'test_*.py'`. |
 
 Python script arguments use `Path` for filesystem values and strings for mode/profile
 names. Docker receives argument arrays; quoted shell snippets are limited to commands

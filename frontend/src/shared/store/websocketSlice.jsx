@@ -32,9 +32,10 @@ const websocketSlice = createSlice({
     setPaperLastMessage: (state, action) => {
       state.paperLastMessage = action.payload;
     },
-    updateTickData: (state, action) => {
-      const { symbol, data } = action.payload;
-      if (isNewerQuote(data, state.tickData[symbol])) state.tickData[symbol] = data;
+    updateQuotes: (state, action) => {
+      for (const [symbol, quote] of Object.entries(action.payload)) {
+        if (isNewerQuote(quote, state.tickData[symbol])) state.tickData[symbol] = quote;
+      }
     },
     addSubscription: (state, action) => {
       if (!state.subscriptions.includes(action.payload)) {
@@ -63,7 +64,7 @@ export const {
   setConnectionStatus,
   setManualTradingTerminalUpdate,
   setPaperLastMessage,
-  updateTickData,
+  updateQuotes,
   addSubscription,
   removeSubscription,
   incrementReconnectAttempts,

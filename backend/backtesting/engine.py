@@ -10,7 +10,7 @@ from django.utils import timezone
 from common.enums import BacktestStatus
 from execution.compiler import strategy_requirements, source_windows
 from execution.preparation import PreparedMarket, candles_from_frame, contract_from_instrument
-from execution.replay import OHLC_POLICY, Replay
+from execution.replay import Replay
 from instruments.models import Instrument
 from marketdata.calendar import MarketSessionCalendar
 from marketdata.candles import prepare_frames
@@ -43,23 +43,30 @@ class BacktestEngine:
         if not identities or set(instruments) != identities:
             raise ValueError('The saved watchlist must contain available instruments.')
         markets = []
-        quality = {'complete': True, 'instruments': [], 'warnings': [], 'simulation_policy': OHLC_POLICY}
+        quality = {'complete': True, 'instruments': [], 'warnings': []}
         for index, instrument in enumerate(instruments.values()):
-            self._broadcast_progress_update(1 + int(index / len(instruments) * 20),
-                f'Preparing history for {instrument.sym_ticker}...')
-            self._check_cancelled()
+            logger.info('Backtest %s: preparing history for %s', self.run.pk, instrument.sym_ticker)
+
+            def progress(fraction, message):
+                # Also observe Cancel between bounded provider-history requests.
+                self._check_cancelled()
+                self._broadcast_progress_update(1 + int((index + fraction) / len(instruments) * 20), message)
+
+            progress(0, f'Preparing history for {instrument.sym_ticker}...')
             calendar = MarketSessionCalendar.for_instrument(instrument)
             start = datetime.combine(self.run.start_date, datetime.min.time(), tzinfo=calendar.zone)
             end = datetime.combine(self.run.end_date, datetime.max.time(), tzinfo=calendar.zone)
             _, requirements, depths = strategy_requirements(self.config, calendar)
             frames, coverage = prepare_frames(instrument, frozenset(requirements),
-                source_windows(requirements, depths, calendar, start, end), calendar)
+                source_windows(requirements, depths, calendar, start, end), calendar, on_progress=progress)
             quality['instruments'].append(coverage)
             quality['complete'] = quality['complete'] and coverage['complete']
             self.run.data_quality = quality
             self.run.save(update_fields=['data_quality'])
             if not coverage['complete'] or any(frame.empty for frame in frames.values()):
-                raise ValueError(f'Confirmed historical data is unavailable for {instrument.sym_ticker}.')
+                errors = dict.fromkeys(item['error'] for item in coverage['timeframes'].values() if item.get('error'))
+                detail = ' '.join(errors)
+                raise ValueError(f'Confirmed historical data is unavailable for {instrument.sym_ticker}. {detail}'.strip())
             earliest = min(frame.index[0].date() for frame in frames.values())
             calendar.load_holidays(earliest - timedelta(days=7), self.run.end_date + timedelta(days=7))
             candles = {tf: candles_from_frame(frame, tf, calendar) for tf, frame in frames.items()}
@@ -67,6 +74,7 @@ class BacktestEngine:
                 if sum(bar.closed_at <= start for bar in candles[tf]) < count:
                     raise ValueError(f'Insufficient completed {tf} warmup for {instrument.sym_ticker}.')
             markets.append(PreparedMarket(contract_from_instrument(instrument), calendar, candles))
+            logger.info('Backtest %s: history ready for %s', self.run.pk, instrument.sym_ticker)
         return markets
 
     def run_simulation(self, markets=None):
@@ -74,13 +82,10 @@ class BacktestEngine:
             self._check_cancelled()
             if markets is None:
                 markets = self.load_data()
+            self._check_cancelled()
             zone = ZoneInfo(self.config['time_rule']['timezone'])
             start = datetime.combine(self.run.start_date, datetime.min.time(), tzinfo=zone)
             end = datetime.combine(self.run.end_date, datetime.max.time(), tzinfo=zone)
-            self.run.status, self.run.started_at, self.run.error_message = BacktestStatus.RUNNING, timezone.now(), ''
-            self.run.data_quality = {**self.run.data_quality, 'simulation_policy': OHLC_POLICY,
-                'execution_kernel': 1, 'ltp_semantics': 'Observed price; synthetic observations in OHLC replay.'}
-            self.run.save(update_fields=['status', 'started_at', 'error_message', 'data_quality'])
             self.replay = Replay(identity=self.run.pk, version=self.run.strategy_version_id or 0,
                 config=self.config, markets=markets, start=start, end=end, capital=self.run.initial_capital,
                 profile=self.run.charge_profile_snapshot if self.run.include_charges else {},
@@ -104,7 +109,7 @@ class BacktestEngine:
             self.run.error_message = str(exc)
             self.run.progress_message = f'Backtest failed: {exc}'[:255]
             self.run.completed_at = timezone.now()
-            self.run.save(update_fields=['status', 'error_message', 'progress_message', 'completed_at'])
+            self.run.save(update_fields=['status', 'error_message', 'progress_message', 'completed_at', 'updated_at'])
             publish_backtest_update(self.run)
 
     def _save_replay_results(self):
@@ -135,7 +140,7 @@ class BacktestEngine:
         message_changed = message != self._last_progress_message
         if not message_changed and progress_pct < 100 and current_time - self._last_progress_update_time < 0.5:
             return
-        self.run.save(update_fields=["progress_pct", "progress_message"])
+        self.run.save(update_fields=["progress_pct", "progress_message", "updated_at"])
         self._last_progress_update_time = current_time
         self._last_progress_message = message
         publish_backtest_update(self.run)
@@ -161,7 +166,7 @@ class BacktestEngine:
         self.run.progress_pct = 100
         self.run.progress_message = "Backtest completed successfully."
         self.run.diagnostics = dict(self.replay.diagnostics)
-        self.run.save(update_fields=["status", "completed_at", "progress_pct", "progress_message", "diagnostics"])
+        self.run.save(update_fields=["status", "completed_at", "progress_pct", "progress_message", "diagnostics", "updated_at"])
 
         publish_backtest_update(self.run, trades_count=len(self.trades_to_create))
 

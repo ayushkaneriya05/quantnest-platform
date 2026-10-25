@@ -179,7 +179,8 @@ def reserve_usage(user, feature, key, payload, *, resource, amount=1, estimate_t
     """Price, check and reserve any period allowance before queueing its resource.
 
     Source-candle pricing uses payload['config'], resource dates and the reviewed
-    estimate token. Other allowances reserve the submitted amount (one by default).
+    estimate token. Reported-token allowances reserve zero and settle actual usage
+    after a successful answer. Fixed allowances reserve the submitted amount.
     Keep resource creation and this call inside the same outer transaction.
     """
     policy = _prepare_allowance(user, "period", {feature: amount}, policy)
@@ -188,6 +189,9 @@ def reserve_usage(user, feature, key, payload, *, resource, amount=1, estimate_t
     if not isinstance(key, str) or not key or len(key) > 160:
         reject_request("idempotency_required", "Provide an Idempotency-Key of up to 160 characters.")
     definition = ALLOWANCES[feature]
+    postpaid = definition.get("pricing") == "reported_tokens"
+    if postpaid:
+        amount = 0  # Admission anchors the period; the answer's actual usage settles later.
     if definition.get("pricing") == "source_candles":
         config = payload["config"]
         if policy["limits_enforced"]:
@@ -215,7 +219,7 @@ def reserve_usage(user, feature, key, payload, *, resource, amount=1, estimate_t
     maximum = policy["plan"]["limits"].get(feature, 0)
     bucket, _ = UsageBucket.objects.get_or_create(user=user, feature=feature, period_start=start,
         defaults={"period_end": end, "limit": maximum})
-    _check_limits(policy, {feature: bucket.used + bucket.reserved + amount})
+    _check_limits(policy, {feature: bucket.used + bucket.reserved + (1 if postpaid else amount)})
     bucket.limit, bucket.period_end, bucket.reserved = maximum, end, bucket.reserved + amount
     bucket.save(update_fields=["limit", "period_end", "reserved"])
     return UsageReservation.objects.create(bucket=bucket, user=user, idempotency_key=key,
@@ -223,16 +227,20 @@ def reserve_usage(user, feature, key, payload, *, resource, amount=1, estimate_t
 
 
 @transaction.atomic
-def settle_usage(reservation, *, failed=False):
+def settle_usage(reservation, *, failed=False, actual_amount=None):
     get_user_model().objects.select_for_update().get(pk=reservation.user_id)
     reservation = UsageReservation.objects.select_for_update().get(pk=reservation.pk)
     if reservation.state != "reserved":
         return
+    amount = 0 if failed else reservation.amount if actual_amount is None else actual_amount
+    if type(amount) is not int or amount < 0:
+        raise ValueError("Settled usage must be a non-negative integer")
     UsageBucket.objects.filter(pk=reservation.bucket_id).update(
-        reserved=F("reserved") - reservation.amount, used=F("used") + (0 if failed else reservation.amount))
+        reserved=F("reserved") - reservation.amount, used=F("used") + amount)
+    reservation.amount = amount
     reservation.state = "refunded" if failed else "settled"
     reservation.completed_at = timezone.now()
-    reservation.save(update_fields=["state", "completed_at"])
+    reservation.save(update_fields=["amount", "state", "completed_at"])
 
 
 def complete_usage(kind, pk, status):
@@ -241,7 +249,11 @@ def complete_usage(kind, pk, status):
         return
     row = UsageReservation.objects.filter(resource_type=kind, resource_id=str(pk), state="reserved").first()
     if row:
-        settle_usage(row, failed=status != "COMPLETED")
+        amount = None
+        if status == "COMPLETED" and row.bucket.feature == "research_tokens":
+            usage = apps.get_model("research.ResearchRun").objects.values_list("usage", flat=True).get(pk=pk)
+            amount = usage.get("total_tokens", 0)
+        settle_usage(row, failed=status != "COMPLETED", actual_amount=amount)
 
 
 # 5. Billing always returns the same allowance definitions. Unmetered counts are null.
@@ -250,7 +262,8 @@ def get_account_usage(user, *, policy=None):
     terms, subscription = policy["plan"], policy["subscription"]
     start, end = policy["period_start"], policy["period_end"]
     usage = {
-        key: {"limit": terms["limits"].get(key, 0), "kind": definition["kind"], "used": None, "reserved": 0}
+        key: {"limit": terms["limits"].get(key, 0), "kind": definition["kind"], "used": None, "reserved": 0,
+              "display_divisor": definition.get("display_divisor", 1)}
         for key, definition in ALLOWANCES.items()
     }
     if policy["record_usage"]:

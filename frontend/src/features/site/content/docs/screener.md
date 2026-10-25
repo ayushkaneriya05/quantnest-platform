@@ -5,13 +5,13 @@ order: 3
 ---
 ## Choose your stock list
 
-- Select supported NSE cash stocks manually, from your Terminal watchlist or from a saved strategy.
+- Select supported NSE cash stocks manually, from a named Terminal watchlist or from a saved strategy. Search your watchlists by name to choose the one to screen.
 - Stay within the stock-selection limit shown for your plan.
 - Screening is limited to the selected list; exchange-wide scanning is not offered.
 
 ## Build your conditions
 
-- Start from an editable preset or define your own conditions.
+- Add your own conditions or reopen a saved screen.
 - Select an indicator or price input, operator, parameters and timeframe.
 - Use AND when all conditions must pass or OR when any condition may pass.
 - Crossovers compare current and previous completed observations.

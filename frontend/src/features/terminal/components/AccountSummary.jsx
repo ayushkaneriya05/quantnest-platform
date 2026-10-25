@@ -45,31 +45,33 @@ export default function AccountSummary({ account, positions, onSaved }) {
   };
   const stats = [
     ['Account equity', Number(account.balance) + marketValue], ['Available capital', account.available_balance],
-    ['Cash balance', account.balance], ['Open P&L · gross', totals.totalUnrealizedPnL],
-    ['Position collateral', account.margin], ['Reserved for orders', account.reserved_cash],
-    ['Realized P&L · net', account.realized_pnl], ['Recorded charges', account.charges_paid],
+    ['Open P&L · gross', totals.totalUnrealizedPnL], ['Realized P&L · net', account.realized_pnl],
   ];
-  return <div className="space-y-6">
-    <div><h2 className="text-lg font-semibold">Simulation account</h2>
-      <p className="mt-1 text-sm text-muted-foreground">Your terminal balance, recorded activity and account settings.</p></div>
-    <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([label,value]) => <div key={label} className="rounded-xl border bg-card p-4">
-      <dt className="text-xs text-muted-foreground">{label}</dt><dd className={'mt-2 text-xl font-semibold tabular-nums ' + (label.includes('P&L') ? Number(value) >= 0 ? 'text-emerald-500' : 'text-rose-500' : '')}>{formatCurrency(value)}</dd></div>)}</dl>
-    <div className="grid items-start gap-6 lg:grid-cols-2">
-      <Card><CardHeader><CardTitle>Charges and margin</CardTitle><CardDescription>Configure the estimates used by this simulation account.</CardDescription></CardHeader>
-        <CardContent><form onSubmit={save} className="space-y-5">
+  return <div className="space-y-4">
+    <div><h2 className="text-base font-semibold">Simulation account</h2>
+      <p className="mt-0.5 text-xs text-muted-foreground">Balances and settings for manual terminal trading.</p></div>
+    <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([label,value]) => <div key={label} className="rounded-xl border bg-card px-4 py-3">
+      <dt className="text-xs text-muted-foreground">{label}</dt><dd className={'mt-1.5 break-words text-lg font-semibold tabular-nums ' + (label.includes('P&L') ? Number(value) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400' : '')}>{formatCurrency(value)}</dd></div>)}</dl>
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border bg-card px-4 py-3 xl:grid-cols-4">
+      {[['Cash balance', account.balance], ['Position collateral', account.margin], ['Reserved for orders', account.reserved_cash], ['Recorded charges', account.charges_paid]].map(([label, value]) =>
+        <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-sm font-medium tabular-nums">{formatCurrency(value)}</dd></div>)}
+    </dl>
+    <div className="grid items-start gap-4 lg:grid-cols-2">
+      <Card><CardHeader className="space-y-1 border-b p-4"><CardTitle className="text-sm">Charges and margin</CardTitle><CardDescription className="text-xs">Configure costs and collateral for simulated orders.</CardDescription></CardHeader>
+        <CardContent className="p-4"><form onSubmit={save} className="space-y-4 [&_label]:text-xs [&_input]:h-9 [&_[role=combobox]]:h-9">
           <div className="space-y-2"><Label htmlFor="terminal-charge-profile">Charge profile</Label>
             <Select value={profile} onValueChange={setProfile}><SelectTrigger id="terminal-charge-profile"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="none">No simulated charges</SelectItem>{profiles.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent></Select>
             <Link className="inline-block text-xs text-primary underline underline-offset-4" to="/brokers/charge-profiles">Manage charge profiles</Link></div>
-          <div className="space-y-2"><Label htmlFor="terminal-futures-margin">Futures margin (%)</Label>
+          <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="terminal-futures-margin">Futures margin (%)</Label>
             <Input id="terminal-futures-margin" type="number" min="1" max="100" step=".01" value={futures} onChange={(event) => setFutures(event.target.value)} required /></div>
           <div className="space-y-2"><Label htmlFor="terminal-option-margin">Short-option collateral (%)</Label>
-            <Input id="terminal-option-margin" type="number" min="1" max="100" step=".01" value={options} onChange={(event) => setOptions(event.target.value)} required /></div>
+            <Input id="terminal-option-margin" type="number" min="1" max="100" step=".01" value={options} onChange={(event) => setOptions(event.target.value)} required /></div></div>
           <p className="text-xs leading-relaxed text-muted-foreground">New orders use the selected fee profile. Margin changes recalculate positions and pending reservations. These percentages are simulation estimates.</p>
-          <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</Button>
+          <div className="flex justify-end border-t pt-3"><Button type="submit" size="sm" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</Button></div>
         </form></CardContent></Card>
-      <Card><CardHeader><CardTitle>Account details</CardTitle><CardDescription>This account is separate from automated Paper deployments.</CardDescription></CardHeader>
-        <CardContent><dl className="divide-y text-sm">
+      <Card><CardHeader className="space-y-1 border-b p-4"><CardTitle className="text-sm">Account details</CardTitle><CardDescription className="text-xs">Separate from your automated Paper deployments.</CardDescription></CardHeader>
+        <CardContent className="p-4"><dl className="divide-y text-xs">
           {[['Created', formatDateTime(account.created_at)], ['Account type', 'Manual simulation'],
             ['Market data', runtime ? runtime.market_data ? 'Running' : 'Stopped' : 'Unavailable'],
             ['Order matching', runtime ? runtime.execution_running ? 'Running' : 'Stopped' : 'Unavailable']]

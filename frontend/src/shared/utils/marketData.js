@@ -12,6 +12,11 @@ export function normalizeMarketSymbol(symbol) {
 export function isNewerQuote(next, current) {
   const nextTime = Date.parse(next?.timestamp), currentTime = Date.parse(current?.timestamp);
   if (!(Number(next?.price) > 0) || !Number.isFinite(nextTime) || nextTime > Date.now() + 1000) return false;
+  // A candle's synthetic close time must not hide an actual provider LTP.
+  if (isObservedQuote(next) !== isObservedQuote(current)) return isObservedQuote(next);
+  if (isObservedQuote(next) && next.source !== current.source) {
+    return Date.parse(next.updated_at) >= Date.parse(current.updated_at);
+  }
   return !Number.isFinite(currentTime) || nextTime > currentTime
     || (nextTime === currentTime && Date.parse(next.updated_at) >= Date.parse(current.updated_at));
 }

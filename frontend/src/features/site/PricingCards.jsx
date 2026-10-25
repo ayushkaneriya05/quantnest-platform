@@ -1,4 +1,4 @@
-import { formatCurrency } from "@/shared/utils/formatters";
+import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
 import { Link } from "react-router-dom";
 import { Check, ArrowRight } from "lucide-react";
 import { usePlatform } from "@/shared/context/platform";
@@ -9,7 +9,7 @@ import PlanMarkets from "@/shared/components/PlanMarkets";
 const highlights = [
   "strategies",
   "backtest_credits",
-  "research_turns",
+  "research_tokens",
   "screens",
   "paper_deployments",
   "paper_instruments",
@@ -66,7 +66,7 @@ export default function PricingCards() {
                     <Check className="h-4 w-4 shrink-0 text-brand" />
                     {catalog.limit_labels[key]}
                   </span>
-                  <strong>{plan.limits[key]}</strong>
+                  <strong>{formatNumber(plan.limits[key] / (catalog.limit_divisors?.[key] || 1), { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</strong>
                 </li>
               ))}
             </ul>
@@ -100,7 +100,7 @@ export default function PricingCards() {
         available today and have no announced release date. Upgrading today adds
         capacity for current features. Review your workspace allowances
         before upgrading for a specific task. No rollover or automatic
-        paid overages.
+        paid overages. One AI credit equals 1,000 reported tokens. Successful answers use actual tokens; failed or cancelled requests use no credits.
       </p>
       <p className="mt-2 text-sm leading-7 text-muted-foreground">
         Customer Live trading and QuantNest Private are not currently available.

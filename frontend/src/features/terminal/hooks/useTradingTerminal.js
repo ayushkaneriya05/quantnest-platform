@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEnums } from "@/shared/context/EnumsContext";
 import { useSelector } from "react-redux";
+import { useSearchParams } from "react-router-dom";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import tradingTerminalApi from "@/features/terminal/services/tradingTerminalApi.js";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -8,13 +9,14 @@ import { subscribeTerminalUpdates } from '@/shared/hooks/useWebSocket';
 import { useStableCallback } from '@/shared/hooks/useStableCallback';
 
 export default function useTradingTerminal() {
+  const [params] = useSearchParams();
   const { notify } = useNotifications();
   const { values } = useEnums();
   const openStatus = values.TerminalOrderStatus?.OPEN;
   const connected = useSelector((state) => state.websocket.isConnected);
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [watchlistId, setWatchlistId] = useState(() => Number(localStorage.getItem('terminal.watchlist')) || 0);
+  const [watchlistId, setWatchlistId] = useState(() => Number(params.get('watchlist')) || Number(localStorage.getItem('terminal.watchlist')) || 0);
   const [selectedSymbol, setSelectedSymbol] = useState(() => localStorage.getItem("terminal.symbol") || null);
   const sequence = useRef(0);
   const pendingEvents = useRef([]);

@@ -109,6 +109,11 @@ api.interceptors.response.use(
   async (error) => {
     const request = error.config;
     if (request && !request.publicRequest && request._authGeneration !== getAuthGeneration()) throw new AuthChangedError();
+    // Download requests receive JSON errors as Blobs too. Decode before handling.
+    if (error.response?.data instanceof Blob) {
+      try { error.response.data = JSON.parse(await error.response.data.text()); }
+      catch { /* Keep non-JSON download errors available to their caller. */ }
+    }
     if (request && error.response?.status === 401 && !request.publicRequest && !isPublicAuth(request.url)) {
       if (request._retry) {
         store.dispatch(logout());

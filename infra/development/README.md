@@ -45,7 +45,7 @@ Compose reads service env-file paths while resolving the project.
 | `FYERS_CLIENT_ID`, `FYERS_SECRET` | Leave empty until enabling the market-data profile; then enter the data app credentials. |
 | `EXECUTION_ENABLED_SCOPES=paper` | Default simulated scopes. Use `paper,live` only for intentional personal broker integration development. |
 
-`research.env` contains the matching token, `GEMINI_API_KEY` and `GEMINI_MODEL`.
+`research.env` contains the matching token, `GEMINI_API_KEY` and `RESEARCH_MODEL`.
 Leave the API key blank while AI is disabled. `frontend.env` contains
 `QUANTNEST_API_PROXY_TARGET`, `VITE_SITE_URL` and `VITE_TURNSTILE_SITE_KEY`.
 Compose overrides the proxy target to `http://api:8000`, and Vite reads that

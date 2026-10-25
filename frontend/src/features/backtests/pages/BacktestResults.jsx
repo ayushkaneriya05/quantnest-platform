@@ -245,6 +245,7 @@ export default function BacktestResults() {
 
   const instrumentBreakdown = Object.entries(metrics?.instrument_breakdown_json || {});
   const monthlyReturns = Object.entries(metrics?.monthly_returns_json || {});
+  const hasResults = run?.status === "COMPLETED" && metrics?.final_capital != null;
 
   if (loading) {
     return (
@@ -263,11 +264,6 @@ export default function BacktestResults() {
         </div>
       )}
 
-      {run?.data_quality?.simulation_policy && <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-        <p className="font-semibold text-foreground">Historical execution model</p>
-        <p className="mt-1">{run.data_quality.simulation_policy}</p>
-        <p className="mt-1">LTP rules use simulated observations. Historical candles cannot reproduce the real sequence of live ticks.</p>
-      </div>}
       {run?.data_quality?.complete === false && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-700/50 rounded-xl p-4 flex gap-3">
           <AlertCircle className="h-5 w-5 text-amber-700 dark:text-amber-400 shrink-0" />
@@ -322,6 +318,19 @@ export default function BacktestResults() {
         </Card>
       )}
 
+      {!hasResults && <Card>
+        <CardContent className="py-6 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">Results are not available yet</p>
+          <p className="mt-1">
+            {["PENDING", "QUEUED", "RUNNING"].includes(run?.status)
+              ? "History is prepared before simulation. Performance metrics and the equity curve appear when the backtest completes."
+              : "This run has no completed performance results."}
+          </p>
+          <p className="mt-3">Initial capital: <span className="font-medium text-foreground">{formatCurrency(run?.initial_capital)}</span></p>
+        </CardContent>
+      </Card>}
+
+      {hasResults && <>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           {
@@ -836,6 +845,7 @@ export default function BacktestResults() {
           </CardContent>
         </Card>
       </div>
+      </>}
     </div>
   );
 }

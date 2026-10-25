@@ -117,7 +117,7 @@ reads its own key from `research.env`.
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` | SMTP login, SMTP key and verified sender for account/support emails. Host/port/TLS default to Brevo on 587 with STARTTLS. |
 | `FYERS_CLIENT_ID`, `FYERS_SECRET` | Market-data app credentials. Live trading app credentials are entered per user through Broker Integration. |
 | `RESEARCH_SERVICE_TOKEN` | Shared Django/research secret; enter the same value in both server environment files. |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Research provider credentials/model, read only by the research container. Use a model enabled in your provider project. |
+| `RESEARCH_PROVIDER`, `RESEARCH_MODEL`, `GEMINI_API_KEY` | Adapter selection, model and provider credentials, read only by the research container. Initially set provider to `gemini` and choose a model enabled in your project. |
 | `TURNSTILE_SECRET_KEY` | Server key for anonymous enquiry verification. Authenticated Support requests still use their signed-in flow. |
 | `VITE_TURNSTILE_SITE_KEY` | Public widget key. Private passes it to the frontend image build; Public sets it in its frontend build environment. |
 | `VITE_SITE_URL` | Public/Development frontend build canonical URL; must be HTTPS for production builds. Private derives it from `FRONTEND_URL`. |
