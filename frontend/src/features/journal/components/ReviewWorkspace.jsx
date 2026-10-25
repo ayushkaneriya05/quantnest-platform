@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import PropTypes from "prop-types";
 import { format } from "date-fns";
 import { Search, ChevronLeft, ChevronRight } from "lucide-react";
@@ -54,7 +55,7 @@ export function TradeTable({ trades, page, onPage, onReview, loading }) {
   return <section className="overflow-hidden rounded-2xl border border-border bg-background/60">
     <div className="flex items-center justify-between border-b border-border px-5 py-4"><h2 className="font-semibold">Recorded closes</h2><span className="text-xs text-muted-foreground">{trades?.count || 0} records</span></div>
     <Table><TableHeader><TableRow><TableHead>Instrument / account</TableHead><TableHead>Entry → exit</TableHead><TableHead>Qty / side</TableHead><TableHead>Prices</TableHead><TableHead>Realized P&L</TableHead><TableHead>Charges</TableHead><TableHead>Review</TableHead></TableRow></TableHeader>
-      <TableBody>{loading ? <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">Loading execution records…</TableCell></TableRow> : !trades?.results?.length ? <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">No closes match these filters.</TableCell></TableRow> : trades.results.map((trade) => <TableRow key={trade.id}>
+      <TableBody>{loading ? <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground"><GlobalLoader inline text="Loading execution records…" /></TableCell></TableRow> : !trades?.results?.length ? <TableRow><TableCell colSpan={7} className="py-12 text-center text-muted-foreground">No closes match these filters.</TableCell></TableRow> : trades.results.map((trade) => <TableRow key={trade.id}>
         <TableCell><p className="font-semibold text-foreground">{trade.symbol}</p><p className="mt-1 text-xs text-muted-foreground">{trade.strategy_name || "Strategy unavailable"}</p><p className="mt-1 text-xs text-muted-foreground">{trade.account_name || "Account unavailable"}</p></TableCell>
         <TableCell className="whitespace-nowrap text-xs"><p>{formatDateTime(trade.entry_time)}</p><p className="mt-1 text-muted-foreground">{formatDateTime(trade.exit_time)}</p></TableCell>
         <TableCell><p>{trade.quantity}</p><span className="text-xs text-muted-foreground">{trade.side}</span></TableCell>

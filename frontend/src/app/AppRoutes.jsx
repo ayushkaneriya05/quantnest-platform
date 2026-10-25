@@ -1,8 +1,8 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 import ProtectedRoute from "@/shared/components/ProtectedRoute";
 import AppLayout from "@/shared/components/layout/AppLayout";
-import RouteLoading from "@/shared/components/RouteLoading";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
@@ -52,7 +52,7 @@ const BillingUsage = lazy(() => import("@/features/billing/pages/BillingUsage"))
 const SupportPage = lazy(() => import("@/features/support/pages/SupportPage"));
 
 export default function AppRoutes() {
-  return <Suspense fallback={<RouteLoading />}>
+  return <Suspense fallback={<GlobalLoader text="Loading page…" />}>
     <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />

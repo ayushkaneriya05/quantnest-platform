@@ -1,7 +1,8 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PropTypes from "prop-types";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -75,7 +76,7 @@ export default function TradeReviewDialog({ trade, filters, tags = [], onClose, 
         <p className="text-xs text-muted-foreground">Opens a conversation with recorded evidence. Sending the question starts research.</p>
       </div>
     </div>
-    <div className="flex shrink-0 justify-end gap-3 border-t border-border bg-background px-5 py-4"><Button variant="outline" onClick={onClose} disabled={busy}>Close</Button><Button disabled={busy || !form.title.trim()} onClick={save}>{busy && <Loader2 size={15} className="mr-2 animate-spin" />}Save review</Button></div>
+    <div className="flex shrink-0 justify-end gap-3 border-t border-border bg-background px-5 py-4"><Button variant="outline" onClick={onClose} disabled={busy}>Close</Button><Button disabled={busy || !form.title.trim()} onClick={save}>{busy && <LoaderMark size={15} className="mr-2" />}Save review</Button></div>
   </DialogContent></Dialog>;
 }
 TradeReviewDialog.propTypes = { trade: PropTypes.object.isRequired, filters: PropTypes.object.isRequired, tags: PropTypes.array, onClose: PropTypes.func.isRequired, onSaved: PropTypes.func.isRequired };

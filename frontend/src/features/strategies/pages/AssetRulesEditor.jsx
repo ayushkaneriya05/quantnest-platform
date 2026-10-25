@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { formatCurrency, formatDate } from "@/shared/utils/formatters";
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import PropTypes from "prop-types";
@@ -14,7 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/shared/components/ui/dialog";
 import {
-  Search, Plus, X, Layers, Loader2, Info,
+  Search, Plus, X, Layers, Info,
   TrendingUp, BarChart3, Shield, Clock, Eye,
   Package, GitMerge,
 } from 'lucide-react';
@@ -26,7 +27,6 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/pageActions';
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { useWebSocket } from '@/shared/hooks/useWebSocket';
 import { isObservedQuote } from '@/shared/utils/marketData';
@@ -232,8 +232,7 @@ function OptionChainViewer({ underlying, open, onClose, onAdd, watchlistIds }) {
         {/* Body */}
         {loading ? (
           <div className="flex-1 flex flex-col justify-center items-center py-20">
-            <GlobalLoader />
-            <p className="text-sm text-muted-foreground">Loading Option Chain...</p>
+            <GlobalLoader text="Loading Option Chain..." />
           </div>
         ) : (
           <div className="flex-1 flex flex-col min-h-[400px]">
@@ -630,8 +629,7 @@ export default function AssetRulesEditor() {
 
   if (loading) return (
     <div className="flex flex-col justify-center items-center h-96 gap-3">
-      <GlobalLoader />
-      <p className="text-sm text-muted-foreground">Loading assets...</p>
+      <GlobalLoader text="Loading assets..." />
     </div>
   );
 
@@ -690,7 +688,7 @@ export default function AssetRulesEditor() {
             <div className="relative" ref={dropdownRef}>
               <div className="relative">
                 {searching ? (
-                  <Loader2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-700 dark:text-blue-400 animate-spin" />
+                  <LoaderMark className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" />
                 ) : (
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 )}

@@ -1,6 +1,6 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { useState } from "react";
 import PropTypes from "prop-types";
-import { Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -45,7 +45,7 @@ export default function AllocationCapitalDialog({ strategyName, currentAmount, o
         <DialogFooter>
           <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={saving || !(Number(amount) > 0)}>
-            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save capital
+            {saving && <LoaderMark className="mr-2 h-4 w-4" />}Save capital
           </Button>
         </DialogFooter>
       </form>

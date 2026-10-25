@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import * as React from "react";
 import PropTypes from "prop-types";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -160,7 +161,7 @@ const SelectContent = React.forwardRef(({ className,
               selected: select.selectedValue === option.value, inTrigger: false }) :
             <OverflowTooltip className="whitespace-normal break-words sm:truncate" active={select.keyboardNavigation ? activeValue === option.value : undefined}>{option.label}</OverflowTooltip>}</SelectItem></React.Fragment>;
       })}
-      {select.resource && remote.loading && <p role="status" className="p-3 text-sm text-muted-foreground">Loading options…</p>}
+      {select.resource && remote.loading && <p className="p-3 text-sm text-muted-foreground"><GlobalLoader inline text="Loading options…" /></p>}
       {select.resource && remote.error && <p role="alert" className="p-3 text-sm text-destructive-text">{remote.error}</p>}
       {!options.length && !remote.loading && !remote.error && <p className="p-3 text-sm text-muted-foreground">No options found.</p>}
     </div>

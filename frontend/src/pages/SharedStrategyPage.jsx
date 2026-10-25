@@ -1,9 +1,9 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Lock, Share2, RefreshCw } from "lucide-react";
 import { strategyApi } from "@/shared/services/strategyApi";
 import StrategyConfiguration from "@/shared/components/StrategyConfiguration";
-import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { Button } from "@/shared/components/ui/button";
 
 export default function SharedStrategyPage() {

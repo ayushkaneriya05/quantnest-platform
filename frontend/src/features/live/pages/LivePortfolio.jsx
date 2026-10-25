@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import PageTabs from "@/shared/components/PageTabs";
 import { useEffect, useState, useCallback } from "react";
 import { Activity, BarChart3, Briefcase, RefreshCw, TrendingUp, Receipt } from "lucide-react";
@@ -40,7 +41,7 @@ export default function LivePortfolio() {
         <PageTabs className="flex-1" label="Live portfolio sections" value={activeTab} onValueChange={setActiveTab} items={tabs.map(({ id, label, icon }) => ({ value: id, label, icon }))} />
         <div className="ml-auto hidden sm:block"><LiveSyncStatus isConnected={data.isConnected} /></div>
         <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={data.refreshing} aria-label="Refresh live trading data">
-          <RefreshCw className={`h-4 w-4 ${data.refreshing ? "animate-spin" : ""}`} />
+          {data.refreshing ? <LoaderMark className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
       </div>
     );
@@ -50,7 +51,7 @@ export default function LivePortfolio() {
 
   const content = data.loading ? (
     <Card className="border-border bg-card/60">
-      <CardContent className="py-12 text-center text-muted-foreground">Loading live trading data…</CardContent>
+      <CardContent className="py-12 text-center text-muted-foreground"><GlobalLoader inline text="Loading live trading data…" /></CardContent>
     </Card>
   ) : (
     <>

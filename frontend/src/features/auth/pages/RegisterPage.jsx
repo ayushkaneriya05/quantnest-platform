@@ -1,3 +1,4 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { Link, useNavigate } from "react-router-dom";
@@ -147,6 +148,7 @@ export default function RegisterPage() {
           </Label>
         </div>
         <Button type="submit" disabled={isLoading || !agreeToTerms} className="h-11 w-full rounded-full">
+          {isLoading && <LoaderMark />}
           {isLoading ? "Creating account..." : "Create account"}
           {!isLoading && <ArrowRight aria-hidden="true" className="h-4 w-4" />}
         </Button>

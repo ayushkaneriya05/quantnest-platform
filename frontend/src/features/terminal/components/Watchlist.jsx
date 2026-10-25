@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import PropTypes from 'prop-types';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { useEffect, useRef } from 'react';
@@ -34,7 +35,7 @@ export default function Watchlist({ items = [], loading, activeSymbol, onSymbolS
   }, [symbols, isConnected, getLatestPrices, notify]);
   return <section className="flex h-full min-h-0 flex-col rounded-xl border border-border bg-card">
     <div className="shrink-0 border-b border-border p-2"><InstrumentSearch onAddToWatchlist={onAddToWatchlist} existingWatchlistSymbols={items.map((row) => row.sym_ticker)} /></div>
-    <div className="scrollbar-thin-theme min-h-0 flex-1 overflow-y-auto">{loading ? <p className="p-3 text-sm text-muted-foreground">Loading…</p> : !items.length ? <p className="p-3 text-sm text-muted-foreground">Add an instrument to this watchlist.</p> : items.map((item) => {
+    <div className="scrollbar-thin-theme min-h-0 flex-1 overflow-y-auto">{loading ? <p className="p-3 text-sm text-muted-foreground"><GlobalLoader inline text="Loading…" /></p> : !items.length ? <p className="p-3 text-sm text-muted-foreground">Add an instrument to this watchlist.</p> : items.map((item) => {
       const quote = tickData[item.sym_ticker];
       return <div key={item.sym_ticker} className={'group flex items-center gap-0.5 border-b border-l-2 border-b-border py-2 pl-2 pr-1 transition-colors last:border-b-0 ' + (activeSymbol === item.sym_ticker ? 'border-l-primary bg-primary/10' : 'border-l-transparent hover:bg-muted/40')}>
         <TooltipHint content={item.name}><button type="button" aria-pressed={activeSymbol === item.sym_ticker} className="min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => onSymbolSelect(item.sym_ticker)}>

@@ -1,7 +1,8 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { chartTooltipProps } from "@/shared/lib/chartTheme";
 import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Download, RefreshCw, Sparkles, BookOpen, Loader2 } from "lucide-react";
+import { Download, RefreshCw, Sparkles, BookOpen, } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -137,7 +138,7 @@ export default function PerformanceReports() {
         </div>
         <div className="flex shrink-0 justify-end gap-2 border-t border-border p-4">
           <Button variant="outline" disabled={busy} onClick={() => setResearchOpen(false)}>Cancel</Button>
-          <Button disabled={busy || loading || !!error || !summary?.closes} onClick={research}>{busy && <Loader2 size={15} className="mr-2 animate-spin" />}Open research</Button>
+          <Button disabled={busy || loading || !!error || !summary?.closes} onClick={research}>{busy && <LoaderMark size={15} className="mr-2" />}Open research</Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ChevronDown, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { format } from "date-fns";
@@ -46,7 +47,7 @@ export default function ActivityHistory() {
     </section>
     {state.error && <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-700 dark:text-rose-300">{state.error}</p>}
     <section className="overflow-hidden rounded-2xl border border-border bg-background/60"><h2 className="flex items-center gap-2 border-b border-border px-5 py-4 font-semibold"><Activity size={17} className="text-indigo-700 dark:text-indigo-300" />Activity timeline</h2>
-      {state.loading ? <p className="p-10 text-center text-sm text-muted-foreground">Loading activity…</p> : !state.logs?.results.length ? <p className="p-10 text-center text-sm text-muted-foreground">No activity matches these filters.</p> : state.logs.results.map((log) => <article key={log.id} className="border-b border-border/60 last:border-0">
+      {state.loading ? <p className="p-10 text-center text-sm text-muted-foreground"><GlobalLoader inline text="Loading activity…" /></p> : !state.logs?.results.length ? <p className="p-10 text-center text-sm text-muted-foreground">No activity matches these filters.</p> : state.logs.results.map((log) => <article key={log.id} className="border-b border-border/60 last:border-0">
         <button type="button" aria-expanded={expanded === log.id} onClick={() => setExpanded(expanded === log.id ? null : log.id)} className="flex w-full items-start gap-4 p-5 text-left hover:bg-card/50">
           <div className="rounded-lg bg-indigo-500/10 p-2 text-indigo-700 dark:text-indigo-300"><Activity size={16} /></div><div className="min-w-0 flex-1"><p className="text-sm font-medium">{log.action.replaceAll("_", " ").toLowerCase()} · {log.entity_name}</p><p className="mt-1 text-xs text-muted-foreground">{log.actor_name} · {log.entity_type_display} #{log.entity_id}</p>{log.reason && <p className="mt-2 text-sm text-muted-foreground">{log.reason}</p>}</div><div className="flex shrink-0 items-center gap-2"><span className="hidden text-xs text-muted-foreground sm:block">{formatDateTime(log.timestamp)}</span><ChevronDown size={15} className={expanded === log.id ? "rotate-180" : ""} /></div>
         </button>

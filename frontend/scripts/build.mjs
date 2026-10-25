@@ -2,6 +2,7 @@ import { build, loadEnv } from 'vite';
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import process from 'node:process';
 import { featureDetails } from '../src/features/site/content/features.js';
 
 const frontend = resolve(import.meta.dirname, '..');
@@ -31,5 +32,5 @@ const pages = [...new Set(['/', ...publicRoutes.filter(path => !path.includes(':
 const xmlEscape = value => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 writeFileSync(join(output, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${pages.map(path => `<url><loc>${xmlEscape(new URL(path, publicSite).href)}</loc></url>`).join('')}</urlset>`);
 writeFileSync(join(output, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin/\nDisallow: /settings/\nDisallow: /strategy/view/\nSitemap: ${publicSite.origin}/sitemap.xml\n`);
-for (const asset of ['logo_1-wordmark.png', 'fonts/poppins-400.woff2']) if (!existsSync(join(output, asset))) throw new Error(`Required frontend asset missing: ${asset}`);
+for (const asset of ['brand/quantnest-light.svg', 'brand/quantnest-dark.svg', 'brand/quantnest-light-animated.svg', 'brand/quantnest-dark-animated.svg', 'brand/favicon.svg', 'brand/favicon-32.png', 'brand/apple-touch-icon.png', 'brand/social.png', 'fonts/poppins-400.woff2']) if (!existsSync(join(output, asset))) throw new Error(`Required frontend asset missing: ${asset}`);
 console.log('React customer site and workspace built:', output);

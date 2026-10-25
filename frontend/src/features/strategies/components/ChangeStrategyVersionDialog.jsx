@@ -1,6 +1,7 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { useState } from "react";
 import PropTypes from "prop-types";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { Button } from "@/shared/components/ui/button";
@@ -60,7 +61,7 @@ export default function ChangeStrategyVersionDialog({
         <DialogFooter className="gap-2">
           <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={saving || !selectedVersion} className="bg-indigo-600 text-white hover:bg-indigo-700">
-            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Apply version
+            {saving && <LoaderMark className="mr-2 h-4 w-4" />}Apply version
           </Button>
         </DialogFooter>
       </form>

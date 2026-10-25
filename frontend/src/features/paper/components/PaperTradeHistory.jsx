@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import PropTypes from "prop-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -113,7 +114,7 @@ export default function PaperTradeHistory({ selectedAccountId }) {
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   };
 
-  if (loading) return null;
+  if (loading) return <GlobalLoader fullHeight={false} />;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">

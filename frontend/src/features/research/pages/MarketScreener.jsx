@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/shared/components/ui/button";
@@ -128,7 +129,7 @@ export default function MarketScreener() {
       <div className="flex justify-between gap-3"><Button variant="outline" onClick={addCondition} disabled={!ready || !enums?.OperandParameterConfig || screen.conditions.length >= 12}>Add condition</Button><Button onClick={execute} disabled={!ready || !screen.conditions.some((item) => item.is_active ?? true) || (!universe.strategy_id && !universe.watchlist_id && !universe.instruments.length)}>Run screen with new observation</Button></div>
       {error && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{error}</p>}
     </CardContent></Card>
-    {loading && session && <p className="text-sm text-muted-foreground">Loading saved results…</p>}
+    {loading && session && <p className="text-sm text-muted-foreground"><GlobalLoader inline text="Loading saved results…" /></p>}
     {run && <Card><CardContent className="space-y-4 p-5"><div className="flex flex-wrap justify-between items-center gap-3"><p role="status" className="text-sm text-muted-foreground">{run.status} · {run.progress_message}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => reload()}>Reload saved result</Button>{["PENDING", "RUNNING"].includes(run.status) && <Button size="sm" variant="outline" onClick={async () => { try { await researchApi.cancel(run.id); notify.success("Screen cancellation requested."); await reload(); } catch (error) { notify.error(getApiErrorMessage(error)); } }}>Cancel</Button>}<Button size="sm" disabled={!selection.length || run.status !== "COMPLETED"} onClick={researchSelected}>Ask AI about selected results</Button></div></div>
       {run.error_message && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{run.error_message}</p>}{run.evidence?.map((item) => <ResearchEvidence key={`${run.id}-${item.evidence_id}`} evidence={item} enums={enums} selected={selection} onSelect={(id) => setSelection((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])} onDetails={setDetails} />)}
     </CardContent></Card>}

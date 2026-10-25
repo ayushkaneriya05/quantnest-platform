@@ -5,6 +5,7 @@ import { ArrowUpRight, LogOut, Menu } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/shared/components/ui/dropdown-menu";
 import ThemeSwitch from "@/shared/components/ThemeSwitch";
+import BrandLogo from "@/shared/components/BrandLogo";
 import { logoutUser } from "@/shared/store/authSlice";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 
@@ -24,7 +25,7 @@ export default function MainHeader({ authPage }) {
   };
   return <header className="sticky top-0 z-40 w-full border-b bg-card/95 text-foreground backdrop-blur-xl">
     <div className="mx-auto flex min-h-16 w-[calc(100%_-_2rem)] max-w-7xl items-center justify-between gap-2">
-      <Link to="/" aria-label="QuantNest home" className="min-w-0 shrink"><img src="/logo_1-wordmark.png" alt="QuantNest" className="h-auto w-36 max-w-full object-contain sm:w-44" /></Link>
+      <Link to="/" aria-label="QuantNest home" className="min-w-0 shrink"><BrandLogo animated className="w-40 sm:w-48" /></Link>
       <nav aria-label="Primary" className="hidden items-center gap-6 xl:flex">
         {navItems.map(([label,id]) => <Link key={id} to={id} className="py-3 text-sm text-muted-foreground transition-colors hover:text-brand focus-ring">{label}</Link>)}
       </nav>

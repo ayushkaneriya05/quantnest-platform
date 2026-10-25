@@ -5,7 +5,7 @@ import { useTheme } from '@/shared/context/theme';
 import MainHeader from '@/shared/components/layout/main-header';
 import { Button } from '@/shared/components/ui/button';
 import SiteFooter from '@/features/site/SiteFooter';
-import SiteEffects from '@/features/site/SiteEffects';
+import SiteMetadata from '@/features/site/SiteMetadata';
 import PricingCards from '@/features/site/PricingCards';
 import SiteIllustration from '@/features/site/SiteIllustration';
 import { FeatureGrid, PointList, SectionTitle } from '@/features/site/SiteSections';
@@ -66,6 +66,6 @@ export default function QuantNestLanding() {
       <section className="site-home-section border-t" id="faq"><div className="site-container grid gap-10 lg:grid-cols-[.8fr_1.2fr]"><div><SectionTitle eyebrow="Before you begin" title="A few useful answers." description="Know what is included and what simulated results can tell you." /><Link to="/faq/" className="mt-6 inline-flex items-center gap-2 text-sm text-brand">Read all FAQs<ArrowRight className="h-4 w-4" /></Link><Link to="/docs/" className="mt-4 block text-sm text-brand">Read the user guides →</Link></div><div>{faq.slice(0, 5).map(([question, answer]) => <details className="site-faq border-b py-5 first:pt-0" key={question}><summary className="cursor-pointer text-base font-medium leading-7">{question}</summary><p className="mt-4 text-sm leading-7 text-muted-foreground">{answer}</p></details>)}</div></div></section>
 
       <section className="site-container pb-10 sm:pb-16"><div className="site-closing-panel relative overflow-hidden rounded-3xl border border-brand/30 bg-brand/5 px-6 py-8 text-center sm:px-12"><p className="site-eyebrow">A place to start thinking clearly</p><h2 className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl">Bring your idea. Keep the decisions yours.</h2><p className="mx-auto mt-5 max-w-2xl text-base leading-8 text-muted-foreground">Create a workspace for your own research and rules, or tell us about the software you need.</p><div className="mt-7 flex flex-wrap justify-center gap-3"><Button asChild size="lg" className="rounded-full"><Link to="/register">Create your workspace<ArrowRight className="h-4 w-4" /></Link></Button><Button asChild variant="outline" size="lg" className="rounded-full"><Link to="/contact/">Talk to QuantNest</Link></Button></div></div></section>
-    </main><SiteFooter /><SiteEffects />
+    </main><SiteFooter /><SiteMetadata />
   </div>;
 }

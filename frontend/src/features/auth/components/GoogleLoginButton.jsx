@@ -1,8 +1,8 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useState } from 'react';
 import { useLocation } from "react-router-dom";
 import { Button } from "@/shared/components/ui/button";
-import { Loader2 } from 'lucide-react';
 import api from "@/shared/services/api";
 import PropTypes from "prop-types";
 
@@ -44,7 +44,7 @@ export default function GoogleLoginButton({ onError, isLoading: parentLoading })
       aria-busy={isProcessing}
     >
       {isProcessing ? (
-        <Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+        <LoaderMark aria-hidden="true" />
       ) : (
         <svg aria-hidden="true" viewBox="0 0 24 24">
           <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-1.99 3.02v2.51h3.23c1.89-1.74 2.98-4.3 2.98-7.36Z" />

@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -32,7 +33,6 @@ import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 
 export default function BacktestTradeList() {

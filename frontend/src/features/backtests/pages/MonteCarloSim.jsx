@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { chartTooltipProps } from "@/shared/lib/chartTheme";
 /**
  * Monte Carlo Simulation - statistical analysis of backtest results
@@ -31,7 +32,6 @@ import {
   ChevronLeft,
   ChevronRight,
   BarChart2,
-  RefreshCw,
   TrendingDown,
   TrendingUp,
   X,
@@ -48,7 +48,6 @@ import {
 import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
 
 const formatMetricValue = (value, metricName) => {
@@ -381,7 +380,7 @@ export default function MonteCarloSim() {
                   disabled={submitting}
                 >
                   {submitting ? (
-                    <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                    <LoaderMark className="h-4 w-4 mr-1" />
                   ) : (
                     <Play className="h-4 w-4 mr-1" />
                   )}
@@ -435,7 +434,7 @@ export default function MonteCarloSim() {
                             mc.status === "COMPLETED"
                               ? "bg-green-600/15 text-green-800 dark:text-green-400 border-green-500/10"
                               : ["QUEUED", "RUNNING"].includes(mc.status)
-                                ? "bg-blue-600/15 text-blue-700 dark:text-blue-400 border-blue-500/10 animate-pulse"
+                                ? "bg-blue-600/15 text-blue-700 dark:text-blue-400 border-blue-500/10"
                                 : mc.status === "FAILED"
                                   ? "bg-red-600/15 text-red-700 dark:text-red-400 border-red-500/10"
                                   : "bg-yellow-600/15 text-yellow-800 dark:text-yellow-400 border-yellow-500/10"

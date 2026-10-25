@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -40,7 +41,6 @@ import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useBacktestProgress } from "@/shared/hooks/useBacktestProgress";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 
 const STATUS_STYLES = {
@@ -213,9 +213,7 @@ export default function BacktestResults() {
           onClick={() => fetchData(false)}
           className="border-border hover:bg-secondary text-foreground h-9 w-9 p-0"
         >
-          <RefreshCw
-            className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
-          />
+          {isRefreshing ? <LoaderMark className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
         </Button>
         <Link to={`/backtests/trades/${id}`}>
           <Button
@@ -289,8 +287,7 @@ export default function BacktestResults() {
           <CardContent className="py-5 px-6">
             <div className="flex items-center gap-5">
               <div className="relative flex items-center justify-center h-12 w-12 rounded-full bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-500/30">
-                <RefreshCw className="h-5 w-5 text-indigo-700 dark:text-indigo-400 animate-spin" />
-                <div className="absolute inset-0 rounded-full animate-ping bg-indigo-500/20" />
+                <LoaderMark className="h-5 w-5" />
               </div>
               <div className="flex-1">
                 <div className="flex justify-between items-end mb-2">

@@ -1,3 +1,4 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { formatNumber } from "@/shared/utils/formatters";
 /**
  * BacktestSetup — Professional backtest configuration form.
@@ -29,7 +30,6 @@ import {
   Calendar,
   DollarSign,
   Info,
-  RefreshCw,
   ChevronLeft,
   Layers,
   Clock,
@@ -480,7 +480,7 @@ export default function BacktestSetup() {
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-12 px-10 shadow-lg shadow-indigo-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? (
-              <RefreshCw className="h-5 w-5 animate-spin" />
+              <LoaderMark className="h-5 w-5" />
             ) : (
               <>
                 <Play className="h-4 w-4 mr-2 fill-current" />

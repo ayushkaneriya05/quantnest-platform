@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 /**
  * Entry Rules Builder - visual rule builder for entry conditions
  */
@@ -23,7 +24,6 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { usePageActions } from "@/shared/context/pageActions";
 import { useEnums } from "@/shared/context/EnumsContext";
-import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { getDefaultParams } from "@/features/strategies/components/operandUtils.js";
 import RuleConditionEditor from "@/features/strategies/components/RuleConditionEditor.jsx";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -285,8 +285,7 @@ export default function EntryRulesBuilder() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <GlobalLoader />
-        <p className="text-sm text-muted-foreground">Loading entry rules...</p>
+        <GlobalLoader text="Loading entry rules..." />
       </div>
     );
   }

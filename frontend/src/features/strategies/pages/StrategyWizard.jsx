@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 /**
  * Strategy Editor - unified create/edit page
@@ -23,7 +24,6 @@ import { usePageActions } from '@/shared/context/pageActions'; // Added import
 import StrategyConfigNav from '@/features/strategies/components/StrategyConfigNav.jsx';
 import StrategyFooter from '@/features/strategies/components/StrategyFooter.jsx';
 import TagInput from '@/features/strategies/components/TagInput.jsx';
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { usePlatform } from '@/shared/context/platform';
 
 
@@ -178,8 +178,7 @@ export default function StrategyWizard() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <GlobalLoader />
-        <p className="text-sm text-muted-foreground">Loading strategy...</p>
+        <GlobalLoader text="Loading strategy..." />
       </div>
     );
   }

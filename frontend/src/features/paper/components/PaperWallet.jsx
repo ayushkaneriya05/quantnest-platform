@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect } from "react";
@@ -74,7 +75,7 @@ export default function PaperWallet() {
 
   if (loading)
     return (
-      <div className="h-40 flex items-center justify-center">Loading...</div>
+      <div className="h-40 flex items-center justify-center"><GlobalLoader inline text="Loading..." /></div>
     );
 
   return (

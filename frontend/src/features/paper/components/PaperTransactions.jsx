@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect } from "react";
 import {
@@ -56,7 +57,7 @@ export default function PaperTransactions() {
     (tx.notes && tx.notes.toLowerCase().includes(search.toLowerCase()))
   );
 
-  if (loading) return null;
+  if (loading) return <GlobalLoader fullHeight={false} />;
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">

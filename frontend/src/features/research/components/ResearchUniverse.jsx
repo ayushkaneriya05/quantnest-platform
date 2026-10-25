@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { Input } from "@/shared/components/ui/input";
@@ -35,7 +36,7 @@ export default function ResearchUniverse({ value, onChange, disabled, maxInstrum
       <Input aria-label="Search NSE instruments" placeholder="Search NSE stocks…" value={query} disabled={disabled}
         onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }}
         onKeyDown={(event) => { if (event.key === "Escape") setSearchOpen(false); }} />
-      {loading && <p role="status" className="text-xs text-muted-foreground">Loading instruments…</p>}
+      {loading && <p className="text-xs text-muted-foreground"><GlobalLoader inline text="Loading instruments…" /></p>}
       {error && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{error}</p>}
       {instruments.length > 0 && <div className="scrollbar-thin-theme max-h-52 overflow-y-auto rounded-lg border border-border divide-y divide-border">
         {instruments.map((item) => <Button key={item.id} variant="ghost" className="w-full justify-start" disabled={disabled || (maxInstruments != null && selected.length >= maxInstruments) || selected.some((value) => value.id === item.id)} onClick={() => { onChange({ ...value, instruments: [...selected, item] }); setQuery(""); setSearchOpen(false); }}>{item.symbol} · {item.name}</Button>)}

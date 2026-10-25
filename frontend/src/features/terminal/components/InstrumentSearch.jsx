@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import PropTypes from 'prop-types';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { useState } from 'react';
@@ -37,7 +38,7 @@ export default function InstrumentSearch({ onAddToWatchlist, existingWatchlistSy
             <span className="text-xs text-muted-foreground">{instrument.exchange} · {enums.InstrumentType.find((choice) => choice.value === instrument.instrument_type)?.label} · {instrument.expiry_date ? formatDate(instrument.expiry_date) : ''} {enums.OptionType.find((choice) => choice.value === instrument.option_type)?.label} · Lot {instrument.lot_size} · Tick {formatNumber(instrument.tick_size, { maximumFractionDigits: 8 })}{!instrument.orderable ? ' · Analysis only' : ''}</span></div>
           {added ? <span className="text-xs">Added</span> : <Plus className="h-4 w-4 shrink-0" />}</button>;
       })}</div>
-      {loading && <p role="status" className="text-sm text-muted-foreground">Searching…</p>}
+      {loading && <GlobalLoader inline text="Searching instruments…" />}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {!loading && !error && !results.length && <p className="text-sm text-muted-foreground">No matching instruments.</p>}
     </DialogContent></Dialog></>;

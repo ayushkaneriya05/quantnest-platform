@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Clock3, FlaskConical, Pause, Play, RefreshCw, RotateCcw, Settings, ShieldX, Trash2, Wallet } from "lucide-react";
@@ -61,7 +62,7 @@ export default function PaperDeployments() {
   const actions = useMemo(() => <>
     <Button variant="outline" onClick={() => navigate("/paper/capital")}><Wallet className="mr-2 h-4 w-4" />Wallet</Button>
     <Button onClick={() => navigate("/strategies")}><FlaskConical className="mr-2 h-4 w-4" />Deploy strategy</Button>
-    <Button variant="outline" onClick={refresh} disabled={refreshing}><RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</Button>
+    <Button variant="outline" onClick={refresh} disabled={refreshing}>{refreshing ? <LoaderMark className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}Refresh</Button>
   </>, [navigate, refresh, refreshing]);
   useSetPageActions(actions);
 
@@ -106,7 +107,7 @@ export default function PaperDeployments() {
         </CardContent></Card>)}
     </div>
     <SessionStatusFilter value={status} onValueChange={setStatus} />
-    {loading ? <p className="py-12 text-center text-muted-foreground">Loading Paper deployments…</p> :
+    {loading ? <p className="py-12 text-center text-muted-foreground"><GlobalLoader inline text="Loading Paper deployments…" /></p> :
       visible.length === 0 ? <Card className="border-border bg-card/50"><CardContent className="py-14 text-center">
         <FlaskConical className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
         <p>{sessions.length ? "No sessions match this status" : "No Paper deployments"}</p>

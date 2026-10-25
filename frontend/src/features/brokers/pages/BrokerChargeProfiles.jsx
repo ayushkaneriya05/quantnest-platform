@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency } from "@/shared/utils/formatters";
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useMemo } from "react";
@@ -14,7 +15,6 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Plus, Edit2, Trash2, CheckCircle2 } from "lucide-react";
 import { brokersApi } from "@/shared/services/brokersApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import {
   Dialog,
   DialogContent,

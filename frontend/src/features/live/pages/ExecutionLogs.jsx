@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import PropTypes from "prop-types";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -90,7 +91,7 @@ export default function ExecutionLogs() {
     setRefreshing(true);
     return loadData(false);
   }, [loadData]);
-  const actions = useMemo(() => <div className="flex items-center gap-3"><div className="hidden sm:block"><LiveSyncStatus isConnected={isConnected} /></div><Button variant="outline" onClick={refresh} disabled={refreshing} className="border-border text-foreground"><RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</Button></div>, [isConnected, refresh, refreshing]);
+  const actions = useMemo(() => <div className="flex items-center gap-3"><div className="hidden sm:block"><LiveSyncStatus isConnected={isConnected} /></div><Button variant="outline" onClick={refresh} disabled={refreshing} className="border-border text-foreground">{refreshing ? <LoaderMark className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}Refresh</Button></div>, [isConnected, refresh, refreshing]);
   useSetPageActions(actions);
 
   const metrics = useMemo(() => ({
@@ -123,7 +124,7 @@ export default function ExecutionLogs() {
                 <SelectContent><SelectItem value="ALL">All events</SelectItem><SelectItem value="CREATED">Created</SelectItem><SelectItem value="PLACED">Placed</SelectItem><SelectItem value="PARTIAL_FILL">Partial fill</SelectItem><SelectItem value="FILLED">Filled</SelectItem><SelectItem value="REJECTED">Rejected</SelectItem><SelectItem value="CANCELLED">Cancelled</SelectItem><SelectItem value="UNKNOWN">Unknown</SelectItem></SelectContent>
               </Select>
             </CardHeader>
-            {loading ? <CardContent className="py-10 text-center text-muted-foreground">Loading order events…</CardContent> : logs.results.length === 0 ? <CardContent className="py-12 text-center text-muted-foreground">No matching execution events.</CardContent> : <>
+            {loading ? <CardContent className="py-10 text-center text-muted-foreground"><GlobalLoader inline text="Loading order events…" /></CardContent> : logs.results.length === 0 ? <CardContent className="py-12 text-center text-muted-foreground">No matching execution events.</CardContent> : <>
               <CardContent className="divide-y divide-border p-0">{logs.results.map((log) => <div key={log.id} className="flex flex-wrap items-start justify-between gap-4 p-4"><div className="min-w-[220px]"><div className="flex items-center gap-2"><span className="font-semibold text-foreground">{log.order_symbol || "Order"}</span><Badge variant="outline" className={eventTone(log.event_type)}>{log.event_type}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{formatBrokerAccount(log.broker_name, log.broker_label)}</p><p className="mt-1 text-sm text-muted-foreground">{log.message || "No additional broker message"}</p></div><div className="flex items-center gap-4 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{Number(log.latency_ms || 0)} ms</span><span>{formatLiveDateTime(log.created_at)}</span><span className="font-mono">Order #{log.order}</span></div></div>)}</CardContent>
               <TablePagination page={logPage} count={logs.count} onPageChange={(page) => fetchLogs(page).catch((error) => notify.error(getApiErrorMessage(error, "Could not load execution events")))} />
             </>}
@@ -132,7 +133,7 @@ export default function ExecutionLogs() {
         <TabsContent value="slippage" className="mt-0">
           <Card className="overflow-hidden border-border bg-card/50">
             <CardHeader className="space-y-0 border-b border-border px-4 py-2"><p className="text-xl text-foreground font-semibold">Slippage</p></CardHeader>
-            {loading ? <CardContent className="py-10 text-center text-muted-foreground">Loading execution quality…</CardContent> : slippage.results.length === 0 ? <CardContent className="flex items-center justify-center gap-2 py-12 text-muted-foreground"><ShieldAlert className="h-4 w-4 text-cyan-700 dark:text-cyan-300" />No completed slippage records.</CardContent> : <>
+            {loading ? <CardContent className="py-10 text-center text-muted-foreground"><GlobalLoader inline text="Loading execution quality…" /></CardContent> : slippage.results.length === 0 ? <CardContent className="flex items-center justify-center gap-2 py-12 text-muted-foreground"><ShieldAlert className="h-4 w-4 text-cyan-700 dark:text-cyan-300" />No completed slippage records.</CardContent> : <>
               <CardContent className="divide-y divide-border p-0">{slippage.results.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-4 p-4"><div><p className="font-medium text-foreground">{row.order_symbol || "Order"}</p><p className="mt-1 text-xs text-muted-foreground">{formatBrokerAccount(row.broker_name, row.broker_label)}</p><p className="mt-1 text-xs text-muted-foreground">Expected {formatCurrency(Number(row.expected_price))} · Actual {formatCurrency(Number(row.actual_price))} · {formatLiveDateTime(row.created_at)}</p></div><div className="text-right"><p className="font-semibold text-foreground">{formatNumber(Number(row.slippage_pct))}%</p><p className="text-xs text-muted-foreground">Total impact {formatCurrency(Number(row.slippage_amount))}</p></div></div>)}</CardContent>
               <TablePagination page={slippagePage} count={slippage.count} onPageChange={(page) => fetchSlippage(page).catch((error) => notify.error(getApiErrorMessage(error, "Could not load slippage records")))} />
             </>}

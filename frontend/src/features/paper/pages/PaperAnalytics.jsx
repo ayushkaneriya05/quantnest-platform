@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useMemo } from "react";
 import {
@@ -16,7 +17,6 @@ import { paperApi } from "@/shared/services/paperApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageTitle } from "@/shared/hooks/use-page-title";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency } from "@/shared/utils/formatters";
 import { TooltipHint } from "@/shared/components/ui/tooltip";
 import { usePaperPositionsPnL } from "@/shared/hooks/useLivePositionsPnL";

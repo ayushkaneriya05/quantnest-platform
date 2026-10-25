@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { useEffect, useMemo, useState } from 'react';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table';
@@ -76,7 +77,7 @@ export default function HistoryDisplay() {
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
       <TabsList aria-label="History type" className="h-9 bg-transparent p-0">{Object.entries(tables).map(([key, table]) => <TabsTrigger key={key} value={key}
         className="px-2.5 text-xs data-[state=active]:bg-secondary data-[state=active]:shadow-none">{table.label}</TabsTrigger>)}</TabsList>
-      <Button className="ml-auto h-8 w-8" size="icon" variant="ghost" aria-label="Refresh history" disabled={loading} onClick={() => setRefresh((value) => value + 1)}><RefreshCw className={'h-4 w-4 ' + (loading ? 'animate-spin' : '')} /></Button></div>
+      <Button className="ml-auto h-8 w-8" size="icon" variant="ghost" aria-label="Refresh history" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>{loading ? <LoaderMark className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}</Button></div>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-muted/10 p-3">
       <div className="relative min-w-36 flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="h-9 pl-8 text-sm" aria-label="Search history instruments" value={search} placeholder="Search instruments" onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></div>
       <div className="w-36"><DatePicker date={start} setDate={(value) => { setStart(value); setPage(1); }} placeholder="Start date" className="h-9 text-xs" /></div>
@@ -98,7 +99,7 @@ export default function HistoryDisplay() {
         {tables[tab].columns.map(([label, value]) => <TableCell key={label} className={numeric(label) ? 'text-right tabular-nums' : ''}>{value(row)}</TableCell>)}
       </TableRow>)}
       {!data.results.length && <TableRow><TableCell colSpan={tables[tab].columns.length + 1}
-        className="h-24 text-center text-muted-foreground">{loading ? 'Loading…' : 'No records match these filters.'}</TableCell></TableRow>}
+        className="h-24 text-center text-muted-foreground">{loading ? <GlobalLoader inline text="Loading records…" /> : 'No records match these filters.'}</TableCell></TableRow>}
       </TableBody>
     </Table>
     </TabsContent>

@@ -1,7 +1,8 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { useEffect, useRef, useState } from "react";
 import { useDispatch } from "react-redux";
 import { Link, useNavigate } from "react-router-dom";
-import { KeyRound, Loader2 } from "lucide-react";
+import { KeyRound, } from "lucide-react";
 import LoginPage from "./LoginPage";
 import AuthLayout from "../components/AuthLayout";
 import WorkspaceState from "@/shared/components/WorkspaceState";
@@ -37,7 +38,7 @@ export default function GoogleCallbackPage() {
       <div className="space-y-5">
         {error ? <WorkspaceState error={error} title="Google sign-in unavailable" /> : (
           <p role="status" className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
-            <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin motion-reduce:animate-none" />
+            <LoaderMark aria-hidden="true" className="h-5 w-5" />
             Completing your sign-in…
           </p>
         )}

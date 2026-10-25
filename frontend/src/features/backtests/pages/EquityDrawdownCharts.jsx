@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 /**
  * Equity & Drawdown Charts — professional recharts-based visualization.
  */
@@ -33,7 +34,6 @@ import {
 import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
 import PropTypes from "prop-types";
 
@@ -119,8 +119,7 @@ export default function EquityDrawdownCharts() {
     return (
       <div className="flex justify-center items-center h-96">
         <div className="flex flex-col items-center gap-3">
-          <GlobalLoader />
-          <p className="text-sm text-muted-foreground">Loading charts…</p>
+          <GlobalLoader text="Loading charts…" />
         </div>
       </div>
     );

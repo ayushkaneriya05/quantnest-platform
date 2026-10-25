@@ -1,6 +1,7 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { useState } from "react";
 import PropTypes from "prop-types";
-import { Copy, ExternalLink, KeyRound, Loader2 } from "lucide-react";
+import { Copy, ExternalLink, KeyRound, } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
@@ -80,7 +81,7 @@ export default function FyersAppDialog({ provider, onClose, onConnect }) {
           <p className="text-xs text-muted-foreground">Changing app credentials requires stopped live sessions, no open positions and settled orders. Your next sign-in must belong to the same linked trading account.</p>
           <div className="flex justify-end gap-2 border-t pt-4">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save and connect</Button>
+            <Button type="submit" disabled={saving}>{saving && <LoaderMark className="mr-2 h-4 w-4" />}Save and connect</Button>
           </div>
         </form>
       </DialogContent>

@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatDateTime } from "@/shared/utils/formatters";
 /**
  * Version History - strategy version management and rollback
@@ -16,7 +17,6 @@ import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageActions } from '@/shared/context/pageActions';
 import StrategySnapshotViewer from '@/features/strategies/components/StrategySnapshotViewer.jsx';
 import { customConfirm, customPrompt } from '@/shared/components/ui/custom-dialog';
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 
 export default function VersionHistory() {
@@ -124,8 +124,7 @@ export default function VersionHistory() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <GlobalLoader />
-        <p className="text-sm text-muted-foreground">Loading version history...</p>
+        <GlobalLoader text="Loading version history..." />
       </div>
     );
   }

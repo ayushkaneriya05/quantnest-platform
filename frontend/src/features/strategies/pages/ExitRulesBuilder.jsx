@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 /**
  * Exit Rules Builder - unified rules configuration for Stop Loss, Target, and General Exits
  */
@@ -29,7 +30,6 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useEnums } from "@/shared/context/EnumsContext";
 import { usePageActions } from "@/shared/context/pageActions";
-import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { getDefaultParams } from "@/features/strategies/components/operandUtils.js";
 import RuleConditionEditor from "@/features/strategies/components/RuleConditionEditor.jsx";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -448,8 +448,7 @@ export default function ExitRulesBuilder() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <GlobalLoader />
-        <p className="text-sm text-muted-foreground">Loading exit rules...</p>
+        <GlobalLoader text="Loading exit rules..." />
       </div>
     );
   }

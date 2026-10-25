@@ -252,9 +252,27 @@
     @apply transition-transform duration-200 hover:scale-[1.02] active:scale-[0.98];
   }
 
-  /* Loading state utilities */
-  .loading-pulse {
-    @apply animate-pulse bg-muted/50;
+  /* A quiet weave cycle, shared by page and action loaders. Only transform
+     and opacity animate, so loading never causes layout or network work. */
+  .brand-loader-band {
+    animation: brand-weave 1.8s ease-in-out infinite;
+  }
+  .brand-loader-band-a { --weave-x: -3px; --weave-y: 3px; }
+  .brand-loader-band-b { --weave-x: 3px; --weave-y: -3px; animation-delay: -0.9s; }
+  .brand-loader-seed {
+    transform-origin: 33px 36px;
+    animation: brand-seed 1.8s ease-in-out infinite;
+  }
+  @keyframes brand-weave {
+    0%, 100% { opacity: 1; transform: translate(0, 0); }
+    50% { opacity: .4; transform: translate(var(--weave-x), var(--weave-y)); }
+  }
+  @keyframes brand-seed {
+    0%, 100% { opacity: .55; transform: scale(.85); }
+    50% { opacity: 1; transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .brand-loader-band, .brand-loader-seed { animation: none; }
   }
 
   /* Mobile-first responsive text sizing */

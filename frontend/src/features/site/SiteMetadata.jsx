@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { brand } from './config';
 import { usePlatform } from '@/shared/context/platform';
 
-export default function SiteEffects() {
+export default function SiteMetadata() {
   const { pathname } = useLocation();
   const { catalog } = usePlatform();
   const contact = catalog?.contact;
@@ -13,7 +13,7 @@ export default function SiteEffects() {
     if (!link) { link = document.createElement('link'); link.rel = 'canonical'; document.head.append(link); }
     link.href = canonical;
     const updatePreview = () => {
-      const values = { 'og:title': document.title, 'og:description': document.querySelector('meta[name="description"]')?.content || '', 'og:type': 'website', 'og:url': canonical, 'og:image': new URL('/logo.png', brand.site).href };
+      const values = { 'og:title': document.title, 'og:description': document.querySelector('meta[name="description"]')?.content || '', 'og:type': 'website', 'og:url': canonical, 'og:image': new URL('/brand/social.png', brand.site).href, 'og:image:width': '1200', 'og:image:height': '630', 'og:image:alt': 'QuantNest — research, testing and simulation workspace' };
       for (const [property, content] of Object.entries(values)) {
         let meta = document.querySelector(`meta[property="${property}"]`);
         if (!meta) { meta = document.createElement('meta'); meta.setAttribute('property', property); document.head.append(meta); }

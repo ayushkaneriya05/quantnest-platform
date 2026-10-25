@@ -1,8 +1,9 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import PropTypes from 'prop-types';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CandlestickSeries, LineSeries, ColorType, TickMarkType, createChart } from 'lightweight-charts';
-import { Loader2, RotateCw } from 'lucide-react';
+import { RotateCw } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import { useTheme } from '@/shared/context/theme';
@@ -167,11 +168,11 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
     </header>
     <div className="relative flex min-h-[96px] flex-1 flex-col">
       <div ref={container} className="absolute inset-0" />
-      {data.status === 'loading' && !data.historicalData.length && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 bg-card/80 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading chart…</div>}
+      {data.status === 'loading' && !data.historicalData.length && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-card/80"><GlobalLoader text="Loading chart…" fullHeight={false} /></div>}
       {data.status === 'empty' && <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center text-sm text-muted-foreground">No candles returned for this range.</div>}
     </div>
     <footer className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t px-3 py-1 text-[11px] text-muted-foreground">
-      {data.fetchingHistory || data.isLoadingOlder ? <><Loader2 className="h-3 w-3 animate-spin" />Fetching provider history…</> : <><span className="hidden sm:inline">Scroll left for older history · IST</span><span className="sm:hidden">History · IST</span></>}
+      {data.fetchingHistory || data.isLoadingOlder ? <GlobalLoader inline text="Fetching provider history…" className="text-[11px]" /> : <><span className="hidden sm:inline">Scroll left for older history · IST</span><span className="sm:hidden">History · IST</span></>}
       {symbol && <Button variant="ghost" size="sm" className="h-6 px-2" disabled={data.status === 'loading' || data.fetchingHistory || data.isLoadingOlder} onClick={data.loadOlder}>Older history</Button>}
       {data.error && <span role="alert" className="min-w-0 flex-1 text-destructive">{data.error}</span>}
       <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={data.reload} aria-label="Reload chart"><RotateCw className="h-3 w-3" /></Button>

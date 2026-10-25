@@ -1,9 +1,9 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Copy, ExternalLink, Lock, Globe, Share2 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
-import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useEnums } from "@/shared/context/EnumsContext";
 import { usePageActions } from "@/shared/context/pageActions";

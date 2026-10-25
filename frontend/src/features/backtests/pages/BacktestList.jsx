@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /**
  * BacktestList — Primary backtesting dashboard.
@@ -34,7 +35,6 @@ import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
 import { useBacktestProgress } from "@/shared/hooks/useBacktestProgress";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 
 /* ─── Status Badge Config ─── */
@@ -211,8 +211,7 @@ export default function BacktestList() {
     return (
       <div className="flex justify-center items-center h-96">
         <div className="flex flex-col items-center gap-3">
-          <GlobalLoader />
-          <p className="text-sm text-muted-foreground">Loading backtests…</p>
+          <GlobalLoader text="Loading backtests…" />
         </div>
       </div>
     );
@@ -363,7 +362,7 @@ export default function BacktestList() {
                               variant="outline"
                               className={`${cfg.color} text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 w-fit flex items-center gap-1`}
                             >
-                              <StatusIcon className={`h-3 w-3 ${["QUEUED", "RUNNING"].includes(run.status) ? "animate-spin" : ""}`} />
+                              {["QUEUED", "RUNNING"].includes(run.status) ? <LoaderMark className="h-3 w-3" /> : <StatusIcon className="h-3 w-3" />}
                               {cfg.label}
                             </Badge>
                             {["QUEUED", "RUNNING"].includes(run.status) && (
@@ -396,7 +395,7 @@ export default function BacktestList() {
                               className="p-1.5 rounded-md hover:bg-blue-500/10 text-muted-foreground hover:text-blue-800 dark:hover:text-blue-400 transition-colors"
                               title="Rerun Backtest"
                             >
-                              <RefreshCw className={`h-3.5 w-3.5 ${rerunningId === run.id ? "animate-spin" : ""}`} />
+                              {rerunningId === run.id ? <LoaderMark className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
                             </button>
                             <button
                               onClick={(e) => handleDelete(e, run.id)}

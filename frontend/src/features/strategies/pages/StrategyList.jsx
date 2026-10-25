@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /**
@@ -31,7 +32,7 @@ import {
 import {
   Plus, Play, Pause, Archive, Copy,
   TrendingUp, Clock, Zap, Target, Edit, Trash2, TestTube,
-  Loader2, Sparkles, RotateCcw, FlaskConical, Rocket
+  Sparkles, RotateCcw, FlaskConical, Rocket
 } from 'lucide-react';
 import { strategyApi } from '@/shared/services/strategyApi';
 import { brokersApi } from '@/shared/services/brokersApi';
@@ -39,7 +40,6 @@ import api from '@/shared/services/api';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
 import { customConfirm } from '@/shared/components/ui/custom-dialog';
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { usePlatform } from '@/shared/context/platform';
 
 const STATUS_CONFIG = {
@@ -375,8 +375,7 @@ export default function StrategyList() {
       {/* Strategy Grid */}
       {loading ? (
         <div className="flex flex-col justify-center items-center py-16 gap-3">
-          <GlobalLoader />
-          <p className="text-sm text-muted-foreground">Loading strategies...</p>
+          <GlobalLoader text="Loading strategies..." />
         </div>
       ) : filteredStrategies.length === 0 ? (
         <Card className="bg-card/40 border-border/80">
@@ -492,7 +491,7 @@ export default function StrategyList() {
                         title="Deploy to paper trading"
                         disabled={deployingId === strategy.id}
                       >
-                        {deployingId === strategy.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
+                        {deployingId === strategy.id ? <LoaderMark className="h-3.5 w-3.5" /> : <FlaskConical className="h-3.5 w-3.5" />}
                       </Button>
                     )}
                     {executionScopes.includes('live') && strategy.status === 'ACTIVE' && strategy.live_trading_enabled && (
@@ -648,7 +647,7 @@ export default function StrategyList() {
               }
             >
               {deployingId === liveDeployStrategy?.id ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <LoaderMark className="h-4 w-4 mr-2" />
               ) : (
                 <Rocket className="h-4 w-4 mr-2" />
               )}
@@ -763,7 +762,7 @@ export default function StrategyList() {
               disabled={deployingId === paperDeployStrategy?.id || !selectedVersion || !(Number(newAllocationAmount) > 0)}
             >
               {deployingId === paperDeployStrategy?.id ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <LoaderMark className="h-4 w-4 mr-2" />
               ) : (
                 <FlaskConical className="h-4 w-4 mr-2" />
               )}

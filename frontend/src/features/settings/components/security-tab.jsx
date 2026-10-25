@@ -1,3 +1,4 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { getApiErrorDetails, getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useDispatch } from "react-redux";
@@ -13,7 +14,6 @@ import {
   Monitor,
   Smartphone,
   Tablet,
-  Loader2,
   Eye,
   EyeOff,
 } from "lucide-react";
@@ -292,7 +292,7 @@ export default function SecurityTab() {
               </p>
               <div className="flex justify-end border-t pt-4">
                 <Button type="submit" disabled={isLoadingPassword} className="w-full sm:w-auto">
-                  {isLoadingPassword && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
+                  {isLoadingPassword && <LoaderMark aria-hidden="true" className="h-4 w-4" />}
                   {isLoadingPassword ? "Updating…" : "Change password"}
                 </Button>
               </div>
@@ -447,7 +447,7 @@ export default function SecurityTab() {
                 Cancel
               </Button>
               <Button type="submit" variant="destructive" disabled={isLoading2FA}>
-                {isLoading2FA && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
+                {isLoading2FA && <LoaderMark aria-hidden="true" className="h-4 w-4" />}
                 {isLoading2FA ? "Disabling…" : "Disable 2FA"}
               </Button>
             </DialogFooter>

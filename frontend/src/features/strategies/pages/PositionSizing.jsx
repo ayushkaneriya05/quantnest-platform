@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { DollarSign } from "lucide-react";
@@ -5,7 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/sha
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import StrategyConfigNav from "@/features/strategies/components/StrategyConfigNav";
 import StrategyFooter from "@/features/strategies/components/StrategyFooter";
 import { strategyApi } from "@/shared/services/strategyApi";

@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { formatDateTime } from "@/shared/utils/formatters";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useEffect, useMemo, useState, useCallback } from "react";
@@ -23,7 +24,6 @@ import {
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { brokersApi } from "@/shared/services/brokersApi";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import FyersAppDialog from "@/features/brokers/components/FyersAppDialog.jsx";
 import { BrokerDetailsModal } from "@/features/brokers/components/BrokerDetailsModal.jsx";
 import { customConfirm } from "@/shared/components/ui/custom-dialog";
@@ -215,7 +215,7 @@ export default function BrokerConnections() {
           disabled={isRefreshing}
           className="border-border text-foreground"
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? <LoaderMark className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
           {isRefreshing ? "Refreshing..." : "Refresh"}
         </Button>
       </div>
@@ -325,7 +325,7 @@ export default function BrokerConnections() {
                           onClick={() => connectBroker(provider)}
                           disabled={isBusy}
                         >
-                          <RefreshCw className={`h-4 w-4 mr-2 ${isBusy ? 'animate-spin' : ''}`} />
+                          {isBusy ? <LoaderMark className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                           Reconnect
                         </Button>
                       )}

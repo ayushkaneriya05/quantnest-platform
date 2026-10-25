@@ -1,3 +1,4 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState } from "react";
 import PropTypes from "prop-types";
@@ -89,6 +90,7 @@ export default function LoginPage({ twoFactorChallenge = null }) {
           <div className="mt-1 flex justify-end"><Link to="/password-reset" className="focus-ring inline-flex min-h-9 items-center rounded-sm text-xs text-brand underline underline-offset-4">Forgot password?</Link></div>
         </div>
         <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-full">
+          {isLoading && <LoaderMark />}
           {isLoading ? "Signing in..." : "Sign in"}
           {!isLoading && <ArrowRight aria-hidden="true" className="h-4 w-4" />}
         </Button>

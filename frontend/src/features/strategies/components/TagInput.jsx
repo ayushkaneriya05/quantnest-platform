@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { X, Plus } from 'lucide-react';
@@ -97,7 +98,7 @@ export default function TagInput({
                              </button>
                         )}
                         {options.error && <p role="alert" className="text-xs text-rose-700 dark:text-rose-300">{options.error}</p>}
-                        {options.loading && <p role="status" className="text-xs text-muted-foreground">Loading tags…</p>}
+                        {options.loading && <p className="text-xs text-muted-foreground"><GlobalLoader inline text="Loading tags…" /></p>}
                         {!options.loading && options.results.length === 0 && !inputValue && (
                             <p className="text-xs text-muted-foreground text-center py-2">No tags found</p>
                         )}

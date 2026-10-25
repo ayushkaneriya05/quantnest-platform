@@ -1,7 +1,8 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { formatDate } from "@/shared/utils/formatters";
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { CheckCircle2, ImagePlus, Loader2, X } from 'lucide-react';
+import { CheckCircle2, ImagePlus, X } from 'lucide-react';
 import api from '@/shared/services/api';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { updateUser } from '@/shared/store/authSlice';
@@ -70,7 +71,7 @@ export default function ProfileTab() {
     </aside>
     <Card><CardHeader className="p-5 pb-4"><CardTitle className="text-lg">Profile information</CardTitle><CardDescription>Your name and personal profile details.</CardDescription></CardHeader><CardContent className="space-y-5 px-5 pb-5">
       <div className="grid gap-4 sm:grid-cols-2">{[['first_name', 'First name', 'given-name', 30], ['last_name', 'Last name', 'family-name', 30], ['username', 'Username', 'username', 150]].map(([name, label, autocomplete, limit]) => <div className="space-y-2" key={name}><Label htmlFor={name}>{label}</Label><Input id={name} name={name} autoComplete={autocomplete} maxLength={limit} value={form[name]} onChange={change} disabled={saving} aria-invalid={Boolean(fieldError(name))} />{fieldError(name) && <p className="text-xs text-destructive-text">{fieldError(name)}</p>}</div>)}<div className="space-y-2"><Label htmlFor="profile-email">Email address</Label><Input id="profile-email" value={user?.email || ''} disabled /><p className="text-xs leading-5 text-muted-foreground">Contact support if your verified email needs changing.</p></div></div>
-      <div className="space-y-2"><Label htmlFor="bio">About you</Label><Textarea id="bio" name="bio" value={form.bio} onChange={change} disabled={saving} maxLength={500} rows={4} placeholder="A short introduction for your personal profile" /><div className="flex justify-between gap-3 text-xs text-muted-foreground"><span>Optional. Use at least 10 characters when filled.</span><span>{form.bio.length}/500</span></div>{fieldError('bio') && <p className="text-xs text-destructive-text">{fieldError('bio')}</p>}</div><div className="flex justify-end border-t pt-4"><Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? 'Saving…' : 'Save changes'}</Button></div>
+      <div className="space-y-2"><Label htmlFor="bio">About you</Label><Textarea id="bio" name="bio" value={form.bio} onChange={change} disabled={saving} maxLength={500} rows={4} placeholder="A short introduction for your personal profile" /><div className="flex justify-between gap-3 text-xs text-muted-foreground"><span>Optional. Use at least 10 characters when filled.</span><span>{form.bio.length}/500</span></div>{fieldError('bio') && <p className="text-xs text-destructive-text">{fieldError('bio')}</p>}</div><div className="flex justify-end border-t pt-4"><Button type="submit" disabled={saving}>{saving && <LoaderMark className="h-4 w-4" />}{saving ? 'Saving…' : 'Save changes'}</Button></div>
     </CardContent></Card>
   </form>;
 }

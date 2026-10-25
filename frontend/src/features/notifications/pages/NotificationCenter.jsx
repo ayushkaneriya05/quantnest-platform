@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatDateTime } from "@/shared/utils/formatters";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, Info, RefreshCw, Trash2, XCircle } from "lucide-react";
@@ -162,7 +163,7 @@ export default function NotificationCenter() {
         </CardHeader>
         <CardContent className="space-y-3">
           {loading ? (
-            <div className="py-10 text-center text-muted-foreground">Loading notifications...</div>
+            <div className="py-10 text-center text-muted-foreground"><GlobalLoader inline text="Loading notifications..." /></div>
           ) : filteredItems.length === 0 ? (
             <div className="py-10 text-center text-muted-foreground">No notifications found.</div>
           ) : filteredItems.map((item) => {

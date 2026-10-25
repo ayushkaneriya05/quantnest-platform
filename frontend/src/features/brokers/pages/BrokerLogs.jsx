@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { formatDateTime } from "@/shared/utils/formatters";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { 
@@ -23,7 +24,6 @@ import { brokersApi } from "@/shared/services/brokersApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import LogDetailsModal from "@/features/brokers/components/LogDetailsModal.jsx";
-import { GlobalLoader } from "@/shared/components/ui/global-loader";
 
 export default function BrokerLogs() {
   const { notify } = useNotifications();
@@ -86,7 +86,7 @@ export default function BrokerLogs() {
   const pageActions = useMemo(
     () => (
       <Button variant="outline" onClick={handleRefresh} disabled={loading} className="border-border text-foreground">
-        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+        {loading ? <LoaderMark className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
         Refresh
       </Button>
     ),

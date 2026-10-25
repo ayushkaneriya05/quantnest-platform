@@ -1,7 +1,8 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { actionLabel } from "@/features/research/researchActions";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Brain, Plus, Send, Paperclip, PanelLeft, X, Loader2 } from "lucide-react";
+import { Brain, Plus, Send, Paperclip, PanelLeft, X, } from "lucide-react";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components/ui/button";
 import { Textarea } from "@/shared/components/ui/textarea";
@@ -190,14 +191,14 @@ export default function AIResearchAssistant() {
       <div ref={scrollRef} role="log" aria-label="Research conversation" className="scrollbar-theme min-h-0 flex-1 overflow-y-auto overscroll-contain"
         onScroll={(event) => { const node = event.currentTarget; followLatest.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100; }}>
         <div className={`mx-auto w-full max-w-[1040px] space-y-6 px-4 py-5 sm:px-6 ${!session ? "flex min-h-full flex-col justify-center" : ""}`}>
-          {loading && session && <p className="text-sm text-muted-foreground">Loading conversation…</p>}
+          {loading && session && <p className="text-sm text-muted-foreground"><GlobalLoader inline text="Loading conversation…" /></p>}
           {!session && <div className="space-y-5 py-3"><div className="flex items-start gap-3"><Brain className="mt-1 h-7 w-7 shrink-0 text-indigo-700 dark:text-indigo-400" /><div><h2 className="text-xl font-semibold sm:text-2xl">What would you like to investigate?</h2><p className="mt-2 text-sm text-muted-foreground">Explore stocks, develop rules, and learn from real backtests. Attach context when it helps.</p></div></div><div className="grid gap-4 sm:grid-cols-2">{starters.map((group) => <section key={group.title} className="rounded-xl border border-border p-4"><h3 className="mb-3 text-sm font-semibold text-indigo-700 dark:text-indigo-300">{group.title}</h3><div className="space-y-2">{group.prompts.map(([label, text]) => <button key={label} onClick={() => followUp(text)} className="block w-full rounded-lg bg-card/60 p-3 text-left text-sm hover:bg-secondary">{label}</button>)}</div></section>)}</div></div>}
           {hasMore && session && <Button className="w-full" variant="outline" disabled={loading} onClick={loadMore}>Load earlier turns</Button>}
           {turns.map((run) => <article key={run.id} className="space-y-4" data-run-id={run.id}>
             <div className="ml-auto max-w-[85%] rounded-xl bg-secondary/70 px-4 py-3"><p className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">You</p><p className="whitespace-pre-wrap text-sm">{run.prompt || "Run the saved market screen."}</p></div>
             <div className="space-y-4"><div className="flex items-center gap-2 text-xs text-indigo-700 dark:text-indigo-300"><Brain size={16} />QuantNest Research<span className="ml-auto text-muted-foreground">{formatDateTime(run.as_of)}</span></div>
               {run.request && <p className="text-xs text-muted-foreground">{run.request.execution_review ? `${run.request.execution_review.filters.source.toLowerCase()} execution · ${run.request.execution_review.filters.date_from} – ${run.request.execution_review.filters.date_to}` : `${run.request.instruments.map((item) => item.symbol).join(", ") || "General research"} · ${run.request.timeframe} · closed candles`}</p>}
-              {isResearchActive(run) || !run.request || run.status === "COMPLETED" && run.loadedRevision < run.revision ? <div role="status" className="flex items-center gap-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4"><Loader2 className="h-4 w-4 animate-spin text-indigo-700 dark:text-indigo-400" /><p className="flex-1 text-sm text-foreground">{run.progress_message}</p>{isResearchActive(run) && <Button size="sm" variant="outline" disabled={busy} onClick={() => cancel(run)}>Cancel</Button>}</div> : run.status === "COMPLETED" ? <>
+              {isResearchActive(run) || !run.request || run.status === "COMPLETED" && run.loadedRevision < run.revision ? <div role="status" className="flex items-center gap-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4"><LoaderMark className="h-4 w-4" /><p className="flex-1 text-sm text-foreground">{run.progress_message}</p>{isResearchActive(run) && <Button size="sm" variant="outline" disabled={busy} onClick={() => cancel(run)}>Cancel</Button>}</div> : run.status === "COMPLETED" ? <>
                 <CitedText text={run.result.answer} evidence={run.evidence} onEvidence={setDetails} />
                 {run.mode === "RESEARCH" && Number.isInteger(run.usage?.total_tokens) && <p className="text-xs text-muted-foreground">{credits(run.usage.total_tokens)} AI credits{run.usage.complete === false ? " · reported usage is incomplete" : ""}</p>}
                 {run.evidence.filter((item) => (run.result.artifact_refs?.length ? run.result.artifact_refs : run.result.evidence_ids || []).includes(item.evidence_id)).map((item) => <ResearchEvidence key={item.evidence_id} evidence={item} enums={enums} onDetails={setDetails} onChoose={active ? undefined : chooseInstrument} selected={selected[run.id] || []} onSelect={item.data.rows ? (id) => toggleSelected(run.id, id) : undefined} />)}

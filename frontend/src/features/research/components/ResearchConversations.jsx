@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { Pencil, Trash2 } from "lucide-react";
@@ -63,7 +64,7 @@ export default function ResearchConversations({ session, onSelect, onDelete, ref
       </li>)}</ul></section>; })}
       {!items.length && !loading && <p className="text-sm text-muted-foreground">{query ? "No conversations match." : "Your research conversations will appear here."}</p>}
       {error && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{error}</p>}
-      {loading && <p className="text-xs text-muted-foreground">Loading conversations…</p>}
+      {loading && <p className="text-xs text-muted-foreground"><GlobalLoader inline text="Loading conversations…" /></p>}
       {more && <Button variant="outline" className="w-full" disabled={loading} onClick={() => setPage(page + 1)}>Load more conversations</Button>}
     </div>
   </div>;

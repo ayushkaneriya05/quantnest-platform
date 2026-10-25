@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { formatDateTime } from "@/shared/utils/formatters";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -13,10 +14,9 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { QrCode, Copy, CheckCircle, Loader2, AlertCircle, Download } from "lucide-react";
+import { QrCode, Copy, CheckCircle, AlertCircle, Download } from "lucide-react";
 import api from "@/shared/services/api";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 TwoFASetupModal.propTypes = {
   isOpen: PropTypes.bool.isRequired,
@@ -308,7 +308,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
             >
               {isLoading ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <LoaderMark className="h-4 w-4 mr-2" />
                   Loading...
                 </>
               ) : (
@@ -324,7 +324,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
             >
               {isVerifying ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <LoaderMark className="h-4 w-4 mr-2" />
                   Verifying...
                 </>
               ) : (

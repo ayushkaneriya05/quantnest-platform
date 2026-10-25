@@ -1,3 +1,4 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { useState } from "react";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -60,6 +61,7 @@ export default function PasswordResetConfirmPage() {
         <PasswordGuidance value={formData.new_password1} />
         <AuthField id="new_password2" label="Confirm new password" icon={Lock} type="password" placeholder="Repeat your new password" value={formData.new_password2} onChange={handleChange} autoComplete="new-password" required />
         <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-full">
+          {isLoading && <LoaderMark />}
           {isLoading ? "Resetting..." : "Reset password"}
           {!isLoading && <ArrowRight aria-hidden="true" className="h-4 w-4" />}
         </Button>

@@ -1,3 +1,4 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -35,7 +36,8 @@ export default function PasswordResetRequestPage() {
         <form className="space-y-4" onSubmit={handleSubmit} aria-busy={isLoading}>
           <AuthField id="email" label="Email address" icon={Mail} type="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
           <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-full">
-            {isLoading ? "Requesting..." : "Request reset link"}
+            {isLoading && <LoaderMark />}
+          {isLoading ? "Requesting..." : "Request reset link"}
             {!isLoading && <ArrowRight aria-hidden="true" className="h-4 w-4" />}
           </Button>
         </form>

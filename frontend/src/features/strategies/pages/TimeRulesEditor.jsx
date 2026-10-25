@@ -1,3 +1,4 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 /**
  * Time Rules Editor - trading hours and session configuration
@@ -19,7 +20,6 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { usePageActions } from '@/shared/context/pageActions'; // Added import
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 
 export default function TimeRulesEditor() {
   const fetchData = useStableCallback(async () => {
@@ -178,8 +178,7 @@ export default function TimeRulesEditor() {
   if (loading) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <GlobalLoader />
-        <p className="text-sm text-muted-foreground">Loading time rules...</p>
+        <GlobalLoader text="Loading time rules..." />
       </div>
     );
   }

@@ -1,9 +1,9 @@
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CandlestickChart, History, Wallet, List, RefreshCw, PanelBottomClose, PanelBottomOpen, GripHorizontal, GripVertical } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/shared/components/ui/tabs';
 import { Dialog, DialogContent, DialogTitle } from '@/shared/components/ui/dialog';
-import RouteLoading from '@/shared/components/RouteLoading';
 import { usePageActions } from '@/shared/context/pageActions';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { useWebSocket } from '@/shared/hooks/useWebSocket';
@@ -140,7 +140,7 @@ export default function TradingTerminal() {
   };
   const select = (symbol) => { terminal.setSelectedSymbol(symbol); setWatchlistOpen(false); setBottomExpanded(false); setSession(null); setDraft(null); };
   const selectPrice = useCallback((value) => { setDraft(value); if (window.innerWidth < 1280) setTicketOpen(true); }, []);
-  if (loadingEnums) return <RouteLoading />;
+  if (loadingEnums) return <GlobalLoader text="Loading page…" />;
   if (enumError) return <div className="space-y-3 p-6"><p className="text-sm text-muted-foreground">Could not load trading choices.</p><Button variant="outline" onClick={refreshEnums}>Retry</Button></div>;
 
   const ticket = <OrderTicket instrument={selectedInstrument} account={account} side={side || buy} onSideChange={setSide}

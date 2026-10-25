@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -53,7 +54,7 @@ export default function LiveStrategies() {
     <>
       <div className="hidden lg:block"><LiveSyncStatus isConnected={data.isConnected} /></div>
       <Button onClick={() => navigate("/strategies")} className="bg-indigo-600 text-white hover:bg-indigo-700"><Zap className="mr-2 h-4 w-4" />Deploy strategy</Button>
-      <Button variant="outline" onClick={data.refresh} disabled={data.refreshing} className="border-border text-foreground"><RefreshCw className={`mr-2 h-4 w-4 ${data.refreshing ? "animate-spin" : ""}`} />Refresh</Button>
+      <Button variant="outline" onClick={data.refresh} disabled={data.refreshing} className="border-border text-foreground">{data.refreshing ? <LoaderMark className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}Refresh</Button>
     </>
   ), [data.isConnected, data.refresh, data.refreshing, navigate]);
   useSetPageActions(pageActions);
@@ -72,7 +73,7 @@ export default function LiveStrategies() {
 
       <SessionStatusFilter value={status} onValueChange={setStatus} />
       {data.loading ? (
-        <Card className="border-border bg-card/60"><CardContent className="py-12 text-center text-muted-foreground">Loading live deployments…</CardContent></Card>
+        <Card className="border-border bg-card/60"><CardContent className="py-12 text-center text-muted-foreground"><GlobalLoader inline text="Loading live deployments…" /></CardContent></Card>
       ) : visibleSessions.length === 0 ? (
         <Card className="border-border bg-card/60"><CardContent className="py-14 text-center"><Zap className="mx-auto mb-3 h-8 w-8 text-muted-foreground" /><p className="text-foreground">{data.sessions.length ? "No sessions match this status" : "No live deployments"}</p><p className="mt-1 text-sm text-muted-foreground">Deploy a strategy to a connected broker account to see it here.</p></CardContent></Card>
       ) : (

@@ -1,6 +1,7 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Loader2, Route } from 'lucide-react';
+import { Route } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/shared/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import { Button } from '@/shared/components/ui/button';
@@ -67,7 +68,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
         <DialogHeader><DialogTitle className="flex items-center gap-2"><Route className="h-5 w-5" /> Instrument execution</DialogTitle></DialogHeader>
         <form onSubmit={save} className="space-y-5">
           <p className="text-sm text-muted-foreground">Signals trade the selected NSE stock directly. Each instrument uses the strategy position size unless you set an override here.</p>
-          {loading ? <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading settings" /></div> : (
+          {loading ? <GlobalLoader text="Loading settings…" fullHeight={false} /> : (
             <fieldset disabled={saving || failed} className="space-y-4">
               <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
                 <Label htmlFor="instrument-sizing">Use a different position size</Label>
@@ -90,7 +91,7 @@ export default function UniversalRoutingModal({ open, onClose, watchlistInstrume
               </>}
             </fieldset>
           )}
-          <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={loading || saving || failed}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save settings</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button type="submit" disabled={loading || saving || failed}>{saving && <LoaderMark className="mr-2 h-4 w-4" />}Save settings</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

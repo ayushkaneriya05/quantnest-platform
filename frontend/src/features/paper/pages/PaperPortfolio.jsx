@@ -1,3 +1,4 @@
+import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -19,7 +20,6 @@ import PaperPortfolioOverview from "@/features/paper/components/PaperPortfolioOv
 import PaperPositions from "@/features/paper/components/PaperPositions.jsx";
 import PaperOrderBook from "@/features/paper/components/PaperOrderBook.jsx";
 import PaperTradeHistory from "@/features/paper/components/PaperTradeHistory.jsx";
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatCurrency } from "@/shared/utils/formatters";
 import { usePaperTradingUpdate, usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
 
@@ -162,7 +162,7 @@ export default function PaperPortfolio() {
                   disabled={loading}
                   className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-foreground transition-colors px-1 tracking-tighter"
                 >
-                  <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+                  {loading ? <LoaderMark className="h-3 w-3" /> : <RefreshCw className="h-3 w-3" />}
                   <span>REFRESH</span>
                 </button>
              </div>

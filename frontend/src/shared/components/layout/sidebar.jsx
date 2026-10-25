@@ -51,6 +51,7 @@ import { logoutUser } from "@/shared/store/authSlice";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSystemNotificationsContext } from "@/shared/context/SystemNotificationsContext";
 import UserAvatar from '@/shared/components/UserAvatar';
+import BrandLogo from '@/shared/components/BrandLogo';
 import { usePlatform } from '@/shared/context/platform';
 
 const navigationSections = [
@@ -182,11 +183,7 @@ export default function Sidebar() {
           to="/overview"
           className="flex min-w-0 items-center justify-center transition-opacity hover:opacity-80"
         >
-          <img
-            src="/logo_1-wordmark.png"
-            alt="QuantNest"
-            className="h-auto w-[170px] object-contain"
-          />
+          <BrandLogo className="w-[184px]" />
         </Link>
       </div>
 

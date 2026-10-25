@@ -1,9 +1,10 @@
+import { LoaderMark } from '@/shared/components/ui/global-loader';
 import PropTypes from "prop-types";
 /**
  * StrategyFooter — fixed bottom bar with Save + Cancel for strategy pages.
  */
 import { Button } from "@/shared/components/ui/button";
-import { Save, Loader2, X } from 'lucide-react';
+import { Save, X } from 'lucide-react';
 
 export default function StrategyFooter({
   onSave,
@@ -32,7 +33,7 @@ export default function StrategyFooter({
           className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 px-4"
         >
           {saving ? (
-            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            <LoaderMark className="h-3.5 w-3.5 mr-1.5" />
           ) : (
             <Save className="h-3.5 w-3.5 mr-1.5" />
           )}
