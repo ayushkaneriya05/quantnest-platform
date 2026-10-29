@@ -178,6 +178,17 @@ It is separate from the personal trading connection used to submit orders.
    promise unattended refresh-token renewal; do not add automated password/OTP
    login scripts. Broker/data reauthorization is an operator action.
 
+For disconnects, distinguish authentication errors from network failures. TLS EOF,
+DNS lookup failures and connections closed without a response need a connection
+check, not another sign-in. The FYERS SDK can report these HTTP failures as
+`-99 / Bad request`; QuantNest's history/quote adapter uses the documented REST
+endpoints directly with 5-second connect and 15-second read timeouts so the real
+failure category is retained. The WebSocket still uses the SDK's reconnect flow.
+History preparation stops issuing further requests when its connection generation
+changes and resumes through the existing preparation loop. A subscription
+acknowledgement timeout is logged before QuantNest deliberately reconnects; the
+SDK's subsequent `code=200` close message is not an HTTP history response.
+
 The code supports one shared configured data provider per instance. An individual
 app is limited to its creator's login; using that account to power a public
 multi-user site also needs the appropriate data-use/display permissions from the

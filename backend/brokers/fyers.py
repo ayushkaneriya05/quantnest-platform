@@ -67,7 +67,7 @@ class FyersAdapter(BaseBrokerAdapter):
         1: OrderStatus.CANCELLED, 2: OrderStatus.FILLED, 4: OrderStatus.PLACED,
         5: OrderStatus.REJECTED, 6: OrderStatus.PENDING, 7: OrderStatus.EXPIRED,
     }
-    ORDER_URL = "https://api-t1.fyers.in/api/v3/orders/sync"
+    API_URL = "https://api-t1.fyers.in/api/v3"
 
     @staticmethod
     def connection_details() -> dict:
@@ -82,28 +82,27 @@ class FyersAdapter(BaseBrokerAdapter):
     def _auth(self):
         return FyersAuth(self.credential.client_id, self.credential.api_secret, self.connection_details()["redirect_uri"])
 
-    def _sdk_client(self, session):
-        return fyersModel.FyersModel(
-            client_id=self.credential.client_id, token=session.access_token,
-            is_async=False, log_path=str(settings.BASE_DIR / "logs"),
-        )
-
     def _log_response(self, endpoint, request, response, started_at):
         self._log(endpoint, request, response, started_at=started_at,
                   status_code=400 if response.get("s") == "error" else 200,
                   error_message=response["message"] if response.get("s") == "error" else "")
 
-    def _request_order(self, method: str, data: dict, session) -> dict:
-        # FyersServiceSync.post_call/delete_call swallow transport exceptions.
-        # Keep an explicit timeout and let uncertain mutations reach reconciliation.
-        response = requests.request(
-            method, FyersAdapter.ORDER_URL, json=data,
-            headers={"Authorization": f"{self.credential.client_id}:{session.access_token}"},
-            timeout=10,
-        )
-        if response.status_code >= 500:
-            response.raise_for_status()
-        return response.json()
+    def _request(self, method: str, path: str, session, data=None) -> dict:
+        # The SDK hides transport errors and leaves GET calls without timeouts.
+        # Bound every broker call; uncertain mutations must reach reconciliation.
+        try:
+            response = requests.request(
+                method, self.API_URL + path, json=data,
+                headers={"Authorization": f"{self.credential.client_id}:{session.access_token}", "version": "3"},
+                timeout=(5, 10),
+            )
+            if response.status_code >= 500:
+                response.raise_for_status()
+            return response.json()
+        except requests.RequestException as exc:
+            if method == "GET":
+                raise ValueError("FYERS account data is temporarily unavailable. Retry after the connection recovers.") from exc
+            raise
 
     def generate_auth_url(self, state: str) -> str:
         return self._auth().authorization_url(state)
@@ -119,7 +118,7 @@ class FyersAdapter(BaseBrokerAdapter):
 
     def get_profile(self) -> dict:
         started_at = time.perf_counter()
-        response = self._sdk_client(self.get_session()).get_profile()
+        response = self._request("GET", "/profile", self.get_session())
         # Do not persist masked personal/security fields in API logs.
         if response["s"] != "ok":
             raise ValueError(response["message"])
@@ -131,7 +130,7 @@ class FyersAdapter(BaseBrokerAdapter):
 
     def get_funds(self) -> dict:
         started_at = time.perf_counter()
-        response = self._sdk_client(self.get_session()).funds()
+        response = self._request("GET", "/funds", self.get_session())
         self._log_response("fyers.funds", {}, response, started_at)
         if response["s"] != "ok":
             raise ValueError(response["message"])
@@ -165,7 +164,7 @@ class FyersAdapter(BaseBrokerAdapter):
 
     def get_orderbook(self) -> list[dict]:
         started_at = time.perf_counter()
-        response = self._sdk_client(self.get_session()).orderbook()
+        response = self._request("GET", "/orders", self.get_session())
         self._log_response("fyers.orderbook", {}, response, started_at)
         if response["s"] != "ok":
             raise ValueError(response["message"])
@@ -182,7 +181,7 @@ class FyersAdapter(BaseBrokerAdapter):
             "offlineOrder": False, "orderTag": payload["order_tag"], "isSliceOrder": False,
         }
         started_at = time.perf_counter()
-        response = self._request_order("POST", request, session)
+        response = self._request("POST", "/orders/sync", session, request)
         self._log_response("fyers.place_order", request, response, started_at)
         status = "UNKNOWN"
         if response.get("code") != 201:
@@ -195,7 +194,7 @@ class FyersAdapter(BaseBrokerAdapter):
 
     def cancel_order(self, broker_order_id: str) -> dict:
         started_at = time.perf_counter()
-        response = self._request_order("DELETE", {"id": broker_order_id}, self.get_session())
+        response = self._request("DELETE", "/orders/sync", self.get_session(), {"id": broker_order_id})
         self._log_response("fyers.cancel_order", {"id": broker_order_id}, response, started_at)
         return {"broker_order_id": broker_order_id, "accepted": response["s"] == "ok" and response["code"] != 201,
                 "message": response["message"]}

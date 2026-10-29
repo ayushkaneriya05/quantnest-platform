@@ -5,9 +5,7 @@ import heapq
 
 from common.enums import OrderStatus, OrderType, Side
 
-from .types import Fill, Order, Tick, ZERO
-
-ACTIVE = frozenset((OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, 'UNKNOWN'))
+from .types import ACTIVE_STATUSES, Fill, Order, Tick, ZERO
 
 
 def match_order(order: Order, tick: Tick) -> Fill | None:
@@ -54,7 +52,7 @@ class OrderBook:
 
     def put(self, order: Order) -> None:
         self.remove(order.identity)
-        if order.status not in ACTIVE:
+        if order.status not in ACTIVE_STATUSES:
             return
         self.revision += 1
         self.orders[order.identity], self.revisions[order.identity] = order, self.revision

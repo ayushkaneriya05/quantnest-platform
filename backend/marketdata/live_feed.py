@@ -275,6 +275,7 @@ class MarketObservationClient:
         if pending and time.monotonic() >= pending[2]:
             # Reconnect before another batch: late SDK acknowledgements have no IDs.
             self._subscription_error = "Subscription acknowledgement timed out; reconnecting."
+            logger.warning("%s operation=%s symbols=%s", self._subscription_error, pending[0], len(pending[1]))
             self.mark_disconnected()
             self.disconnect()
             self.connect()
@@ -315,6 +316,9 @@ class MarketObservationClient:
         for symbol, required in targets.items():
             if self._sync_stop.is_set():
                 return
+            with self._state_lock:
+                if not self._connected.is_set() or self._generation != generation:
+                    return  # Do not fetch the rest of a disconnected generation.
             if time.monotonic() < self._retry_history.get(symbol, 0):
                 continue
             acquire, retry_delay = True, 30
@@ -346,10 +350,16 @@ class MarketObservationClient:
                 acquire = previous is None or marker[1:] != previous[1:]
                 prepared, through = {}, {}
                 for source, depth in required.items():
+                    with self._state_lock:
+                        if not self._connected.is_set() or self._generation != generation:
+                            return
                     start = calendar.warmup_start(now, depth, source=source)
                     request = HistoryRequest(instrument, source, start, now, calendar)
                     if acquire:
                         result = ensure_history(request, max_requests=1)
+                        with self._state_lock:
+                            if not self._connected.is_set() or self._generation != generation:
+                                return
                         if not result.complete:
                             retry_delay = 30 if result.error else 5
                             raise ValueError(result.error or "Required history is still being prepared.")
@@ -394,7 +404,9 @@ class MarketObservationClient:
                         self._retry_history.pop(symbol, None)
             except Exception as exc:
                 with self._state_lock:
-                    if self._generation != generation or symbol not in self._targets:
+                    if not self._connected.is_set() or self._generation != generation:
+                        return
+                    if symbol not in self._targets:
                         continue
                     previous = self._prepared.get(symbol, {})
                     # Existing buffers remain useful after a correction-read

@@ -5,14 +5,15 @@ delegates warmup and broker network calls to a small thread pool. No worker wait
 for another strategy's result or for a broker HTTP response.
 """
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone as utc
+from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
 from queue import Empty
 import time
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.core.exceptions import ObjectDoesNotExist
+from django.db import close_old_connections, transaction
 from django.db.models import Min
 from django.utils import timezone
 
@@ -42,9 +43,8 @@ def latest_observation(symbol):
         rows, _, _, generation = buffer.read_observations(max(snapshot.sequence-1, 0), 1)
         if not len(rows):
             raise ValueError('Wait for a live price observation.')
-        sequence, event, received, price, _ = rows[-1]
-        return dict(sequence=int(sequence)*2, generation=generation,
-            observed_at=datetime.fromtimestamp(event, utc.utc), reference_price=Decimal(str(price)))
+        sequence, _, _, price, _ = rows[-1]
+        return dict(sequence=int(sequence)*2, generation=generation, reference_price=Decimal(str(price)))
     finally:
         buffer.close()
 
@@ -66,11 +66,21 @@ def broker_call(order_id, *, cancel=False):
                 if not response['accepted']:
                     logger.warning('Broker cancellation not accepted order=%s: %s', order_id, response['message'])
             return
+        try:
+            session = BrokerService.ensure_session(order.broker_credential)
+        except ValueError as exc:
+            # No broker request has started: expired authentication is a definite
+            # local rejection, not an ambiguous submission to reconcile forever.
+            enqueue(Mode.LIVE, order.broker_credential_id, Kind.BROKER, {
+                'identity': str(order.request_id), 'broker_id': '', 'status': 'REJECTED',
+                'quantity': 0, 'average': '0', 'at': timezone.now().isoformat(), 'error': str(exc),
+            })
+            return
         result = BrokerService.place_order(order.broker_credential, {
             'instrument': order.instrument.sym_ticker, 'side': order.side, 'quantity': order.quantity,
             'order_type': order.order_type, 'product_type': order.product_type,
-            'validity': 'DAY', 'order_tag': f'QN{order.pk}',
-        })
+            'order_tag': f'QN{order.pk}',
+        }, broker_session=session)
         enqueue(Mode.LIVE, order.broker_credential_id, Kind.BROKER, {
             'identity': str(order.request_id), 'broker_id': result.get('broker_order_id') or '',
             'status': result.get('status') or 'UNKNOWN', 'quantity': 0, 'average': '0',
@@ -135,24 +145,45 @@ class Controller:
             return
         self.preparing[key] = self.pool.submit(prepare_symbol, key[1], list(self.programs[key].values()))
 
+    def remove_units(self, units):
+        """Release evaluator state and stop preparing symbols with no remaining rules."""
+        if not units:
+            return
+        for unit in units:
+            self.send(unit, RemoveUnit(unit))
+            self.evaluations.pop(unit, None)
+        for key, programs in tuple(self.programs.items()):
+            for unit in units:
+                programs.pop(unit, None)
+            if not programs:
+                del self.programs[key]
+                self.retry.pop(key, None)
+                future = self.preparing.pop(key, None)
+                if future is not None:
+                    future.cancel()
+
     def install_units(self, account, configuration):
         from .models import EvaluationCheckpoint
         from .snapshots import decode
         touched = set()
         desired = set(configuration['programs'])
-        for key in self.installed_units.get(account.key, set()) - desired:
-            self.send(key, RemoveUnit(key))
-            for values in self.programs.values():
-                values.pop(key, None)
+        self.remove_units(self.installed_units.get(account.key, set()) - desired)
         self.installed_units[account.key] = desired
+        # Load all rule checkpoints once; restore only the matching version and
+        # position revision so a new deployment never inherits unrelated state.
+        checkpoints = {(row.mode, row.session_id, row.instrument_id): row
+            for row in EvaluationCheckpoint.objects.filter(mode=account.key[0],
+                session_id__in={unit[1] for unit in desired}, instrument_id__in={unit[2] for unit in desired})}
         for unit, program in configuration['programs'].items():
             symbol = configuration['contracts'][unit[2]].symbol
             worker = partition(unit, len(self.inboxes))
             key = worker, symbol
             self.programs.setdefault(key, {})[unit] = program
             position = account.positions.get(unit)
-            saved = EvaluationCheckpoint.objects.filter(mode=unit[0], session_id=unit[1], instrument_id=unit[2],
-                version_id=program.version, position_revision=account.position_revisions.get(unit, 0)).first()
+            saved = checkpoints.get(unit)
+            if saved is not None and (saved.version_id != program.version or
+                    saved.position_revision != account.position_revisions.get(unit, 0)):
+                saved = None
             self.send(unit, InstallUnit(unit, account.key, program, position_view(account, unit),
                 account.statuses[unit[1]], {'symbol': symbol, 'peak': position.peak if position else 0,
                 'state': decode(saved.state) if saved else None}))
@@ -216,12 +247,12 @@ class Controller:
             from marketdata.calendar import MarketSessionCalendar
             from .preparation import contract_from_instrument
             instrument = Instrument.objects.get(pk=payload['instrument_id'])
-            contract = contract_from_instrument(instrument)
-            calendar = MarketSessionCalendar.for_instrument(instrument)
-            calendar.load_holidays(now.date()-timedelta(days=1), now.date()+timedelta(days=1))
-            quote = latest_observation(contract.symbol)
+            quote = latest_observation(instrument.sym_ticker)
             unit = key[0], payload.get('session_id', key[1]), instrument.pk
             if command.kind == Kind.ORDER:
+                contract = contract_from_instrument(instrument)
+                calendar = MarketSessionCalendar.for_instrument(instrument)
+                calendar.load_holidays(now.date()-timedelta(days=1), now.date()+timedelta(days=1))
                 kind = payload['order_type']
                 order_type = OrderType.STOP_MARKET if kind == TerminalOrderType.STOP else kind
                 decimals = {name: Decimal(payload[name]) if payload.get(name) is not None else None
@@ -230,7 +261,7 @@ class Controller:
                     payload.get('position_revision', 0), quote['sequence'], now, payload['side'], payload['reason'],
                     quote['reference_price'], intent=payload.get('intent', OrderIntent.ENTRY),
                     quantity=payload['quantity'], order_type=order_type, reduce_only=payload.get('reduce_only', False),
-                    manual=key[0] == Mode.TERMINAL, generation=quote['generation'], observed_at=quote['observed_at'], **decimals)
+                    manual=key[0] == Mode.TERMINAL, generation=quote['generation'], **decimals)
                 return dict(intent=intent, contract=contract, calendar=calendar)
             if command.kind == Kind.PROTECT:
                 return dict(unit=unit, stop=Decimal(payload['stop']) if payload['stop'] is not None else None,
@@ -259,7 +290,7 @@ class Controller:
                 payload = self.command_payload(command)
                 self.pending[key] = command.pk
                 self.send(key, Control(command.pk, key, command.kind, payload))
-            except (ValueError, FileNotFoundError) as exc:
+            except (ValueError, FileNotFoundError, ObjectDoesNotExist) as exc:
                 self.reject(command, str(exc))
 
     def reject(self, command, error):
@@ -307,14 +338,26 @@ class Controller:
             mode = message.unit[0] if isinstance(message, UnitFailure) else message.account[0]
             model = PaperTradingSession if mode == Mode.PAPER else TradingSession
             session_id = message.unit[1] if isinstance(message, UnitFailure) else message.session_id
-            session = model.objects.get(pk=session_id)
-            if isinstance(message, UnitFailure):
-                session.status, session.error_message = Status.ERROR, message.error
-            else:
-                session.status, session.ended_at = Status.STOPPED, timezone.now()
-            session.save()
-            account_id = session.account_id if mode == Mode.PAPER else session.broker_credential_id
-            enqueue(mode, account_id, Kind.REFRESH, {'session_id': session.pk})
+            with transaction.atomic():
+                session = model.objects.select_for_update().filter(pk=session_id).first()
+                if session is None:
+                    return  # A settled deployment may have been deleted by its owner.
+                if isinstance(message, UnitFailure):
+                    # A delayed error from the previous version must not disable
+                    # a replacement version or resurrect a stopped deployment.
+                    active_version = session.applied_version_id or session.allocation.deployed_version_id
+                    if session.status == Status.STOPPED or active_version != message.version:
+                        return
+                    session.status, session.error_message = Status.ERROR, message.error
+                    fields = ['status', 'error_message', 'updated_at']
+                else:
+                    if session.status != Status.STOPPING:
+                        return
+                    session.status, session.ended_at = Status.STOPPED, timezone.now()
+                    fields = ['status', 'ended_at', 'updated_at']
+                session.save(update_fields=fields)
+                account_id = session.account_id if mode == Mode.PAPER else session.broker_credential_id
+                enqueue(mode, account_id, Kind.REFRESH, {'session_id': session.pk})
         else:
             raise TypeError(f'Unknown execution output {type(message).__name__}')
 
@@ -334,11 +377,7 @@ class Controller:
             from .models import AccountCheckpoint
             existing = set(AccountCheckpoint.objects.values_list('mode', 'account_id'))
             for key in self.accounts - existing:
-                for unit in self.installed_units.pop(key, set()):
-                    self.send(unit, RemoveUnit(unit))
-                    self.evaluations.pop(unit, None)
-                    for programs in self.programs.values():
-                        programs.pop(unit, None)
+                self.remove_units(self.installed_units.pop(key, set()))
                 self.send(key, RemoveAccount(key))
                 self.accounts.remove(key)
             today = timezone.localdate()
@@ -371,11 +410,6 @@ class Controller:
 
     def run(self, stop, children):
         from common.redis import runtime_redis
-        from .models import AccountCheckpoint
-        self.recovered_orders = set()
-        from .snapshots import decode
-        for row in AccountCheckpoint.objects.iterator():
-            self.recovered_orders.update(decode(row.state).orders)
         try:
             self.bootstrap()
             deadline = heartbeat = 0

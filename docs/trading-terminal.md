@@ -176,6 +176,8 @@ Settlement is permitted only after the contract's calendar-defined expiry close.
 
 Equity, available capital, reserved amounts, realized P&L, open P&L and charges are different quantities. Reservation is not realized loss. Open P&L is a current mark before future exit costs. Account balances cannot be edited through the ordinary account settings serializer.
 
+Applied Account settings publish `ACCOUNT_UPDATE`; protection edits publish `POSITION_UPDATE`. The Terminal consumes both through its existing WebSocket subscription. If a position closes before a protection edit is applied, the edit is rejected with a notification rather than recreating the position.
+
 ### Charges on closing
 
 `TradingCostCalculator` calculates recorded fees on closing exposure. Entry lots preserve original profile/time information. `_closing_costs()` settles same-day lots before carried lots and allocates original flat entry brokerage proportionately across reductions, then recalculates GST.

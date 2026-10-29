@@ -113,7 +113,7 @@ export default function PaperOrderBook({ selectedAccountId }) {
               <table className="w-full text-sm">
                 <thead className="bg-secondary/20 border-y border-border">
                   <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Time</th>
+                    <th className="px-4 py-3 font-medium">Placed / Filled</th>
                     <th className="px-4 py-3 font-medium">Symbol</th>
                     <th className="px-4 py-3 font-medium">Side</th>
                     <th className="px-4 py-3 font-medium">Qty / Filled</th>
@@ -125,7 +125,12 @@ export default function PaperOrderBook({ selectedAccountId }) {
                   {pageOrders.map((order) => (
                     <tr key={order.id} className="hover:bg-secondary/10 transition-colors">
                       <td className="px-4 py-3 text-muted-foreground font-mono text-[12px] whitespace-nowrap">
-                        {formatDateTime(order.executed_at || order.placed_at)}
+                        <span className="block">{formatDateTime(order.placed_at)}</span>
+                        {order.executed_at && (
+                          <span className="block mt-1 text-[10px]">
+                            Filled: {formatDateTime(order.executed_at)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col">

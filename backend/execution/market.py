@@ -9,7 +9,7 @@ from marketdata.candles import aggregate_candles, candle_frame
 from marketdata.contracts import OHLCV, source_timeframe
 from marketdata.shared_memory import SharedMemoryManager
 
-from .compiler import FeatureGraph, Program
+from .compiler import CandleHistoryConflict, FeatureGraph, Program
 from .types import Candle, Tick
 
 
@@ -118,13 +118,23 @@ def complete(symbol: PreparedSymbol, at: datetime) -> bool:
 
 
 def observe(symbol: PreparedSymbol, tick: Tick) -> None:
-    complete(symbol, tick.event_time)
     calendar = symbol.graph.calendar
     if not calendar.is_open(tick.event_time):
+        complete(symbol, tick.event_time)
         return
+    # The clock (or startup snapshot) can close a bucket before its final tick
+    # reaches us. Never reopen it or update recursive indicators twice. SHM
+    # already contains this tick; background preparation rebuilds its features.
+    candles = {}
     for tf in symbol.graph.counts:
         opened = calendar.bucket_start(tick.event_time, tf)
-        current = Candle(opened, calendar.candle_close(opened, tf), tick.price, tick.price,
-                         tick.price, tick.price, tick.volume)
+        closed = calendar.candle_close(opened, tf)
+        completed = symbol.graph.completed.get(tf)
+        if completed is not None and closed <= completed:
+            raise CandleHistoryConflict(f'Late tick changed completed {tf} history for {symbol.symbol}.')
+        candles[tf] = Candle(opened, closed, tick.price, tick.price, tick.price, tick.price, tick.volume)
+    # Validate all timeframes before modifying any of their forming candles.
+    complete(symbol, tick.event_time)
+    for tf, current in candles.items():
         previous = symbol.forming.get(tf)
         symbol.forming[tf] = combine(previous, current) if previous else current

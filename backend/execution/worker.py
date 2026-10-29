@@ -16,6 +16,7 @@ from common.enums import ExecutionCommandType, ExecutionMode, ExecutionSessionSt
 from marketdata.shared_memory import SharedMemoryManager
 
 from .engine import EvaluationUnit
+from .compiler import CandleHistoryConflict
 from .ledger import ACTIVE_STATUSES, acknowledge, apply_fill, available, cancel_order, hold_until_commit, margin, order_transition, position_view
 from .market import PreparedSymbol, complete, observe
 from .messages import (Committed, Control, InstallAccount, InstallUnit, Persist, PositionUpdate,
@@ -54,6 +55,12 @@ class Worker:
             self.local.append(message)
         else:
             self.inboxes[target].put(message, timeout=1)
+
+    def prepare_market(self, symbol, reason):
+        """Pause only this symbol's evaluators while the controller rebuilds it."""
+        if symbol not in self.reprepare:
+            self.reprepare.add(symbol)
+            self.output.put(PrepareMarket(self.index, symbol, reason), timeout=1)
 
     def subscribe(self, symbol, actor):
         if symbol not in self.buffers:
@@ -124,8 +131,17 @@ class Worker:
                 unit.peak = message.checkpoint.get('peak', float(message.position.average))
             self.subscribe(symbol, ('unit', message.key))
             if message.key in self.recovering and symbol in self.buffers:
-                self.cursors[(('unit', message.key), symbol)] = unit.sequence
-                self.read_cursor[symbol] = min(self.read_cursor[symbol], unit.sequence // 2)
+                if unit.generation == self.generations[symbol]:
+                    self.cursors[(('unit', message.key), symbol)] = unit.sequence
+                    self.read_cursor[symbol] = min(self.read_cursor[symbol], unit.sequence // 2)
+                else:
+                    # Sequence numbers belong to one feed generation. A restart
+                    # must not rewind the new feed using an old checkpoint.
+                    unit.previous.clear()
+                    unit.samples.clear()
+                    unit.sequence = self.read_cursor[symbol] * 2
+                    unit.generation = self.generations[symbol]
+                    self.recovering.discard(message.key)
         elif isinstance(message, RemoveUnit):
             self.evaluation_errors.discard(message.unit)
             self.units.pop(message.unit, None)
@@ -142,10 +158,17 @@ class Worker:
             # Warmup includes observations up to its captured cursor. Replay only
             # the later retained ticks; never add their volume twice.
             baseline = message.cursor * 2
-            for tick in self.events.get(message.symbol, ()):
-                if tick.sequence > baseline and tick.closed_at is None:
-                    observe(message, tick)
-                    message.cursor = tick.sequence // 2
+            try:
+                for tick in self.events.get(message.symbol, ()):
+                    if tick.sequence > baseline and tick.closed_at is None:
+                        observe(message, tick)
+                        message.cursor = tick.sequence // 2
+            except CandleHistoryConflict as exc:
+                # A delayed tick can also arrive during preparation. Request a
+                # newer snapshot instead of installing a partially replayed graph.
+                self.reprepare.discard(message.symbol)
+                self.prepare_market(message.symbol, str(exc))
+                return
             for identity in self.cursors:
                 if identity[0][0] == 'unit' and identity[1] == message.symbol and identity[0][1] not in self.recovering:
                     self.cursors[identity] = max(self.cursors[identity], baseline)
@@ -281,7 +304,9 @@ class Worker:
                 self.publish(owner, order_transition(state, order), command.identity)
                 return
             elif kind == ExecutionCommandType.PROTECT:
-                position = state.positions[payload['unit']]
+                position = state.positions.get(payload['unit'])
+                if position is None:
+                    raise ValueError('This position has already closed. Refresh the positions list.')
                 stop, target = payload['stop'], payload['target']
                 position.contract.validate(abs(position.quantity), (stop, target), payload['at'])
                 reference, long = payload['reference_price'], position.quantity > 0
@@ -347,7 +372,9 @@ class Worker:
                         state.allocation_principal[session] = config['capital']
                     state.sizing.update(config['sizing'])
                     state.close_on_stop[session] = config['close_on_stop']
-                owner.programs.update(payload['programs'])
+                owner.programs = payload['programs']
+                # Keep facts for orders that filled after this configuration was
+                # read, including late broker fills from a previous version.
                 owner.contracts.update(payload['contracts'])
                 owner.calendars.update(payload['calendars'])
                 for contract in payload['contracts'].values():
@@ -377,31 +404,41 @@ class Worker:
         prepared = self.markets.get(symbol)
         changed = prepared is not None and revision != prepared.revisions['1m']
         if lost or generation != self.generations[symbol] or changed:
-            if symbol not in self.reprepare:
-                self.reprepare.add(symbol)
-                self.output.put(PrepareMarket(self.index, symbol,
-                    'Observed tick buffer was overwritten.' if lost else 'Market history or connection changed.'), timeout=1)
+            self.prepare_market(symbol,
+                'Observed tick buffer was overwritten.' if lost else 'Market history or connection changed.')
             self.generations[symbol] = generation
             if lost:
                 for (kind, key), sym in self.actors:
                     if kind == 'unit' and sym == symbol:
                         self.units[key].status = ExecutionSessionStatus.ERROR
-                        self.output.put(UnitFailure(key, 'Observed ticks were lost; review and resume the session.'), timeout=1)
+                        self.output.put(UnitFailure(key, 'Observed ticks were lost; review and resume the session.', self.units[key].program.version), timeout=1)
         events = self.events[symbol]
-        for sequence, event, received, price, volume in rows:
-            tick = Tick(symbol, int(sequence)*2, datetime.fromtimestamp(event, timezone.utc), received, price, volume, generation)
+        for sequence, event, _, price, volume in rows:
+            tick = Tick(symbol, int(sequence)*2, datetime.fromtimestamp(event, timezone.utc), price, volume, generation)
             if prepared is not None and symbol not in self.reprepare and int(sequence) > prepared.cursor:
-                observe(prepared, tick)
-                prepared.cursor = int(sequence)
+                try:
+                    observe(prepared, tick)
+                    prepared.cursor = int(sequence)
+                except CandleHistoryConflict as exc:
+                    self.prepare_market(symbol, str(exc))
             events.append(tick)
             self.last_tick[symbol] = tick
             self.read_cursor[symbol] = int(sequence)
         now = datetime.now(timezone.utc)
         last = self.last_tick.get(symbol)
-        if (prepared is not None and symbol not in self.reprepare and complete(prepared, now)
-                and last is not None and last.generation == generation):
-            # Odd sequence numbers represent candle-clock events between provider ticks.
-            events.append(replace(last, sequence=last.sequence+1, closed_at=now, volume=0))
+        # A full batch may leave older ticks unread. Drain them before advancing
+        # to wall-clock time, otherwise ordinary backlog looks like late history.
+        if prepared is not None and symbol not in self.reprepare and len(rows) < OBSERVATION_BATCH:
+            try:
+                if complete(prepared, now) and last is not None and last.generation == generation:
+                    # Odd sequence numbers represent candle-clock events between provider ticks.
+                    # Use the actual boundary, not the poll time a few ms later:
+                    # provider timestamps have whole-second precision, so a
+                    # 14:20:00 quote must remain eligible for a 14:20 close.
+                    closed_at = max(prepared.graph.completed.values())
+                    events.append(replace(last, sequence=last.sequence+1, closed_at=closed_at, volume=0))
+            except CandleHistoryConflict as exc:
+                self.prepare_market(symbol, str(exc))
 
     def actor_turn(self):
         if not self.actors:
@@ -434,7 +471,7 @@ class Worker:
                 except (ValueError, ArithmeticError) as exc:
                     self.evaluation_errors.add(key)
                     unit.status = ExecutionSessionStatus.ERROR
-                    self.output.put(UnitFailure(key, str(exc)), timeout=1)
+                    self.output.put(UnitFailure(key, str(exc), self.units[key].program.version), timeout=1)
                     self.cursors[identity] = tick.sequence
                     continue
                 if intent is not None:
@@ -474,7 +511,7 @@ class Worker:
                 stamp = unit.generation, unit.sequence, unit.position.revision, unit.program.version
                 if (unit.sequence and stamp != self.saved_sequences.get(key) and not unit.pending
                         and not unit.position.pending and key not in self.warming):
-                    self.output.put(EvaluationSaved(key, unit.account, unit.program.version,
+                    self.output.put(EvaluationSaved(key, unit.program.version,
                         unit.position.revision, unit.checkpoint()), timeout=1)
                     self.saved_sequences[key] = stamp
         return busy or bool(self.local)

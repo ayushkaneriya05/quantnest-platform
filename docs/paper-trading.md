@@ -104,7 +104,7 @@ The feature graph avoids repeating identical indicator calculations for every us
 ## From a tick to a completed trade
 
 1. The market-data service validates a provider observation and writes it to the symbol's local shared-memory ring with sequence/generation information.
-2. `Worker.read_market()` reads bounded batches. Shared market features are updated; completed candles become available only at their valid close boundary.
+2. `Worker.read_market()` reads bounded batches. Shared market features are updated; completed candles become available only at their valid close boundary. Clock-generated decisions use that exact boundary, not the slightly later worker polling time. FYERS quotes use the exchange-feed timestamp; simulated fills still need a subsequent eligible observation.
 3. `Worker.actor_turn()` gives each ready actor a bounded turn. Evaluation units use the observations assigned to them; account owners match eligible simulated orders.
 4. `EvaluationUnit.evaluate()` checks the program against completed features, current LTP and acknowledged position state.
 5. A signal creates a typed intent containing unit/account/version, observation and position revision. It is sent to the account owner, not directly to a broker or database.
@@ -162,6 +162,8 @@ The selected version must belong to the strategy and cannot duplicate another Pa
 `StrategyDeploymentService.change_version()` updates the deployed version and enqueues refreshes. The controller prepares the new configuration and installs it after the relevant control transition. Positions are preserved; changing version is not closing/reopening a trade.
 
 No manual process restart is required for an accepted capital/version change. Application is asynchronous: check command errors and session `applied_version`/`applied_at` rather than assuming the HTTP response means every worker already switched. There is no promised fixed three-second refresh contract.
+
+A version/configuration refresh preserves a pending stop-and-close request. Resume clears that prior request. Stopped sessions release their rule evaluators. Rejected asynchronous user changes are reported through the existing notification system.
 
 ## Charges and financial presentation
 

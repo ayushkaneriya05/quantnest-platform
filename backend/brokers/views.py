@@ -97,7 +97,10 @@ class BrokerCredentialViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["post"])
     def disconnect(self, request, pk=None):
-        credential = BrokerService.disconnect_credential(self.get_object())
+        try:
+            credential = BrokerService.disconnect_credential(self.get_object())
+        except ValueError as exc:
+            return broker_error_response(exc)
         return Response(self.get_serializer(credential).data)
 
     @action(detail=True, methods=["get"])

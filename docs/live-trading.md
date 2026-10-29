@@ -157,7 +157,7 @@ On recovery, pre-existing ambiguous orders are reconciled. They are not treated 
 
 ### Broker timestamps
 
-The FYERS adapter parses documented `orderDateTime` using `%d-%b-%Y %H:%M:%S` in the broker timezone and normalizes event timestamps. Reconciliation passes normalized order/execution times onward rather than assuming the reconciliation request time was the actual fill time.
+The FYERS adapter parses documented `orderDateTime` using `%d-%b-%Y %H:%M:%S` in the broker timezone and normalizes event timestamps. Broker order time and the available broker update time are preserved separately. A newly discovered REST fill without an execution-event timestamp uses local observation time; its exact exchange fill time is unavailable from that snapshot. Whole-second broker clocks are compared with order eligibility at the same precision.
 
 The data available in an order snapshot can be coarser than exchange transaction-level history. Preserve the distinction between broker order time, available execution event time and local observation time; do not claim unavailable trade-level timestamps.
 
@@ -172,6 +172,7 @@ The data available in an order snapshot can be coarser than exchange transaction
 | Sync | Reconcile owned orders; does not copy broker aggregate positions |
 | Change version | Validate and refresh the existing allocation/session |
 | Change allocation | Recheck broker equity and committed capital, then queue owner application |
+| Disconnect/change broker credentials | Reject while sessions run/stop, exposure or unresolved orders exist, or account commands await application; disconnect only after those are settled |
 
 STOPPING is a transition, not a guarantee all broker orders are cancelled or positions flat. Closing orders can be rejected or partially filled. Continue inspecting unresolved records and broker state.
 

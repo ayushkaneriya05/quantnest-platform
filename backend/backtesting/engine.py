@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+from django.db import transaction
 from django.utils import timezone
 
 from common.enums import BacktestStatus
@@ -105,11 +106,13 @@ class BacktestEngine:
             self.run.save(update_fields=['completed_at'])
         except Exception as exc:
             logger.exception('Backtest failed: %s', exc)
-            self.run.status = BacktestStatus.FAILED
-            self.run.error_message = str(exc)
-            self.run.progress_message = f'Backtest failed: {exc}'[:255]
-            self.run.completed_at = timezone.now()
-            self.run.save(update_fields=['status', 'error_message', 'progress_message', 'completed_at', 'updated_at'])
+            # Cancellation remains authoritative even if an in-flight history
+            # request fails before the next cancellation check.
+            BacktestRun.objects.filter(pk=self.run.pk, status=BacktestStatus.RUNNING).update(
+                status=BacktestStatus.FAILED, error_message=str(exc),
+                progress_message=f'Backtest failed: {exc}'[:255], completed_at=timezone.now())
+            BacktestRun.objects.filter(pk=self.run.pk, status=BacktestStatus.CANCELLED).update(completed_at=timezone.now())
+            self.run.refresh_from_db()
             publish_backtest_update(self.run)
 
     def _save_replay_results(self):
@@ -153,22 +156,21 @@ class BacktestEngine:
 
     def _finalize_run(self):
         self._broadcast_progress_update(95, "Saving completed trades...")
-        self._save_replay_results()
-        self._broadcast_progress_update(98, "Calculating performance metrics...")
-        self._calculate_metrics()
-
-        self.run.refresh_from_db(fields=["status"])
-        if self.run.status == BacktestStatus.CANCELLED:
-            return
-
-        self.run.status = BacktestStatus.COMPLETED
-        self.run.completed_at = timezone.now()
-        self.run.progress_pct = 100
-        self.run.progress_message = "Backtest completed successfully."
-        self.run.diagnostics = dict(self.replay.diagnostics)
-        self.run.save(update_fields=["status", "completed_at", "progress_pct", "progress_message", "diagnostics", "updated_at"])
-
-        publish_backtest_update(self.run, trades_count=len(self.trades_to_create))
+        # Publish results and completion together. Cancel/delete cannot interleave
+        # with partially saved trades or overwrite the final outcome.
+        with transaction.atomic():
+            locked = BacktestRun.objects.select_for_update().get(pk=self.run.pk)
+            if locked.status == BacktestStatus.CANCELLED:
+                raise BacktestCancelled()
+            self._save_replay_results()
+            self._calculate_metrics()
+            self.run.status = BacktestStatus.COMPLETED
+            self.run.completed_at = timezone.now()
+            self.run.progress_pct = 100
+            self.run.progress_message = "Backtest completed successfully."
+            self.run.diagnostics = dict(self.replay.diagnostics)
+            self.run.save(update_fields=["status", "completed_at", "progress_pct", "progress_message", "diagnostics", "updated_at"])
+            publish_backtest_update(self.run, trades_count=len(self.trades_to_create))
 
     def _calculate_metrics(self):
         metrics, _ = BacktestMetrics.objects.get_or_create(run=self.run)

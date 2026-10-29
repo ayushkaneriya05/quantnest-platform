@@ -87,7 +87,7 @@ def evaluate_conditions(program: Program, frames: dict, *, as_of) -> list[dict]:
                 base_candle = candle
         if base_candle is None or at < observed[-2] or not graph.ready(program, at):
             continue
-        tick = Tick("", 0, at, at.timestamp(), base_candle.close)
+        tick = Tick("", 0, at, base_candle.close)
         operands = []
         for rule in program.groups[0].rules:
             left, right, hit, _ = unit.evaluate_rule(rule, graph, tick)

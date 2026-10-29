@@ -13,9 +13,7 @@ from common.enums import ExecutionMode, InstrumentType, OrderIntent, OrderStatus
 from execution.order_reports import ACTIVE as ACTIVE_STATUSES
 
 ZERO = Decimal('0')
-ONE = Decimal('1')
 MONEY = Decimal('0.01')
-PRICE = Decimal('0.00000001')
 UnitKey = tuple[str, int, int]  # mode, session, instrument
 AccountKey = tuple[str, int]  # mode, paper/terminal account or broker credential
 
@@ -82,7 +80,6 @@ class Tick:
     symbol: str
     sequence: int
     event_time: datetime
-    received_at: float
     price: float
     volume: float = 0.0
     generation: int = 0
@@ -141,7 +138,6 @@ class Intent:
     take_profit: Decimal | None = None
     manual: bool = False
     generation: int = 0
-    observed_at: datetime | None = None
 
 
 @dataclass(slots=True)

@@ -74,6 +74,7 @@ class PrepareMarket:
 class UnitFailure:
     unit: UnitKey
     error: str
+    version: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +86,6 @@ class SessionSettled:
 @dataclass(frozen=True, slots=True)
 class EvaluationSaved:
     unit: UnitKey
-    account: AccountKey
     version: int
     position_revision: int
     state: dict

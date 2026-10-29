@@ -84,7 +84,7 @@ class Replay:
     def _observe(self, instrument: int, at: datetime, price: float) -> None:
         self.sequence += 1
         market, unit = self.markets[instrument], self.units[instrument]
-        tick = Tick(market.contract.symbol, self.sequence, at, at.timestamp(), price)
+        tick = Tick(market.contract.symbol, self.sequence, at, price)
         self.last[instrument] = tick
         fills, _, more = self.books[instrument].match(tick)
         while more:

@@ -166,7 +166,7 @@ export function useWebSocket() {
             notify.error(data.message, { title: "Market data request failed" });
           } else if (data.type === "tick") {
             handleTickData(data);
-          } else if (["ORDER_UPDATE", "POSITION_UPDATE"].includes(data.event_type)) {
+          } else if (["ORDER_UPDATE", "POSITION_UPDATE", "ACCOUNT_UPDATE"].includes(data.event_type)) {
             terminalCallbacks.forEach((callback) => callback(data));
             dispatch(setManualTradingTerminalUpdate(data));
           } else if (data.type === 'chart.candle') {

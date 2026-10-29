@@ -67,7 +67,7 @@ export default function AccountSummary({ account, positions, onSaved }) {
             <Input id="terminal-futures-margin" type="number" min="1" max="100" step=".01" value={futures} onChange={(event) => setFutures(event.target.value)} required /></div>
           <div className="space-y-2"><Label htmlFor="terminal-option-margin">Short-option collateral (%)</Label>
             <Input id="terminal-option-margin" type="number" min="1" max="100" step=".01" value={options} onChange={(event) => setOptions(event.target.value)} required /></div></div>
-          <p className="text-xs leading-relaxed text-muted-foreground">New orders use the selected fee profile. Margin changes recalculate positions and pending reservations. These percentages are simulation estimates.</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">New orders use the selected fee profile. Finish working orders before changing margin settings; existing position collateral is then recalculated. These percentages are simulation estimates.</p>
           <div className="flex justify-end border-t pt-3"><Button type="submit" size="sm" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</Button></div>
         </form></CardContent></Card>
       <Card><CardHeader className="space-y-1 border-b p-4"><CardTitle className="text-sm">Account details</CardTitle><CardDescription className="text-xs">Separate from your automated Paper deployments.</CardDescription></CardHeader>

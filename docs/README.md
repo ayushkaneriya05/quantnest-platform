@@ -25,11 +25,17 @@ For real order submission/recovery, use
 For data delivery to the UI, use
 [Terminal chart flow](trading-terminal.md#chart-history-and-live-candles).
 
+For the dated audit results, corrected defects and remaining verification limits,
+see [Execution verification — 26 October 2026](reviews/execution-2026-10-26.md).
+For the observed candle-close delay and its timestamp fixes, see
+[Paper candle latency — 29 October 2026](reviews/paper-candle-latency-2026-10-29.md).
+
 ## Other guides
 
 | Your task | Guide | Responsibility |
 | --- | --- | --- |
 | Understand product direction | [Business plan](business-plan.md) | Customers, positioning, subscriptions and priorities |
+| Plan useful quantitative capabilities and career development | [Quantitative research roadmap](quantitative-research-roadmap.md) | Data quality, validation, portfolio analytics, ML, derivatives, architecture, learning and quant-role evidence |
 | Review delivery scope | [Implementation plan](implementation-plan.md) | Implementation map and remaining release work |
 | Build/configure a strategy | [Strategy configuration](strategy-configuration.md) | Current rule schema, sizing, versions, restore and sharing |
 | Design the future builder | [Strategy builder plan](strategy-builder-plan.md) | Deferred expression/setup/sequence design and extension contracts |

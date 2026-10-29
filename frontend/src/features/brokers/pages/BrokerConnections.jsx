@@ -335,9 +335,9 @@ export default function BrokerConnections() {
                         className="text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 ml-auto px-3"
                         onClick={async () => {
                           const confirmed = await customConfirm(
-                            `Are you sure you want to disconnect ${provider.display_name}? This will instantly stop any live running strategies that are currently using this broker.`,
+                            `Disconnect ${provider.display_name}? Stop its live sessions, close positions and finish pending orders first.`,
                             "Disconnect Broker?",
-                            "Disconnect & Stop Strategies"
+                            "Disconnect"
                           );
                           if (confirmed) {
                             disconnectBroker(provider);

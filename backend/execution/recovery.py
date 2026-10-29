@@ -9,7 +9,7 @@ from datetime import timedelta
 from uuid import NAMESPACE_URL, uuid5
 
 from common.costs import snapshot_charge_profile
-from common.enums import ExecutionMode, InstrumentType, OrderIntent, OrderType, Side, TerminalOrderType
+from common.enums import ExecutionMode, ExecutionSessionStatus, InstrumentType, OrderIntent, OrderType, Side, TerminalOrderType
 from instruments.services import InstrumentResolver
 
 from .ledger import ACTIVE_STATUSES, margin
@@ -191,10 +191,11 @@ def load_configuration(key, *, instrument_ids=()):
             instrument_id, side, rule = InstrumentResolver.resolve(watch,
                 snapshot['entry_order_config']['entry_side'], snapshot['position_sizing_rule'])
             unit = key[0], session.pk, instrument_id
-            ids.add(instrument_id)
             config = deepcopy(snapshot)
             config['entry_order_config']['entry_side'] = side
-            definitions[unit] = session.allocation.deployed_version_id, config
+            if session.status != ExecutionSessionStatus.STOPPED:
+                ids.add(instrument_id)
+                definitions[unit] = session.allocation.deployed_version_id, config
             sizing[unit] = rule
         paper = key[0] == ExecutionMode.PAPER
         sessions[session.pk] = dict(version=session.allocation.deployed_version_id,
@@ -202,7 +203,8 @@ def load_configuration(key, *, instrument_ids=()):
             profile=session.charge_profile_snapshot if paper and session.include_charges else {},
             slippage=session.slippage_pct if paper else ZERO,
             capital=None if paper else session.allocation.allocated_capital,
-            close_on_stop=state.close_on_stop.get(session.pk, False) if state else False)
+            close_on_stop=bool(state and session.status == ExecutionSessionStatus.STOPPING
+                              and state.close_on_stop.get(session.pk, False)))
     contracts, calendars, programs = {}, {}, {}
     today = timezone.localdate()
     for instrument in Instrument.objects.filter(pk__in=ids):

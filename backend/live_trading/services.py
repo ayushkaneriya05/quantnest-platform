@@ -74,7 +74,7 @@ class LiveExecutionService:
             raise ValueError("Select your own active user account, strategy and broker account.")
         if version.strategy_id != strategy.pk:
             raise ValueError("Select a saved version of this strategy.")
-        BrokerCredential.objects.select_for_update().get(pk=broker_credential.pk)
+        broker_credential = BrokerCredential.objects.select_for_update().get(pk=broker_credential.pk)
         strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
         if strategy.status != "ACTIVE" or not strategy.live_trading_enabled:
             raise ValueError("Activate this strategy and enable Live trading before deployment.")
@@ -139,13 +139,14 @@ class LiveExecutionService:
         from execution.lifecycle import require_execution_scope
         from common.enums import ExecutionScope
         require_execution_scope(ExecutionScope.LIVE)
-        BrokerService.ensure_session(session.broker_credential)
-        LiveExecutionService.sync_funds(session.broker_credential)
-        BrokerCredential.objects.select_for_update().get(pk=session.broker_credential_id)
+        # Serialize resume with disconnect/reconfiguration before checking tokens.
+        credential = BrokerCredential.objects.select_for_update().get(pk=session.broker_credential_id)
         LiveStrategyAllocation.objects.select_for_update().get(pk=session.allocation_id)
         session = TradingSession.objects.select_for_update().get(pk=session.pk)
         if session.status not in {'PAUSED', 'STOPPED', 'ERROR'}:
             raise ValueError('Only paused, stopped or failed sessions can be resumed.')
+        BrokerService.ensure_session(credential)
+        LiveExecutionService.sync_funds(credential)
         from strategies.services import StrategyDeploymentService
         StrategyDeploymentService.validate_snapshot(session.allocation.deployed_version.config_snapshot, 'live')
         if session.strategy.status != 'ACTIVE' or not session.strategy.live_trading_enabled:

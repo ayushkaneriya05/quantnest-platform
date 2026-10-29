@@ -24,6 +24,11 @@ export default function useTradingTerminal() {
   const applyEvent = useCallback((current, update) => {
     if (!current || !openStatus) return current;
     const row = update.data;
+    if (update.event_type === 'ACCOUNT_UPDATE') {
+      const account = { ...current.account, ...row };
+      account.available_balance = String(Math.max(Number(account.balance) - Number(account.margin) - Number(account.reserved_cash || 0), 0));
+      return { ...current, account };
+    }
     if (update.event_type === 'ORDER_UPDATE') {
       const working = current.open_orders.filter((order) => order.id !== row.id);
       if (row.status === openStatus) working.unshift(row);

@@ -204,6 +204,5 @@ class EvaluationUnit:
             self.pending = identity
             return Intent(identity, self.account, self.key, self.program.version, position.revision,
                 tick.sequence, tick.evaluated_at, side, reason, Decimal(str(tick.price)),
-                intent=OrderIntent.EXIT if exiting else OrderIntent.ENTRY, generation=tick.generation,
-                observed_at=tick.event_time)
+                intent=OrderIntent.EXIT if exiting else OrderIntent.ENTRY, generation=tick.generation)
         return None

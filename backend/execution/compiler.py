@@ -275,6 +275,10 @@ def compile_strategy(config: dict, version: int, *, calendar) -> Program:
         tuple((time.fromisoformat(item['start']), time.fromisoformat(item['end'])) for item in timing.get('no_trade_windows') or []))
 
 
+class CandleHistoryConflict(ValueError):
+    """Published features need rebuilding because a completed bucket changed."""
+
+
 class FeatureGraph:
     """Shared symbol/calendar features; registering a strategy is preparation work."""
     def __init__(self, calendar, *, capacity: int):
@@ -304,7 +308,7 @@ class FeatureGraph:
 
     def append(self, timeframe: str, candle: Candle) -> None:
         if timeframe in self.completed and candle.closed_at <= self.completed[timeframe]:
-            raise ValueError('Repeated or out-of-order candle; prepare a new graph after a history correction.')
+            raise CandleHistoryConflict('Repeated or out-of-order candle; prepare a new graph after a history correction.')
         for identity, feature in self.features.items():
             if identity[1] == timeframe:
                 feature.update(candle)

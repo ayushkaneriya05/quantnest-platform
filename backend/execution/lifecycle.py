@@ -14,7 +14,10 @@ def require_execution_scope(scope):
 
 
 @transaction.atomic
-def request_session_refresh(scope, session, *, close_positions=False):
+def request_session_refresh(scope, session, *, close_positions=None):
     account_id = session.account_id if scope == ExecutionMode.PAPER else session.broker_credential_id
-    return enqueue(scope, account_id, ExecutionCommandType.REFRESH,
-        {'session_id': session.pk, 'close_positions': close_positions})
+    payload = {'session_id': session.pk}
+    # A version/capital refresh must not revoke an outstanding stop-and-close.
+    if close_positions is not None:
+        payload['close_positions'] = close_positions
+    return enqueue(scope, account_id, ExecutionCommandType.REFRESH, payload)

@@ -3,7 +3,7 @@ from dataclasses import replace
 from decimal import Decimal
 from uuid import NAMESPACE_URL, uuid5
 
-from common.enums import ExecutionMode, OrderIntent, Side
+from common.enums import ExecutionMode, OrderIntent, OrderStatus, Side
 from execution.order_reports import OrderState, observe_order
 
 from .ledger import (ACTIVE_STATUSES, accept_intent, apply_fill, cancel_order, hold_until_commit,
@@ -16,6 +16,7 @@ class AccountOwner:
     def __init__(self, account: Account):
         self.account = account
         self.books: dict[str, OrderBook] = {}
+        self.exit_rejections = {}
         self.programs, self.calendars, self.contracts = {}, {}, {}
         for order in account.working.values():
             self.index(order)
@@ -37,6 +38,27 @@ class AccountOwner:
         self.index(self.account.orders[intent.identity])
         return result
 
+    def protective_exit(self, intent: Intent, contract: Contract) -> Transition | None:
+        """A failed automatic close is an order rejection, not a worker crash.
+
+        Rejections belong to the position revision, so an expired contract or
+        oversized position produces one visible rejection rather than one per tick.
+        """
+        stamp = intent.position_revision, intent.version, intent.reason
+        if self.exit_rejections.get(intent.unit) == stamp:
+            return None
+        try:
+            return self.accept(intent, contract)
+        except ValueError as exc:
+            self.exit_rejections[intent.unit] = stamp
+            order = Order(intent.identity, intent.unit, contract, intent.side,
+                abs(self.account.positions[intent.unit].quantity), intent.at, intent.reason,
+                intent=OrderIntent.EXIT, reduce_only=True, version=intent.version,
+                manual=intent.manual, status=OrderStatus.REJECTED, error=str(exc),
+                reference_price=intent.reference_price)
+            self.account.orders[order.identity] = order
+            return order_transition(self.account, order)
+
     def observe(self, tick: Tick) -> tuple[list[Transition], bool]:
         """Matching consumes observed ticks; broker accounts consume reports instead."""
         results = []
@@ -57,7 +79,9 @@ class AccountOwner:
             intent = Intent(identity, self.account.key, key, self.account.versions[key[1]], position.revision,
                 tick.sequence, tick.event_time, Side.SELL if position.quantity > 0 else Side.BUY,
                 'SESSION_STOP', Decimal(str(tick.price)), intent=OrderIntent.EXIT, generation=tick.generation)
-            results.append(self.accept(intent, position.contract))
+            result = self.protective_exit(intent, position.contract)
+            if result is not None:
+                results.append(result)
         if self.account.live:
             return results, False
         # Terminal protection uses the same owner and simulator as manual orders.
@@ -84,7 +108,9 @@ class AccountOwner:
                     tick.sequence, tick.event_time, Side.SELL if long else Side.BUY,
                     'STOP_LOSS' if stop else 'TARGET', price, intent=OrderIntent.EXIT,
                     quantity=abs(position.quantity), manual=True, generation=tick.generation)
-                results.append(self.accept(intent, position.contract))
+                result = self.protective_exit(intent, position.contract)
+                if result is not None:
+                    results.append(result)
         book = self.books.get(tick.symbol)
         if book is None:
             return results, False
@@ -98,6 +124,7 @@ class AccountOwner:
                 results.append(cancel_order(self.account, order.identity, reason='Entry window closed.'))
                 continue
             try:
+                order.contract.validate(fill.quantity, (), tick.event_time.astimezone(self.calendars[tick.symbol].zone))
                 results.append(apply_fill(self.account, fill))
             except ValueError as exc:
                 results.append(reject_order(self.account, order.identity, str(exc)))
@@ -115,6 +142,11 @@ class AccountOwner:
         change = observe_order(previous, status=status, filled=quantity, average=average)
         if change.error:
             raise ValueError(change.error)
+        # Validate/apply the fill before accepting report metadata. A rejected
+        # observation must leave the owned order untouched for reconciliation.
+        result = None
+        if change.fill_quantity:
+            result = apply_fill(self.account, Fill(identity, change.fill_quantity, change.fill_price, at))
         order.broker_id = broker_id or order.broker_id
         if ordered_at is not None:
             order.broker_ordered_at = ordered_at
@@ -122,9 +154,6 @@ class AccountOwner:
             order.broker_updated_at = updated_at
         order.exchange_order_id = exchange_order_id or order.exchange_order_id
         order.error = error
-        result = None
-        if change.fill_quantity:
-            result = apply_fill(self.account, Fill(identity, change.fill_quantity, change.fill_price, at))
         order.status = change.state.status
         self.account.index_order(order)
         if order.status not in ACTIVE_STATUSES:

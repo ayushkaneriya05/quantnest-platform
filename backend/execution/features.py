@@ -72,7 +72,7 @@ class Feature:
         p = parameters
         self.period = int(p.get('period', p.get('k_period', 14)))
         self.history = deque(maxlen=capacity)
-        self.bars = deque(maxlen=max(self.period + 1, int(p.get('senkou', 52)), int(p.get('kijun', 26)) + 1, 64))
+        self.bars = deque(maxlen=max(self.period + 1, int(p.get('tenkan', 9)), int(p.get('senkou', 52)), int(p.get('kijun', 26)) + 1, 64))
         self.windows, self.averages = {}, {}
         self.previous, self.value = None, nan
         self.group = None
@@ -81,6 +81,7 @@ class Feature:
         self.previous_week_high, self.previous_week_low = nan, nan
         self.direction, self.lower, self.upper = 1, nan, nan
         self.acceleration, self.extreme = float(p.get('af', 0.02)), nan
+        self.next_sar = nan
         self.delayed = deque(maxlen=int(p.get('kijun', 26)) + 1)
         self.pattern = None
         self.alma_weights = ()
@@ -174,8 +175,11 @@ class Feature:
             return (previous.high + previous.low + previous.close) / 3 if previous else nan
         if kind == OperandType.CANDLE_PATTERN:
             if p['pattern'] == CandlePatternType.DOJI:
-                average = self.window('doji_range', bar.high - bar.low, 10).mean()
-                return float(abs(bar.close - bar.open) < average * 0.1)
+                # Compare against ten preceding ranges, excluding this candle.
+                ranges = self.windows.setdefault('doji_range', Window(10))
+                average = ranges.mean()
+                ranges.update(bar.high - bar.low)
+                return float(abs(bar.close - bar.open) <= average * 0.1)
             import numpy as np
             columns = [np.fromiter((getattr(b, name) for b in self.bars), dtype=float)
                        for name in ('open', 'high', 'low', 'close')]
@@ -254,20 +258,30 @@ class Feature:
         if kind == OperandType.PARABOLIC_SAR:
             if previous is None:
                 return nan
+            step, maximum = min(float(p['af']), float(p['max_af'])), float(p['max_af'])
             if not isfinite(self.extreme):
                 self.direction = -1 if previous.low - bar.low > max(bar.high - previous.high, 0) else 1
-                self.extreme = previous.low if self.direction < 0 else previous.high
-                self.value = previous.close
-            level = self.value + self.acceleration * (self.extreme - self.value)
-            reverse = bar.high > level if self.direction < 0 else bar.low < level
-            extreme = min(self.extreme, bar.low) if self.direction < 0 else max(self.extreme, bar.high)
-            if extreme != self.extreme:
-                self.extreme = extreme
-                self.acceleration = min(self.acceleration + float(p['af']), float(p['max_af']))
-            level = max(previous.high, level) if self.direction < 0 else min(previous.low, level)
-            if reverse:
-                level, self.direction, self.acceleration = self.extreme, -self.direction, float(p['af'])
                 self.extreme = bar.low if self.direction < 0 else bar.high
+                self.next_sar = previous.high if self.direction < 0 else previous.low
+                self.acceleration = step
+                previous = bar
+            # Publish the level projected by the preceding bar. The current
+            # extreme adjusts the NEXT level, never this bar's reversal test.
+            level = self.next_sar
+            reverse = bar.high >= level if self.direction < 0 else bar.low <= level
+            if reverse:
+                level = (min(self.extreme, previous.low, bar.low) if self.direction < 0
+                         else max(self.extreme, previous.high, bar.high))
+                self.direction, self.acceleration = -self.direction, step
+                self.extreme = bar.low if self.direction < 0 else bar.high
+            else:
+                extreme = min(self.extreme, bar.low) if self.direction < 0 else max(self.extreme, bar.high)
+                if extreme != self.extreme:
+                    self.extreme = extreme
+                    self.acceleration = min(self.acceleration + step, maximum)
+            projected = level + self.acceleration * (self.extreme - level)
+            self.next_sar = (max(projected, previous.high, bar.high) if self.direction < 0
+                             else min(projected, previous.low, bar.low))
             return level
 
         high = self.window('high', bar.high, n)
@@ -276,9 +290,9 @@ class Feature:
         if kind == OperandType.DONCHIAN_CHANNEL:
             return {'UPPER': highest, 'MIDDLE': (highest + lowest) / 2, 'LOWER': lowest}[p['output_line']]
         if kind == OperandType.WILLIAMS_R:
-            return -100 * (highest - bar.close) / (highest - lowest) if highest > lowest else nan
+            return -100 * (highest - bar.close) / (highest - lowest) if highest > lowest else (0.0 if highest == lowest else nan)
         if kind == OperandType.STOCHASTIC:
-            raw = 100 * (bar.close - lowest) / (highest - lowest) if highest > lowest else nan
+            raw = 100 * (bar.close - lowest) / (highest - lowest) if highest > lowest else (0.0 if highest == lowest else nan)
             k = self.window('smooth_k', raw, int(p['smooth'])).mean()
             d = self.window('smooth_d', k, int(p['d_period'])).mean()
             return d if p['output_line'] == 'D' else k
@@ -287,13 +301,13 @@ class Feature:
             prices = self.window('typical', typical, n)
             mean = prices.mean()
             deviation = sum(abs(v - mean) for v in prices.values) / n if prices.ready() else nan
-            return (typical - mean) / (0.015 * deviation) if deviation > 0 else nan
+            return (typical - mean) / (0.015 * deviation) if deviation > 0 else (0.0 if deviation == 0 else nan)
         if kind == OperandType.MFI:
             prior = (previous.high + previous.low + previous.close) / 3 if previous else typical
             positive = self.window('positive_flow', typical * bar.volume if typical > prior else 0.0, n)
             negative = self.window('negative_flow', typical * bar.volume if typical < prior else 0.0, n)
             total = positive.mean() + negative.mean()
-            return 100 * positive.mean() / total if total > 0 else nan
+            return 100 * positive.mean() / total if total > 0 else (0.0 if total == 0 else nan)
         true_range = max(bar.high - bar.low, abs(bar.high - previous.close), abs(bar.low - previous.close)) if previous else nan
         atr = self.average('atr', true_range, n, wilder=True)
         if kind == OperandType.ATR:
@@ -319,8 +333,10 @@ class Feature:
             up, down = (bar.high - previous.high, previous.low - bar.low) if previous else (nan, nan)
             plus = self.average('plus', up if up > max(down, 0) else 0.0, n, wilder=True)
             minus = self.average('minus', down if down > max(up, 0) else 0.0, n, wilder=True)
-            plus_di, minus_di = (100 * plus / atr, 100 * minus / atr) if atr > 0 else (nan, nan)
-            dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di) if plus_di + minus_di > 0 else nan
+            plus_di, minus_di = ((100 * plus / atr, 100 * minus / atr) if atr > 0 else
+                                 (0.0, 0.0) if atr == 0 else (nan, nan))
+            total = plus_di + minus_di
+            dx = 100 * abs(plus_di - minus_di) / total if total > 0 else (0.0 if total == 0 else nan)
             adx = self.average('adx', dx, n, wilder=True)
             return {'ADX': adx, 'PLUS_DI': plus_di, 'MINUS_DI': minus_di}[p['output_line']]
         raise ValueError(f'No numerical implementation for {kind}.')

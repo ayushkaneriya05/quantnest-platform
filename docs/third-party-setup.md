@@ -297,7 +297,7 @@ unused holdings, trade-book, position-book, smart-order and GTT APIs are not add
 | Broker clocks | `orderDateTime`: IST `DD-MMM-YYYY hh:mm:ss`; raw `update_time_epoch_oms` retained by the SDK mapper as `brokerUpdateTime` | [Socket mapping](https://fyers.in/api-docs/v3/api/websockets/general-socket/overview/general-socket-subscribe/) |
 | Quote snapshot | Check top-level `s`, then each `d` entry's `s`/`n`; read `v.lp`, OHLC, changes, volume and epoch `tt` | [Quotes](https://fyers.in/api-docs/v3/api/market-data/quotes/) |
 | History | Explicit timeframe mapping; `date_format="0"`, epoch-string bounds, `cont_flag="1"`; six-value candle arrays | [History](https://fyers.in/api-docs/v3/api/market-data/historical-data/) |
-| Streaming symbols | Dictionary `type="sf"`, `ltp`, day OHLC, `vol_traded_today`, `last_traded_time`, quantity and average price | [Symbol update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-symbol-update/) |
+| Streaming symbols | Dictionary `type="sf"`, `ltp`, day OHLC, `vol_traded_today`, `last_traded_time`, `exch_feed_time`, quantity and average price. QuantNest uses `exch_feed_time` for observation ordering/candles and channel 15 for subscribe/unsubscribe. | [Symbol update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-symbol-update/), [timestamp/channel diagnosis](reviews/paper-candle-latency-2026-10-29.md) |
 | Streaming indices | Dictionary `type="if"`; price/day fields, without trade time or volume. Local receipt time timestamps the observation; volume delta is zero | [Index update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-indices-update/) |
 | Market status | NSE equity matches `exchange=10`, `segment=10`, `market_type="NORMAL"`, `status="OPEN"` | [Market status](https://fyers.in/api-docs/v3/api/market-information/market-status/) |
 | Instrument master | Ticker-keyed JSON; documented camel-case identity, contract and trading fields. Expiry uses epoch seconds; `lastUpdate` uses `YYYY-MM-DD` | [Symbol Master JSON](https://fyers.in/api-docs/v3/api/market-information/symbol-master/symbol-master-json/) |
@@ -316,13 +316,14 @@ fields may be absent in an initial acknowledgement and remain zero/empty until t
 broker reports a fill or exchange ID; that does not fabricate a trade.
 
 Placement and cancellation use direct HTTPS requests to the documented synchronous
-endpoint with `Authorization: app_id:access_token`, a JSON body and a ten-second
-timeout. The pinned SDK catches request exceptions and fabricates error responses;
+endpoint with `Authorization: app_id:access_token`, a JSON body, a five-second
+connect timeout and a ten-second read timeout. The pinned SDK catches request exceptions and fabricates error responses;
 using that for mutations would lose the distinction between broker rejection and
 an unknown transport outcome. Network, malformed-response and server failures now
 propagate to the existing recovery path. Explicit broker JSON errors remain broker
-errors; response code `201` remains unacknowledged. Other REST operations and both
-socket transports use the pinned SDK.
+errors; response code `201` remains unacknowledged. Trading profile/funds/order-book
+reads use the same bounded HTTP transport. Market history and quotes use their
+data adapter's bounded requests. OAuth exchange and both socket transports retain the pinned SDK.
 
 This calls the same FYERS API as SDK `place_order`/`cancel_order`; the direct path
 preserves request exceptions and applies a finite timeout. It is not a measured

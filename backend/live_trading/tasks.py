@@ -34,7 +34,7 @@ def reconcile_all_active_accounts(credential_id=None):
     # per session. Keep this REST work in the background reconciliation task.
     from live_trading.services import LiveExecutionService
 
-    credentials = BrokerCredential.objects.filter(pk__in=active_sessions.values("broker_credential_id"))
+    credentials = BrokerCredential.objects.filter(is_active=True, pk__in=active_sessions.values("broker_credential_id"))
     for credential in credentials:
         try:
             reconcile_orders(credential)

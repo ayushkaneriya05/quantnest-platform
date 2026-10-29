@@ -213,7 +213,10 @@ def apply_fill(account: Account, fill: Fill) -> Transition:
     before_available = available(account, order.unit[1])
     if fill.quantity <= 0 or fill.quantity > order.remaining or not fill.price.is_finite() or fill.price < ZERO:
         raise ValueError('Invalid incremental fill.')
-    if fill.at < order.eligible_at:
+    # Brokers report whole-second execution clocks. Keep their original time,
+    # but compare at that precision so a fast fill in the submission second is valid.
+    eligible_at = order.eligible_at.replace(microsecond=0) if account.live else order.eligible_at
+    if fill.at < eligible_at:
         raise ValueError('A fill cannot precede order eligibility.')
     previous = account.positions.get(order.unit)
     old_quantity = previous.quantity if previous else 0

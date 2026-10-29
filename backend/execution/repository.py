@@ -42,10 +42,28 @@ def reject_command(command, error):
     if command.mode == ExecutionMode.TERMINAL and command.kind in (ExecutionCommandType.ORDER, ExecutionCommandType.SETTLE):
         from trading.models import Order
         from trading.signals import order_status_changed
-        order = Order.objects.get(request_id=command.request_id)
-        order.status, order.rejection_reason, order.reserved_cash = TerminalOrderStatus.REJECTED, error, ZERO
-        order.save(update_fields=['status', 'rejection_reason', 'reserved_cash'])
-        order_status_changed.send(sender=Order, order=order)
+        order = Order.objects.filter(request_id=command.request_id).first()
+        if order is not None:
+            order.status, order.rejection_reason, order.reserved_cash = TerminalOrderStatus.REJECTED, error, ZERO
+            order.save(update_fields=['status', 'rejection_reason', 'reserved_cash'])
+            order_status_changed.send(sender=Order, order=order)
+    elif command.kind not in (ExecutionCommandType.BROKER, ExecutionCommandType.FUNDS):
+        # Admission is asynchronous: report owner rejection to the user instead
+        # of leaving a successful HTTP response as the only visible outcome.
+        from notifications.services import NotificationService
+        from common.enums import NotificationType
+        from trading.models import Account as TerminalAccount
+        from paper_trading.models import PaperAccount
+        from brokers.models import BrokerCredential
+        model = {ExecutionMode.TERMINAL: TerminalAccount, ExecutionMode.PAPER: PaperAccount,
+                 ExecutionMode.LIVE: BrokerCredential}[command.mode]
+        user_id = model.objects.filter(pk=command.account_id).values_list('user_id', flat=True).first()
+        if user_id is not None:
+            transaction.on_commit(lambda: NotificationService.notify(user_id=user_id,
+                title='Execution change could not be applied', message=error,
+                type=NotificationType.WARNING,
+                data={'module': command.mode, 'command_id': str(command.pk), 'action': command.kind},
+                dedupe_key=f'execution-command:{command.pk}:rejected'), robust=True)
     if command.kind == ExecutionCommandType.BALANCE and command.payload.get('wallet_debited'):
         from paper_trading.models import Portfolio, FundTransaction
         wallet = Portfolio.objects.select_for_update().get(pk=command.payload['portfolio_id'])
@@ -277,12 +295,22 @@ def persist_control(result):
                     p.margin if p.contract.instrument_type == InstrumentType.FUTURE else ZERO
                     for p in state.positions.values()), ZERO)
                 AccountRecord.objects.filter(pk=command.account_id).update(**changes)
+                from common.channels import publish_trading_update
+                from trading.serializers import AccountSerializer
+                account = AccountRecord.objects.get(pk=command.account_id)
+                publish_trading_update(f'user_{account.user_id}', 'ACCOUNT_UPDATE', dict(AccountSerializer(account).data))
         elif command.kind == ExecutionCommandType.PROTECT:
             from trading.models import Position
+            from trading.serializers import PositionSerializer
+            from trading.signals import position_changed
             unit = tuple(command.payload['unit'])
             position = state.positions[unit]
             Position.objects.filter(account_id=command.account_id, instrument_id=unit[2]).update(
                 stop_loss=position.stop_loss, take_profit=position.take_profit)
+            record = Position.objects.select_related('account', 'instrument').get(
+                account_id=command.account_id, instrument_id=unit[2])
+            position_changed.send(sender=Position, user_id=record.account.user_id,
+                                  position_data=PositionSerializer(record).data)
         elif command.kind == ExecutionCommandType.BALANCE and command.mode == ExecutionMode.PAPER:
             from common.enums import TransactionType
             from paper_trading.models import PaperAccount, CapitalAllocation, Portfolio, FundTransaction

@@ -43,6 +43,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def perform_destroy(self, instance):
         from commercial.usage import complete_usage, reject_request
+        instance = BacktestRun.objects.select_for_update().get(pk=instance.pk)
         if instance.status in {"QUEUED", "RUNNING"} or (instance.started_at and not instance.completed_at):
             reject_request("work_still_running", "Cancel this backtest and wait for it to stop before deleting it.")
         complete_usage("backtest", instance.pk, "CANCELLED")
@@ -99,14 +100,15 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         return Response({'success': True, 'message': 'Backtest cloned and started successfully.', 'run': serializer.data})
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def cancel(self, request, pk=None):
         """Cancel a running backtest."""
-        run = self.get_object()
+        run = BacktestRun.objects.select_for_update().get(pk=self.get_object().pk)
         if run.status not in ['PENDING', 'QUEUED', 'RUNNING']:
             return Response({'error': 'Backtest is no longer active'}, status=400)
 
         updated = BacktestRun.objects.filter(pk=run.pk, status__in=[BacktestStatus.PENDING, BacktestStatus.QUEUED, BacktestStatus.RUNNING]).update(
-            status=BacktestStatus.CANCELLED, completed_at=None if run.status == "RUNNING" else timezone.now(), progress_message="Backtest cancelled."
+            status=BacktestStatus.CANCELLED, completed_at=None if run.started_at else timezone.now(), progress_message="Backtest cancelled."
         )
         if not updated:
             return Response({'error': 'Backtest is no longer running.'}, status=status.HTTP_409_CONFLICT)

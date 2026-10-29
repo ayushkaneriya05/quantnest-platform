@@ -172,14 +172,7 @@ class BrokerService:
         changed = changed_app or (bool(api_secret) and credential.api_secret != api_secret)
         if changed:
             if credential.client_id:
-                from execution.order_reports import TERMINAL
-                busy = (
-                    credential.live_sessions.filter(status__in=["RUNNING", "STOPPING"]).exists()
-                    or credential.live_positions.filter(quantity__gt=0).exists()
-                    or credential.live_orders.exclude(status__in=TERMINAL).exists()
-                )
-                if busy:
-                    raise ValueError("Stop live sessions, close positions and reconcile pending orders before changing app credentials.")
+                BrokerService.require_idle_connection(credential)
             credential.sessions.filter(is_valid=True).update(is_valid=False)
             credential.client_id = client_id
             credential.api_secret = api_secret
@@ -219,27 +212,31 @@ class BrokerService:
         return result
 
     @staticmethod
+    def require_idle_connection(credential):
+        """Keep broker access until owned exposure and pending reports are settled."""
+        from common.enums import ExecutionMode, ExecutionSessionStatus
+        from execution.models import Command
+        from execution.order_reports import TERMINAL
+        if (credential.live_sessions.filter(status__in=[ExecutionSessionStatus.RUNNING, ExecutionSessionStatus.STOPPING]).exists()
+                or credential.live_positions.filter(quantity__gt=0).exists()
+                or credential.live_orders.exclude(status__in=TERMINAL).exists()
+                or Command.objects.filter(mode=ExecutionMode.LIVE, account_id=credential.pk, applied_at__isnull=True).exists()):
+            raise ValueError("Stop live sessions, close positions and reconcile pending orders before disconnecting or changing app credentials.")
+
+    @staticmethod
     @transaction.atomic
     def disconnect_credential(credential):
+        credential = BrokerCredential.objects.select_for_update().get(pk=credential.pk)
+        BrokerService.require_idle_connection(credential)
         credential.sessions.filter(is_valid=True).update(is_valid=False)
         credential.is_active = False
         credential.is_verified = False
         credential.last_verified_at = None
         credential.save(update_fields=["is_active", "is_verified", "last_verified_at", "updated_at"])
 
-        # Stop running live strategies associated with this credential
-        try:
-            from live_trading.models import TradingSession
-            from live_trading.services import LiveExecutionService
-            active_sessions = TradingSession.objects.filter(broker_credential=credential, status="RUNNING")
-            for session in active_sessions:
-                LiveExecutionService.stop_session(session, close_positions=False)
-        except Exception as e:
-            logger.exception(f"Failed to stop live sessions for disconnected credential {credential.id}: {e}")
-
         NotificationService.notify(
             user=credential.user,
-            message=f"Broker account '{credential.label or credential.client_id}' disconnected. Dependent live sessions were stopped.",
+            message=f"Broker account '{credential.label or credential.client_id}' disconnected.",
             type=NotificationType.WARNING,
             title=f"Broker disconnected: {credential.broker_name}",
             data={"broker_credential_id": str(credential.id), "broker_name": credential.broker_name, "module": "broker"},
