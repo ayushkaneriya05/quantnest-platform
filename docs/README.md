@@ -29,6 +29,8 @@ For the dated audit results, corrected defects and remaining verification limits
 see [Execution verification — 26 October 2026](reviews/execution-2026-10-26.md).
 For the observed candle-close delay and its timestamp fixes, see
 [Paper candle latency — 29 October 2026](reviews/paper-candle-latency-2026-10-29.md).
+For measured tick-to-signal costs with 15–20 rules, six timeframes and long
+lookbacks, see [Complex rule latency — 29 October 2026](reviews/complex-rule-latency-2026-10-29.md).
 
 ## Other guides
 
