@@ -38,6 +38,8 @@ lookbacks, see [Complex rule latency — 29 October 2026](reviews/complex-rule-l
 | --- | --- | --- |
 | Understand product direction | [Business plan](business-plan.md) | Customers, positioning, subscriptions and priorities |
 | Plan useful quantitative capabilities and career development | [Quantitative research roadmap](quantitative-research-roadmap.md) | Data quality, validation, portfolio analytics, ML, derivatives, architecture, learning and quant-role evidence |
+| Build a separate quantitative research product | [AI research assistant transformation](ai-financial-research-transformation.md) | Audit of the separate repository, product boundaries, datasets, experiments, portfolio/ML methods, architecture and career evidence |
+| Find a local quant or fintech internship/job | [Ahmedabad, Gandhinagar and GIFT City career plan](quant-fintech-career-plan-ahmedabad-2026-10.md) | Dated employer research, verified versus uncertain vacancies, 2027 graduate eligibility, project evidence, interview preparation and a 30-day application plan |
 | Review delivery scope | [Implementation plan](implementation-plan.md) | Implementation map and remaining release work |
 | Build/configure a strategy | [Strategy configuration](strategy-configuration.md) | Current rule schema, sizing, versions, restore and sharing |
 | Design the future builder | [Strategy builder plan](strategy-builder-plan.md) | Deferred expression/setup/sequence design and extension contracts |
