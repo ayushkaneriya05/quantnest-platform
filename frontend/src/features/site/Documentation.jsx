@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Search } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useEnums } from "@/shared/context/EnumsContext";
+import { useStrategySpecification } from "@/shared/context/EnumsContext";
 import WorkspaceState from "@/shared/components/WorkspaceState";
 import { Input } from "@/shared/components/ui/input";
 import PageIntro from "./PageIntro";
@@ -36,7 +36,7 @@ const documents = Object.entries(
   .sort((a, b) => Number(a.order) - Number(b.order));
 
 function BuilderReference() {
-  const { enums: metadata, loading, error, refreshEnums } = useEnums();
+  const { spec, choicesFor, operandOptions, loading, error, refreshEnums } = useStrategySpecification();
   if (loading || error)
     return (
       <WorkspaceState
@@ -57,7 +57,7 @@ function BuilderReference() {
         timeframe on an individual condition when your idea needs one.
       </p>
       <div className="mb-10 flex flex-wrap gap-2">
-        {metadata.CandleTimeframe.map((item) => (
+        {choicesFor(spec.schedule.fields.candle_timeframe).map((item) => (
           <span
             className="rounded-full border px-3 py-2 text-sm"
             key={item.value}
@@ -72,15 +72,15 @@ function BuilderReference() {
         settings in the builder to choose the period or other required values.
       </p>
       <ul className="grid gap-3 sm:grid-cols-2">
-        {metadata.OperandType.map((item) => (
+        {operandOptions.map((item) => (
           <li className="rounded-xl border p-4 text-sm" key={item.value}>
             {item.label}
           </li>
         ))}
       </ul>
       <p className="mt-6 text-sm leading-7 text-muted-foreground">
-        A timeframe or input listed here does not add a new market. Initial
-        strategy execution supports NSE cash stocks.{" "}
+        Available markets and contracts depend on the instrument catalog and
+        the data available for your selected execution mode.{" "}
         <Link className="text-brand underline" to="/docs/builder/">
           Read the strategy-building guide
         </Link>{" "}
@@ -130,7 +130,10 @@ export default function Documentation() {
               Search the guides
             </span>
             <span className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              />
               <Input
                 aria-label="Search documentation"
                 placeholder="Find a topic…"

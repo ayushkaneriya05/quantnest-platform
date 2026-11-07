@@ -86,7 +86,7 @@ class LiveOrderSerializer(serializers.ModelSerializer):
             "broker_label",
             "allocation_id",
             "broker_order_id",
-            "exchange_order_id",
+            "exchange_order_id", "route_id", "leg_id",
             "instrument",
             "instrument_symbol",
             "order_type",
@@ -136,6 +136,7 @@ class LivePositionSerializer(serializers.ModelSerializer):
             "current_price",
             "mark_at",
             "unrealized_pnl",
+            "settled_pnl", "route_id", "leg_id",
             "return_percent",
             "opened_at",
             "last_updated",
@@ -160,7 +161,7 @@ class LiveTradeSerializer(serializers.ModelSerializer):
         fields = [
             "id", "strategy", "strategy_name", "allocation", "broker_credential",
             "broker_name", "broker_label", "instrument", "instrument_symbol",
-            "exit_order", "side", "quantity", "entry_price", "entry_time",
+            "exit_order", "side", "quantity", "entry_price", "entry_time", "route_id", "leg_id",
             "exit_price", "exit_time", "exit_reason", "gross_pnl", "realized_pnl",
             "holding_duration_seconds",
         ]

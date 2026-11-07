@@ -34,7 +34,7 @@ export default function MainHeader({ authPage }) {
         <div className="hidden items-center gap-2 sm:flex">
           {accessToken ? <><Button asChild variant="outline"><Link to="/overview">Open workspace<ArrowUpRight className="h-4 w-4" /></Link></Button><Button variant="ghost" size="icon" onClick={logout} aria-label="Log out"><LogOut className="h-4 w-4" /></Button></> : <>
             {authPage !== "login" && <Button asChild variant="ghost"><Link to="/login">Sign in</Link></Button>}
-            {authPage !== "register" && <Button asChild className="rounded-full bg-[#e5c461] text-black hover:bg-[#f1d889]"><Link to="/register">Start building<ArrowUpRight className="h-4 w-4" /></Link></Button>}
+            {authPage !== "register" && <Button asChild className="rounded-full"><Link to="/register">Start building<ArrowUpRight className="h-4 w-4" /></Link></Button>}
           </>}
         </div>
         <DropdownMenu>

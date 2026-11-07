@@ -68,7 +68,6 @@ INSTALLED_APPS = [
     "common",
     "strategies",
     "instruments",
-    "rules_engine",
     "backtesting",
     "execution",
     "paper_trading",

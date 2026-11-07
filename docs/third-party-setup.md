@@ -9,9 +9,10 @@ deeper provider and broker contract reference.
 
 This guide distinguishes preparing software from activating external accounts. No merchant account, domain ownership, data permission, Live approval or deployed recovery test is inferred from working code. Configure test accounts first. Keep real secrets out of Git, screenshots, tickets and browser build variables.
 
-Use [Commercial operations](commercial-operations.md) for database initialization,
-feature controls, no-code Public plan changes and personal Private setup, operator actions and
-the frontend-to-backend lifecycle of billing, support, account privacy and deployment.
+Use [Commercial operations](commercial-operations.md) for catalogue initialization,
+no-code Public plan changes, allowances and the billing lifecycle. Use
+[Customer Support](customer-support.md) for enquiries, replies, email and account
+records, and [Authentication](authentication.md) for sessions and administrator access.
 Migrations create launch terms; provider identifiers and
 customer contracts must be configured by the operator. Keep permission evidence
 in operating records rather than application approval rows.
@@ -297,7 +298,7 @@ unused holdings, trade-book, position-book, smart-order and GTT APIs are not add
 | Broker clocks | `orderDateTime`: IST `DD-MMM-YYYY hh:mm:ss`; raw `update_time_epoch_oms` retained by the SDK mapper as `brokerUpdateTime` | [Socket mapping](https://fyers.in/api-docs/v3/api/websockets/general-socket/overview/general-socket-subscribe/) |
 | Quote snapshot | Check top-level `s`, then each `d` entry's `s`/`n`; read `v.lp`, OHLC, changes, volume and epoch `tt` | [Quotes](https://fyers.in/api-docs/v3/api/market-data/quotes/) |
 | History | Explicit timeframe mapping; `date_format="0"`, epoch-string bounds, `cont_flag="1"`; six-value candle arrays | [History](https://fyers.in/api-docs/v3/api/market-data/historical-data/) |
-| Streaming symbols | Dictionary `type="sf"`, `ltp`, day OHLC, `vol_traded_today`, `last_traded_time`, `exch_feed_time`, quantity and average price. QuantNest uses `exch_feed_time` for observation ordering/candles and channel 15 for subscribe/unsubscribe. | [Symbol update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-symbol-update/), [timestamp/channel diagnosis](reviews/paper-candle-latency-2026-10-29.md) |
+| Streaming symbols | Dictionary `type="sf"`, `ltp`, day OHLC, `vol_traded_today`, `last_traded_time`, `exch_feed_time`, quantity and average price. QuantNest uses `exch_feed_time` for observation ordering/candles and channel 15 for subscribe/unsubscribe. | [Symbol update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-symbol-update/), [current data/evaluation boundaries](strategy-configuration.md#16-data-preparation-and-low-latency-boundaries) |
 | Streaming indices | Dictionary `type="if"`; price/day fields, without trade time or volume. Local receipt time timestamps the observation; volume delta is zero | [Index update](https://fyers.in/api-docs/v3/api/websockets/data-socket/data-socket-indices-update/) |
 | Market status | NSE equity matches `exchange=10`, `segment=10`, `market_type="NORMAL"`, `status="OPEN"` | [Market status](https://fyers.in/api-docs/v3/api/market-information/market-status/) |
 | Instrument master | Ticker-keyed JSON; documented camel-case identity, contract and trading fields. Expiry uses epoch seconds; `lastUpdate` uses `YYYY-MM-DD` | [Symbol Master JSON](https://fyers.in/api-docs/v3/api/market-information/symbol-master/symbol-master-json/) |

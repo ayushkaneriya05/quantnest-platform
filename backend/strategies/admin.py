@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig
+from .models import Strategy, StrategyVersion, StrategyTag
 
 
 @admin.register(StrategyTag)
@@ -8,19 +8,12 @@ class StrategyTagAdmin(admin.ModelAdmin):
     search_fields = ['name']
 
 
-class EntryOrderConfigInline(admin.StackedInline):
-    model = EntryOrderConfig
-    extra = 0
-
-
 @admin.register(Strategy)
 class StrategyAdmin(admin.ModelAdmin):
     list_display = ['name', 'user', 'strategy_type', 'market_type', 'status', 'visibility', 'created_at']
     list_filter = ['strategy_type', 'market_type', 'status', 'visibility', 'exchange']
     search_fields = ['name', 'user__username', 'description']
     readonly_fields = ['created_at', 'updated_at']
-    inlines = [EntryOrderConfigInline]
-    
     fieldsets = (
         ('Basic Info', {
             'fields': ('user', 'name', 'description', 'tags')
@@ -46,3 +39,12 @@ class StrategyVersionAdmin(admin.ModelAdmin):
     list_display = ['strategy', 'version_number', 'created_by', 'created_at']
     list_filter = ['strategy']
     readonly_fields = ['created_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

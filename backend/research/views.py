@@ -14,12 +14,11 @@ from rest_framework.decorators import (
     permission_classes,
 )
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.pagination import PageNumberPagination
+from common.pagination import StandardPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .actions import confirm_action, propose_action
-from .evaluation import SCREEN_OPERAND_TYPES
 from .models import ACTIVE_RUN_STATUSES, ResearchAction, ResearchRun, ResearchSession
 from .serializers import (
     ResearchActionSerializer,
@@ -29,18 +28,13 @@ from .serializers import (
 )
 from .services import accept_run, update_active_run
 from .tool_registry import execute_tool
-
-
-class ResearchPagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 50
+from .validation import MAX_SCREEN_CONDITIONS, SCREEN_DEFAULTS
 
 
 class ResearchSessionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ResearchSessionSerializer
-    pagination_class = ResearchPagination
+    pagination_class = StandardPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
@@ -86,7 +80,7 @@ class ResearchSessionViewSet(viewsets.ModelViewSet):
 class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ResearchRunSerializer
-    pagination_class = ResearchPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         queryset = ResearchRun.objects.filter(user=self.request.user).prefetch_related("actions")
@@ -95,6 +89,10 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
                 queryset = queryset.filter(session_id=self.request.query_params["session"])
             if self.request.query_params.get("active") == "true":
                 queryset = queryset.filter(status__in=ACTIVE_RUN_STATUSES)
+            if self.request.query_params.get('before'):
+                from rest_framework.fields import IntegerField
+                before = IntegerField(min_value=1).run_validation(self.request.query_params['before'])
+                queryset = queryset.filter(pk__lt=before)
             return queryset.order_by("-created_at", "-id")
         return queryset
 
@@ -128,6 +126,26 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
             raise NotFound("Evidence was not recorded for this turn.")
         return Response(item)
 
+    @action(detail=True, methods=['get'], url_path=r'evidence/(?P<evidence_id>E[0-9]+)/rows')
+    def evidence_rows(self, request, pk=None, evidence_id=None):
+        from .models import ResearchEvidenceRow
+        from rest_framework.fields import ChoiceField
+        run = self.get_object()
+        rows = ResearchEvidenceRow.objects.filter(run=run, evidence_id=evidence_id)
+        query = request.query_params.get('search', '')[:100]
+        if query:
+            rows = rows.filter(symbol__icontains=query)
+        columns = ['symbol', 'close', 'return_20_bars_pct', 'volatility_20_bars_pct', 'ordinal']
+        ordering = ChoiceField(choices=[name for column in columns for name in (column, '-' + column)]).run_validation(request.query_params.get('ordering', 'ordinal'))
+        page = self.paginate_queryset(rows.order_by(ordering, 'ordinal'))
+        return self.get_paginated_response([{**{key: value for key, value in row.payload.items() if key not in {'chart', 'coverage'}}, 'ordinal': row.ordinal} for row in page])
+
+    @action(detail=True, methods=['get'], url_path=r'evidence/(?P<evidence_id>E[0-9]+)/rows/(?P<ordinal>[0-9]+)')
+    def evidence_row(self, request, pk=None, evidence_id=None, ordinal=None):
+        from .models import ResearchEvidenceRow
+        row = get_object_or_404(ResearchEvidenceRow, run=self.get_object(), evidence_id=evidence_id, ordinal=ordinal)
+        return Response(row.payload)
+
     @action(detail=True, methods=["post"], url_path="propose-action")
     def propose(self, request, pk=None):
         action = propose_action(
@@ -139,7 +157,7 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
 class ResearchActionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ResearchActionSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = ResearchPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         return ResearchAction.objects.filter(run__user=self.request.user)
@@ -162,14 +180,14 @@ def research_schema(request):
     allowances = get_account_policy(request.user)["limits"]
     return Response(
         {
-            "screen_operand_types": SCREEN_OPERAND_TYPES,
             "limits": {
+                "screen_conditions": MAX_SCREEN_CONDITIONS,
                 "instruments": allowances.get("research_instruments"),
                 "backtests": allowances.get("backtest_attachments"),
                 "tool_calls": settings.RESEARCH_MAX_TOOL_CALLS,
                 "timeout_seconds": settings.RESEARCH_TIMEOUT_SECONDS,
             },
-            "defaults": {"timeframe": "1D"},
+            "defaults": SCREEN_DEFAULTS,
             "backtest_defaults": {
                 "name": "Research experiment",
                 "start_date": today.replace(month=1, day=1).isoformat(),

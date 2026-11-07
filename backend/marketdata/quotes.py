@@ -80,32 +80,37 @@ def _stored_quote(symbol: str) -> dict:
     }
 
 
-def read_quote(sym_ticker: str) -> QuoteSnapshot:
-    symbol = normalize_symbol(sym_ticker)
+def read_quotes(symbols: list[str], *, include_history: bool = True) -> dict[str, QuoteSnapshot]:
+    """Batch display reads. Portfolios already have persisted marks on a cache miss."""
+    symbols = list(dict.fromkeys(normalize_symbol(symbol) for symbol in symbols))
     source = settings.MARKET_DATA_PROVIDER
-    observed = cache.get(f"marketdata:quote:{source}:{symbol}")
-    provider_quote = cache.get(f"marketdata:rest-quote:{source}:{symbol}")
-    observations = [value for value in (observed, provider_quote) if value]
+    cached = cache.get_many([f'marketdata:{kind}:{source}:{symbol}' for symbol in symbols for kind in ('quote', 'rest-quote')])
+    return {symbol: _read_quote(symbol, [cached.get(f'marketdata:{kind}:{source}:{symbol}') for kind in ('quote', 'rest-quote')], include_history) for symbol in symbols}
+
+
+def read_quote(sym_ticker: str) -> QuoteSnapshot:
+    return read_quotes([sym_ticker])[normalize_symbol(sym_ticker)]
+
+
+def _read_quote(symbol: str, observations: list, include_history: bool) -> QuoteSnapshot:
+    source = settings.MARKET_DATA_PROVIDER
+    observations = [value for value in observations if value]
     if observations:
         # REST's `tt` can identify the quote date rather than an exact trade time.
         # Compare acquisition/receipt time across the two independent transports.
         return max(observations, key=lambda value: datetime.fromisoformat(value['updated_at']))
-    # History is cached by data revision; opening many positions does not repeat
-    # the same database lookups. A later provider correction changes this key.
-    from .history import data_revision
-    key = f"marketdata:last-close:{source}:{symbol}:{data_revision(symbol)}"
-    stored = cache.get(key)
-    if stored is None:
-        stored = _stored_quote(symbol)
-        cache.set(key, stored, 30)
-    if stored:
-        return stored
+    if include_history:
+        # History is cached by revision; a provider correction changes this key.
+        from .history import data_revision
+        key = f"marketdata:last-close:{source}:{symbol}:{data_revision(symbol)}"
+        stored = cache.get(key)
+        if stored is None:
+            stored = _stored_quote(symbol)
+            cache.set(key, stored, 30)
+        if stored:
+            return stored
     return {"symbol": symbol, "price": None, "timestamp": None, "updated_at": None,
             "source": "unavailable", "available": False, "change_percent": None}
-
-
-def refresh_quote(sym_ticker: str) -> QuoteSnapshot:
-    return refresh_quotes([sym_ticker])[normalize_symbol(sym_ticker)]
 
 
 def refresh_quotes(symbols: list[str]) -> dict[str, QuoteSnapshot]:
@@ -124,4 +129,4 @@ def refresh_quotes(symbols: list[str]) -> dict[str, QuoteSnapshot]:
                 cache.set(keys[symbol], snapshot, 60)
                 # Other browsers may have reused the in-flight acquisition marker.
                 MarketDataStreamer.publish(MarketDataStreamer.symbol_group(symbol), {"type": "tick", "data": snapshot})
-    return {symbol: read_quote(symbol) for symbol in symbols}
+    return read_quotes(symbols)

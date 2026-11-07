@@ -1,54 +1,48 @@
-import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import PropTypes from "prop-types";
-/**
- * EnumsContext — fetches all backend enum choices once and caches them.
- *
- * Usage:
- *   const { enums, values, loading } = useEnums();
- *   enums.StrategyType → [{name, value, label}, ...] for dropdowns.
- *   values.StrategyType.INTRADAY → the backend-defined value for comparisons.
- */
-import { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect } from 'react';
 import { enumsApi } from '@/shared/services/enumsApi';
+import { createStrategySpecification } from '@/shared/utils/strategySpecification';
 
-const EnumsContext = createContext({ enums: {}, values: {}, loading: true });
+const EnumsContext = createContext({ enums: {}, values: {}, specification: null, loading: true, error: null });
 
+/** One metadata request and cache for shared choices and the Studio specification. */
 export function EnumsProvider({ children }) {
-  const fetchEnums = useStableCallback(async (retryCount = 0) => {
-    try {
-      setLoading(true);
-      const data = await enumsApi.getAll();
-      setEnums(data);
-      setError(null);
-      setLoading(false);
-    } catch (err) {
-      console.error(`Failed to fetch enums (attempt ${retryCount + 1}):`, err);
-      setError(err);
+  const [metadata, setMetadata] = useState({ enums: {}, values: {}, specification: null, loading: true, error: null });
+  const [revision, setRevision] = useState(0);
+  const refreshEnums = useCallback(() => setRevision((current) => current + 1), []);
 
-      // Retry up to 3 times with exponential backoff
-      if (retryCount < 3) {
-        const timeout = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
-        setTimeout(() => fetchEnums(retryCount + 1), timeout);
-      } else {
-        setLoading(false);
+  useEffect(() => {
+    let active = true;
+    let retryTimer;
+    setMetadata((current) => ({ ...current, loading: true, error: null }));
+
+    async function load(attempt = 0) {
+      try {
+        const enums = await enumsApi.getAll();
+        if (!active) return;
+        if (enums.StrategyStudio?.metadata_version !== 1)
+          throw new Error('The Studio specification is unavailable. Reload after the API update.');
+        // Assemble inside the error boundary so malformed metadata shows a
+        // retry state instead of crashing every page that uses the provider.
+        const specification = createStrategySpecification(enums);
+        const values = Object.fromEntries(Object.entries(enums)
+          .filter(([, choices]) => Array.isArray(choices))
+          .map(([name, choices]) => [name, Object.fromEntries(choices.map((choice) => [choice.name, choice.value]))]));
+        setMetadata({ enums, values, specification, loading: false, error: null });
+      } catch (error) {
+        if (!active) return;
+        if (attempt < 3) retryTimer = setTimeout(() => load(attempt + 1), 2 ** attempt * 1000);
+        else setMetadata((current) => ({ ...current, loading: false, error }));
       }
     }
-  });
 
-  const [enums, setEnums] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const values = useMemo(() => Object.fromEntries(Object.entries(enums)
-    .filter(([, choices]) => Array.isArray(choices))
-    .map(([name, choices]) => [name, Object.fromEntries(choices.map((choice) => [choice.name, choice.value]))])), [enums]);
-  useEffect(() => {
-    fetchEnums();
-  }, [fetchEnums]);
-
-  const refreshEnums = () => fetchEnums(0);
+    load();
+    // Refresh and unmount invalidate older results and pending retries.
+    return () => { active = false; clearTimeout(retryTimer); };
+  }, [revision]);
 
   return (
-    <EnumsContext.Provider value={{ enums, values, loading, error, refreshEnums }}>
+    <EnumsContext.Provider value={{ ...metadata, refreshEnums }}>
       {children}
     </EnumsContext.Provider>
   );
@@ -61,11 +55,17 @@ export function EnumsProvider({ children }) {
  *   values: Record<string, Record<string, string>>,
  *   loading: boolean,
  *   error: Error | null,
- *   refreshEnums: () => Promise<void>
+ *   refreshEnums: () => void
  * }}
  */
 export function useEnums() {
   return useContext(EnumsContext);
+}
+
+// A projection of the same cached response, not another provider or request.
+export function useStrategySpecification() {
+  const context = useEnums();
+  return { ...context, ...context.specification };
 }
 
 export default EnumsContext;

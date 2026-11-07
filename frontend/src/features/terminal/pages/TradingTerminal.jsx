@@ -1,6 +1,8 @@
+import { useQueryState } from "@/shared/hooks/usePagination";
+import RefreshButton from "@/shared/components/RefreshButton";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CandlestickChart, History, Wallet, List, RefreshCw, PanelBottomClose, PanelBottomOpen, GripHorizontal, GripVertical } from 'lucide-react';
+import { CandlestickChart, History, Wallet, List, PanelBottomClose, PanelBottomOpen, GripHorizontal, GripVertical } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/shared/components/ui/tabs';
 import { Dialog, DialogContent, DialogTitle } from '@/shared/components/ui/dialog';
@@ -26,7 +28,8 @@ export default function TradingTerminal() {
   const terminal = useTradingTerminal();
   const { account, positions, openOrders, selectedInstrument, selectedSymbol, refreshSnapshot } = terminal;
   const { values, loading: loadingEnums, error: enumError, refreshEnums } = useEnums();
-  const [view, setView] = useState('workspace'), [side, setSide] = useState('');
+  const [view, setView] = useQueryState('view', 'workspace', { resetPage: false });
+  const [side, setSide] = useState('');
   const [watchlistOpen, setWatchlistOpen] = useState(false), [ticketOpen, setTicketOpen] = useState(false);
   const [bottomOpen, setBottomOpen] = useState(true);
   const [bottomExpanded, setBottomExpanded] = useState(false);
@@ -41,32 +44,32 @@ export default function TradingTerminal() {
     if (!value) return;
     setSide(value); setView('workspace'); setBottomExpanded(false);
     if (window.innerWidth < 1280) setTicketOpen(true);
-  }, []);
+  }, [setView]);
   useEffect(() => {
-    setPageHeader(<div className="flex min-w-0 flex-wrap items-center gap-2">
+    setPageHeader(<div className="flex min-w-0 items-center gap-2">
       <span className="sr-only">Trading Terminal</span>
       <Tabs value={view} onValueChange={setView}>
-        <TabsList className="h-10" aria-label="Trading terminal">
+        <TabsList appearance="plain"  aria-label="Trading terminal">
           {VIEWS.map(({ value, label, icon: Icon }) => <TabsTrigger key={value} value={value}
-            id={'terminal-tab-' + value} aria-controls={'terminal-panel-' + value} className="gap-2 px-2 sm:px-3">
+            id={'terminal-tab-' + value} aria-controls={'terminal-panel-' + value} >
             <Icon className="hidden h-4 w-4 sm:block" />{label}</TabsTrigger>)}
         </TabsList>
       </Tabs>
       <div className="ml-auto flex items-center gap-1">
         <span className="mr-2 hidden items-center gap-1.5 text-xs text-muted-foreground md:flex">
-          <span className={'h-1.5 w-1.5 rounded-full ' + (isConnected ? 'bg-emerald-500' : 'bg-amber-500')} />
+          <span className={'h-1.5 w-1.5 rounded-full ' + (isConnected ? "bg-success" : "bg-warning")} />
           {isConnected ? 'Connected' : 'Reconnecting'}
         </span>
         {view === 'workspace' && <>
-          <Button size="icon" variant="ghost" className="h-8 w-8 lg:hidden" aria-label="Open watchlist" onClick={() => setWatchlistOpen(true)}><List className="h-4 w-4" /></Button>
-          <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Toggle order panel" title={bottomOpen ? 'Hide positions and orders' : 'Show positions and orders'} onClick={() => setBottomOpen((value) => !value)}>
+          <Button size="icon" variant="ghost" className="w-8 lg:hidden" aria-label="Open watchlist" onClick={() => setWatchlistOpen(true)}><List className="h-4 w-4" /></Button>
+          <Button size="icon" variant="ghost" className="w-8" aria-label="Toggle order panel" title={bottomOpen ? 'Hide positions and orders' : 'Show positions and orders'} onClick={() => setBottomOpen((value) => !value)}>
             {bottomOpen ? <PanelBottomClose className="h-4 w-4" /> : <PanelBottomOpen className="h-4 w-4" />}
           </Button>
         </>}
-        <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Refresh terminal" onClick={refreshSnapshot}><RefreshCw className="h-4 w-4" /></Button>
+        {view !== 'history' && <RefreshButton onClick={refreshSnapshot} label="Refresh terminal" loading={terminal.loading} />}
       </div>
     </div>);
-  }, [setPageHeader, view, isConnected, bottomOpen, refreshSnapshot]);
+  }, [setPageHeader, setView, view, isConnected, bottomOpen, refreshSnapshot, terminal.loading]);
   useEffect(() => clearPageHeader, [clearPageHeader]);
   useEffect(() => {
     const handle = (event) => {
@@ -141,7 +144,7 @@ export default function TradingTerminal() {
   const select = (symbol) => { terminal.setSelectedSymbol(symbol); setWatchlistOpen(false); setBottomExpanded(false); setSession(null); setDraft(null); };
   const selectPrice = useCallback((value) => { setDraft(value); if (window.innerWidth < 1280) setTicketOpen(true); }, []);
   if (loadingEnums) return <GlobalLoader text="Loading page…" />;
-  if (enumError) return <div className="space-y-3 p-6"><p className="text-sm text-muted-foreground">Could not load trading choices.</p><Button variant="outline" onClick={refreshEnums}>Retry</Button></div>;
+  if (enumError) return <div className="page-content"><p className="text-sm text-muted-foreground">Could not load trading choices.</p><Button className="justify-self-start" variant="outline" onClick={refreshEnums}>Retry</Button></div>;
 
   const ticket = <OrderTicket instrument={selectedInstrument} account={account} side={side || buy} onSideChange={setSide}
     session={session} draft={draft} onOrderPlaced={() => setTicketOpen(false)} />;
@@ -151,7 +154,7 @@ export default function TradingTerminal() {
       onSymbolSelect={select} onAddToWatchlist={terminal.addToWatchlist} onRemoveFromWatchlist={terminal.removeFromWatchlist} /></div>
   </div>;
   return <div role="tabpanel" id={'terminal-panel-' + view} aria-labelledby={'terminal-tab-' + view}
-    className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2 outline-none sm:p-3" tabIndex={0}>
+    className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2 outline-none sm:px-3 sm:pb-3" tabIndex={0}>
     {view === 'workspace' && <div ref={workspace} className="flex min-h-0 flex-1 flex-col">
       <div className={bottomOpen && bottomExpanded ? 'hidden' : 'flex min-h-0 flex-1 gap-2'}>
         <aside className="hidden min-h-0 min-w-0 shrink-0 lg:block" style={{ width: watchlistWidth, maxWidth: '32%' }}>{!watchlistOpen && watchlist}</aside>

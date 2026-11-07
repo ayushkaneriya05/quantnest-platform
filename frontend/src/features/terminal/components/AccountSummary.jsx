@@ -47,18 +47,18 @@ export default function AccountSummary({ account, positions, onSaved }) {
     ['Account equity', Number(account.balance) + marketValue], ['Available capital', account.available_balance],
     ['Open P&L · gross', totals.totalUnrealizedPnL], ['Realized P&L · net', account.realized_pnl],
   ];
-  return <div className="space-y-4">
+  return <div className="space-y-3">
     <div><h2 className="text-base font-semibold">Simulation account</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">Balances and settings for manual terminal trading.</p></div>
     <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([label,value]) => <div key={label} className="rounded-xl border bg-card px-4 py-3">
-      <dt className="text-xs text-muted-foreground">{label}</dt><dd className={'mt-1.5 break-words text-lg font-semibold tabular-nums ' + (label.includes('P&L') ? Number(value) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400' : '')}>{formatCurrency(value)}</dd></div>)}</dl>
+      <dt className="text-xs text-muted-foreground">{label}</dt><dd className={'mt-1.5 break-words text-lg font-semibold tabular-nums ' + (label.includes('P&L') ? Number(value) >= 0 ? "text-success" : "text-loss" : '')}>{formatCurrency(value)}</dd></div>)}</dl>
     <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border bg-card px-4 py-3 xl:grid-cols-4">
       {[['Cash balance', account.balance], ['Position collateral', account.margin], ['Reserved for orders', account.reserved_cash], ['Recorded charges', account.charges_paid]].map(([label, value]) =>
         <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-sm font-medium tabular-nums">{formatCurrency(value)}</dd></div>)}
     </dl>
-    <div className="grid items-start gap-4 lg:grid-cols-2">
-      <Card><CardHeader className="space-y-1 border-b p-4"><CardTitle className="text-sm">Charges and margin</CardTitle><CardDescription className="text-xs">Configure costs and collateral for simulated orders.</CardDescription></CardHeader>
-        <CardContent className="p-4"><form onSubmit={save} className="space-y-4 [&_label]:text-xs [&_input]:h-9 [&_[role=combobox]]:h-9">
+    <div className="grid items-start gap-3 lg:grid-cols-2">
+      <Card><CardHeader className="space-y-1 border-b p-3"><CardTitle className="text-sm">Charges and margin</CardTitle><CardDescription className="text-xs">Configure costs and collateral for simulated orders.</CardDescription></CardHeader>
+        <CardContent className="p-3"><form onSubmit={save} className="space-y-3 [&_label]:text-xs">
           <div className="space-y-2"><Label htmlFor="terminal-charge-profile">Charge profile</Label>
             <Select value={profile} onValueChange={setProfile}><SelectTrigger id="terminal-charge-profile"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="none">No simulated charges</SelectItem>{profiles.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent></Select>
@@ -70,12 +70,12 @@ export default function AccountSummary({ account, positions, onSaved }) {
           <p className="text-xs leading-relaxed text-muted-foreground">New orders use the selected fee profile. Finish working orders before changing margin settings; existing position collateral is then recalculated. These percentages are simulation estimates.</p>
           <div className="flex justify-end border-t pt-3"><Button type="submit" size="sm" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</Button></div>
         </form></CardContent></Card>
-      <Card><CardHeader className="space-y-1 border-b p-4"><CardTitle className="text-sm">Account details</CardTitle><CardDescription className="text-xs">Separate from your automated Paper deployments.</CardDescription></CardHeader>
-        <CardContent className="p-4"><dl className="divide-y text-xs">
+      <Card><CardHeader className="space-y-1 border-b p-3"><CardTitle className="text-sm">Account details</CardTitle><CardDescription className="text-xs">Separate from your automated Paper deployments.</CardDescription></CardHeader>
+        <CardContent className="p-3"><dl className="divide-y text-xs">
           {[['Created', formatDateTime(account.created_at)], ['Account type', 'Manual simulation'],
             ['Market data', runtime ? runtime.market_data ? 'Running' : 'Stopped' : 'Unavailable'],
             ['Order matching', runtime ? runtime.execution_running ? 'Running' : 'Stopped' : 'Unavailable']]
-            .map(([label,value]) => <div key={label} className="flex justify-between gap-4 py-3 first:pt-0"><dt className="text-muted-foreground">{label}</dt><dd className="text-right font-medium">{value}</dd></div>)}
+            .map(([label,value]) => <div key={label} className="flex justify-between gap-3 py-3 first:pt-0"><dt className="text-muted-foreground">{label}</dt><dd className="text-right font-medium">{value}</dd></div>)}
         </dl></CardContent></Card>
     </div>
   </div>;

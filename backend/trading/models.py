@@ -47,6 +47,7 @@ class Position(models.Model):
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE)
     quantity = models.IntegerField()
     average_price = models.DecimalField(max_digits=20, decimal_places=8)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
     stop_loss = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     take_profit = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

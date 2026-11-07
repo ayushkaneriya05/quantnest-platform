@@ -45,6 +45,8 @@ class HistoryCoverage(models.Model):
     end = models.DateTimeField()
     checked_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField(null=True, blank=True)
+    rejected_times = models.JSONField(default=list, db_default=[], blank=True,
+        help_text='UTC epoch seconds of provider candles excluded for invalid OHLCV')
 
     class Meta:
         indexes = [models.Index(fields=['instrument', 'provider', 'timeframe', 'start'], name='history_coverage_source')]

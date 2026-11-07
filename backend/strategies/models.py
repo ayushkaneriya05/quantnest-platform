@@ -4,10 +4,11 @@ Strategies app - core strategy configuration and metadata.
 from django.db import models
 from django.conf import settings
 from common.models import BaseTimestampModel
+from .definitions import default_definition
+from .specification.configuration import DETAIL_FIELDS
 from common.enums import (
     StrategyType, MarketType, Exchange, InstrumentType,
-    StrategyStatus, StrategyVisibility, OrderType,
-    LogicalOperator, Side
+    StrategyStatus, StrategyVisibility
 )
 
 
@@ -35,26 +36,29 @@ class Strategy(BaseTimestampModel):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
 
+    # One executable document, copied into immutable versions at save time.
+    definition = models.JSONField(default=default_definition, editable=False)
+
     # Strategy classification
     strategy_type = models.CharField(
         max_length=20,
         choices=StrategyType.choices,
-        default=StrategyType.INTRADAY
+        default=DETAIL_FIELDS['strategy_type']['default']
     )
     market_type = models.CharField(
         max_length=20,
         choices=MarketType.choices,
-        default=MarketType.EQUITY
+        default=DETAIL_FIELDS['market_type']['default']
     )
     exchange = models.CharField(
         max_length=20,
         choices=Exchange.choices,
-        default=Exchange.NSE
+        default=DETAIL_FIELDS['exchange']['default']
     )
     instrument_type = models.CharField(
         max_length=20,
         choices=InstrumentType.choices,
-        default=InstrumentType.STOCK
+        default=DETAIL_FIELDS['instrument_type']['default']
     )
 
     # Configuration
@@ -67,18 +71,18 @@ class Strategy(BaseTimestampModel):
     visibility = models.CharField(
         max_length=20,
         choices=StrategyVisibility.choices,
-        default=StrategyVisibility.PRIVATE
+        default=DETAIL_FIELDS['visibility']['default']
     )
     status = models.CharField(
         max_length=20,
         choices=StrategyStatus.choices,
-        default=StrategyStatus.DRAFT
+        default=DETAIL_FIELDS['status']['default']
     )
 
 
     # Trading modes
-    paper_trading_enabled = models.BooleanField(default=True)
-    live_trading_enabled = models.BooleanField(default=False)
+    paper_trading_enabled = models.BooleanField(default=DETAIL_FIELDS['paper_trading_enabled']['default'])
+    live_trading_enabled = models.BooleanField(default=DETAIL_FIELDS['live_trading_enabled']['default'])
 
     # Tags
     tags = models.ManyToManyField(StrategyTag, blank=True, related_name='strategies')
@@ -180,71 +184,3 @@ class StrategyVersion(BaseTimestampModel):
 
     def __str__(self):
         return f"{self.strategy.name} v{self.version_number}"
-
-
-class EntryOrderConfig(BaseTimestampModel):
-    """
-    Entry order configuration for a strategy.
-    Defines how entry orders are placed.
-    """
-    strategy = models.OneToOneField(
-        Strategy,
-        on_delete=models.CASCADE,
-        related_name='entry_order_config'
-    )
-
-    # Trade direction for this strategy
-    entry_side = models.CharField(
-        max_length=4,
-        choices=Side.choices,
-        default=Side.BUY,
-        help_text="Trade direction: BUY for Long entries, SELL for Short entries"
-    )
-
-    # Logic for combining rule groups
-    entry_group_operator = models.CharField(
-        max_length=10,
-        choices=LogicalOperator.choices,
-        default=LogicalOperator.OR,
-        help_text="Logic for combining multiple entry groups (e.g., Group A OR Group B)"
-    )
-
-    # Execution Style
-    order_type = models.CharField(
-        max_length=20,
-        choices=[(OrderType.MARKET, OrderType.MARKET.label)],
-        default=OrderType.MARKET,
-        help_text="Order type to place on entry signal (MARKET)"
-    )
-
-    def __str__(self):
-        return f"{self.strategy.name} - Entry Config"
-
-
-class ExitOrderConfig(BaseTimestampModel):
-    strategy = models.OneToOneField(Strategy, on_delete=models.CASCADE, related_name='exit_order_config')
-
-    exit_group_operator = models.CharField(
-        max_length=10,
-        choices=LogicalOperator.choices,
-        default=LogicalOperator.OR,
-        help_text="Logic for combining multiple exit rules"
-    )
-
-    # Logic for combining exit rule groups
-    stop_loss_group_operator = models.CharField(
-        max_length=10,
-        choices=LogicalOperator.choices,
-        default=LogicalOperator.OR,
-        help_text="Logic for combining multiple stop loss groups"
-    )
-
-    target_group_operator = models.CharField(
-        max_length=10,
-        choices=LogicalOperator.choices,
-        default=LogicalOperator.OR,
-        help_text="Logic for combining multiple target groups"
-    )
-
-    def __str__(self):
-        return f"{self.strategy.name} Exit Config"

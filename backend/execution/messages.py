@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 from .compiler import Program
 from .types import Account, AccountKey, Contract, PositionView, Transition, UnitKey
+from .settlements import SettlementResult
 
 
 @dataclass(slots=True)
@@ -56,18 +57,23 @@ class SaveControl:
     error: str = ''
 
 
+@dataclass(slots=True)
+class SaveSettlement:
+    identity: int
+    account: Account
+    result: SettlementResult | None
+
+
 @dataclass(frozen=True, slots=True)
 class RejectedIntent:
     unit: UnitKey
     identity: str
-    reason: str
 
 
 @dataclass(frozen=True, slots=True)
 class PrepareMarket:
     worker: int
     symbol: str
-    reason: str
 
 
 @dataclass(frozen=True, slots=True)

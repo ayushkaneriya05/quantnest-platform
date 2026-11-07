@@ -1,234 +1,553 @@
-# Backtesting: complete workflow and technical reference
+# Backtesting: complete user and technical guide
 
-Reviewed against the source on 23 October 2026. This guide describes the implemented engine. Examples illustrate mechanics; they are not performance or profitability claims.
+**Source reviewed: 7 November 2026.** This guide describes the current checkout,
+including its simulation assumptions. It replaces the earlier backtest plans and
+dated trade audits. It is not a claim of real broker execution or future returns.
+
+Use [Strategy Studio](strategy-configuration.md) for the complete rule language,
+all inputs/operators, contract policies, capture/re-entry, schedules and worked
+strategy definitions. This guide owns the historical-data and replay adapter.
 
 ## Contents
 
-- [Purpose and boundaries](#purpose-and-boundaries)
-- [Create and run a backtest](#create-and-run-a-backtest)
-- [API and admission](#api-and-admission)
-- [Historical data preparation](#historical-data-preparation)
-- [Compilation and rule evaluation](#compilation-and-rule-evaluation)
-- [Replay, orders and fills](#replay-orders-and-fills)
-- [Sizing, capital and charges](#sizing-capital-and-charges)
-- [Results and Monte Carlo](#results-and-monte-carlo)
-- [Operations and troubleshooting](#operations-and-troubleshooting)
-- [Source map and extension points](#source-map-and-extension-points)
+1. [Scope and prerequisites](#scope-and-prerequisites)
+2. [Create, preview and start a backtest](#create-preview-and-start-a-backtest)
+3. [Snapshots, admission and credits](#snapshots-admission-and-credits)
+4. [Historical data preparation](#historical-data-preparation)
+5. [Stocks and derivative contracts](#stocks-and-derivative-contracts)
+6. [Replay, orders and fills](#replay-orders-and-fills)
+7. [Rules, sizing and schedules](#rules-sizing-and-schedules)
+8. [Charges, settlement and equity](#charges-settlement-and-equity)
+9. [Read results and metrics](#read-results-and-metrics)
+10. [Monte Carlo](#monte-carlo)
+11. [Cancellation, deletion and reruns](#cancellation-deletion-and-reruns)
+12. [Frontend and API contracts](#frontend-and-api-contracts)
+13. [Implementation ownership](#implementation-ownership)
+14. [Worked examples](#worked-examples)
+15. [Operations and troubleshooting](#operations-and-troubleshooting)
+16. [Verification and limits](#verification-and-limits)
 
-## Purpose and boundaries
+## Scope and prerequisites
 
-Backtesting evaluates a saved strategy over historical candles with simulated capital. It shares compilation, rule evaluation, order matching and financial calculations with Paper/Live execution. Its market clock is historical and its prices inside a candle are synthetic.
+Backtesting runs a saved strategy configuration against provider-confirmed
+historical candles. It uses the same compiled expressions, setup state, sizing and
+financial kernel as running strategies, with a historical observation generator.
 
-The shared kernel does **not** make an OHLC backtest equivalent to actual tick replay or broker execution. Historical candles do not reveal the real sequence of transactions, liquidity, queue position or broker rejections.
-
-Related guides: [strategy authoring](strategy-configuration.md), [Paper](paper-trading.md), [Live](live-trading.md), [Terminal](trading-terminal.md), [allowance administration](commercial-operations.md).
-
-## Create and run a backtest
-
-### 1. Prepare the strategy
-
-In Strategy Lab, create a strategy and configure its instruments, entry direction/order, position sizing, entry schedule and active rule groups. Configure stop-loss, target and exit rules as needed. Save a version when you want an explicit reproducible configuration.
-
-The execution configuration contains:
-
-| Configuration | Responsibility |
+| Supported | Current boundary |
 | --- | --- |
-| Watchlist and execution routes | Identify instruments and resolve the side/sizing used for each instrument |
-| Entry configuration | Direction and entry order behaviour |
-| Time rule | Entry weekdays, dates/time window and timezone |
-| Position sizing | Convert the sizing rule and available capital into valid quantity |
-| Rule groups | ENTRY, STOP_LOSS, TARGET and EXIT conditions |
-| Exit configuration | Configure the exit order; strategy exits request the full position |
+| Fixed stock/ETF and qualified derivative instruments | Exact instrument identity, orderability and economic terms must be available |
+| Automatic future/option selection | Underlying prices drive configured expiry and strike policies; the exact selected contract needs its own prices |
+| Multiple instruments and signal/traded instrument separation | Each strategy unit owns its position and setup state; account capital is shared |
+| Indicators, formulas, rolling windows, LTP and capture/confirmation | Historical LTP means a simulated OHLC observation; it is not recorded exchange tick replay |
+| Costs, slippage, equity, trade metrics and Monte Carlo | Simulation assumptions remain visible in saved configuration/data quality |
+| Reviewed derivative settlement inputs | No invented official prices, physical delivery or automatic rollover |
 
-Automated snapshots use DIRECT routing to the selected catalogue instrument. Admission requires an active, tradable instrument and excludes indices, mutual funds and underlying-reference instruments. Historical coverage, contract validation and supported data adapters still determine what can actually be replayed; a derivative enum alone is not proof of usable history or dynamic contract selection.
+Before starting:
 
-Instrument identity is its database relation and unique `sym_ticker`. Display names are not identifiers. Saving a strategy is separate from deploying it. A backtest does not create a Paper or Live session.
+1. Create a strategy and save its Studio changes. Validate its current definition.
+2. Confirm the instrument, signal source, entry direction, size and schedule.
+3. Configure a charge profile if charges are enabled.
+4. Configure a working historical-data provider connection and exchange calendars.
+5. Run the API and a Celery worker consuming `compute`; keep Redis/PostgreSQL
+   available. Initial data acquisition may use the provider even if some history
+   already exists locally.
 
-### 2. Choose the run inputs
+**`python -m quantnest_runtime execution` is not needed for backtests.** Backtests
+execute in the Celery task. The market-data runtime is needed for live observations,
+not as the backtest replay clock. Exact environment and worker commands are in
+[infrastructure](../infra/README.md) and [integration setup](../infra/shared/INTEGRATIONS.md).
 
-Open the backtesting feature and select the strategy/configuration to test. Set start/end dates, initial capital, slippage and whether to include charges. If charges are enabled, select an owned charge profile. Review any supported parameter overrides before estimating.
+## Create, preview and start a backtest
 
-The backend rejects reversed/future date ranges, nonpositive capital, invalid slippage, foreign charge profiles and malformed overrides. Date-range workload estimation also bounds the span. A run keeps a configuration and charge-profile snapshot, so editing the current strategy/profile does not silently change that run.
+From **Strategy Lab → Backtesting Lab → New Backtest**:
 
-The ordinary create/estimate endpoint snapshots the current editable strategy; `strategy_version` is read-only in its serializer. A rerun uses the original run's effective frozen configuration and charge snapshot. Do not send a different version ID and assume it overrides this contract.
+1. Select an owned strategy. The form shows its identifying information.
+2. Enter a useful run name and inclusive start/end dates. The backend translates
+   these dates into timezone-aware replay windows. End cannot precede start or
+   be in the future; the workload estimator caps the requested span at 3,660 days.
+3. Enter positive initial capital and slippage from zero to less than 100 percent.
+   Small values are normal assumptions; the accepted range is not a recommendation.
+4. Choose an owned charge profile, or disable simulated charges.
+5. Select **Preview workload and credits**. This compiles the effective definition,
+   resolves required markets/history and returns the acceptance estimate.
+6. Review the estimated workload and assumptions. If the strategy or dates change,
+   get a fresh preview.
+7. Submit and start. The create operation produces `PENDING`; start atomically
+   changes it to `QUEUED` and schedules the existing compute queue.
+8. Follow the progress message, then inspect results, trades and charts.
 
-### 3. Review usage, create and start
+The UI's status and progress mean different things:
 
-Request the workload estimate, review the credits/source data involved, then create and start the run through the UI. Creation reserves usage; starting queues execution. These are separate backend actions, even when the screen performs them consecutively.
-
-Watch progress in the backtest workspace. On completion, inspect trades, equity, metrics, data quality and diagnostics. Cancel through the application if the run is no longer needed. A rerun creates another run rather than overwriting the original results.
-
-### 4. Use the result
-
-Compare runs using identical dates, configuration, initial capital, slippage and charge assumptions. Inspect individual trades before relying on aggregate ratios. To practise with current observations, deploy the chosen saved version from the strategy list to [Paper](paper-trading.md).
-
-## API and admission
-
-All paths below are authenticated and scoped to the owner. The prefix is `/api/v1/backtest/` (singular).
-
-| Action | Endpoint |
+| Status | Meaning |
 | --- | --- |
-| List/create a run | `GET/POST runs/` |
-| Read/delete a run | `GET/DELETE runs/{id}/` subject to lifecycle restrictions |
-| Review workload | `POST runs/estimate/` |
-| Start an existing pending run | `POST runs/{id}/start/` |
-| Estimate/recreate a rerun | `POST runs/{id}/estimate-rerun/`, `POST runs/{id}/rerun/` |
-| Cancel | `POST runs/{id}/cancel/` |
-| Results | `GET runs/{id}/trades/`, `equity_curve/`, `metrics/` |
-| Monte Carlo | `GET/POST montecarlo/`, then `POST montecarlo/{id}/start/` |
-| Monte Carlo results/cancel | `GET montecarlo/{id}/results/`, `POST montecarlo/{id}/cancel/` |
+| `PENDING` | Saved and admitted, but not yet queued |
+| `QUEUED` | Waiting for a compute worker; other backtests/research can delay it |
+| `RUNNING` | Worker owns the run; history preparation and replay occur here |
+| `COMPLETED` | Final trades, metrics and curve were saved successfully |
+| `FAILED` | Work stopped with an error; inspect the recorded message |
+| `CANCELLED` | Cancellation accepted; an already running worker still needs to observe it and finish cleanup |
 
-See [views](../backend/backtesting/views.py), [serializers](../backend/backtesting/serializers.py) and [routes](../backend/backtesting/urls.py) for exact payloads and filters.
+Progress is stage based. History acquisition occupies roughly 1–15%, frame
+preparation 15–21%, replay 22–94%, and saving the remaining portion. A provider
+request can leave the percentage unchanged while its progress message remains
+useful. `RUNNING` at 1% is not evidence that rule evaluation is slow.
 
-`create_backtest()` locks the user/strategy, validates ownership and the effective execution snapshot, captures costs and saves the run. When using the current strategy rather than a linked version, it creates the corresponding version snapshot. `backtest_configuration()` produces the effective configuration by applying the run's overrides to its frozen base.
+## Snapshots, admission and credits
 
-`reserve_usage()` is the common commercial admission function. Backtest pricing uses the estimated source workload and the reviewed estimate token. The key/payload prevents a reservation being reused for different work. The quota categories are:
+`create_backtest()` locks the user/strategy boundary and freezes the effective
+configuration. A run does not read the mutable Studio definition on every bar.
 
-| Deployment mode | Behaviour |
+- The normal create path captures the strategy's current saved definition and
+  associates a version snapshot. `strategy_version` is output, not an arbitrary
+  client-controlled replacement for the validated snapshot.
+- The accepted effective configuration includes validated parameter overrides
+  where supplied by an integration. The standard UI exposes its own form fields;
+  arbitrary JSON overrides are not a separate visual builder.
+- Cost rates are copied into a charge-profile snapshot. Editing/deleting a user's
+  profile later does not rewrite an existing run's rates.
+- The workload preview signs the user/configuration/date/workload acceptance.
+  Creation verifies it and retains the accepted contract/history plan.
+- Admission reserves the estimated backtest credits. Successful work settles that
+  reservation; failed/cancelled work releases it through the completion handler.
+- Duplicate task deliveries cannot rerun a run already claimed from `QUEUED`.
+  Accounting settlement also has its own idempotent state transition.
+
+| Deployment mode | Commercial behavior |
 | --- | --- |
-| Public | Enforce period credits and per-request source-candle limits |
-| Development | Record usage without numeric enforcement |
-| Private | No numeric quota/usage buckets; personal deployment with ordinary input and ownership validation |
+| Public | Enforce the account's period credits and applicable request limits |
+| Development | Record allowance usage without enforcing commercial caps |
+| Private | Bypass commercial quota recording/enforcement; keep correctness, ownership, data and funds checks |
 
-The reservation counts while work is pending. Success settles it; failure/cancellation releases it through common completion handling. Queue publication failure is also handled there. The numerical replay does not repeatedly check the subscription or debit credits.
-
-`start_backtest()` changes PENDING to QUEUED and uses `queue_compute_work()` to publish after transaction commit. The task conditionally claims QUEUED as RUNNING; duplicate task delivery must not start a second simulation of an already claimed run.
-
-```mermaid
-flowchart LR
-  UI[Run form and estimate] --> API[Validate and snapshot]
-  API --> Usage[Reserve allowance]
-  Usage --> Queue[Commit then Celery compute]
-  Queue --> Data[Prepare confirmed history]
-  Data --> Replay[Shared evaluator and ledger]
-  Replay --> Save[Save trades equity and metrics]
-  Save --> Complete[Settle or refund usage]
-  Save --> View[Progress and results UI]
-```
+The same `commercial/usage.py` functions serve all callers. Workers do not
+repeatedly check a subscription or reserve credits inside candle evaluation.
+Current limits come from the account/catalog; do not copy a plan's number into the
+engine. See [commercial operations](commercial-operations.md).
 
 ## Historical data preparation
 
-`BacktestEngine.load_data()` resolves saved instrument IDs, loads each instrument's exchange/segment calendar, calculates required timeframes and indicator warmup, and calls `prepare_frames()`.
+```mermaid
+flowchart LR
+    Estimate[Compile and freeze workload] --> Acquire[Acquire missing source windows]
+    Acquire --> Store[Confirmed candles and coverage]
+    Store --> Frames[Calendar aggregation and warmup]
+    Frames --> Replay[In-memory replay]
+    Replay --> Save[Trades, equity and metrics]
+```
 
-The data path is:
+The common data path is:
 
-1. `strategy_requirements()` identifies the operand sources/timeframes and required completed-bar depth.
-2. `source_windows()` expands the requested period far enough for warmup, using the market calendar.
-3. `prepare_frames()` obtains confirmed one-minute/daily source data through the common history service.
-4. `ensure_history()` fetches missing provider windows under a source lock and request budget. Valid rows and successful coverage are persisted together.
-5. Calendar-aware aggregation produces the requested strategy timeframes.
-6. `candles_from_frame()` creates typed candles and `contract_from_instrument()` prepares contract facts.
-7. The engine checks that coverage is complete, frames are nonempty and enough candles completed before the test start.
+1. `backtesting/preparation.build_plan()` compiles the actual inputs and determines
+   required source history, warmup and candidate contract windows.
+2. `acquire_plan()` fetches bounded independent windows with limited concurrency.
+   Provider requests share the platform's rate/budget controls.
+3. `marketdata/history.ensure_history(HistoryRequest(...))` checks stored coverage
+   and requests only missing completed source ranges.
+4. Provider rows are validated for identity, timestamp, range, OHLC and volume.
+   Confirmed candles and successful coverage commit together. Invalid rows are
+   excluded and recorded; a failed request is not marked successfully covered.
+5. `marketdata/candles.prepare_frames()` reads the confirmed source rows and
+   builds requested timeframes with the shared segment calendar.
+6. `execution/preparation.compile_markets()` supplies the feature graph and
+   prepared markets; replay then runs without ORM/provider calls in its clock.
 
-`HistoryCoverage` records successful acquisition windows. It is not a promise that every minute contains a trade. Provider errors are not treated as successful empty history. Historical data stays in TimescaleDB; the replay receives prepared data rather than querying the database for every evaluation.
+### What HistoryCoverage means
 
-Internal historical ranges are timezone-aware `[start, end)`. The engine derives date boundaries using the market/strategy timezone. Intraday aggregation respects exchange/segment opening times, breaks, holidays and overnight sessions. Daily/weekly/monthly sources use the daily family; intraday intervals use minute sources.
+Coverage records **which provider/source window was successfully acquired**,
+including a successful empty response. It does not assert that an illiquid
+instrument traded in every minute. It prevents repeated downloads of a known
+empty window while leaving failed requests eligible for retry.
 
-An incomplete warmup fails the run visibly instead of allowing indicators to start from arbitrary zeros. `data_quality` retains per-instrument acquisition information.
+`Candle` is the price record; coverage is acquisition evidence. Display quote
+caches and live tick buffers have separate responsibilities and cannot substitute
+for confirmed historical candles.
 
-## Compilation and rule evaluation
+### Completion clocks and warmup
 
-`compile_strategy()` converts validated JSON into a `Program` containing operands, rules, groups, schedule and execution requirements. `FeatureGraph` registers required indicator calculations and stores completed history. `EvaluationUnit` owns the rule state for one `(BACKTEST, run, instrument)`.
+- Source rows are indexed by opening time. A bar becomes available to a rule only
+  at its calculated completion time.
+- Intraday buckets are anchored to the exchange/segment session, including breaks,
+  holidays and special sessions. Daily/weekly/monthly buckets use those calendars.
+- Higher timeframe values cannot use the current unfinished candle's eventual
+  high/low/close.
+- The compiler derives the needed history from indicator periods, shifts,
+  arithmetic, rolling windows, crossings and setup expressions.
+- Warmup precedes the requested trade interval. Warmup bars prepare values rather
+  than create trades before the requested start.
+- Missing/invalid history is reported. The system does not forward-fill imaginary
+  trades merely to make a dense minute grid.
 
-| Input | Meaning |
+## Stocks and derivative contracts
+
+### Fixed instruments
+
+A fixed route trades the exact saved `instrument_id`; `sym_ticker` is its unique
+provider/platform symbol. Names are display labels. A fixed expired future/option
+can be replayed over its valid life when the provider supports its history.
+It does not silently become the current contract.
+
+### Automatic selection
+
+For an automatic route, preparation resolves the configured underlying, family,
+option right, expiry policy and strike rule. Historical underlying observations
+choose the expiry/strike using the same selection logic as running execution.
+The selected contract supplies execution prices; the underlying supplies signal
+prices when configured.
+
+The selector uses actual catalogued/provider-discovered expiries and strikes.
+ATM/ITM/OTM offsets move through the listed strike grid; CE and PE moneyness have
+opposite directions. A third ITM policy means three grid steps into the money,
+not three arbitrary price points. An unavailable exact candidate is not replaced
+with a different strike to force a trade.
+
+An open position or working order pins its contract. A later entry, once flat,
+can select another contract. Independent routes are not an atomic spread or
+coordinated basket; automatic rollover is not implemented.
+
+### Expired discovery and economic assumptions
+
+The provider adapter can discover expired contracts and fetch their historical
+prices. `instruments/history.py` links exact historical identities to the underlying;
+current live tokens are not invented for history-only instruments.
+
+Price history and contract economics are separate:
+
+| Input | Source/policy |
 | --- | --- |
-| LTP | Current observed price; in backtesting this is a synthetic OHLC observation |
-| CLOSE and candle values | Completed candle values available at that event time |
-| Indicators | Features computed from their configured completed-candle sources |
-| Position operands | The unit's acknowledged position state |
-| Cross comparisons | Compare sequential operand samples; they require a previous sample |
+| Expiry, right, strike, historical contract prices | Exact contract discovery/history |
+| Lot, tick, multiplier, freeze quantity | Prefer sourced dated `ContractSpecification` rows |
+| Missing/changing dated terms | The accepted plan can use an explicit current-template assumption and records its source/warnings |
+| Historical strike availability | Reconstructed per-expiry grid; historical listing timestamps are not a point-in-time universe |
+| Settlement | Reviewed imported record if available; missing daily MTM is not manufactured |
 
-Rules are evaluated through the same `EvaluationUnit.evaluate()` logic used by running strategies. An open position is checked for protective/exit conditions; new entry conditions apply when the unit is eligible to enter. Pending intents and position revisions prevent duplicate signals from opening the same exposure twice.
+Using today's lot size with an expired contract's actual prices is supported as
+a declared simulation assumption. It is not proof that the same units/notional
+could have been traded historically. Lot changes, corporate actions and a
+retrospective strike universe can materially affect results.
 
-The schedule's end time stops **new entries**. It is not an automatic intraday square-off time. Existing positions remain subject to configured exit rules. The end-of-backtest close described below is a distinct simulation policy.
+For better dated terms, import reviewed evidence from `backend`:
 
-Each instrument has independent rule and position state. Instruments share the simulated account's funds, so simultaneous signals can compete for remaining capital. Historical events are merged chronologically with deterministic tie ordering; the replay does not pretend all same-time signals have unlimited capital.
+```powershell
+python manage.py import_contract_specifications C:\data\contract-terms.json --dry-run
+python manage.py import_contract_specifications C:\data\contract-terms.json
+```
+
+Exact format; all market values below are illustrative:
+
+```json
+{
+  "schema_version": 1,
+  "source": "Reviewed exchange contract specification reference",
+  "specifications": [{
+    "sym_ticker": "NSE:REPLACE_WITH_ACTUAL_CONTRACT",
+    "effective_at": "2026-01-01T00:00:00+05:30",
+    "lot_size": 50,
+    "tick_size": "0.05",
+    "qty_multiplier": "1",
+    "qty_freeze": 1000,
+    "strike_price": "24000",
+    "expiry_date": "2026-01-29"
+  }]
+}
+```
+
+The instrument must already exist with its sourced identity. Decimal strings
+preserve precision; a future can use `strike_price: null`. Imports validate the
+whole batch and reject conflicting evidence rather than overwrite it silently.
 
 ## Replay, orders and fills
 
-`Replay._events()` merges completed-candle events and synthetic observations. For the strategy side, the assumed path is **open → adverse extreme → favourable extreme → close**. A long-side candle visits low before high; a short-side candle visits high before low. The extreme timestamps are synthetic.
+### Historical observations
 
-`Replay._observe()` first matches previously admitted orders, updates financial/position state, and then evaluates the strategy. Consequently, a new order cannot fill on the exact observation that generated it. A decision based on a completed candle can fill no earlier than a later observation, normally the next bar.
+`execution/replay.py` advances a common clock over prepared bars and events.
+Within a base candle it generates an explicit OHLC path:
 
-| Order | BUY behaviour | SELL behaviour |
-| --- | --- | --- |
-| Market | Eligible next observation | Eligible next observation |
-| Limit | Price at or below limit | Price at or above limit |
-| Stop Market | Trigger at or above stop, then market | Trigger at or below stop, then market |
-| Stop Limit | Trigger first, then respect buy limit | Trigger first, then respect sell limit |
-
-This table describes the shared matcher. The current automated strategy builder admits MARKET entries; the manual Terminal exposes all four types. A general matcher capability is not an additional strategy route/order feature.
-
-`OrderBook` indexes working orders. `match_order()` applies trigger state, price conditions, tick rounding and adverse simulated slippage without violating a limit price. A stop-limit can activate and still remain unfilled. No matching code invents missing liquidity observations between the supplied synthetic points.
-
-Example: a completed 5-minute CLOSE crosses above a moving average at 10:00. The signal is evaluated with that completed bar. The resulting market order becomes eligible on the following observation, rather than receiving the same candle's closing price automatically.
-
-At `Replay.finish()`, unfilled orders are cancelled. Residual positions are explicitly closed using the last completed candle price with configured slippage and charges. Trades identify this as `END_OF_BACKTEST`; do not interpret it as a strategy-generated exit.
-
-## Sizing, capital and charges
-
-`size_order()` applies the saved sizing rule and instrument lot/tick constraints. `accept_intent()` checks current position/version/pending state and available capital before creating an order. `apply_fill()` adjusts cash, reserved/position margin, quantity, average price and completed trade data.
-
-The numerical ledger uses typed contracts and Decimal financial values. Contract multipliers and segment semantics affect turnover; a derivatives quantity is not interchangeable with a number of lots. Rule evaluation and reporting may use floating-point numerical arrays where appropriate.
-
-`TradingCostCalculator` owns brokerage, transaction taxes, exchange/SEBI fees, stamp duty and GST calculations using the run's profile snapshot. Actual entry/exit dates determine same-day versus delivery tax classification. Strategy type does not force an INTRADAY broker product; instrument classification selects CNC or MARGIN in execution contracts.
-
-Charges are calculated for the completed trade, not shown as a guaranteed charge at admission. When charges are disabled, the replay receives an empty charge profile. Slippage changes fill price and is reported separately; do not subtract it again from an already slipped trade's P&L.
-
-Illustrative stock trade: buy 10 at 100, sell 10 at 105 gives gross P&L 50 before configured charges. Net P&L is gross minus the calculated round-trip fees. This example assumes a unit multiplier of one and excludes price slippage.
-
-## Results and Monte Carlo
-
-### Stored results
-
-| Record | What it stores |
+| Entry direction | Simulated path |
 | --- | --- |
-| `BacktestRun` | Owner, configuration/version, dates, costs, status, progress, quality and diagnostics |
-| `BacktestTrade` | Instrument, direction, prices/times, quantity, gross/net P&L, fees, MAE/MFE and reason |
-| `EquityCurvePoint` | Replay equity and drawdown at recorded boundaries |
-| `BacktestMetrics` | Aggregate performance calculated after replay |
+| Buy | Open → low → high → close |
+| Sell | Open → high → low → close |
 
-The engine bulk-writes results, calculates metrics and marks the run COMPLETED. It publishes throttled progress and final events through the backtest consumer/user group. These messages update presentation; they are not financial state.
+The extreme ordering is a declared simulation choice. It does not recover which
+extreme really happened first. A one-minute candle assigns the interior
+observations approximately 20 and 40 seconds into the interval. Those timestamps
+explain second-precision entries/exits despite one-minute source history.
+They are synthetic observation times, not a timestamp-conversion bug or measured
+exchange fills. No continuous price interpolation occurs between OHLC points.
 
-Metrics include win/loss counts and streaks, win rate, profit factor, expectancy, holding duration, final capital, returns, drawdown, monthly returns and per-instrument results. Sharpe/Sortino/volatility derive from daily equity returns; annualization currently uses 252 trading days. Undefined ratios may be null. CAGR over a very short sample is especially sensitive to the chosen period.
+### Current fill policy: signal quote
 
-Backtest results are separate from the Terminal/Paper/Live journal sources. They are not deposited into a user's trading wallet or counted as realized Live profit.
+Studio strategies currently generate market orders. On a valid entry/exit signal:
 
-### Monte Carlo
+1. Resolve the **traded contract's** quote available at that replay clock.
+2. Admit the intent through the shared account/funds/contract checks.
+3. Execute at that signal reference price, adjusted for configured slippage and
+   legal tick rounding.
+4. Apply the fill, position, cash, costs and diagnostics before continuing replay.
 
-Choose a completed owned backtest with trades, set simulations/confidence, review the relevant allowance and start. `MonteCarloSimulator.run_simulation()` bootstraps recorded **net trade P&Ls with replacement** in chunks of 128. Its seed comes from the Monte Carlo run ID.
+There is no deliberate wait for a later candle high, low, close or next open after
+the signal. The replay adapter supplies a local eligible execution sequence at the
+same signal time/price; it does not insert another market observation into the
+strategy evaluator.
 
-Outputs include terminal-capital/return/drawdown distributions, win rate, profit factor, expectancy, a **per-trade** Sharpe ratio, percentiles and a histogram. Minimum simulations are 100; confidence is 90–99%, with additional Public per-request and period limits.
+For example, an exit signalled at 196.22 with zero slippage and an allowed tick
+executes at 196.22. A later synthetic high of 196.38 cannot replace that exit price.
+Tick size can still change a nonconforming reference into a valid execution price.
 
-This resamples outcomes. It does not re-evaluate market rules, reconstruct liquidity or prove future market probabilities. Cancellation and failure use the same completion/refund infrastructure.
+This policy differs from [Paper matching](paper-trading.md#tick-to-decision-to-fill):
+Paper waits for a later eligible real observation. Live fills come from the broker.
+Sharing numerical rules does not make these observation/fill models identical.
+
+### Completed-bar signals and price gaps
+
+Completed-bar rules become evaluable only after the bar closes. The replay cannot
+trade before that completion. For an LTP confirmation, the condition is tested at
+each available synthetic quote; a gap can satisfy it at the next open.
+
+If a saved setup captured the previous session's high and remains unexpired, an
+opening quote above that high can confirm at the open. If the quote is below it,
+the next sampled high may be the first observation satisfying the comparison.
+The engine does not invent an unseen exact crossing between open and high.
+
+## Rules, sizing and schedules
+
+The shared `compiler.py` builds dependency graphs from the saved document, with
+reusable indicator/window calculations. `engine.EvaluationUnit` owns crossings, captured
+values and position-dependent state for one `(mode, session_id, route_id, leg_id)`.
+
+| Behavior | Replay meaning |
+| --- | --- |
+| Simple entry comparison | Evaluated when its dependencies update; can enter again while true once flat |
+| Capture/confirmation | Known false→true arm, capture immutable values, confirm on a later observation; honor setup expiry |
+| Open position | STOP_LOSS, then TARGET, then EXIT priority; strategy exits close its full quantity |
+| Position operands | Refer to that route's traded position, never the signal index's imaginary position |
+| Fixed units | Exact positive units and, for derivatives, a whole multiple of lot size |
+| Fixed lots | Number of lots × selected contract lot size |
+| Capital based | Percentage of available budget, rounded down to whole tradable lots |
+| Entry schedule | Exchange/segment session, configured timezone, weekdays, windows and entry count constraints |
+| Entry end | Stops new entries; does not mean automatic intraday square-off |
+
+Long options use premium as the capital basis. Futures and option writing use the
+configured simulation collateral model, not a broker SPAN/portfolio margin quote.
+One account serializes reservations across instruments; capital is not duplicated
+per route. A condition match can therefore be rejected for insufficient capital,
+invalid units, absent contract prices or another admission constraint.
+
+All detailed semantics and examples are in
+[Studio rules](strategy-configuration.md#6-conditions-groups-and-decision-order)
+and [capture/re-entry](strategy-configuration.md#10-capture-and-confirmation).
+
+## Charges, settlement and equity
+
+`execution/ledger.py` applies fills and the shared `common/costs.py` calculations.
+Entry lots retain their opening timestamps and frozen cost assumptions. On close,
+the system computes the applicable simulated round-trip charges, including the
+same-session equity intraday/delivery distinction and segment-specific STT/CTT.
+The order product label alone does not determine the holding-period charge basis.
+
+Adverse slippage changes execution prices. Reported slippage amounts describe that
+effect; do not subtract the same amount from already adjusted net P&L a second time.
+
+```text
+Gross P&L = direction × (exit − entry) × units × contract multiplier
+Net P&L   = gross P&L − applied closing/round-trip charges
+Equity    = account cash plus the account model's residual open-position value
+```
+
+Futures residual open P&L excludes previously paid `settled_pnl`. A daily settlement
+cash movement must not be added again to the closed trade's lifetime P&L.
+
+Reviewed daily/final settlement records are merged at `available_at`, when the
+source became known, rather than exposing an evening report at its earlier cutoff.
+Missing daily MTM is not fabricated. If qualified final settlement is unavailable,
+the current backtest policy simulates liquidation at the last observed contract
+candle by expiry, labels the policy, and records warnings. Residual positions at
+the end of a test close at their last completed price with costs/slippage.
+
+For import format, cash examples and supported product families, see
+[derivative settlement in the Paper guide](paper-trading.md#derivative-settlement).
+Physical delivery, exercise/assignment and commodity devolvement are not simulated.
+
+## Read results and metrics
+
+Open the completed run to inspect its saved effective configuration, data quality,
+progress/outcome, metrics and equity. Open **Trades** for server-filtered trades
+and **Charts** for equity/drawdown analysis. Research review can attach the completed
+run without granting the AI permission to change it.
+
+| Metric group | Definition/interpretation |
+| --- | --- |
+| Trade counts | Wins/losses/breakeven use net trade P&L, not gross price movement |
+| Win rate | Winning closed trades / all closed trades |
+| Average win/loss | Mean positive/negative net trade respectively; loss is negative |
+| Profit factor | Sum of positive net P&L / absolute sum of negative net P&L |
+| Expectancy | Mean net P&L per trade |
+| Payoff ratio | Average win / absolute average loss |
+| Return | `(final capital − initial capital) / initial capital` |
+| Drawdown | Decline from the running equity peak, in money and percent |
+| Recovery factor | Net profit / maximum drawdown amount |
+| Sharpe | Daily equity-return mean / sample standard deviation, multiplied by √252; no risk-free offset |
+| Sortino | Daily mean return / root mean squared negative daily returns, multiplied by √252 |
+| Volatility | Daily return standard deviation × √252, displayed as percent |
+| CAGR / Calmar | Annualized growth from elapsed test duration; Calmar relates CAGR to drawdown |
+| MAE / MFE | Adverse/favorable excursion over sampled observations, in position money terms |
+| Trade efficiency | Mean net P&L / MFE where MFE is nonzero; not a guaranteed 0–100% score |
+| Breakdown | Monthly equity returns and instrument-level trade/P&L summaries |
+
+Daily statistics resample observed equity to daily last values in the strategy
+timezone. They do not describe an intraday latency distribution. Short runs, sparse
+observations and zero variance can make annualized ratios uninformative. Undefined
+ratios remain null/N/A instead of becoming fake infinity/zero.
+
+Trade rows retain route/leg ownership, side, units, exact entry/exit timestamps,
+prices, gross/net P&L, charges, excursions and exit reason. Holding duration in
+minutes is an integer projection; seconds in the underlying times remain meaningful
+within the simulation model.
+
+## Monte Carlo
+
+Monte Carlo starts from an owned **completed backtest with at least one trade**.
+Choose the simulation count and outcome interval, then start the run. The serializer
+requires at least 100 simulations and confidence-level input between 0.90 and 0.99;
+the account's per-request simulation allowance can impose a lower maximum.
+
+The implementation bootstraps the saved **net trade P&L** values with replacement.
+Each synthetic path has the original number of trades and starts with the original
+capital. It does not refit the strategy, replay new candles, recalculate position
+sizes, enforce new margin paths or model serial dependence/regime shifts.
+
+- A deterministic random generator seeded from the Monte Carlo run ID makes that
+  saved run repeatable. Different run IDs produce different samples.
+- Work runs in bounded chunks rather than keeping every full path simultaneously.
+- Results include terminal capital, total return, maximum drawdown, win rate,
+  per-trade Sharpe, profit factor and expectancy, plus terminal-capital distribution.
+- Per-trade Sharpe is not the daily annualized Sharpe of the original backtest.
+- Each metric reports its valid simulation count; undefined metrics are not
+  silently included as zeros.
+- Percentile outcome bounds describe these resampled outcomes, not guaranteed
+  future returns or a statistical confidence interval for all market conditions.
+
+Monte Carlo consumes its own run allowance. Cancellation is available while
+`PENDING`/`QUEUED`; the current API rejects cancellation after it starts running.
+
+## Cancellation, deletion and reruns
+
+Backtest cancellation checks occur during preparation/replay and before final
+commit. A provider call already in progress still has its transport timeout.
+The final transaction locks the run and will not overwrite a cancellation with
+`COMPLETED`. Failed/cancelled runs release their reservation.
+
+Deletion is blocked while queued/running and while a started worker has not
+acknowledged completion, including a newly cancelled run. Wait for cleanup rather
+than deleting an active worker's records.
+
+**Rerun preserves the old run's effective snapshot and frozen costs.** It creates
+a new run, obtains/validates workload acceptance and charges it independently.
+It does not automatically use today's Studio edits. Create a new backtest from
+the strategy to test the latest saved definition.
+
+## Frontend and API contracts
+
+The list uses shared server pagination and filters. Common pagination accepts
+`page` and `page_size` (10/25/50/100; default 25), returns `count`, `page`,
+`page_size`, `next`, `previous`, `results`, and clamps a now-out-of-range page to
+the last page. Summary endpoints operate on their full filtered population.
+
+Authenticated prefix: **`/api/v1/backtest/`**.
+
+| Method/path | Purpose |
+| --- | --- |
+| `GET runs/`, `GET runs/summary/` | Search/filter list and aggregate counts |
+| `POST runs/estimate/` | Workload, assumptions and signed acceptance |
+| `POST runs/` | Create frozen `PENDING` run |
+| `GET runs/{id}/` | Owned run, metrics, configuration and diagnostics |
+| `POST runs/{id}/start/` | Queue once |
+| `POST runs/{id}/cancel/` | Request cancellation |
+| `POST runs/{id}/estimate-rerun/`, `POST runs/{id}/rerun/` | Preview and start a new run from the old effective configuration |
+| `DELETE runs/{id}/` | Delete eligible inactive run |
+| `GET runs/{id}/trades/` | Paginated/filterable trades and instrument options |
+| `GET runs/{id}/metrics/`, `GET runs/{id}/equity_curve/` | Metrics and chart projection |
+| `GET/POST montecarlo/`, `GET montecarlo/{id}/` | Simulation list/create/detail |
+| `POST montecarlo/{id}/start/`, `POST montecarlo/{id}/cancel/` | Queue/cancel where allowed |
+| `GET montecarlo/{id}/results/` | Metric outcome summaries |
+
+There is no edit endpoint for an accepted backtest. Large trade tables are not
+embedded into each detail refresh. Equity curve responses are downsampled for
+rendering; they are a projection of the saved run, not new market data.
+
+## Implementation ownership
+
+Backend paths below are relative to `backend/`. Start at
+[`backtesting/services.py`](../backend/backtesting/services.py) for acceptance,
+[`backtesting/engine.py`](../backend/backtesting/engine.py) for orchestration and
+[`execution/replay.py`](../backend/execution/replay.py) for the historical clock.
+
+| File/symbol | Responsibility and reason |
+| --- | --- |
+| `backtesting/views.py` | HTTP ownership, filters, start/cancel/rerun actions |
+| `backtesting/serializers.py` | Request dates/capital/cost ownership and output contracts |
+| `backtesting/services.create_backtest`, `backtest_configuration`, `start_backtest` | Immutable acceptance and transport-independent lifecycle |
+| `commercial/usage.estimate_backtest_workload`, `reserve_usage`, `complete_usage` | One admission/accounting boundary shared with other callers |
+| `backtesting/tasks.py` | Celery claim, run, outcome handling |
+| `backtesting/preparation.build_plan`, `acquire_plan`, `restore_plan` | Freeze/acquire exact dependencies without hot-path I/O |
+| `marketdata/history.py`, `candles.py`, `calendar.py` | Shared verified source data and bucket clocks |
+| `instruments/history.py`, `selection.py`, `specifications.py` | Historical identities, selection and dated economics |
+| `execution/compiler.py`, `expressions.py`, `features.py`, `engine.py` | Shared numerical rule behavior |
+| `execution/replay.Replay` | Synthetic clock and same-observation signal fills |
+| `execution/ledger.py`, `matching.py`, `settlements.py` | Financial transitions, tick rounding and settlement |
+| `backtesting/engine.BacktestEngine` | Data quality, replay orchestration, atomic save and statistics |
+| `backtesting/monte_carlo.py` | Resampling of completed net trade outcomes |
+| `frontend/src/features/backtests/pages/` | Setup, list, progress/results, trades, charts and Monte Carlo |
+
+## Worked examples
+
+### Same-price signal execution
+
+Assume a stock long entry signals at 100.00, exit at 101.20, 10 units, multiplier
+one, no slippage. Gross P&L is 12.00. If the frozen profile produces 2.30 in total
+charges, net P&L is 9.70. A later candle high cannot change either execution price.
+
+### Lots and automatic contract prices
+
+An automatic ATM CE entry selects an actual listed call priced at 120.00 with
+lot size 30. Two lots become 60 order units. The signal index may be at 57,000;
+that index price is not used as the call's execution price. At a 125.00 exit,
+gross P&L is `(125 − 120) × 60 × multiplier` before costs.
+
+### Re-entry after a captured breakout
+
+An entry group arms when a completed close crosses above EMA and captures that
+bar's high. A later LTP observation above the saved high confirms it. Closing the
+trade does not create a new arm while the original arm condition remains true.
+A new known false→true transition is required. A simple level-only entry does not
+have that capture rule. This is shared with Paper/Live, not a backtest-only delay.
 
 ## Operations and troubleshooting
 
-Backtests require the API, PostgreSQL/TimescaleDB, configured Redis/Celery services, the compute worker and a valid history-provider connection when data must be fetched. They do not require a running live execution worker for historical replay. Follow the selected [infrastructure deployment guide](../infra/README.md) for exact worker commands and environment files.
-
-| Symptom | Inspect first |
+| Symptom | Check in this order |
 | --- | --- |
-| PENDING indefinitely | The start action has not been accepted |
-| QUEUED indefinitely | Celery compute queue/worker and publication logs |
-| History/warmup failure | Provider authorization, contract/date availability, calendar and `data_quality` |
-| No trades | Active entry groups, operand readiness, schedule, routing, sizing and rejection diagnostics |
-| Unexpected price | OHLC path, next-observation rule, slippage and limit behaviour |
-| Different rerun | Frozen snapshot/overrides, changed provider history, dates and charge assumptions |
-| Cancel not immediate | Replay checks cancellation periodically (currently throttled to five seconds) |
-| Usage still reserved | Final status and common completion handling, not a manual debit in the engine |
+| Queued indefinitely | Compute worker queue subscription, Redis broker and preceding tasks; research shares this queue |
+| 1% while preparing history | Named symbol, provider transport/auth outcome, requested source window and coverage; the execution daemon is irrelevant |
+| No qualified contracts | Underlying linkage, expiry discovery, option right/strike grid, dated/template economics; sync current master does not itself supply years of expired prices |
+| No trades | Data completeness/warmup, saved snapshot, schedule, source assignment, setup arm/expiry, quantity/funds, diagnostic rejection counts |
+| Seconds in trade times | OHLC replay interior timestamps; inspect the declared replay model |
+| Results differ from Paper | Real ticks versus sampled OHLC, different available marks, fill timing, costs, capital, selected contracts and saved version |
+| History error `-99` | Inspect the underlying provider/transport details; it can mask networking and is not automatically a reauthorization instruction |
+| Charges differ from an old run | Frozen profile, dates/holding basis, segment, units/multiplier and changed configuration |
+| Cancel still shows work | Running provider call/cancellation checkpoint; wait for worker cleanup before deletion |
 
-## Source map and extension points
+Run appropriate Django/migration checks and deploy API/compute code together when
+contracts change. Follow [deployment instructions](../infra/START-HERE.md), rather
+than launching duplicate workers with conflicting queue/service ownership.
 
-| Source | Methods and reason |
-| --- | --- |
-| [Frontend backtesting feature](../frontend/src/features/backtests) | Forms, progress, result inspection and Monte Carlo presentation |
-| [Services](../backend/backtesting/services.py) | `create_backtest`, `start_backtest`, `estimate_source_workload`, frozen configuration and notifications |
-| [Tasks](../backend/backtesting/tasks.py) | Claim queued work and run orchestration outside HTTP |
-| [Engine](../backend/backtesting/engine.py) | `load_data`, `run_simulation`, `_finalize_run`, reporting and cancellation boundaries |
-| [Replay](../backend/execution/replay.py) | Historical clock adapter for the shared numerical kernel |
-| [Compiler](../backend/execution/compiler.py), [evaluator](../backend/execution/engine.py) | Compile once and evaluate typed rules |
-| [Matching](../backend/execution/matching.py), [ledger](../backend/execution/ledger.py) | Shared order and financial semantics |
-| [History](../backend/marketdata/history.py), [candles](../backend/marketdata/candles.py) | Confirmed source acquisition and calendar-aligned aggregation |
-| [Usage](../backend/commercial/usage.py) | Admission, reservation and terminal-outcome accounting |
+## Verification and limits
 
-Add an operand in shared compiler/evaluation/metadata validation, not only in the backtest engine. Add a matching rule in the shared matcher. A different historical simulation policy belongs in the replay adapter; update this guide when changing it. Keep provider I/O and ORM reporting outside numerical evaluation.
+For a release, trace at least one stock and one qualified derivative through:
+owned strategy → estimate → accepted snapshot → exact confirmed data → decision
+→ admitted signal-price fill → closing charges → curve/metrics → refund/cancel
+and rerun. Include a missing-history case, contract-grid change, lot-size failure,
+cross-timeframe completion, capture expiry and an end-of-test position.
+
+This documentation refresh checks source contracts and examples. It does not
+prove provider availability, broker fills, production capacity or profitability.
+OHLC replay cannot establish actual intrabar stop order, bid/ask spread, depth,
+queue priority or execution latency. Historical contract-template assumptions and
+retrospective strike grids must remain part of result interpretation.

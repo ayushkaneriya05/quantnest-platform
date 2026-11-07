@@ -1,12 +1,14 @@
 from decimal import Decimal
 
-from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Sum
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Sum, Subquery, IntegerField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
+from common.pagination import StandardPagination
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import IntegerField as IdentifierField
 from brokers.models import BrokerSession
 from common.enums import OrderStatus
 from execution.order_reports import ACTIVE
@@ -24,18 +26,16 @@ from .serializers import (
 from .services import LiveExecutionService
 
 
-class LiveTradingPagination(PageNumberPagination):
-    page_size = 50
-    page_size_query_param = "page_size"
-    max_page_size = 200
-
-
 class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    pagination_class = StandardPagination
     serializer_class = TradingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         sessions = TradingSession.objects.filter(user=self.request.user)
+        # Count orders only for displayed sessions; a list COUNT does not need
+        # to group every session with its complete order history.
+        active_orders = LiveOrder.objects.filter(session_id=OuterRef('pk'), status__in=ACTIVE).order_by().values('session_id').annotate(total=Count('id')).values('total')[:1]
         session_status = self.request.query_params.get("status")
         if session_status:
             from common.enums import ExecutionSessionStatus
@@ -45,13 +45,13 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
         return sessions.select_related(
             "strategy", "broker_credential"
         ).annotate(
-            annotated_active_orders=Count("orders", filter=Q(orders__status__in=ACTIVE)),
+            annotated_active_orders=Coalesce(Subquery(active_orders, output_field=IntegerField()), 0),
             annotated_broker_session_valid=Exists(BrokerSession.objects.filter(
                 credential_id=OuterRef("broker_credential_id"),
                 is_valid=True,
                 token_expiry__gt=timezone.now(),
             )),
-        ).prefetch_related(Prefetch("allocation", queryset=LiveStrategyAllocation.objects.with_totals()))
+        ).prefetch_related(Prefetch("allocation", queryset=LiveStrategyAllocation.objects.with_totals())).order_by('-created_at', '-id')
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
@@ -93,7 +93,7 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
         """
         session = self.get_object()
         from live_trading.order_processor import reconcile_orders
-        
+
         try:
             result = reconcile_orders(session.broker_credential)
             return Response({"synced_orders": result["matched"], "orders": result})
@@ -107,15 +107,17 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
 class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = LiveOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LiveTradingPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         queryset = LiveOrder.objects.filter(user=self.request.user).select_related("strategy", "session", "broker_credential", "instrument")
         for field in ("status", "session", "allocation"):
             value = self.request.query_params.get(field)
             if value:
+                if field != "status":
+                    value = IdentifierField(min_value=1).run_validation(value)
                 queryset = queryset.filter(**{f"{field}_id" if field != "status" else field: value})
-        return queryset
+        return queryset.order_by('-placed_at', '-id')
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
@@ -134,7 +136,7 @@ class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):
 class LivePositionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = LivePositionSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LiveTradingPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         queryset = LivePosition.objects.filter(user=self.request.user, quantity__gt=0).select_related(
@@ -143,25 +145,20 @@ class LivePositionViewSet(viewsets.ReadOnlyModelViewSet):
         for field in ("strategy", "allocation", "broker_credential"):
             value = self.request.query_params.get(field)
             if value:
+                value = IdentifierField(min_value=1).run_validation(value)
                 queryset = queryset.filter(**{f"{field}_id": value})
         return queryset
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
-        stats = self.get_queryset().aggregate(
-            count=Count("id"),
-            total_unrealized_pnl=Sum("unrealized_pnl"),
-            profitable=Count("id", filter=Q(unrealized_pnl__gt=0)),
-            losing=Count("id", filter=Q(unrealized_pnl__lt=0)),
-        )
-        stats["unrealized_pnl"] = stats.pop("total_unrealized_pnl") or Decimal("0")
-        return Response(stats)
+        from common.valuation import position_totals
+        return Response(position_totals(self.get_queryset()))
 
 
 class LiveTradeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = LiveTradeSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LiveTradingPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         queryset = LiveTrade.objects.filter(user=self.request.user).select_related(
@@ -170,8 +167,9 @@ class LiveTradeViewSet(viewsets.ReadOnlyModelViewSet):
         for field in ("strategy", "allocation", "broker_credential"):
             value = self.request.query_params.get(field)
             if value:
+                value = IdentifierField(min_value=1).run_validation(value)
                 queryset = queryset.filter(**{f"{field}_id": value})
-        return queryset
+        return queryset.order_by('-exit_time', '-id')
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
@@ -188,33 +186,34 @@ class LiveTradeViewSet(viewsets.ReadOnlyModelViewSet):
 class ExecutionLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ExecutionLogSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LiveTradingPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
-        queryset = ExecutionLog.objects.filter(order__user=self.request.user).select_related("order", "order__instrument", "order__broker_credential").order_by("-created_at")   
+        queryset = ExecutionLog.objects.filter(order__user=self.request.user).select_related("order", "order__instrument", "order__broker_credential").order_by("-created_at", "-pk")
         event_type = self.request.query_params.get("event_type")
         order_id = self.request.query_params.get("order")
         if event_type:
             queryset = queryset.filter(event_type=event_type)
         if order_id:
-            queryset = queryset.filter(order_id=order_id)
+            queryset = queryset.filter(order_id=IdentifierField(min_value=1).run_validation(order_id))
         return queryset
 
 
 class SlippageRecordViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SlippageRecordSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = LiveTradingPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
-        queryset = SlippageRecord.objects.filter(order__user=self.request.user).select_related("order", "order__instrument", "order__broker_credential").order_by("-created_at")
+        queryset = SlippageRecord.objects.filter(order__user=self.request.user).select_related("order", "order__instrument", "order__broker_credential").order_by("-created_at", "-pk")
         order_id = self.request.query_params.get("order")
         if order_id:
-            queryset = queryset.filter(order_id=order_id)
+            queryset = queryset.filter(order_id=IdentifierField(min_value=1).run_validation(order_id))
         return queryset
 
 
 class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
+    pagination_class = StandardPagination
     serializer_class = LiveStrategyAllocationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -222,10 +221,10 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = LiveStrategyAllocation.objects.with_totals().filter(user=self.request.user)
         broker_id = self.request.query_params.get("broker_credential")
         if broker_id:
-            queryset = queryset.filter(broker_credential_id=broker_id)
+            queryset = queryset.filter(broker_credential_id=IdentifierField(min_value=1).run_validation(broker_id))
         strategy_id = self.request.query_params.get("strategy")
         if strategy_id:
-            queryset = queryset.filter(strategy_id=strategy_id)
+            queryset = queryset.filter(strategy_id=IdentifierField(min_value=1).run_validation(strategy_id))
         return queryset
 
     @action(detail=True, methods=["post"], url_path="update-allocation")

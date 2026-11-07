@@ -64,6 +64,7 @@ class HistoryResult:
     requests: int = 0
     missing: list[tuple[datetime, datetime]] = field(default_factory=list)
     error: str = ""
+    retryable: bool = False
 
     @property
     def complete(self) -> bool:
@@ -90,3 +91,7 @@ class CandleRequest:
 
 class ProviderError(Exception):
     """A failed acquisition is never interpreted as a successful empty response."""
+
+    def __init__(self, message, *, retryable=False):
+        super().__init__(message)
+        self.retryable = retryable

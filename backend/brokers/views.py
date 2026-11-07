@@ -15,7 +15,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.pagination import PageNumberPagination
+from common.pagination import StandardPagination
 from rest_framework.response import Response
 
 from common.enums import NotificationType
@@ -183,21 +183,24 @@ class BrokerSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 
-class BrokerAPILogPagination(PageNumberPagination):
-    page_size = 50
-    page_size_query_param = "page_size"
-    max_page_size = 500
-
 class BrokerAPILogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = BrokerAPILogSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = BrokerAPILogPagination
+    pagination_class = StandardPagination
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            from .serializers import BrokerAPILogListSerializer
+            return BrokerAPILogListSerializer
+        return BrokerAPILogSerializer
 
     def get_queryset(self):
         queryset = BrokerAPILog.objects.filter(credential__user=self.request.user).select_related("credential")
 
         status_code = self.request.query_params.get("status_code")
         if status_code:
+            from rest_framework.fields import IntegerField
+            status_code = IntegerField(min_value=0, max_value=599).run_validation(status_code)
             queryset = queryset.filter(status_code=status_code)
 
         endpoint = self.request.query_params.get("endpoint")
@@ -208,7 +211,9 @@ class BrokerAPILogViewSet(viewsets.ReadOnlyModelViewSet):
         if broker:
             queryset = queryset.filter(credential__broker_name=broker)
 
-        return queryset.order_by("-created_at")
+        if self.action == "list":
+            queryset = queryset.defer("request_data", "response_data")
+        return queryset.order_by("-created_at", "-pk")
 
 
 @require_GET

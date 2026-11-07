@@ -1,3 +1,4 @@
+import RefreshButton from "@/shared/components/RefreshButton";
 import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { formatDateTime } from "@/shared/utils/formatters";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
@@ -33,19 +34,19 @@ const brokerSetupDialogs = { FYERS: FyersAppDialog };
 
 const providerTheme = {
   FYERS: {
-    accent: "from-cyan-500/20 via-sky-500/10 to-transparent",
-    badge: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/20",
-    cta: "bg-cyan-700 hover:bg-cyan-800",
+    accent: "from-brand/20 via-brand/10 to-transparent",
+    badge: "bg-brand/10 text-brand border-brand/20",
+    cta: "bg-brand hover:bg-brand",
   },
   ZERODHA: {
-    accent: "from-blue-500/20 via-blue-500/10 to-transparent",
-    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
-    cta: "bg-blue-600 hover:bg-blue-500",
+    accent: "from-brand/20 via-brand/10 to-transparent",
+    badge: "bg-brand/10 text-brand border-brand/20",
+    cta: "bg-brand hover:bg-brand",
   },
   ANGEL: {
-    accent: "from-rose-500/20 via-rose-500/10 to-transparent",
-    badge: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
-    cta: "bg-rose-600 hover:bg-rose-700",
+    accent: "from-loss/20 via-loss/10 to-transparent",
+    badge: "bg-loss/10 text-loss border-loss/20",
+    cta: "bg-loss hover:bg-loss",
   },
 };
 
@@ -73,7 +74,7 @@ function getExpiryMeta(provider) {
   if (Number.isNaN(expiry.getTime()) || diffMs <= 0 || provider.session_expired) {
     return {
       label: "Expired - reconnect required",
-      tone: "text-red-700 dark:text-red-300",
+      tone: "text-loss",
     };
   }
 
@@ -81,14 +82,14 @@ function getExpiryMeta(provider) {
   if (diffMinutes < 60) {
     return {
       label: `Expires in ${Math.max(diffMinutes, 1)} min`,
-      tone: "text-amber-700 dark:text-amber-300",
+      tone: "text-warning",
     };
   }
 
   const diffHours = Math.floor(diffMinutes / 60);
   return {
     label: `Active for ~${diffHours} hr`,
-    tone: "text-emerald-700 dark:text-emerald-300",
+    tone: "text-success",
   };
 }
 
@@ -110,7 +111,7 @@ export default function BrokerConnections() {
     try {
       if (initial) setLoading(true);
       else setIsRefreshing(true);
-      
+
       const { data: nextCatalog } = await brokersApi.getCatalog();
       setCatalog(nextCatalog);
       setProfileMap({});
@@ -209,15 +210,7 @@ export default function BrokerConnections() {
   const pageActions = useMemo(
     () => (
       <div className="flex gap-2">
-        <Button
-          variant="outline"
-          onClick={loadBrokerState}
-          disabled={isRefreshing}
-          className="border-border text-foreground"
-        >
-          {isRefreshing ? <LoaderMark className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          {isRefreshing ? "Refreshing..." : "Refresh"}
-        </Button>
+        <RefreshButton onClick={() => loadBrokerState()} label="Refresh broker connections" disabled={isRefreshing} loading={isRefreshing} />
       </div>
     ),
     [isRefreshing, loadBrokerState],
@@ -236,22 +229,22 @@ export default function BrokerConnections() {
   const SetupDialog = appProvider ? brokerSetupDialogs[appProvider.broker_name] : null;
 
   return (
-    <div className="container-padding py-6 lg:py-8 space-y-6">
-      
+    <div className="page-content">
+
       {/* My Connections Section */}
-      <section className="space-y-4">
+      <section className="space-y-3">
         <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+          <ShieldCheck className="h-5 w-5 text-success" />
           My Connections
         </h2>
-        
+
         {connectedBrokers.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border bg-card/40 p-8 text-center text-sm text-muted-foreground">
             <Building2 className="mx-auto mb-3 h-8 w-8 text-foreground" />
             No brokers connected yet. Choose a broker below to securely connect your account.
           </div>
         ) : (
-          <div className="grid gap-5 xl:grid-cols-2">
+          <div className="grid gap-3 xl:grid-cols-2">
             {connectedBrokers.map((provider) => {
               const theme = providerTheme[provider.broker_name] || providerTheme.FYERS;
               const status = statusLabel(provider);
@@ -266,8 +259,8 @@ export default function BrokerConnections() {
                 >
                   <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${theme.accent}`} />
                   <CardHeader className="relative pb-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
                         <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted/50 text-sm font-bold text-foreground shadow-lg">
                           {provider.logo_text}
                         </div>
@@ -284,10 +277,10 @@ export default function BrokerConnections() {
                     </div>
                   </CardHeader>
 
-                  <CardContent className="relative space-y-5">
-                    <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-muted/40 p-3">
+                  <CardContent className="relative space-y-3">
+                    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/40 p-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary/50">
-                        <Radio className={`h-4 w-4 ${session ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                        <Radio className={`h-4 w-4 ${session ? "text-success" : 'text-muted-foreground'}`} />
                       </div>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-foreground">
@@ -300,10 +293,10 @@ export default function BrokerConnections() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      
+
                       <Button
                         variant="outline"
-                        className="border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:text-indigo-800 dark:hover:text-indigo-200 hover:bg-indigo-950/30"
+                        className=""
                         onClick={() => {
                           setDetailsProvider(provider);
                           setDetailsModalOpen(true);
@@ -321,7 +314,7 @@ export default function BrokerConnections() {
                       {(!session || provider.session_expired) && (
                         <Button
                           variant="ghost"
-                          className="text-muted-foreground hover:text-foreground"
+                          className=""
                           onClick={() => connectBroker(provider)}
                           disabled={isBusy}
                         >
@@ -332,7 +325,7 @@ export default function BrokerConnections() {
 
                       <Button
                         variant="ghost"
-                        className="text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 ml-auto px-3"
+                        className="ml-auto px-3"
                         onClick={async () => {
                           const confirmed = await customConfirm(
                             `Disconnect ${provider.display_name}? Stop its live sessions, close positions and finish pending orders first.`,
@@ -358,21 +351,21 @@ export default function BrokerConnections() {
       </section>
 
       {/* Available Brokers Section */}
-      <section className="space-y-4">
+      <section className="space-y-3">
         <h2 className="text-lg font-medium text-foreground flex items-center gap-2">
           <Building2 className="h-4 w-4" />
           Available Brokers
         </h2>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {availableBrokers.map((provider) => {
             const isBusy = busyBroker === provider.broker_name;
             const canConnect = provider.enabled && Boolean(brokerSetupDialogs[provider.broker_name]);
-            
+
             return (
-              <div 
+              <div
                 key={provider.broker_name}
-                className="group relative flex items-center gap-4 rounded-xl border border-border bg-card/40 p-4 transition-all hover:bg-secondary/40 hover:border-border"
+                className="group relative flex items-center gap-3 rounded-xl border border-border bg-card/40 p-3 transition-all hover:bg-secondary/40 hover:border-border"
               >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/50 text-xs font-bold text-foreground shadow-sm transition-colors group-hover:bg-muted/50 group-hover:text-foreground">
                   {provider.logo_text}
@@ -385,13 +378,13 @@ export default function BrokerConnections() {
                     {canConnect ? provider.configured ? "Credentials saved · ready to connect" : "Set up your connection" : "Coming Soon"}
                   </p>
                 </div>
-                
+
                 <div className="shrink-0">
                   {canConnect ? (
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="border-border h-8 px-3 text-xs hover:bg-secondary text-foreground"
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="px-3 text-xs"
                       onClick={() => connectBroker(provider)}
                       disabled={isBusy}
                     >

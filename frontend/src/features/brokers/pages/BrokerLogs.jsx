@@ -1,26 +1,24 @@
-import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
+import Pagination from "@/shared/components/Pagination";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import { usePagination, useQueryState } from "@/shared/hooks/usePagination";
+import RefreshButton from "@/shared/components/RefreshButton";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { formatDateTime } from "@/shared/utils/formatters";
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/shared/components/ui/table";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
-import { 
-  RefreshCw, 
-  Search, 
-  Eye, 
-  ChevronLeft, 
-  ChevronRight,
-  FilterX
-} from "lucide-react";
+import { Search, Eye, FilterX } from "lucide-react";
 import { brokersApi } from "@/shared/services/brokersApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import LogDetailsModal from "@/features/brokers/components/LogDetailsModal.jsx";
@@ -29,82 +27,87 @@ export default function BrokerLogs() {
   const { notify } = useNotifications();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [error, setError] = useState("");
+
   const [totalCount, setTotalCount] = useState(0);
+  const [loadingLog, setLoadingLog] = useState(false);
   const [selectedLog, setSelectedLog] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // Filters
-  const [endpointFilter, setEndpointFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
 
+  // Filters
+  const [endpointFilter, setEndpointFilter] = useQueryState("endpoint", "", { namespace: "", replace: true });
+  const [statusFilter, setStatusFilter] = useQueryState("status_code", "", { namespace: "", replace: false });
+
+  const { page, pageSize, setPage, setPageSize, accept, resetFilters } = usePagination(JSON.stringify([endpointFilter, statusFilter]));
+  const request = useRef(0);
   const fetchLogs = useCallback(async (pageNum = 1) => {
+    const generation = ++request.current;
+    setError("");
     try {
       setLoading(true);
       const params = {
         page: pageNum,
+        page_size: pageSize,
         endpoint: endpointFilter,
         status_code: statusFilter,
       };
-      
+
       const response = await brokersApi.getLogs(params);
-      if (response.data.results) {
-        setLogs(response.data.results);
-        setTotalCount(response.data.count);
-      } else {
-        setLogs(response.data);
-        setTotalCount(response.data.length);
-      }
+      if (generation !== request.current) return;
+      setLogs(response.data.results);
+      setTotalCount(response.data.count);
+      accept(response.data);
     } catch (error) {
-      notify.error("Failed to load broker logs");
+      if (generation === request.current) setError(getApiErrorMessage(error, "Failed to load broker logs"));
     } finally {
-      setLoading(false);
+      if (generation === request.current) setLoading(false);
     }
-  }, [endpointFilter, statusFilter, notify]);
+  }, [endpointFilter, statusFilter, pageSize, accept]);
 
   useEffect(() => {
     fetchLogs(page);
   }, [page, fetchLogs]);
 
-  const handleRefresh = useCallback(() => {
-    if (page === 1) fetchLogs(1);
-    else setPage(1);
-  }, [page, fetchLogs]);
+  const handleRefresh = useCallback(() => fetchLogs(page), [page, fetchLogs]);
 
-  const clearFilters = () => {
-    setEndpointFilter("");
-    setStatusFilter("");
-    setPage(1);
+  const openLog = async log => {
+    if (loadingLog) return;
+    setLoadingLog(true);
+    try {
+      const response = await brokersApi.getLog(log.id);
+      setSelectedLog(response.data); setIsModalOpen(true);
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Could not load log details.')); }
+    finally { setLoadingLog(false); }
   };
 
+  const clearFilters = () => resetFilters(['endpoint', 'status_code']);
+
   const getStatusColor = (code) => {
-    if (code >= 200 && code < 300) return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20";
-    if (code >= 400 && code < 500) return "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20";
-    return "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20";
+    if (code >= 200 && code < 300) return "bg-success/10 text-success border-success/20";
+    if (code >= 400 && code < 500) return "bg-warning/10 text-warning border-warning/20";
+    return "bg-loss/10 text-loss border-loss/20";
   };
 
   const pageActions = useMemo(
     () => (
-      <Button variant="outline" onClick={handleRefresh} disabled={loading} className="border-border text-foreground">
-        {loading ? <LoaderMark className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-        Refresh
-      </Button>
+      <RefreshButton onClick={handleRefresh} label="Refresh broker logs" disabled={loading} loading={loading} />
     ),
     [handleRefresh, loading]
   );
 
   useSetPageActions(pageActions);
 
-  const totalPages = Math.ceil(totalCount / 50);
 
+
+  if (error) return <div className="page-content"><WorkspaceState error={error} onRetry={handleRefresh} /></div>;
   return (
-    <div className="container-padding py-4 lg:py-6 space-y-6">
+    <div className="page-content">
       {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-4 bg-card/40 p-3 rounded-2xl border border-border">
-        <div className="relative flex-1 min-w-[240px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-0 basis-60">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Filter by endpoint (e.g. funds, profile)..." 
+          <Input
+            placeholder="Filter by endpoint (e.g. funds, profile)..."
             value={endpointFilter}
             onChange={(e) => {
               setEndpointFilter(e.target.value);
@@ -114,8 +117,8 @@ export default function BrokerLogs() {
           />
         </div>
         <div className="w-[140px]">
-          <Input 
-            placeholder="Status (200)" 
+          <Input
+            placeholder="Status (200)"
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
@@ -125,7 +128,7 @@ export default function BrokerLogs() {
           />
         </div>
         {(endpointFilter || statusFilter) && (
-          <Button variant="ghost" onClick={clearFilters} className="text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" onClick={clearFilters} className="">
             <FilterX className="h-4 w-4 mr-2" />
             Clear
           </Button>
@@ -166,7 +169,7 @@ export default function BrokerLogs() {
                   <TableCell className="text-foreground font-medium">
                     {log.broker_name}
                   </TableCell>
-                  <TableCell className="text-cyan-700 dark:text-cyan-300/90 font-mono text-xs">
+                  <TableCell className="text-brand font-mono text-xs">
                     {log.endpoint}
                   </TableCell>
                   <TableCell>
@@ -174,18 +177,15 @@ export default function BrokerLogs() {
                       {log.status_code}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right font-mono text-amber-700 dark:text-amber-300/80">
+                  <TableCell className="text-right font-mono text-warning">
                     {log.latency_ms}ms
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => {
-                        setSelectedLog(log);
-                        setIsModalOpen(true);
-                      }}
-                      className="h-8 w-8 p-0 hover:bg-cyan-500/10 hover:text-cyan-800 dark:hover:text-cyan-300"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openLog(log)} disabled={loadingLog}
+                      className="w-8 p-0"
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
@@ -197,46 +197,12 @@ export default function BrokerLogs() {
         </Table>
       </div>
 
-      {/* Pagination */}
-      {totalCount > 50 && (
-        <div className="flex items-center justify-between px-2">
-          <div className="text-sm text-muted-foreground">
-            Showing {(page - 1) * 50 + 1} to {Math.min(page * 50, totalCount)} of {totalCount} logs
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1 || loading}
-              onClick={() => setPage(page - 1)}
-              className="border-border bg-card/50 text-foreground"
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Previous
-            </Button>
-            <div className="flex items-center gap-1">
-              <span className="text-sm text-muted-foreground px-2">
-                Page {page} of {totalPages}
-              </span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage(page + 1)}
-              className="border-border bg-card/50 text-foreground"
-            >
-              Next
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} pageSize={pageSize} count={totalCount} loading={loading} onPageChange={setPage} onPageSizeChange={setPageSize} label="Broker log pages" />
 
-      <LogDetailsModal 
-        log={selectedLog} 
-        open={isModalOpen} 
-        onOpenChange={setIsModalOpen} 
+      <LogDetailsModal
+        log={selectedLog}
+        open={isModalOpen}
+        onOpenChange={setIsModalOpen}
       />
     </div>
   );

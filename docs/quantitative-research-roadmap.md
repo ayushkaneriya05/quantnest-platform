@@ -65,7 +65,7 @@ The following observations come from the current checkout. They are not a new ce
 | [Monte Carlo](../backend/backtesting/monte_carlo.py) | Resampling recorded net trade P&Ls with replacement | Clearly distinguish trade resampling from dependence-aware return-path analysis |
 | [Execution analytics](../backend/analytics/services.py) | Reports derived from source-specific trading records | Comparable gross/net bases, exposure analysis and execution shortfall |
 | [Research tools](../backend/research/tool_registry.py) | Registry of deterministic tools, evidence references, owned context and confirmed actions | Expose validated quantitative reports through the same registry |
-| [Strategies](../backend/strategies/) and [rules](../backend/rules_engine/) | Saved definitions, versions, conditions and sizing | Research hypotheses, pinned experiments and later model-based conditions |
+| [Strategies](../backend/strategies/) and [expressions](../backend/execution/expressions.py) | Saved definitions, versions, conditions and sizing | Research hypotheses, pinned experiments and later model-based conditions |
 | Paper, Live and Terminal | Existing account/order/position lifecycle and user interfaces | Surface new analytics without creating another trading ledger |
 
 ### 2.1 Important limits of the existing foundation

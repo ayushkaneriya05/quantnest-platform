@@ -79,32 +79,32 @@ export default function PaperWallet() {
     );
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border-indigo-800/50">
-          <CardContent className="pt-6">
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Card>
+          <CardContent className="pt-4">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-indigo-700 dark:text-indigo-300 text-sm font-medium">
+                <p className="text-brand text-sm font-medium">
                   Virtual Balance
                 </p>
                 <h3 className="text-3xl font-black text-foreground mt-1">
-                  {formatCurrency(Number(portfolio?.current_capital || 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {formatCurrency(Number(portfolio?.current_capital || 0))}
                 </h3>
-                <p className="text-xs text-indigo-700 dark:text-indigo-400/80 mt-2 flex items-center gap-1">
+                <p className="text-xs text-brand mt-2 flex items-center gap-1">
                   <ShieldCheck className="h-3 w-3" />
                   Available for strategy allocation
                 </p>
               </div>
-              <div className="p-3 bg-indigo-500/20 rounded-2xl">
-                <DollarSign className="h-6 w-6 text-indigo-700 dark:text-indigo-400" />
+              <div className="p-3 bg-brand/20 rounded-2xl">
+                <DollarSign className="h-6 w-6 text-brand" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-card/40 border-border">
-          <CardContent className="pt-6 space-y-4">
+          <CardContent className="pt-4 space-y-3">
             <div className="space-y-2">
               <label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
                 Adjust Paper Funds
@@ -120,18 +120,18 @@ export default function PaperWallet() {
                   disabled={saving}
                   className="bg-secondary border-border text-foreground"
                 />
-                <Button
+                <Button variant="success"
                   onClick={() => handleAction("DEPOSIT")}
                   disabled={saving}
-                  className="text-white bg-emerald-700 hover:bg-emerald-800 shrink-0"
+                  className="shrink-0"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
                 <Button
                   onClick={() => handleAction("WITHDRAW")}
                   disabled={saving}
-                  variant="outline"
-                  className="border-rose-800 text-rose-700 dark:text-rose-400 hover:bg-rose-500/10 shrink-0"
+                  variant="destructive-outline"
+                  className="shrink-0"
                 >
                   <Minus className="h-4 w-4" />
                 </Button>
@@ -144,26 +144,26 @@ export default function PaperWallet() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 flex items-center gap-4">
-          <div className="p-2 bg-emerald-500/10 rounded-lg">
-            <TrendingUp className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="p-3 rounded-2xl bg-success/5 border border-success/10 flex items-center gap-3">
+          <div className="p-2 bg-success/10 rounded-lg">
+            <TrendingUp className="h-5 w-5 text-success" />
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Realized P&amp;L</p>
-            <p className={`text-sm font-bold ${Number(portfolio?.realized_pnl || 0) >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}>
+            <p className={`text-sm font-bold ${Number(portfolio?.realized_pnl || 0) >= 0 ? "text-success" : "text-loss"}`}>
               {formatCurrency(portfolio?.realized_pnl)}
             </p>
           </div>
         </div>
-        <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/10 flex items-center gap-4">
-          <div className="p-2 bg-rose-500/10 rounded-lg">
-            <TrendingDown className="h-5 w-5 text-rose-700 dark:text-rose-400" />
+        <div className="p-3 rounded-2xl bg-loss/5 border border-loss/10 flex items-center gap-3">
+          <div className="p-2 bg-loss/10 rounded-lg">
+            <TrendingDown className="h-5 w-5 text-loss" />
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Total Capital Allocated</p>
-            <p className="text-sm font-bold text-indigo-700 dark:text-indigo-400">
-              {formatCurrency(Number(portfolio?.allocated_capital || 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <p className="text-sm font-bold text-brand">
+              {formatCurrency(Number(portfolio?.allocated_capital || 0))}
             </p>
           </div>
         </div>

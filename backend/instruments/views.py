@@ -5,8 +5,8 @@ from rest_framework import viewsets, permissions, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from datetime import date
-from .models import Instrument, WatchlistInstrument, ExecutionRoute
-from .serializers import InstrumentSerializer, WatchlistInstrumentSerializer, ExecutionRouteSerializer
+from .models import Instrument
+from .serializers import InstrumentSerializer
 
 
 class InstrumentViewSet(viewsets.ReadOnlyModelViewSet):
@@ -18,6 +18,34 @@ class InstrumentViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ['symbol', 'name', 'sym_ticker']
     ordering_fields = ['symbol', 'lot_size']
     ordering = ['symbol']
+
+    @action(detail=False, methods=['post'], url_path='selection-preview')
+    def selection_preview(self, request):
+        """Explain current policy resolution, without placing or reserving an order."""
+        from decimal import Decimal
+        from django.shortcuts import get_object_or_404
+        from django.utils import timezone
+        from rest_framework import serializers
+        from marketdata.calendar import MarketSessionCalendar
+        from marketdata.quotes import read_quote
+        from .selection import SelectionPolicy, prepare_current_selector
+        if not isinstance(request.data, dict) or set(request.data) != {'underlying_id', 'policy'}:
+            raise serializers.ValidationError('Provide underlying_id and policy.')
+        identity = serializers.IntegerField(min_value=1).run_validation(request.data['underlying_id'])
+        underlying = get_object_or_404(Instrument, pk=identity, is_active=True)
+        try:
+            policy = SelectionPolicy.parse(request.data['policy'])
+            selector, contracts = prepare_current_selector(underlying, policy)
+            quote = read_quote(underlying.sym_ticker)
+            price = Decimal(str(quote['price'])) if quote['available'] and quote['price'] is not None else Decimal(0)
+            calendar = MarketSessionCalendar.for_instrument(underlying)
+            selected = selector.select(price, timezone.now().astimezone(calendar.zone).date())
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from None
+        return Response({'instrument': self.get_serializer(contracts[selected.instrument_id]).data,
+            'underlying_quote': quote, 'catalog_contracts': len(contracts),
+            'expiries': selector.expiries,
+            'note': 'Execution selects from prepared contracts and retains the chosen contract until orders and positions settle.'})
     
     @action(detail=False, methods=['get'])
     def search(self, request):
@@ -77,34 +105,3 @@ class InstrumentViewSet(viewsets.ReadOnlyModelViewSet):
             serializer = self.get_serializer(qs[:20], many=True)
             
         return Response(serializer.data)
-
-
-class WatchlistInstrumentViewSet(viewsets.ModelViewSet):
-    """ViewSet for strategy watchlists."""
-    serializer_class = WatchlistInstrumentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        qs = WatchlistInstrument.objects.filter(
-            strategy__user=self.request.user
-        ).select_related('instrument').prefetch_related('execution_routes')
-        strategy_id = self.request.query_params.get('strategy')
-        if strategy_id:
-            qs = qs.filter(strategy_id=strategy_id)
-        return qs
-
-
-class ExecutionRouteViewSet(viewsets.ModelViewSet):
-    """ViewSet for execution route overrides on watchlist instruments."""
-    serializer_class = ExecutionRouteSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        qs = ExecutionRoute.objects.filter(
-            watchlist_instrument__strategy__user=self.request.user
-        )
-        wi_id = self.request.query_params.get('watchlist_instrument')
-        if wi_id:
-            qs = qs.filter(watchlist_instrument_id=wi_id)
-        return qs
-

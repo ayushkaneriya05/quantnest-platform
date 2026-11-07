@@ -1,5 +1,5 @@
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
-import { formatCurrency } from "@/shared/utils/formatters";
+import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { useState, useEffect, useMemo } from "react";
 import {
@@ -160,7 +160,7 @@ export default function BrokerChargeProfiles() {
   };
 
   const pageActions = useMemo(() => (
-    <Button onClick={() => handleOpenModal()} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+    <Button variant="default" onClick={() => handleOpenModal()} >
       <Plus className="h-4 w-4 mr-2" /> New Profile
     </Button>
   ), []);
@@ -170,11 +170,11 @@ export default function BrokerChargeProfiles() {
   if (loading) return <GlobalLoader />;
 
   return (
-    <div className="container-padding py-6 lg:py-8 space-y-6">
+    <div className="page-content">
       <p className="text-sm text-muted-foreground">
         Your default profile can be edited. To delete it, first set another profile as default.
       </p>
-      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         {profiles.map(profile => (
           <Card key={profile.id} className="bg-card/60 border-border">
             <CardHeader className="pb-3 border-b border-border">
@@ -182,59 +182,59 @@ export default function BrokerChargeProfiles() {
                 <CardTitle className="text-lg text-foreground font-medium flex items-center gap-2">
                   {profile.name}
                   {profile.is_default && (
-                    <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20">
+                    <Badge className="bg-success/10 text-success border-success/20">
                       Default
                     </Badge>
                   )}
                 </CardTitle>
                 <div className="flex gap-2">
-                  <Button variant="ghost" size="icon" onClick={() => handleOpenModal(profile)} className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                  <Button variant="ghost" size="icon" onClick={() => handleOpenModal(profile)} className="w-8">
                     <Edit2 className="h-4 w-4" />
                   </Button>
                   {!profile.is_default && (
-                    <Button variant="ghost" size="icon" aria-label={`Delete ${profile.name}`} onClick={() => handleDelete(profile.id)} className="h-8 w-8 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300">
+                    <Button variant="ghost" size="icon" aria-label={`Delete ${profile.name}`} onClick={() => handleDelete(profile.id)} className="w-8">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   )}
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-4 space-y-4 text-sm">
+            <CardContent className="pt-4 space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-y-2 text-foreground">
                 <div className="text-muted-foreground">Brokerage</div>
                 <div className="font-mono text-right">
-                  {profile.brokerage_pct}% or {formatCurrency(profile.brokerage_per_order)} (Cap: {formatCurrency(profile.brokerage_cap || 0)})
+                  {formatNumber(profile.brokerage_pct, { maximumFractionDigits: 8 })}% or {formatCurrency(profile.brokerage_per_order)} (Cap: {formatCurrency(profile.brokerage_cap || 0)})
                 </div>
 
                 <div className="text-muted-foreground">STT (Eq Del | Intraday)</div>
-                <div className="font-mono text-right">{profile.stt_eq_delivery_pct || 0}% | {profile.stt_eq_intraday_pct || 0}%</div>
+                <div className="font-mono text-right">{formatNumber(profile.stt_eq_delivery_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.stt_eq_intraday_pct, { maximumFractionDigits: 8 })}%</div>
 
                 <div className="text-muted-foreground">STT (Fut | Opt)</div>
-                <div className="font-mono text-right">{profile.stt_futures_pct || 0}% | {profile.stt_options_sell_pct || 0}%</div>
+                <div className="font-mono text-right">{formatNumber(profile.stt_futures_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.stt_options_sell_pct, { maximumFractionDigits: 8 })}%</div>
 
                 <div className="text-muted-foreground">CTT (Fut | Opt)</div>
-                <div className="font-mono text-right">{profile.ctt_futures_sell_pct}% | {profile.ctt_options_sell_pct}%</div>
+                <div className="font-mono text-right">{formatNumber(profile.ctt_futures_sell_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.ctt_options_sell_pct, { maximumFractionDigits: 8 })}%</div>
 
                 <div className="text-muted-foreground">Exchange Txn (Eq | F&O)</div>
-                <div className="font-mono text-right">{profile.exchange_txn_pct || 0}% | {profile.exchange_txn_fo_pct || 0}%</div>
+                <div className="font-mono text-right">{formatNumber(profile.exchange_txn_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.exchange_txn_fo_pct, { maximumFractionDigits: 8 })}%</div>
 
                 <div className="text-muted-foreground">SEBI</div>
-                <div className="font-mono text-right">{profile.sebi_turnover_pct}%</div>
+                <div className="font-mono text-right">{formatNumber(profile.sebi_turnover_pct, { maximumFractionDigits: 8 })}%</div>
 
                 <div className="text-muted-foreground">Stamp Duty</div>
-                <div className="font-mono text-right">{profile.stamp_duty_pct}%</div>
+                <div className="font-mono text-right">{formatNumber(profile.stamp_duty_pct, { maximumFractionDigits: 8 })}%</div>
 
                 <div className="text-muted-foreground">GST</div>
-                <div className="font-mono text-right">{profile.gst_pct}%</div>
+                <div className="font-mono text-right">{formatNumber(profile.gst_pct, { maximumFractionDigits: 8 })}%</div>
               </div>
 
               {!profile.is_default && (
                 <Button
                   variant="outline"
-                  className="w-full border-border text-foreground hover:bg-secondary"
+                  className="w-full"
                   onClick={() => handleSetDefault(profile.id)}
                 >
-                  <CheckCircle2 className="h-4 w-4 mr-2 text-emerald-700 dark:text-emerald-400" />
+                  <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
                   Set as Default
                 </Button>
               )}
@@ -248,7 +248,7 @@ export default function BrokerChargeProfiles() {
           <DialogHeader>
             <DialogTitle>{editingProfile ? "Edit Profile" : "Create Profile"}</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="grid gap-3 py-3">
             <div className="space-y-2">
               <Label>Profile Name</Label>
               <Input
@@ -258,7 +258,7 @@ export default function BrokerChargeProfiles() {
                 placeholder="e.g. Zerodha F&O"
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Brokerage Flat (₹/order)</Label>
                 <Input
@@ -391,10 +391,10 @@ export default function BrokerChargeProfiles() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="border-border text-foreground">
+            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="">
               Cancel
             </Button>
-            <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+            <Button variant="default" onClick={handleSave} >
               Save Profile
             </Button>
           </DialogFooter>

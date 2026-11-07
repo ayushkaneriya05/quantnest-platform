@@ -11,6 +11,7 @@ import struct
 import tempfile
 import threading
 import time
+from math import isfinite
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,10 +130,10 @@ class SharedMemoryManager:
             raise ValueError("Only the minute observation buffer accepts ticks.")
         price, volume = float(price), float(volume)
         event_time = float(timestamp if timestamp is not None else time.time())
-        if not np.isfinite([price, volume, event_time]).all() or price <= 0 or volume < 0 or event_time <= 0:
+        if not all(isfinite(value) for value in (price, volume, event_time)) or price <= 0 or volume < 0 or event_time <= 0:
             raise ValueError("Invalid normalized market tick")
         received = float(received_time if received_time is not None else time.time())
-        if not np.isfinite(received) or received <= 0 or received > time.time() + 1 or event_time > received + 1:
+        if not isfinite(received) or received <= 0 or received > time.time() + 1 or event_time > received + 1:
             raise ValueError("Invalid market receipt timestamp")
         candle_time = int(event_time // 60) * 60
         with self._locked():
@@ -163,8 +164,10 @@ class SharedMemoryManager:
         with self._locked(shared=True):
             count = self.max_size if lookback is None else min(self.max_size, max(0, int(lookback)))
             index = int(self.meta_array[0])
-            indices = (np.arange(index - count + 1, index + 1) % self.max_size).astype(int)
-            return self.array[indices].copy()
+            indices = np.arange(index - count + 1, index + 1, dtype=np.intp) % self.max_size
+            # Advanced indexing already owns its result; readers cannot mutate
+            # the mapping and a second copy only adds allocation/memory traffic.
+            return self.array[indices]
 
     def snapshot(self, lookback: int) -> MarketSnapshot:
         """Warmup candles and their observation cursor must describe one publication."""
@@ -181,7 +184,7 @@ class SharedMemoryManager:
             first = max(oldest, after_sequence + 1) if after_sequence <= latest else oldest
             end = min(latest + 1, first + limit)
             indices = (np.arange(first, end, dtype=np.int64) - 1) % self.tick_capacity
-            return self.ticks[indices].copy(), lost, int(self.meta_array[4]), int(self.meta_array[5])
+            return self.ticks[indices], lost, int(self.meta_array[4]), int(self.meta_array[5])
 
     def get_latest_price(self):
         """Read the latest observation since connection, never a warmup candle."""

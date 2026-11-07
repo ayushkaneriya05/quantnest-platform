@@ -11,7 +11,7 @@ from django.db import transaction
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
-from common.enums import ExecutionMode, OrderStatus, Side, TerminalOrderStatus, TerminalOrderType
+from common.enums import ExecutionMode, InstrumentType, OrderStatus, Side, TerminalOrderStatus, TerminalOrderType
 
 from .models import AccountCheckpoint, Command
 from .snapshots import decode, encode
@@ -21,6 +21,26 @@ TERMINAL_STATUS = {OrderStatus.PENDING: TerminalOrderStatus.OPEN, OrderStatus.PL
     OrderStatus.PARTIAL_FILL: TerminalOrderStatus.OPEN, OrderStatus.FILLED: TerminalOrderStatus.COMPLETE,
     OrderStatus.CANCELLED: TerminalOrderStatus.CANCELLED, OrderStatus.REJECTED: TerminalOrderStatus.REJECTED,
     OrderStatus.EXPIRED: TerminalOrderStatus.CANCELLED}
+
+
+def terminal_account_values(state: Account) -> dict:
+    """Convert settled equity to the Terminal's cash and collateral read model.
+
+    Futures exchange margin without buying notional. Other longs use cash;
+    shorts retain both their sale proceeds and their configured collateral.
+    Fills, configuration changes and settlements must use this same conversion.
+    """
+    cash, collateral = state.balance, ZERO
+    for position in state.positions.values():
+        if position.contract.instrument_type == InstrumentType.FUTURE:
+            collateral += position.margin
+        else:
+            notional = position.contract.value(position.average, position.quantity)
+            cash -= notional
+            if position.quantity < 0:
+                collateral += position.margin - notional
+    return {'balance': cash, 'margin': collateral,
+            'realized_pnl': state.realized, 'charges_paid': state.charges_paid}
 
 
 def enqueue(mode: str, account_id: int, kind: str, payload: dict, *, request_id=None) -> Command:
@@ -39,7 +59,7 @@ def reject_command(command, error):
         return
     command.error, command.applied_at = error, timezone.now()
     command.save(update_fields=['error', 'applied_at'])
-    if command.mode == ExecutionMode.TERMINAL and command.kind in (ExecutionCommandType.ORDER, ExecutionCommandType.SETTLE):
+    if command.mode == ExecutionMode.TERMINAL and command.kind == ExecutionCommandType.ORDER:
         from trading.models import Order
         from trading.signals import order_status_changed
         order = Order.objects.filter(request_id=command.request_id).first()
@@ -93,9 +113,9 @@ def persist_evaluations(messages):
     # Recovery fences these records by the committed position revision/version.
     # A newer evaluator checkpoint cannot invent an uncommitted position.
     EvaluationCheckpoint.objects.bulk_create([EvaluationCheckpoint(mode=message.unit[0],
-        session_id=message.unit[1], instrument_id=message.unit[2], version_id=message.version,
+        session_id=message.unit[1], route_id=message.unit[2], leg_id=message.unit[3], version_id=message.version,
         position_revision=message.position_revision, state=encode(message.state)) for message in messages],
-        update_conflicts=True, unique_fields=['mode', 'session_id', 'instrument_id'],
+        update_conflicts=True, unique_fields=['mode', 'session_id', 'route_id', 'leg_id'],
         update_fields=['version_id', 'position_revision', 'state', 'updated_at'], batch_size=500)
 
 
@@ -104,26 +124,29 @@ def _paper(result: Transition, state: Account):
     session = PaperTradingSession.objects.get(pk=result.order.unit[1])
     order, position, trade = result.order, result.position, result.trade
     defaults = {
+        'route_id': order.unit[2], 'leg_id': order.unit[3],
         'account_id': state.key[1], 'strategy_id': session.strategy_id,
         'instrument_id': order.contract.instrument_id, 'reason': order.reason[:255],
         'order_type': order.order_type, 'product_type': order.contract.product, 'side': order.side,
         'quantity': order.quantity, 'price': order.price or order.reference_price, 'trigger_price': order.trigger,
         'filled_quantity': order.filled, 'avg_fill_price': order.filled_value/order.filled if order.filled else None,
         'slippage_pct_applied': order.slippage_pct, 'status': order.status, 'rejection_reason': order.error,
-        'order_tag': order.intent}
+        'order_tag': order.intent, 'reserved_capital': order.reserved}
     if result.fill is not None:
         defaults['executed_at'] = result.fill.at
     record, _ = PaperOrder.objects.update_or_create(request_id=order.identity, defaults=defaults)
-    owned = PaperPosition.objects.filter(account_id=state.key[1], instrument_id=order.contract.instrument_id)
+    owner_key = dict(account_id=state.key[1], route_id=order.unit[2], leg_id=order.unit[3])
+    owned = PaperPosition.objects.filter(**owner_key)
     if result.fill is not None:
         if position is None:
             owned.delete()
         else:
-            record_position, _ = PaperPosition.objects.update_or_create(account_id=state.key[1],
-                instrument_id=order.contract.instrument_id, defaults={'strategy_id': session.strategy_id,
+            record_position, _ = PaperPosition.objects.update_or_create(**owner_key,
+                defaults={'instrument_id': order.contract.instrument_id, 'strategy_id': session.strategy_id,
                 'side': Side.BUY if position.quantity > 0 else Side.SELL, 'quantity': abs(position.quantity),
                 'avg_price': position.average, 'current_price': result.fill.price,
-                'margin_blocked': position.margin, 'unrealized_pnl': ZERO})
+                'margin_blocked': position.margin, 'settled_pnl': position.settled_pnl,
+                'unrealized_pnl': position.unsettled_pnl(result.fill.price)})
             # auto_now_add must not replace the actual execution timestamp.
             owned.filter(pk=record_position.pk).update(opened_at=position.opened_at)
     if trade is not None:
@@ -131,10 +154,11 @@ def _paper(result: Transition, state: Account):
         brokerage = sum((Decimal(str(trade.charges.get(leg, {}).get('brokerage', 0)))
                          for leg in ('entry_charges', 'exit_charges')), ZERO)
         PaperTrade.objects.create(account_id=state.key[1], strategy_id=session.strategy_id,
+            route_id=trade.unit[2], leg_id=trade.unit[3],
             instrument_id=trade.contract.instrument_id, side=trade.side, quantity=trade.quantity,
             entry_price=trade.entry_price, entry_time=trade.entry_time, exit_price=trade.exit_price,
             exit_time=trade.exit_time, exit_order=record, exit_reason=trade.reason,
-            gross_pnl=trade.gross, net_pnl=trade.net, charges_json=trade.charges,
+            gross_pnl=trade.gross, net_pnl=trade.net, settled_pnl=trade.settled_pnl, charges_json=trade.charges,
             brokerage=brokerage, taxes=fees-brokerage,
             pnl_pct=100*trade.net/trade.contract.value(trade.entry_price, trade.quantity),
             holding_duration_seconds=max(int((trade.exit_time-trade.entry_time).total_seconds()), 0))
@@ -149,13 +173,15 @@ def _live(result: Transition, state: Account):
     ownership = dict(user_id=session.user_id, strategy_id=session.strategy_id,
         allocation_id=session.allocation_id, broker_credential_id=state.key[1])
     defaults = {**ownership, 'session_id': session.pk, 'instrument_id': order.contract.instrument_id,
+        'route_id': order.unit[2], 'leg_id': order.unit[3],
         'broker_order_id': order.broker_id, 'exchange_order_id': order.exchange_order_id,
         'broker_ordered_at': order.broker_ordered_at, 'broker_updated_at': order.broker_updated_at,
         'reason': order.reason[:255], 'order_type': order.order_type, 'product_type': order.contract.product,
         'side': order.side, 'quantity': order.quantity, 'price': order.price or order.reference_price,
         'filled_quantity': order.filled, 'pending_quantity': order.remaining if order.status in
             (OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL, 'UNKNOWN') else 0,
-        'filled_value': order.filled_value, 'avg_fill_price': order.filled_value/order.filled if order.filled else None,
+        'filled_value': order.filled_value, 'reserved_capital': order.reserved,
+        'avg_fill_price': order.filled_value/order.filled if order.filled else None,
         'strategy_version_id': order.version, 'intent': order.intent, 'status': order.status,
         'rejection_reason': order.error}
     if result.fill is not None:
@@ -174,19 +200,22 @@ def _live(result: Transition, state: Account):
             'expected_price': order.reference_price, 'actual_price': average,
             'slippage_pct': adverse / order.reference_price * 100,
             'slippage_amount': order.contract.value(adverse, order.filled)})
-    owned = LivePosition.objects.filter(allocation_id=session.allocation_id,
-                                        instrument_id=order.contract.instrument_id)
+    owner_key = dict(allocation_id=session.allocation_id, route_id=order.unit[2], leg_id=order.unit[3])
+    owned = LivePosition.objects.filter(**owner_key)
     if result.fill is not None:
         if position is None:
             owned.delete()
         else:
-            row, _ = LivePosition.objects.update_or_create(allocation_id=session.allocation_id,
-                instrument_id=order.contract.instrument_id, defaults={**ownership, 'product_type': order.contract.product,
+            row, _ = LivePosition.objects.update_or_create(**owner_key,
+                defaults={**ownership, 'instrument_id': order.contract.instrument_id, 'product_type': order.contract.product,
                 'side': Side.BUY if position.quantity > 0 else Side.SELL, 'quantity': abs(position.quantity),
-                'avg_price': position.average, 'current_price': result.fill.price, 'unrealized_pnl': ZERO})
+                'avg_price': position.average, 'current_price': result.fill.price,
+                'margin_blocked': position.margin, 'settled_pnl': position.settled_pnl,
+                'unrealized_pnl': position.unsettled_pnl(result.fill.price)})
             owned.filter(pk=row.pk).update(opened_at=position.opened_at)
     if trade is not None:
         LiveTrade.objects.create(**ownership, instrument_id=trade.contract.instrument_id, exit_order=record,
+            route_id=trade.unit[2], leg_id=trade.unit[3],
             side=trade.side, quantity=trade.quantity, entry_price=trade.entry_price, entry_time=trade.entry_time,
             exit_price=trade.exit_price, exit_time=trade.exit_time, exit_reason=trade.reason,
             gross_pnl=trade.gross, realized_pnl=trade.net,
@@ -195,7 +224,7 @@ def _live(result: Transition, state: Account):
 
 
 def _terminal(result: Transition, state: Account):
-    from common.enums import OrderType, InstrumentType
+    from common.enums import OrderType
     from trading.models import Account as AccountRecord, Order, Position, TradeHistory, ClosedPositionLog
     order, position, trade = result.order, result.position, result.trade
     kind = TerminalOrderType.STOP if order.order_type == OrderType.STOP_MARKET else order.order_type
@@ -217,7 +246,7 @@ def _terminal(result: Transition, state: Account):
             owned.delete()
         else:
             row, _ = Position.objects.update_or_create(account_id=state.key[1], instrument_id=order.contract.instrument_id,
-                defaults={'quantity': position.quantity, 'average_price': position.average,
+                defaults={'quantity': position.quantity, 'average_price': position.average, 'settled_pnl': position.settled_pnl,
                 'stop_loss': position.stop_loss, 'take_profit': position.take_profit})
             owned.filter(pk=row.pk).update(created_at=position.opened_at)
         fees = Decimal(str(trade.charges.get('total_charges', 0))) if trade else ZERO
@@ -225,21 +254,14 @@ def _terminal(result: Transition, state: Account):
             quantity=result.fill.quantity, charges=fees, charges_breakdown=trade.charges if trade else {})
         TradeHistory.objects.filter(pk=history.pk).update(timestamp=result.fill.at)
     if trade is not None:
-        ClosedPositionLog.objects.create(account_id=state.key[1], instrument_id=order.contract.instrument_id,
+        closed = ClosedPositionLog.objects.create(account_id=state.key[1], instrument_id=order.contract.instrument_id,
             side='LONG' if trade.side == Side.BUY else 'SHORT', quantity=trade.quantity,
             entry_price=trade.entry_price, exit_price=trade.exit_price, realized_pnl=trade.net,
             gross_pnl=trade.gross, recorded_charges=Decimal(str(trade.charges.get('total_charges', 0))),
             exit_reason=trade.reason[:100], entry_time=trade.entry_time, exit_time=trade.exit_time)
-    # Existing Terminal API reports a cash balance. Convert the common owner's
-    # settled equity at this boundary; the kernel has just one balance meaning.
-    cash = state.balance - sum((p.contract.value(p.average, p.quantity) for p in state.positions.values()
-                               if p.contract.instrument_type != InstrumentType.FUTURE), ZERO)
-    collateral = sum((p.margin + p.contract.value(p.average, -p.quantity)
-        if p.quantity < 0 and p.contract.instrument_type != InstrumentType.FUTURE else
-        p.margin if p.contract.instrument_type == InstrumentType.FUTURE else ZERO
-        for p in state.positions.values()), ZERO)
-    AccountRecord.objects.filter(pk=state.key[1]).update(balance=cash, margin=collateral,
-        realized_pnl=state.realized, charges_paid=state.charges_paid)
+        # auto_now_add is the insertion clock; reports need the execution clock.
+        ClosedPositionLog.objects.filter(pk=closed.pk).update(exit_time=trade.exit_time)
+    AccountRecord.objects.filter(pk=state.key[1]).update(**terminal_account_values(state))
     from trading.signals import order_status_changed, position_changed
     order_status_changed.send(sender=Order, order=record)
     if result.fill is not None:
@@ -286,14 +308,10 @@ def persist_control(result):
                         **command.payload['allocation_changes'], is_over_allocated=False, breach_reason='', updated_at=timezone.now())
             elif 'terminal_changes' in command.payload:
                 from trading.models import Account as AccountRecord
-                from common.enums import InstrumentType
                 changes = dict(command.payload['terminal_changes'])
                 if 'charge_profile' in changes:
                     changes['charge_profile_id'] = changes.pop('charge_profile')
-                changes['margin'] = sum((p.margin + p.contract.value(p.average, -p.quantity)
-                    if p.quantity < 0 and p.contract.instrument_type != InstrumentType.FUTURE else
-                    p.margin if p.contract.instrument_type == InstrumentType.FUTURE else ZERO
-                    for p in state.positions.values()), ZERO)
+                changes['margin'] = terminal_account_values(state)['margin']
                 AccountRecord.objects.filter(pk=command.account_id).update(**changes)
                 from common.channels import publish_trading_update
                 from trading.serializers import AccountSerializer
@@ -303,12 +321,13 @@ def persist_control(result):
             from trading.models import Position
             from trading.serializers import PositionSerializer
             from trading.signals import position_changed
-            unit = tuple(command.payload['unit'])
+            from .types import terminal_key
+            unit = terminal_key(command.account_id, command.payload['instrument_id'])
             position = state.positions[unit]
-            Position.objects.filter(account_id=command.account_id, instrument_id=unit[2]).update(
+            Position.objects.filter(account_id=command.account_id, instrument_id=position.contract.instrument_id).update(
                 stop_loss=position.stop_loss, take_profit=position.take_profit)
             record = Position.objects.select_related('account', 'instrument').get(
-                account_id=command.account_id, instrument_id=unit[2])
+                account_id=command.account_id, instrument_id=position.contract.instrument_id)
             position_changed.send(sender=Position, user_id=record.account.user_id,
                                   position_data=PositionSerializer(record).data)
         elif command.kind == ExecutionCommandType.BALANCE and command.mode == ExecutionMode.PAPER:

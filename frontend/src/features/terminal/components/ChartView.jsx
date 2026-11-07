@@ -1,9 +1,10 @@
+import RefreshButton from "@/shared/components/RefreshButton";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import PropTypes from 'prop-types';
 import { useEnums } from '@/shared/context/EnumsContext';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CandlestickSeries, LineSeries, ColorType, TickMarkType, createChart } from 'lightweight-charts';
-import { RotateCw } from 'lucide-react';
+
 import { Button } from '@/shared/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import { useTheme } from '@/shared/context/theme';
@@ -38,7 +39,7 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
   const priceNode = useRef(null), older = useRef(null), navigating = useRef(false), fit = useRef(true);
   const { resolvedTheme } = useTheme();
   const onTick = useCallback((tick) => {
-    if (priceNode.current && tick.price) priceNode.current.textContent = formatNumber(tick.price, { maximumFractionDigits: 8 });
+    if (priceNode.current && tick.price) priceNode.current.textContent = formatNumber(tick.price);
   }, []);
   const onCandle = useCallback((candle) => {
     if (!chart.current) return;
@@ -60,7 +61,7 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
       layout: { background: { type: ColorType.Solid, color: palette.background }, textColor: palette.text, fontSize: 11 },
       grid: { vertLines: { color: palette.grid }, horzLines: { color: palette.grid } },
       timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 4, tickMarkFormatter: axisLabel },
-      localization: { locale: 'en-IN', timeFormatter: (value) => formatDateTime(chartDate(value)) },
+      localization: { locale: 'en-IN', priceFormatter: formatNumber, timeFormatter: (value) => formatDateTime(chartDate(value)) },
       rightPriceScale: { borderColor: palette.border, scaleMargins: { top: 0.08, bottom: 0.08 } },
     });
     chart.current = instance;
@@ -116,7 +117,7 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
       const added = rows.current.length - previousCount;
       chart.current.timeScale().setVisibleLogicalRange({ from: range.from + added, to: range.to + added });
     }
-    if (priceNode.current && priceNode.current.textContent === '—') priceNode.current.textContent = formatNumber(rows.current.at(-1).close, { maximumFractionDigits: 8 });
+    if (priceNode.current && priceNode.current.textContent === '—') priceNode.current.textContent = formatNumber(rows.current.at(-1).close);
   }, [data.historicalData, interval]);
 
   useEffect(() => {
@@ -151,17 +152,17 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
           <p className="mt-0.5 truncate text-xs text-muted-foreground">{instrument ? instrument.exchange + ' · ' + enums.InstrumentType.find((choice) => choice.value === instrument.instrument_type)?.label : 'Add an instrument to your watchlist'}</p></div>
         <div className="shrink-0 text-right"><strong ref={priceNode} className="text-lg leading-6 tabular-nums">—</strong>
           <p className="text-[11px] text-muted-foreground">{data.session?.is_open ? 'Session open' : 'Session closed'}</p></div>
-        <div className="flex shrink-0 flex-col gap-1 sm:flex-row xl:hidden"><Button className="h-7 bg-emerald-700 px-2 text-xs text-white hover:bg-emerald-800" size="sm" onClick={onBuyClick}>Buy</Button><Button className="h-7 px-2 text-xs" size="sm" variant="outline" onClick={onSellClick}>Sell</Button></div>
+        <div className="flex shrink-0 flex-col gap-1 sm:flex-row xl:hidden"><Button variant="success" className="px-2 text-xs" size="sm" onClick={onBuyClick}>Buy</Button><Button className="px-2 text-xs" size="sm" variant="outline" onClick={onSellClick}>Sell</Button></div>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Select value={interval} onValueChange={setInterval}><SelectTrigger aria-label="Chart timeframe" className="h-8 w-24"><SelectValue /></SelectTrigger>
+        <Select value={interval} onValueChange={setInterval}><SelectTrigger aria-label="Chart timeframe" className="w-24"><SelectValue /></SelectTrigger>
           <SelectContent>{enums.ChartTimeframe.map(({ value, label }) => <SelectItem key={value} value={value} title={label}>{value}</SelectItem>)}</SelectContent></Select>
-        <Select value={kind} onValueChange={setKind}><SelectTrigger aria-label="Chart type" className="h-8 w-36"><SelectValue /></SelectTrigger>
+        <Select value={kind} onValueChange={setKind}><SelectTrigger aria-label="Chart type" className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="candles">Candlesticks</SelectItem><SelectItem value="line">Line</SelectItem></SelectContent></Select>
         <div className="ml-auto hidden flex-wrap items-center gap-x-2 gap-y-1 text-[11px] tabular-nums text-muted-foreground sm:flex">
           {hover && ['open','high','low','close'].map((key) => <span key={key} className="inline-flex items-center gap-1 whitespace-nowrap">
             <strong className="font-bold text-primary">{key[0].toUpperCase()}</strong>
-            <span>{formatNumber(hover[key], { maximumFractionDigits: 8 })}</span>
+            <span>{formatNumber(hover[key])}</span>
           </span>)}
         </div>
       </div>
@@ -173,9 +174,9 @@ export default function ChartView({ symbol, instrument, onBuyClick, onSellClick,
     </div>
     <footer className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t px-3 py-1 text-[11px] text-muted-foreground">
       {data.fetchingHistory || data.isLoadingOlder ? <GlobalLoader inline text="Fetching provider history…" className="text-[11px]" /> : <><span className="hidden sm:inline">Scroll left for older history · IST</span><span className="sm:hidden">History · IST</span></>}
-      {symbol && <Button variant="ghost" size="sm" className="h-6 px-2" disabled={data.status === 'loading' || data.fetchingHistory || data.isLoadingOlder} onClick={data.loadOlder}>Older history</Button>}
+      {symbol && <Button variant="ghost" size="sm" className="px-2" disabled={data.status === 'loading' || data.fetchingHistory || data.isLoadingOlder} onClick={data.loadOlder}>Older history</Button>}
       {data.error && <span role="alert" className="min-w-0 flex-1 text-destructive">{data.error}</span>}
-      <Button variant="ghost" size="sm" className="ml-auto h-6 px-2" onClick={data.reload} aria-label="Reload chart"><RotateCw className="h-3 w-3" /></Button>
+      <RefreshButton onClick={data.reload} label="Reload chart" disabled={!symbol || data.isLoadingOlder} loading={data.status === 'loading' || data.fetchingHistory} className="ml-auto" />
     </footer>
   </section>;
 }

@@ -9,7 +9,8 @@ from itertools import groupby
 from math import isfinite
 
 import pandas as pd
-from common.enums import POSITION_OPERANDS, ExecutionMode, OperandType
+from common.enums import ExecutionMode, OperandType
+from strategies.specification.operands import operand_types
 from django.conf import settings
 from django.core.cache import caches
 from execution.compiler import FeatureGraph, Program, compile_strategy, source_windows
@@ -26,15 +27,26 @@ from .context import research_instrument_ids
 from .models import ACTIVE_RUN_STATUSES, ResearchRun
 from .validation import json_data
 
-SCREEN_OPERAND_TYPES = sorted(set(OperandType.values) - set(POSITION_OPERANDS) - {OperandType.LTP})
+SCREEN_OPERAND_TYPES = sorted(operand_types('screen'))
 cache = caches["research"]
 
 
 def compile_conditions(config: dict, calendar) -> Program:
     """Validate research inputs before requesting history; reuse its warmup plan."""
+    # Screening has a deliberately small comparison form. Lower it at the
+    # application boundary; the execution compiler accepts only expression trees.
+    groups = [{**group, 'condition': {
+        'op': 'all' if group['logical_operator'] == 'AND' else 'any',
+        'args': [{'op': 'compare', 'comparison': rule['comparison'], **{
+            name: {'op': 'input', 'type': rule[f'operand_{side}_type'],
+                   'params': rule.get(f'operand_{side}_params') or {},
+                   'timeframe': rule.get(f'operand_{side}_timeframe'), 'source': 'signal'}
+            for name, side in (('left', 'a'), ('right', 'b'))}}
+            for rule in group['rules']]}} for group in config['rule_groups']]
     program = compile_strategy(
         {
             **config,
+            "rule_groups": groups,
             "entry_order_config": {},
             "exit_order_config": {},
             "time_rule": {**config["time_rule"], "timezone": str(calendar.zone)},
@@ -63,7 +75,7 @@ def evaluate_conditions(program: Program, frames: dict, *, as_of) -> list[dict]:
         raise ValueError("Research requires at least two completed base candles.")
     graph = FeatureGraph(program.calendar, capacity=max(program.counts.values()) + 2)
     graph.register(program)
-    unit = EvaluationUnit((ExecutionMode.BACKTEST, 0, 0), (ExecutionMode.BACKTEST, 0), program)
+    unit = EvaluationUnit((ExecutionMode.BACKTEST, 0, 'research', 'primary'), (ExecutionMode.BACKTEST, 0), program)
 
     def completions(timeframe, frame):
         for row in frame.itertuples():
@@ -227,10 +239,10 @@ def market_rows(run, config, comparison=False, *, instrument_ids=None, charts=Fa
                     "coverage": quality,
                     "chart": [
                         {
-                            "time": stamp,
-                            **{key: _finite_number(value[key]) for key in ("open", "high", "low", "close", "volume")},
+                            "time": value.Index,
+                            **{key: _finite_number(getattr(value, key)) for key in ("open", "high", "low", "close", "volume")},
                         }
-                        for stamp, value in frame.tail(120).iterrows()
+                        for value in frame.tail(120).itertuples()
                     ]
                     if charts
                     else [],

@@ -121,9 +121,10 @@ export function useWebSocket() {
       socketRef.current = new WebSocket(getWebSocketUrl("/ws/marketdata/"));
 
       socketRef.current.onopen = () => {
+        const reconnected = reconnectAttemptsRef.current > 0;
         dispatch(setConnected(true));
-        dispatch(setConnectionStatus("connected"));
         dispatch(resetReconnectAttempts());
+        if (reconnected) terminalCallbacks.forEach(callback => callback({ event_type: "RECONNECTED" }));
 
         if (reconnectTimerRef.current) {
           clearTimeout(reconnectTimerRef.current);
@@ -181,7 +182,6 @@ export function useWebSocket() {
       socketRef.current.onclose = (event) => {
         flushQuotes(dispatch);
         dispatch(setConnected(false));
-        dispatch(setConnectionStatus("disconnected"));
 
         if (pingIntervalRef.current) {
           clearInterval(pingIntervalRef.current);
@@ -237,7 +237,6 @@ export function useWebSocket() {
       socketRef.current = null;
     }
     dispatch(setConnected(false));
-    dispatch(setConnectionStatus("disconnected"));
   }, [dispatch]);
 
   useEffect(() => {
@@ -342,10 +341,11 @@ export function useWebSocket() {
   );
 
   const subscribeChart = useCallback((symbol, interval, callback) => {
-    const key = JSON.stringify([symbol, interval]);
+    const normalizedSymbol = normalizeSymbol(symbol);
+    const key = JSON.stringify([normalizedSymbol, interval]);
     if (!chartCallbacks.has(key)) {
       chartCallbacks.set(key, new Set());
-      sendMessage({ type: 'subscribe_chart', instrument: symbol, interval });
+      sendMessage({ type: 'subscribe_chart', instrument: normalizedSymbol, interval });
     }
     chartCallbacks.get(key).add(callback);
     return () => {
@@ -353,7 +353,7 @@ export function useWebSocket() {
       callbacks?.delete(callback);
       if (!callbacks?.size) {
         chartCallbacks.delete(key);
-        sendMessage({ type: 'unsubscribe_chart', instrument: symbol, interval });
+        sendMessage({ type: 'unsubscribe_chart', instrument: normalizedSymbol, interval });
       }
     };
   }, [sendMessage]);

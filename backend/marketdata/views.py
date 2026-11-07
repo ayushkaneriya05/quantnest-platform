@@ -5,8 +5,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import serializers
 
-from .contracts import normalize_symbol
-from .quotes import read_quote, refresh_quote, refresh_quotes
+from .quotes import refresh_quotes
 from .charts import ChartDataService
 from instruments.models import Instrument
 from backend.middleware.api_responses import api_json_error
@@ -28,25 +27,8 @@ def quote_snapshots(request):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def latest_tick_data(request):
-    symbol = request.query_params.get("instrument")
-    if not symbol:
-        return api_json_error("Instrument symbol is required", status_code=400)
-
-    try:
-        normalized = normalize_symbol(symbol)
-        quote = read_quote(normalized)
-        if quote['source'] in ('history', 'unavailable'):
-            quote = refresh_quote(normalized)
-    except (ValueError, Instrument.DoesNotExist) as exc:
-        return api_json_error(str(exc), status_code=400)
-    return JsonResponse(quote)
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
 def candles(request):
-    symbol = request.query_params.get("symbol") or request.query_params.get("instrument")
+    symbol = request.query_params.get("symbol")
     resolution = request.query_params.get("interval", "1m")
     limit = request.query_params.get("limit", 200)
     before = request.query_params.get("before")

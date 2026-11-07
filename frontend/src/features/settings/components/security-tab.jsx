@@ -201,7 +201,7 @@ export default function SecurityTab() {
     try {
       await api.delete(`/users/auth/sessions/${sessionId}/`);
       setActiveSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      
+
       notify.success("Session revoked successfully");
     } catch (err) {
       console.error("Failed to revoke session:", err);
@@ -233,17 +233,17 @@ export default function SecurityTab() {
   };
 
   return (
-    <div className="min-w-0 space-y-5">
+    <div className="min-w-0 space-y-3">
       {securityError && <WorkspaceState error={securityError} onRetry={loadSecurityData} />}
-      <div className="grid items-start gap-5 xl:grid-cols-2">
+      <div className="grid items-start gap-3 xl:grid-cols-2">
         <Card className="min-w-0">
-          <CardHeader className="p-5 pb-4">
+          <CardHeader className="p-3 pb-4">
             <CardTitle className="text-lg">Change password</CardTitle>
             <CardDescription>Update your password. Other signed-in sessions will be ended.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5 px-5 pb-5">
-            <form onSubmit={handlePasswordSubmit} className="space-y-5" aria-busy={isLoadingPassword}>
-              <div className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="space-y-3 px-4 pb-5">
+            <form onSubmit={handlePasswordSubmit} className="space-y-3" aria-busy={isLoadingPassword}>
+              <div className="grid gap-3 sm:grid-cols-2">
                 {[
                   ["current_password", "Current password", "current-password"],
                   ["new_password", "New password", "new-password"],
@@ -269,18 +269,18 @@ export default function SecurityTab() {
                           className="pr-10"
                           required
                         />
-                        <button
+                        <Button variant="ghost"
                           type="button"
                           onClick={() => togglePasswordVisibility(field)}
                           aria-label={`${showPassword[field] ? "Hide" : "Show"} ${label.toLowerCase()}`}
                           aria-pressed={showPassword[field]}
                           disabled={isLoadingPassword}
-                          className="focus-ring absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-50"
+                          className="absolute inset-y-0 right-0 h-full w-10"
                         >
                           {showPassword[field]
                             ? <EyeOff aria-hidden="true" className="h-4 w-4" />
                             : <Eye aria-hidden="true" className="h-4 w-4" />}
-                        </button>
+                        </Button>
                       </div>
                       {error && <p id={`${field}-error`} role="alert" className="text-xs text-destructive-text">{error}</p>}
                     </div>
@@ -301,11 +301,11 @@ export default function SecurityTab() {
         </Card>
 
         <Card className="min-w-0">
-          <CardHeader className="p-5 pb-4">
+          <CardHeader className="p-3 pb-4">
             <CardTitle className="text-lg">Two-factor authentication</CardTitle>
             <CardDescription>Require a code from your authenticator app when signing in.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4 px-5 pb-5">
+          <CardContent className="space-y-3 px-4 pb-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-sm font-medium">
                 <ShieldCheck aria-hidden="true" className="h-4 w-4 text-brand" />
@@ -339,7 +339,7 @@ export default function SecurityTab() {
       </div>
 
       <Card className="min-w-0">
-        <CardHeader className="gap-3 p-5 pb-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+        <CardHeader className="gap-3 p-3 pb-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <div className="min-w-0 space-y-1.5">
             <CardTitle className="text-lg">Authorized sessions</CardTitle>
             <CardDescription>Active browser sessions. Tabs in the same browser profile share one session.</CardDescription>
@@ -358,7 +358,7 @@ export default function SecurityTab() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoadingSessions ? (
-            <div className="p-5"><WorkspaceState loading title="Loading browser sessions" /></div>
+            <div className="p-3"><WorkspaceState loading title="Loading browser sessions" /></div>
           ) : activeSessions.length === 0 ? (
             <p className="px-5 pb-5 text-sm text-muted-foreground">
               {securityError ? "Session details could not be loaded. Retry using the message above." : "No active sessions to display."}
@@ -368,7 +368,7 @@ export default function SecurityTab() {
               {activeSessions.map((session) => {
                 const DeviceIcon = session.device === "Mobile" ? Smartphone : session.device === "Tablet" ? Tablet : Monitor;
                 return (
-                  <li key={session.id} className="grid items-center gap-4 p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]">
+                  <li key={session.id} className="grid items-center gap-3 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                         <DeviceIcon aria-hidden="true" className="h-5 w-5" />
@@ -424,7 +424,7 @@ export default function SecurityTab() {
             <DialogTitle>Disable two-factor authentication?</DialogTitle>
             <DialogDescription>Confirm your account password to turn off authenticator verification when signing in.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleDisable2FA} className="space-y-4" aria-busy={isLoading2FA}>
+          <form onSubmit={handleDisable2FA} className="space-y-3" aria-busy={isLoading2FA}>
             <div className="space-y-2">
               <Label htmlFor="disable-password">Account password</Label>
               <Input

@@ -1,309 +1,538 @@
-# Trading Terminal: complete workflow and technical reference
+# Trading Terminal: complete user and technical guide
 
-Reviewed against the source on 23 October 2026. The Terminal is a **manual simulation** using observed market prices. It is separate from automated Paper deployments and does not place real broker orders.
+**Source reviewed: 7 November 2026.** The Terminal is a manual trading simulator:
+named watchlists, historical/live charts, order tickets, working orders, positions,
+protection and closed-result accounting. It does not send a broker order. Automated
+simulation is [Paper](paper-trading.md); real automated broker execution is
+[Live](live-trading.md).
+
+The current Terminal uses the shared execution runtime and financial kernel. It
+does not have a separate Terminal daemon or a second historical-data engine.
 
 ## Contents
 
-- [Workspace and account](#workspace-and-account)
-- [Instrument search and watchlists](#instrument-search-and-watchlists)
+- [Workspace and first use](#workspace-and-first-use)
+- [Account and configuration](#account-and-configuration)
+- [Named watchlists and instrument identity](#named-watchlists-and-instrument-identity)
 - [Chart history and live candles](#chart-history-and-live-candles)
-- [Order workflow and matching](#order-workflow-and-matching)
-- [Position management](#position-management)
-- [Capital and charges](#capital-and-charges)
-- [History, journal and reports](#history-journal-and-reports)
-- [Backend execution path](#backend-execution-path)
-- [API map](#api-map)
 - [Calendar and holiday configuration](#calendar-and-holiday-configuration)
-- [Operations and troubleshooting](#operations-and-troubleshooting)
-- [Source map](#source-map)
+- [Order workflow and matching](#order-workflow-and-matching)
+- [Position actions and protection](#position-actions-and-protection)
+- [Funds, charges and P&L](#funds-charges-and-pl)
+- [History, settlements and review](#history-settlements-and-review)
+- [Realtime state and recovery](#realtime-state-and-recovery)
+- [API contracts](#api-contracts)
+- [Implementation ownership](#implementation-ownership)
+- [Worked examples](#worked-examples)
+- [Operations and verification](#operations-and-verification)
 
-Related: [Backtesting](backtesting.md), [automated Paper](paper-trading.md), [Live broker execution](live-trading.md), [infrastructure](../infra/README.md).
+## Workspace and first use
 
-## Workspace and account
+The main header has **Trade**, **History** and **Account** tabs. Trade combines:
 
-Open Trading Tools → Trading Terminal. The content-header tabs are:
-
-| Tab | Purpose |
+| Area | Purpose |
 | --- | --- |
-| Trade | Watchlists, chart, ticket and positions/working-orders panel |
-| History | Execution and completed-position records with filters |
-| Account | Equity, available/reserved capital, charges, margin configuration and runtime information |
+| Left watchlist | Choose a named list, search/add instruments and read live marks |
+| Center chart | Selected instrument, timeframe, chart style, OHLC and price history |
+| Right order ticket | Side, order type, units/lots, required price fields and optional protection |
+| Bottom blotter | Open positions and working orders with counts/actions |
 
-Drag the watchlist separator to change its width. Drag the bottom-panel handle to change its height or collapse it. Smaller screens use compact watchlist/ticket controls. Layout sizes and chart preferences are retained locally. Shared UI components and [formatters](../frontend/src/shared/utils/formatters.js) provide consistent dates, currency and controls.
+The watchlist width and bottom-panel height can be resized; layout preferences
+are stored locally. Expand/collapse controls let the blotter use the available
+space. Panels scroll internally rather than requiring a large page full of blank
+cards. Shared themed tabs, controls, tables, loaders, tooltips and formatters are
+used in both themes.
 
-The account is created automatically for the authenticated user. Current model defaults are starting balance 1,000,000, futures simulation margin 20% and short-option margin 25%. Opening the page does not reset existing values. This account is independent of the Paper wallet and automated session allocations.
+To begin:
 
-The Account tab permits an owned charge profile and supported simulation margin percentages. Balance, realized P&L and charges are ledger-controlled read-only values. Changing margin settings with working orders is rejected. Settings are queued for owner application; a success notification means submitted, not necessarily already applied.
+1. Open **Trading Tools → Trading Terminal**. The owned simulated account is
+   obtained automatically.
+2. In Account, review capital, simulated margin percentages and charge profile.
+3. Create/select a watchlist, add an active tradable instrument and open its chart.
+4. Confirm the exchange/segment session is open and execution/feed services run.
+5. Enter a small valid size and order type; review funds and confirm the ticket.
+6. Follow its actual order state. An accepted API request is not already a fill.
 
-The Terminal has no price alerts, study/indicator selector, entry/sell price lines, validity selector or risk-amount-to-stop sizing calculator. Journal/Reports are separate common pages.
+The current simplified workspace intentionally omits price alerts, studies/
+indicators, entry/sell price lines, order-validity controls, stop-based risk amount
+calculators and the old Journal/Reports shortcut buttons. Those are not hidden
+requirements to place a manual simulated order.
 
-## Instrument search and watchlists
+## Account and configuration
 
-1. Create/select a named watchlist.
-2. Open Add instruments and search the catalogue. Supported filters include exchange, instrument type and expiry.
-3. Add a result, then select it to load its chart and ticket.
-4. Rename/delete watchlists or remove instruments through their actions.
+The account model initializes a new simulated account with **1,000,000** monetary
+units (displayed as INR by the current UI). This default is seed simulation capital,
+not an entitlement to broker money or a linked Paper wallet deposit.
 
-`TradingInstrumentService.search()` supplies metadata. `TradingWatchlistService` manages owned membership. The unique exchange-qualified `sym_ticker` identifies requests/subscriptions. The instrument **Name** supplies readable labels, including option strike/expiry distinctions. Display labels are not database keys.
+Account shows balance/equity-related values, available/reserved funds, margin,
+realized/open P&L and charges. Configuration supports:
 
-Backend enums and common metadata own classifications. UI code should not invent alternative CASH/FUTURE/option codes.
+- An owned charge profile, or no profile for no simulated fees.
+- Futures margin percentage (1–100; current new-account default 20).
+- Short-option margin percentage (1–100; current default 25).
 
-| Concern | Behaviour |
-| --- | --- |
-| Index | Chart/research allowed; not directly orderable |
-| Cash instruments | Quantity in instrument units |
-| Futures/options | UI lot entry converts to units using catalogue lot size |
-| Tick size | Prices must conform to the contract increment |
-| Expiry | Expired contracts reject ordinary new orders |
-| Multiplier | Used in turnover, margin and P&L |
+Those percentages are simple simulation collateral assumptions, not broker SPAN,
+exposure or portfolio-margin quotations. A long option consumes its premium basis.
 
-Example: with a catalogue lot size of 25, two lots become quantity 50. This does not establish a fixed lot size for any real exchange contract. Backend contract validation remains authoritative.
+Account changes are durable `REFRESH` commands applied by the financial owner.
+Changing margin settings while working orders exist is rejected; an old browser
+funds figure cannot override the owner's current exposure. Balance, starting
+balance and realized results are read-only through this settings endpoint. There
+is no current user account-reset/top-up endpoint in this Terminal API.
+
+Charge profiles are maintained in Broker Integration's charge-profile workflow.
+A default profile cannot be deleted; a user with none is provisioned a QuantNest
+profile and can create/edit another and make it default. Selecting a profile for
+Terminal governs simulated costs, not a real broker invoice.
+
+## Named watchlists and instrument identity
+
+Each user can have multiple named Terminal watchlists. Create, rename, select and
+delete a list with its picker controls. Names are unique for that user; at least
+one list is retained. Add/remove instruments in the selected list.
+
+`Instrument.sym_ticker` is the unique identity used by API lookup, quote storage,
+chart requests and subscriptions. `Instrument.name` is the readable label. The
+short underlying symbol alone cannot distinguish all option expiries/strikes.
+Names/contract details make the UI readable; exchange, expiry, right and strike
+identify what will actually be traded.
+
+Search supports symbol/name/underlying/contract text and exchange, instrument-type,
+expiry and archived controls where offered. Common enum/specification responses
+provide selectable choices; another broker/segment is not represented by copying
+unrelated static labels into the ticket.
+
+Indices may be watched/charted for analysis but cannot be ordered. Active/tradable,
+expiry and supported instrument-type constraints still apply. Expired/archived
+discovery supports historical inspection, not permission to open a live simulation
+position in an expired instrument.
+
+Every instrument in the active watchlist subscribes to display prices. Its latest
+mark should not require clicking it to open a chart. Subscription sets are shared
+and stable across row refreshes; opening the chart adds candle demand separately.
 
 ## Chart history and live candles
 
-### Stored history and missing data
-
-`useRealtimeCandles()` identifies a chart by symbol/interval and requests stored data first. `ChartDataService.chart_window()` reads confirmed candles, aggregates the requested interval and overlays eligible live state. Missing history is acquired separately through the common data service.
-
-`GET /api/v1/market/candles/` accepts parameters including `symbol`, `interval`, `limit`, `before` and `fetch_missing`. Provider acquisition is bounded per request. Scrolling left requests earlier windows instead of downloading the instrument's lifetime before rendering.
-
-The data path is:
-
-1. Check provider-specific source coverage and stored rows.
-2. Lock instrument/source acquisition, apply request budget and fetch missing windows.
-3. Validate positive finite OHLC values, OHLC ordering, nonnegative volume and timestamps.
-4. Commit valid candles and successful acquisition coverage together.
-5. Advance source revisions, invalidate derived caches and aggregate the requested timeframe.
-6. Return available candles and acquisition/pagination state to the chart.
-
-`HistoryCoverage` describes acquired windows, not a guarantee every minute traded. Empty success is not permanently cached; provider errors do not become successful coverage. Existing stored candles can remain visible while history acquisition fails.
-
-Intraday intervals derive from one-minute data; daily/weekly/monthly intervals derive from daily data. `aggregate_candles()` uses exchange/segment sessions, breaks, holidays and timezone. Intraday buckets are not arbitrarily anchored to UTC midnight.
-
-### Live transport and candle formation
-
-The authenticated browser websocket is `/ws/marketdata/`. `MarketDataConsumer` handles subscription messages and tick/chart/Terminal events. It is separate from the backend's provider websocket.
-
-| Update | Purpose |
-| --- | --- |
-| Tick/quote | Watchlist price, price header and position marks |
-| Chart candle | Backend-computed OHLCV for the selected symbol/timeframe, including the forming bar |
-| Terminal event | Account, position and order presentation refresh |
-
-`LiveChartPublisher` builds candles on the backend. React applies those OHLCV values to the chart series; it does not independently create authoritative candles from every tick packet. Forming bars update during the candle, not only on close. Completed history and subsequent snapshots finalize/correct the visible series.
-
-Provider callbacks write local shared-memory observations. Background publishers serve browsers. Execution reads the local observation ring directly and continues without an open browser. Browser animation frequency is not the rule-evaluation frequency.
-
-### Loading and price availability
-
-A stored/cache hit can render before provider history finishes. Missing data necessarily includes provider/network work; a fast stored chart does not prove provider authorization is valid. The UI shows acquisition errors rather than fabricated candles.
-
-Watchlist prices load independently of chart selection and the WebSocket handshake. On initial load, membership changes and reconnect, `Watchlist` calls `useWebSocket.getLatestPrices()` with the active list's `sym_ticker` values. The authenticated `POST /api/v1/market/quotes/` endpoint accepts `{"symbols": ["NSE:INFY-EQ", "NSE:MRF-EQ"]}` and returns a symbol-keyed map of price snapshots. The selected chart shares in-flight requests with this load.
-
-`refresh_quotes()` reuses provider snapshots for 60 seconds across browsers and batches missing prices through `FyersProvider.quotes()`. The SDK's GET endpoint receives up to 50 symbols per provider call. Acquired snapshots also reach subscribed browsers through the existing quote channel. This does not create execution observations or chart candles. During market hours, existing WebSocket subscriptions update every watchlist instrument; there is no quote polling loop.
-
-The watchlist renders Redux quote state directly. Display updates combine received ticks every 200 ms and retain the last tick even if no more arrive; chart/ticket subscription callbacks receive accepted ticks immediately. Actual provider/observed prices take precedence over candle-derived fallback prices, and older real quotes cannot replace newer real quotes. If provider acquisition is unavailable, the shared quote service can still return its last known price or an explicit unavailable snapshot.
-
-REST snapshots record acquisition start time in `updated_at`; WebSocket quotes record receive time there. Cross-transport ordering uses that field because FYERS REST `tt` can have date precision. A tick received during an HTTP acquisition therefore remains newer than that snapshot. Within one transport, event timestamps and `updated_at` break ties as usual; no tick-age expiry is applied.
-
-There is no fixed tick-age cutoff. Quiet symbols retain their observed price. A stored close may be used for display, but execution requires an actual observation from the connected feed. A detected disconnect/generation change invalidates execution observations until new data arrives. A silent frozen feed cannot be identified merely by the removed age check.
-
-A visible historical chart, a connected browser socket and a running execution worker are separate states.
-
-## Order workflow and matching
-
-### Place an order
-
-1. Select an orderable instrument during its exchange/segment session.
-2. Choose Buy/Sell and Market, Limit, Stop Market or Stop Limit.
-3. Enter units/lots and required limit/trigger prices; configure optional position protection where exposed.
-4. Review estimated funds. This is configured simulation collateral, not a broker margin quotation.
-5. Submit, then inspect Working orders and Positions/History.
-
-The preview contains notional and estimated funds, **not a guaranteed charge estimate**. Fees depend on actual closing dates and are settled when exposure closes.
-
-`OrderSerializer` validates input/ownership. `TradingOrderService.create_order()` checks session and contract, snapshots costs, creates the order and queues ORDER. The worker performs definitive current capital/position checks. An HTTP success means an order was recorded, not that it filled. Later rejection reasons are stored on the order.
-
-### Matching conditions
-
-`match_order()` and `OrderBook` are shared with Paper and historical replay.
-
-| Type | BUY | SELL |
-| --- | --- | --- |
-| Market | Next eligible observation | Next eligible observation |
-| Limit | Price ≤ limit | Price ≥ limit |
-| Stop Market | Activate at price ≥ trigger | Activate at price ≤ trigger |
-| Stop Limit | Activate first, then obey buy limit | Activate first, then obey sell limit |
-
-**Limit example:** a BUY limit at 1,240 is price-eligible at 1,238. A SELL limit at 1,240 is not. Session, capital, contract and event sequencing must also be valid.
-
-**Stop Market example:** a protective SELL stop at 98 activates at 98 or lower. The trigger is not a guaranteed fill price if the observation gaps through it.
-
-**Stop Limit example:** with price 100, BUY trigger 105 and limit 106, the order does not buy at 100 just because it is below the limit. It first activates at/above 105. If price gaps to 108 it remains unfilled until a limit-eligible observation occurs. The trigger and `activated_at` retain meaning after activation; a limit stage is not evidence that the trigger was ignored.
-
-New orders do not fill retroactively from their admission observation. Later eligible events are required; an unchanged number displayed on screen does not generate another fill. Slippage/tick rounding cannot breach the order's limit. Simulation does not reconstruct order-book liquidity or queue priority.
-
-### Amend/cancel
-
-Open-order modifications queue AMEND. Cancellation queues CANCEL; batch cancellation accepts owned open IDs. Neither action directly edits the financial ledger in the HTTP request. A fill already processed by the owner can win a cancellation race; refresh the final status instead of assuming cancellation reversed it.
-
-There is no OrderValidity/expiry-column workflow. Session-hours validation is still required and is a separate concern.
-
-## Position management
-
-Terminal has one net position per account/instrument, unlike isolated automated strategy-session positions.
-
-| Action | Effect |
-| --- | --- |
-| Increase | Market order in the current direction |
-| Reduce | Opposite reduce-only quantity, bounded by current exposure |
-| Close | Opposite reduce-only order for the full position |
-| Reverse | Close current exposure and request the chosen opposite quantity |
-| Protect | Queue stop-loss/take-profit changes through PROTECT |
-| Settle | Explicit simulation close at entered official settlement price after expiry |
-
-For long 10 and requested reverse quantity 5, the opposite order is 15: close 10 and open short 5, subject to funds/contract checks. Close and Reduce cannot accidentally reverse the position.
-
-Protection belongs to owner state. Conflicting working orders are handled when protection triggers so an outstanding add/limit exit cannot silently block the protective close. It still requires observations; it is not an exchange-hosted stop.
-
-Settlement is permitted only after the contract's calendar-defined expiry close. The user supplies the official price for this simulation. The platform does not automatically establish that price or submit a real broker settlement instruction.
-
-## Capital and charges
-
-### Financial state
-
-`margin()` implements simulation collateral. `available()` subtracts commitments, reservations and uncommitted funds. `apply_fill()` updates quantity, average, cash/margin and completed closes. One owner for `(TERMINAL, account_id)` serializes financial effects across concurrent requests.
-
-Equity, available capital, reserved amounts, realized P&L, open P&L and charges are different quantities. Reservation is not realized loss. Open P&L is a current mark before future exit costs. Account balances cannot be edited through the ordinary account settings serializer.
-
-Applied Account settings publish `ACCOUNT_UPDATE`; protection edits publish `POSITION_UPDATE`. The Terminal consumes both through its existing WebSocket subscription. If a position closes before a protection edit is applied, the edit is rejected with a notification rather than recreating the position.
-
-### Charges on closing
-
-`TradingCostCalculator` calculates recorded fees on closing exposure. Entry lots preserve original profile/time information. `_closing_costs()` settles same-day lots before carried lots and allocates original flat entry brokerage proportionately across reductions, then recalculates GST.
-
-Actual entry/exit dates determine intraday/delivery tax classification, including stocks entered under CNC. Segment/instrument enums and configured rates govern currency/commodity handling. This guide does not prescribe current statutory rates.
-
-Example: buy 10 at 100 and close 4 at 105. Gross realized P&L is 20; 6 remain open. Only the appropriate entry-fee share and closing fees are settled for the closed 4. The later close must not charge the entire original flat entry brokerage again. Slippage already affects prices and must not be subtracted twice.
-
-Choose an owned charge profile or no profile in Account. The common charge-profile flow provisions a default QuantNest profile and prevents deletion of whichever profile is default. Editing a profile does not rewrite already captured entry-lot assumptions.
-
-## History, journal and reports
-
-`TradeHistory` stores executions; `ClosedPositionLog` stores realized closes. Use History for their quantity, prices/times and charge detail. Shared Journal/Reports source **TERMINAL** aggregates `ClosedPositionLog.realized_pnl`, **net of recorded charges**.
-
-Filters include exit dates, account/instrument/search and review state. Terminal has no strategy filter because orders are manual. Current unrealized marks are separate from historical date filters and disclose missing quote coverage. Default reporting dates cover the last 30 calendar dates.
-
-Private notes, lessons, ratings and mistake tags attach to owned completed closes. Deleting a review leaves its financial record. Tag groups can overlap and must not be summed as disjoint totals.
-
-CSV export uses the same filters and rejects more than 50,000 closes. Ask AI creates frozen evidence; sending the research message is separate and uses normal research allowances. Saved private notes are included only when explicitly selected.
-
-Terminal net realized results are not directly interchangeable with Live before-fee P&L or a backtest equity curve. Reports aggregate existing closes; they do not import broker positions or create another financial ledger.
-
-## Backend execution path
+### Search to historical chart
 
 ```mermaid
 flowchart LR
-  Ticket[Order ticket] --> API[Validate and record order]
-  API --> Command[Durable command]
-  Command --> Controller[Prepare contract and observation]
-  Controller --> Owner[Terminal account owner]
-  SHM[Provider observation ring] --> Owner
-  Owner --> Kernel[Matcher and ledger]
-  Kernel --> Persist[Checkpoint and trading records]
-  Persist --> Ack[Committed acknowledgement]
-  Persist --> UI[API and realtime presentation]
+    Pick[Select sym_ticker and timeframe] --> HTTP[Stored-first candle request]
+    HTTP --> Read[Confirmed database rows]
+    Read --> Buckets[Segment-calendar aggregation]
+    HTTP --> Missing[Bounded missing-history acquisition]
+    Missing --> Provider[Provider adapter and shared budget]
+    Provider --> Store[Validate candles and coverage]
+    Store --> Buckets
+    Buckets --> Browser[Render historical and forming candles]
 ```
 
-`Controller.command_payload()` resolves contract and actual SHM observation. `Worker.control()` applies ORDER/AMEND/CANCEL/PROTECT/SETTLE/settings commands. `AccountOwner.observe()` matches working orders and protection. `repository._terminal()` maps typed transitions to Terminal models, and `persist_transition()` commits those records and checkpoint together.
+1. Instrument selection sets one normalized `sym_ticker`, display metadata and
+   selected timeframe. Stale responses for the previous selection are ignored.
+2. `useRealtimeCandles` requests stored data first with `fetch_missing=false`.
+   Existing candles can render without waiting for a provider round trip.
+3. `ChartDataService.chart_window()` reads confirmed candles and aggregates them
+   using the same calendar semantics as execution/research.
+4. If `backfill_requested` is returned, the hook makes the bounded acquisition
+   request with `fetch_missing=true`. The backend limits provider work for that
+   interactive window instead of queuing a huge Celery history job.
+5. Successfully acquired source windows/candles become common stored history.
+   Coverage prevents repeatedly fetching known-empty ranges. Provider failure
+   leaves stored data usable and exposes a retryable history error.
+6. Scrolling left requests older windows using `before` / returned cursor.
+   Overlapping timestamps are merged; the whole chart is not downloaded again.
 
-Commit acknowledgement prevents spending an uncommitted gain/released reservation. The numerical path uses local typed state and shared memory; ORM/provider work stays in preparation/persistence. DB-free matching does not make durable financial progression independent of the database.
+The service bounds candle `limit` to 1–1,000; the current UI initially requests
+200 for most intervals, 104 weekly and 60 monthly. Source history uses the required
+minute/daily families; higher intervals are calendar-aligned aggregates rather
+than independently guessed bucket clocks.
 
-Terminal has no monthly per-order allowance or Paper deployment quota. Authentication, ownership, active account, valid contracts, session hours and simulated funds remain required. Private/Development mode does not bypass order correctness.
+The response includes candles, cursor/has-more information, interval choices,
+source/backfill information, data revision, active bucket and session metadata
+including timezone, open state and next transition. Expired-contract windows are
+clamped to their valid expiry session. An error is not silently converted to
+complete empty historical coverage.
 
-## API map
+### Which WebSocket changes what
 
-Paths are relative to `/api/v1/trading/` unless specified.
+The browser shares one authenticated **`/ws/marketdata/`** connection, multiplexed
+by instrument and message type:
 
-| Endpoint | Use |
+| Subscription/message | Role |
 | --- | --- |
-| `GET instruments/search/` | Catalogue search |
-| `GET/POST/DELETE watchlist/` | Read/add/remove membership |
-| `GET/POST watchlists/`; detail update/delete at `watchlists/{id}/` | Named watchlists |
-| `GET terminal/`, `status/` | Combined snapshot and runtime status |
-| `GET/PATCH account/` | Account/configuration |
-| `POST orders/preview/` | Notional/funds estimate |
-| `GET/POST orders/` | List/create orders |
-| `GET/PATCH/DELETE orders/{id}/` | Read/amend/cancel |
-| `POST orders/cancel/` | Batch cancel |
-| `GET positions/`; `GET/PATCH positions/{id}/` | Positions/protection |
-| `POST positions/{id}/action/` | Increase/reduce/close/reverse/settle |
-| `GET trades/`, `pnl-report/` | Executions and completed closes |
-| `GET /api/v1/market/candles/` | History/aggregation/acquisition |
-| `/ws/marketdata/` | Authenticated browser realtime |
-| `/api/v1/analytics/reports/`, `reports/trades/`, `reports/export/` | Reports with `source=TERMINAL` |
-| `/api/v1/journal/entries/` | Private close reviews |
+| `subscribe` / tick updates | Latest price, watchlist change, chart price header, position marks/P&L |
+| `subscribe_chart` / `chart.candle` | Backend-built forming and completed candle OHLCV for one symbol/timeframe |
+| Matching unsubscribe messages | Release that consumer's demand; shared references remain until unused |
+| Ping/renewal | Keep active demand alive; abandoned browser demand expires |
+| User trading updates | Refresh financial snapshots when orders/positions change |
 
-Read [serializers](../backend/trading/serializers.py) for payload fields and [routes](../backend/trading/urls.py) for supported actions. Shared API error handling and notifications report failures consistently with other pages.
+`MarketDataConsumer` authenticates the user, tracks subscriptions and renews
+demand. It does not evaluate strategies or execute orders. A subscription can
+return current display state or an unavailable/error state before live data arrives.
+
+**Candle construction is on the backend.** `LiveChartPublisher` combines confirmed
+history prefixes with the current observed buffer/calendar bucket. The frontend
+updates the supplied candle's OHLCV; it does not independently rebuild that same
+candle from every tick. Candle messages update the forming bar as well as completed
+bars. They are not only a candle-close notification.
+
+Provider-confirmed corrections take precedence over older observed prefixes;
+revisions allow corrected historical rows to replace the chart value. Current
+minute volume is not added twice. Tick display coalescing and chart publication
+do not sit in front of the execution worker's local tick reader.
+
+Reconnect triggers history recovery after the initial connection. Session-transition
+metadata schedules appropriate refreshes around opens/closes. Cached historical
+rendering can still work while the live feed is disconnected; it must not be
+presented as a new received market observation.
+
+### Display prices versus execution prices
+
+`marketdata/quotes.py` combines observed and REST snapshots using receipt/update
+ordering, with confirmed-close fallback for display when appropriate. A provider
+timestamp from an old quote must not replace a newer accepted observed mark.
+
+These are labelled **display marks**. Execution reads the sequenced observation
+buffer. A fallback candle close or REST quote cannot fill an order merely because
+the chart/header can show a price. There is no fixed tick-age rejection, but
+sequence/generation/session and actual observation availability remain necessary.
 
 ## Calendar and holiday configuration
 
-Trading hours come from exchange/segment `ExchangeConfig` and `MarketHoliday`, not per-instrument timing fields. `MarketSessionCalendar.for_instrument()` supplies session validation, chart bucket alignment and expiry settlement timing. Configure timezone, weekdays, opening/closing hours and breaks for each segment.
+Exchange/segment timing belongs to `ExchangeConfig`, with the common segment enum,
+timezone, weekdays, session boundaries and breaks. Holiday/special-session records
+modify that calendar. Instrument fields are not another source of market hours.
 
-A chart can display after close, but ordinary placement is rejected outside the instrument's segment session. Derivatives must not accidentally inherit another segment's session configuration.
+This calendar is used by chart bucket boundaries, session labels, historical
+acquisition, execution preparation and order admission. Configure every supported
+exchange/segment rather than copying cash-market hours to commodities/currency.
 
-### Holiday synchronization
+`sync_market_holidays` uses the current-year NSE API as configured and the
+historical holiday library for earlier years. The shared policy maps BSE/MCX to
+the matching NSE segment holidays. This is a platform policy; review exceptional
+exchange-specific closures/sessions rather than assume every exchange is always
+identical. The retired file-import command path is not part of holiday setup.
 
-`sync_market_holidays` verifies the current year from NSE's API and uses the configured library for historical dates. Historical library dates apply across supported segments; BSE/MCX follow the corresponding NSE segment policy. This is the application's chosen policy, not a claim that official exchange calendars are universally identical.
+Orders are rejected outside the actual segment session; the Terminal does not
+implement after-market-order routing. A global cash-market-open label is not
+sufficient to allow an order in every segment.
 
-File import is removed. Inspect current command options with:
+## Order workflow and matching
 
-```bash
-python manage.py sync_market_holidays --help
+### Ticket and request lifecycle
+
+1. Choose the exact tradable instrument and Buy/Sell.
+2. Choose Market, Limit, Stop or Stop-limit. Only required price fields are shown.
+3. Enter units or, for derivatives, lots. The UI converts lots to actual order
+   units; the backend validates a whole tradable lot and quantity limits again.
+4. Optionally attach stop-loss/take-profit prices for the resulting position.
+5. The preview shows required funds/notional/margin basis against current account
+   data. It intentionally does not predict final intraday-versus-delivery charges.
+6. Submit. Validation checks payload, owner, tradability, expiry, lot/tick and
+   session. The order/request ID and `ORDER` command are persisted.
+7. The execution owner admits or rejects it against current financial state.
+   Its committed projection updates the UI; a newly saved OPEN row is not a fill.
+8. An admitted simulated order matches a later eligible traded observation.
+   The account commits the fill and exposes the resulting position/order status.
+
+Limit/trigger prices must be positive when required and aligned to the contract's
+tick. Quantity is a positive whole unit count and a derivative lot multiple.
+Reference/fund estimates are advisory snapshots; only current owner admission
+reserves the available funds.
+
+Symbol-master upper/lower bands are retained as reference metadata; they can be
+old or change intraday and are not treated as the exchange's current operating
+range by the numerical contract validator. Live broker submissions remain subject
+to the broker/exchange's actual controls. No provider request is added to each
+simulated tick merely to recheck a master-file band.
+
+### Matching rules
+
+Let `P` be the new eligible observation, `L` the limit, and `T` the trigger:
+
+| Type | Buy | Sell |
+| --- | --- | --- |
+| Market | Fill at eligible observed P | Fill at eligible observed P |
+| Limit | Match when P ≤ L | Match when P ≥ L |
+| Stop | Activate when P ≥ T, then market behavior | Activate when P ≤ T, then market behavior |
+| Stop-limit | Activate when P ≥ T, then match only if P ≤ L | Activate when P ≤ T, then match only if P ≥ L |
+
+Stop activation is permanent for that accepted order and stored as `activated_at`.
+Crossing back does not disarm it. Once activated, Stop-limit behaves as a limit;
+the trigger has already done its job. Showing a limit phase does not mean its
+trigger should never have existed. Order history retains type/trigger/activation.
+
+An observation can satisfy activation and limit eligibility together. A gap beyond
+the limit can activate without filling; Stop-limit prioritizes a price bound over
+guaranteed execution. A stop market has no such limit protection.
+
+The shared matcher requires an observation at/after eligibility and a newer
+sequence within the same generation. A price already visible before acceptance
+is not replayed as a future fill. Simulated matching consumes observed last prices,
+not an exchange bid/ask queue, depth or a broker execution report. It fills eligible
+remaining quantity without modelling real market liquidity/queue priority.
+
+Where slippage applies, buy execution moves adversely upward and sell downward;
+tick rounding remains side-aware. A limit fill must still respect its price bound.
+
+### Modify and cancel
+
+Working OPEN orders can request changes to quantity, type, limit/trigger and
+protection. Instrument, side and reduce-only identity cannot be changed; cancel
+and create a deliberate new order for a different instrument/side.
+
+Amend/cancel are commands checked again by the owner. A fill racing with a UI
+request is resolved against actual current state. Bulk cancel accepts bounded
+owned order IDs; its response counts requests, not a promise that every order was
+still unfilled at the moment the worker processed them.
+
+There is no user-selectable OrderValidity or separate validity/expiry column in
+the current Terminal order flow. Contract expiry and market-session admission
+remain correctness rules independent of a removed ticket setting.
+
+## Position actions and protection
+
+Terminal keeps net manual exposure per instrument within the owned account.
+Ordinary opposite-side orders can reduce/close it; a larger opposite order can
+reverse it where funds/quantity checks allow.
+
+| Action | Meaning |
+| --- | --- |
+| Close | Request a reduce-only market order for the full current quantity |
+| Reduce | Request a positive quantity up to the current exposure; no accidental reverse |
+| Increase | Request more exposure on the existing side, with new funds admission |
+| Reverse | Request closing the old exposure and opening the selected new opposite exposure |
+| Protect | Set/change stop-loss and take-profit; null removes the corresponding level |
+
+Action API quantities are actual units. UI lots are a convenience conversion, not
+an alternate ambiguous argument type. The owner checks current position size again;
+stale close requests cannot invent a reverse position through reduce-only execution.
+
+Protection checks traded observations while the position exists. A long stops at
+or below its stop and targets at or above target; short direction reverses those
+comparisons. Stop has priority if both become eligible. Pending manual add/exit
+orders are cancelled before the protective full exit so they cannot block it or
+unexpectedly re-open risk after a stop.
+
+A protective threshold creates an order; final execution still uses the next
+eligible observation and applicable matching rules. Sparse ticks/gaps can therefore
+produce a different fill price. Protection is simulated and not an order held at
+a broker/exchange when the Terminal/runtime is stopped.
+
+## Funds, charges and P&L
+
+The shared account owner distinguishes cash/balance, position margin/value,
+working-order reservation and released funds awaiting durable acknowledgement.
+Required-funds estimation accounts for exposure reduction instead of charging a
+closing order as a fresh unrelated position.
+
+New entries can fail for funds; a browser estimate does not reserve them. Futures
+and short-option simulation margin percentages apply consistently at estimate,
+admission and valuation. Quantity multipliers must be used for commodity/currency
+economics instead of assuming one displayed price point always equals one rupee.
+
+### Charge on close
+
+The Terminal uses the same shared close-accounting approach as Paper/Backtesting:
+
+- No estimated charge panel before placement and no prepaid entry fee on open
+  positions.
+- Entry lots retain opening time and frozen cost profile. Costs settle when an
+  owned quantity closes.
+- Actual entry/exit local calendar dates choose equity intraday versus delivery
+  classification; a CNC product name does not force delivery rates on a same-day
+  trade. The current helper uses the application's timezone.
+- Segment/instrument enums choose equity STT, commodity CTT and currency treatment;
+  profile rates remain configurable assumptions.
+- Partial closes allocate the corresponding entry-lot costs; remaining lots keep
+  their provenance. Reverse execution closes the old cycle and opens a new one.
+- With no selected profile, simulated fees are zero. That is not evidence of zero
+  actual exchange/broker charges.
+
+```text
+Gross P&L = signed direction × (exit − entry) × units × multiplier
+Net P&L   = gross P&L − recorded charges
 ```
 
-Review synchronized dates and segment-specific hours in Admin. Operator corrections must be reflected in the configured calendar. Follow the [infrastructure guide](../infra/README.md) for initialization and scheduling.
+Recorded slippage/fees must not be deducted twice from a result already based on
+adjusted execution prices. All money calculations use the financial kernel's
+precision; formatting two decimals in UI does not round stored contract prices.
+Lots/counts remain whole numbers and contract-specific precision remains relevant
+for order validation even when table display is compact.
 
-## Operations and troubleshooting
+### Realtime marks
 
-Run the API, database/Redis dependencies, market-data and the shared execution group. From `backend/`, in separate managed processes:
+`useTerminalPositionsPnL()` adapts signed Terminal positions to the common
+valuation path. Row and account totals use the same shared quotes. The full-scope
+summary includes off-page positions; changing pages must not change total account
+P&L. Futures already-paid MTM is subtracted from residual open P&L.
 
-```bash
-python -m quantnest_runtime market-data
-python -m execution
-```
+Financial events refresh exposure. Quote changes update display values without
+per-tick API reloads or P&L database writes. Missing/older quotes are handled as
+pricing availability, not a fabricated zero result.
 
-There is no separate Terminal runtime command. The `quantnest_runtime execution` alias starts the same service. Only one group may own local state; an OS lock excludes duplicates. Market-data and execution share local mapped files on one host.
+## History, settlements and review
 
-`EXECUTION_WORKERS` sets persistent CPU workers. Bounded actor turns and asynchronous persistence share the architecture with Paper/Live. Measure CPU, observation bursts, commit and UI/API latency before increasing it. Multi-host replication and a guaranteed user capacity are not implemented promises.
+History provides **Settlements**, **Orders**, **Fills** and **Closed positions**,
+with shared server paging, instrument search, relevant status and date filters.
+Date boundaries are interpreted consistently for the displayed IST dates; the end
+date is included through the following exclusive boundary.
 
-| Symptom | Inspect |
+- Orders retain side/type, requested quantity, prices, activation, final state,
+  rejection and placement/fill facts.
+- Fills represent executions, not every status update. Charges on an opening fill
+  may be zero under charge-on-close.
+- Closed positions separate **gross P&L**, **charges**, **net P&L**, entry/exit
+  prices and closing time. The result is a closed quantity/cycle, not the account's
+  current mark.
+- Settlements show reviewed source, cutoff and cash postings. Final settlement
+  is a financial event, not an extra manually created market-fill order.
+
+Paper and Terminal share reviewed futures daily MTM and qualified index-derivative
+final cash settlement. See the complete
+[settlement import and accounting guide](paper-trading.md#derivative-settlement).
+Missing official inputs are not synthesized; general physical delivery,
+devolvement and assignment are outside current scope.
+
+Trade Journal/Performance Reports remain available through their own navigation.
+They select Terminal/Paper/Live sources and preserve recorded fee/P&L basis.
+Journal notes/ratings do not rewrite order execution. Owned report snapshots can
+be attached to AI Research for a review.
+
+## Realtime state and recovery
+
+`GET terminal/` supplies an initial owned workspace snapshot. Chart history loads
+independently, so a slow account/history request should not become a dependency
+for every other panel. The shared quote store then updates all subscribed rows.
+
+The status indicator distinguishes browser connection from required runtime/feed
+availability. Connected only confirms a transport connection; it is not proof that
+every order can match. Account/order/position updates and reconnect recovery fetch
+current persisted state so a missed message does not leave a phantom open position.
+
+User mutations become durable commands. If execution is unavailable, accepted
+requests remain pending until applied or rejected; API success does not create a
+fictional immediate fill. After restart, committed checkpoints reconstruct account
+orders, entry lots, positions and reservations. Normal refresh/reconnect must not
+place the same order again.
+
+## API contracts
+
+Authenticated prefix: **`/api/v1/trading/`**.
+
+| Method/path | Purpose |
 | --- | --- |
-| Watchlist later than chart | Snapshot request timing and independent persisted chart selection/history load |
-| Blank chart | Selected symbol, stored rows, provider authorization and acquisition error |
-| Chart works but order does not | Actual observation, session calendar and execution service |
-| Open limit | Side comparison, stop activation, later eligible observation and rejection reason |
-| Quiet price remains | Expected without tick-age expiry; a screen value is not a new event |
-| Unexpected fees | Entry/exit dates, lot portions, captured profile, multiplier and gross/net basis |
-| Delayed settings | Pending REFRESH and owner acknowledgement |
-| Margin update rejected | Outstanding working orders |
-| After restart | Inspect checkpoints/commands; do not recreate existing orders to force fills |
+| `GET terminal/`, `GET status/` | Initial snapshot and runtime/feed status |
+| `GET/PATCH account/` | Read financial state; queue supported profile/margin settings |
+| `GET instruments/search/` | Filter instrument/contract discovery |
+| `GET/POST watchlists/` | Owned named lists |
+| `GET/PATCH/DELETE watchlists/{id}/` | Read/rename/delete eligible list |
+| `GET/POST/DELETE watchlist/` | Read/add/remove items in the selected list |
+| `GET positions/`, `GET/PATCH positions/{id}/` | Read exposure; queue protection changes |
+| `POST positions/{id}/action/` | Close/reduce/increase/reverse request |
+| `POST orders/preview/` | Funds/margin estimate without placing an order |
+| `GET/POST orders/` | Paginated orders or create order/command |
+| `GET/PATCH/DELETE orders/{id}/` | Detail, amend or cancellation request |
+| `POST orders/cancel/` | Bounded owned bulk cancellation |
+| `GET trades/`, `GET pnl-report/`, `GET settlements/` | Paginated fill, closed-result and settlement histories |
 
-Closing a browser does not stop execution. A disconnected provider supplies no new eligible observations until recovery. Simulation is not an exchange-liquidity model or a guarantee of real broker execution prices.
+Market endpoints are separate:
 
-## Source map
-
-| Source | Responsibility |
+| Method/path | Purpose |
 | --- | --- |
-| [TradingTerminal](../frontend/src/features/terminal/pages/TradingTerminal.jsx) | Tabs, layout and resizing |
-| [Components](../frontend/src/features/terminal/components) | Search/watchlist, chart, ticket, blotter, history/account |
-| [Realtime candle hook](../frontend/src/features/terminal/hooks/useRealtimeCandles.js) | Stored-first load, pagination and subscriptions |
-| [Views](../backend/trading/views.py), [services](../backend/trading/services.py) | Owned API, contract/session checks and commands |
-| [Chart service](../backend/marketdata/charts.py), [consumer](../backend/marketdata/consumers.py) | Backend candles and browser transport |
-| [History](../backend/marketdata/history.py), [candles](../backend/marketdata/candles.py) | Acquisition, coverage and aggregation |
-| [Controller](../backend/execution/controller.py), [worker](../backend/execution/worker.py) | Cold command preparation and runtime application |
-| [Owner](../backend/execution/owner.py), [matching](../backend/execution/matching.py), [ledger](../backend/execution/ledger.py) | Account ownership, order conditions and financial transitions |
-| [Repository](../backend/execution/repository.py) | Durable projections and checkpoints |
-| [Costs](../backend/common/costs.py) | Configured fee calculation |
+| `GET /api/v1/market/candles/` | `symbol`, `interval`, `limit`, optional `before`, bounded `fetch_missing` chart window |
+| `POST /api/v1/market/quotes/` | Shared batch display snapshots, including a one-symbol batch |
+| `/ws/marketdata/` | Authenticated shared tick/chart/user-event transport |
 
-Extend order behaviour in the shared matcher/owner and its validation. Extend providers through adapters/common history contracts. Keep one financial implementation rather than recreating cash/P&L calculations independently in HTTP handlers or screens.
+The old `market/latest-tick/` endpoint is removed. Consumers use the batch quote
+boundary rather than duplicate price-fetch wrappers. Shared table pagination uses
+`page`/`page_size` (10/25/50/100, default 25), count/range, direct page input and
+first/previous/next/last controls. Filters and summaries are server scoped.
+
+## Implementation ownership
+
+Backend paths below are relative to `backend/`. Start at
+[`trading/services.py`](../backend/trading/services.py),
+[`execution/owner.py`](../backend/execution/owner.py) and
+[`marketdata/charts.py`](../backend/marketdata/charts.py).
+
+| File/symbol | Responsibility |
+| --- | --- |
+| `trading/views.py`, `serializers.py` | Owned HTTP payloads, server lists and command requests |
+| `trading/services.TradingOrderService` | Payload/session validation, order creation and position actions |
+| `trading/services.TradingAccountService` | Account snapshot, funds/margin/mark helpers |
+| `execution/controller.py`, `worker.py` | Shared durable control and local observation scheduling |
+| `execution/owner.py`, `ledger.py`, `matching.py` | One financial writer, protection, fills and entry-lot accounting |
+| `execution/repository.py`, `recovery.py` | Transactional projection and restart state |
+| `common/costs.TradingCostCalculator` | Configured common tax/fee and holding-date logic |
+| `marketdata/charts.ChartDataService`, `LiveChartPublisher` | Stored chart windows and backend forming candles |
+| `marketdata/history.py`, `candles.py`, `calendar.py` | Shared confirmed acquisition and completed timeframe data |
+| `marketdata/consumers.MarketDataConsumer`, `streaming.py`, `quotes.py` | Display demand, fanout and quote snapshots |
+| `TradingTerminal.jsx`, `Watchlist.jsx`, `OrderTicket.jsx`, `TerminalBlotter.jsx` | Workspace, list, order and position UI |
+| `ChartView.jsx`, `useRealtimeCandles.js` | Chart render, historical paging and live candle merge |
+| `AccountSummary.jsx`, `HistoryDisplay.jsx` | Account/configuration and paged histories |
+| Shared `useWebSocket.js`, `useLivePositionsPnL.js`, `formatters.js` | One market connection, valuation and consistent presentation |
+
+## Worked examples
+
+### Buy limit below/above the market
+
+A buy limit at 1,240 is eligible on a new observed price of 1,238.40 because it
+allows **1,240 or less**. A buy limit at 1,237 waits while observations remain
+above it. If no new eligible tick arrives after admission, seeing a cached chart
+price of 1,238.40 alone cannot force a fill.
+
+### Stop-limit breakout and a gap
+
+Buy stop-limit trigger 101, limit 102, current price 100:
+
+1. 100.50: not activated.
+2. 101.20: trigger crossed and within limit; eligible execution can occur.
+3. Alternatively a gap to 103: activated, but remains unfilled because 103 > 102.
+4. A later 101.80 can match the activated limit; the trigger does not need to cross
+   again. A stop market would not retain the 102 price cap.
+
+For a sell stop-limit, reverse the trigger/limit comparisons. The trigger decides
+when the conditional order becomes active; the limit decides the acceptable fill.
+
+### Derivative lots and multiplier
+
+One option lot of size 30 produces 30 units. Entry 729.00, exit 734.75,
+multiplier one gives gross 172.50 before configured charges. For a commodity
+contract with a different multiplier, use that multiplier in notional, margin and
+P&L; multiplying only by the displayed lot count is wrong.
+
+### Same-day close with CNC mapping
+
+A stock bought and sold on the same application-local date is classified by that
+actual holding period for simulated equity taxes. It does not become delivery
+merely because execution product mapping is CNC. The exact fees still depend on
+the frozen profile and both entry/exit sides. No fee estimate is shown before
+placement because the eventual close date is not yet known.
+
+## Operations and verification
+
+Run API/ASGI, stores and the existing `market-data` and `execution` commands.
+Broker-events is not required for manual simulation. There is no current
+`python -m quantnest_runtime terminal` service. See
+[runtime operations](paper-trading.md#runtime-operations-and-scaling) and
+[beginner setup](../infra/START-HERE.md).
+
+| Symptom | Check |
+| --- | --- |
+| Prices update only when chart opened | Active-watchlist tick subscription set and quote-store merge; chart demand is separate |
+| Empty chart but known provider history | Correct exact symbol/expiry, stored-first response and bounded backfill error, provider auth/network and calendar window |
+| Limit not filled | Correct side comparison, owner admission, new eligible observed tick, session and runtime status |
+| Stop-limit activated but waiting | Current price outside limit; this is allowed behavior |
+| Invalid price/tick/quantity | Exact contract metadata and applicable constraints; do not change an option into its underlying to bypass validation |
+| Protection delayed | New traded observations, pending command, actual threshold/direction and account state |
+| API accepted but later rejected | Current financial-owner funds/contract validation, not only ticket preview |
+| Header Connected but no matching | Market-data/execution process health and actual symbol observation readiness |
+| Summary differs from rows | Same quote and full-scope valuation vector, including off-page positions |
+
+Release checks should cover all four order types on both sides, stop activation
+and limit gaps, amendments/cancel-fill races, lots/ticks/multipliers, position
+increase/reduce/reverse, protection with pending adds, same-day/overnight close
+costs, charts across session/holiday/reconnect, full-scope realtime P&L and account
+recovery. This guide records source behavior; it does not certify production load,
+actual exchange queue execution or authenticated provider availability.

@@ -36,7 +36,7 @@ export default function PaperExecutionCostsDialog({ session, onClose, onSuccess 
       <DialogHeader><DialogTitle>Paper execution costs</DialogTitle>
         <DialogDescription>Update costs for {session.name} while stopped and without open positions.</DialogDescription>
       </DialogHeader>
-      <form onSubmit={save} className="space-y-4">
+      <form onSubmit={save} className="space-y-3">
         <div className="space-y-2"><Label htmlFor="paper-slippage">Slippage (%)</Label>
           <Input id="paper-slippage" type="number" min="0" max="99.9999" step="0.0001" required
             value={slippage} onChange={(event) => setSlippage(event.target.value)} disabled={saving} />

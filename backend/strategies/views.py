@@ -1,3 +1,5 @@
+from common.pagination import StandardPagination
+from django.db.models import Count, Q
 """
 Views for the strategies app.
 """
@@ -7,13 +9,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from brokers.models import BrokerCredential
 from live_trading.services import LiveExecutionService
-from rules_engine.models import PositionSizingRule, TimeRule, RuleGroup, Rule
-from instruments.models import WatchlistInstrument, ExecutionRoute
-from .models import Strategy, StrategyTag, EntryOrderConfig, ExitOrderConfig, StrategyVersion
+from .models import Strategy, StrategyTag, StrategyVersion
 from .serializers import (
     StrategyListSerializer, StrategyDetailSerializer, StrategyCreateSerializer,
-    StrategyVersionSerializer, StrategyTagSerializer,
-    EntryOrderConfigSerializer, ExitOrderConfigSerializer
+    StrategyVersionSerializer, StrategyVersionListSerializer, StrategyTagSerializer,
 )
 from .services import StrategySnapshotService, StrategyDeploymentService
 
@@ -26,14 +25,72 @@ class StrategyTagViewSet(viewsets.ModelViewSet):
 
 
 class StrategyViewSet(viewsets.ModelViewSet):
+    pagination_class = StandardPagination
     """ViewSet for CRUD operations on strategies."""
     permission_classes = [permissions.IsAuthenticated]
 
+    @action(detail=True, methods=['get', 'put'])
+    @transaction.atomic
+    def definition(self, request, pk=None):
+        from .definitions import current_document, revision, validate_definition, compile_preview
+        from rest_framework.exceptions import ValidationError
+        strategy = self.get_object()
+        strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
+        current = current_document(strategy)
+        if request.method == 'PUT':
+            if request.data.get('revision') != revision(current):
+                return Response({'detail': 'This strategy changed in another tab. Reload before saving.'}, status=409)
+            try:
+                document = validate_definition(request.data.get('document'))
+                preview = compile_preview(strategy, document)
+            except (ValueError, TypeError, KeyError) as exc:
+                raise ValidationError(str(exc)) from None
+            # No runtime refresh: running sessions continue using their pinned
+            # saved version until the user explicitly deploys another version.
+            from django.utils import timezone
+            strategy.definition = document
+            Strategy.objects.filter(pk=strategy.pk).update(definition=document, updated_at=timezone.now())
+            StrategySnapshotService.create_snapshot(strategy, user=request.user,
+                change_notes='Saved Strategy Studio definition')
+            return Response({'document': document, 'revision': revision(document), 'preview': preview})
+        # Compact authoring metadata is returned once, outside the execution path.
+        from instruments.models import Instrument
+        instrument_ids = {watch['instrument_id'] for watch in current['watchlist_instruments']}
+        instruments = list(Instrument.objects.filter(pk__in=instrument_ids).values(
+            'id', 'name', 'exchange', 'instrument_type', 'expiry_date', 'lot_size', 'tick_size', 'is_active'))
+        return Response({'document': current, 'revision': revision(current),
+                         'instruments': instruments})
+
+    @action(detail=True, methods=['post'], url_path='validate-definition')
+    def validate_definition(self, request, pk=None):
+        from .definitions import validate_definition, compile_preview
+        from rest_framework.exceptions import ValidationError
+        strategy = self.get_object()
+        try:
+            document = validate_definition(request.data.get('document'))
+            return Response({'document': document, 'preview': compile_preview(strategy, document)})
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ValidationError(str(exc)) from None
+
     def get_queryset(self):
         """Filter strategies by current user."""
-        return Strategy.objects.filter(user=self.request.user).select_related(
-            'user', 'entry_order_config', 'exit_order_config', 'position_sizing_rule'
-        ).prefetch_related('tags')
+        qs = Strategy.objects.filter(user=self.request.user).select_related('user').prefetch_related('tags')
+        if self.action == 'list':
+            qs = qs.defer('definition')
+        if self.action in {'list', 'summary'}:
+            search = self.request.query_params.get('search', '')[:100]
+            if search:
+                qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search))
+            if self.action == 'list' and self.request.query_params.get('status'):
+                from rest_framework.fields import ChoiceField
+                value = ChoiceField(choices=Strategy._meta.get_field('status').choices).run_validation(self.request.query_params['status'])
+                qs = qs.filter(status=value)
+        return qs.order_by('-created_at', '-id')
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        counts = {row['status']: row['count'] for row in self.get_queryset().values('status').annotate(count=Count('id')).order_by()}
+        return Response({'total': sum(counts.values()), 'statuses': counts})
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -99,48 +156,10 @@ class StrategyViewSet(viewsets.ModelViewSet):
             status='DRAFT',
             paper_trading_enabled=original.paper_trading_enabled,
             live_trading_enabled=original.live_trading_enabled,
+            definition=original.definition,
         )
         new_strategy.tags.set(original.tags.all())
 
-        def copy_fields(instance, excluded):
-            return {
-                field.attname: getattr(instance, field.attname)
-                for field in instance._meta.concrete_fields
-                if field.name not in excluded and field.primary_key is False
-            }
-
-        for relation_name, model in (
-            ('entry_order_config', EntryOrderConfig),
-            ('exit_order_config', ExitOrderConfig),
-            ('position_sizing_rule', PositionSizingRule),
-            ('time_rule', TimeRule),
-        ):
-            model.objects.update_or_create(
-                strategy=new_strategy,
-                defaults=copy_fields(getattr(original, relation_name),
-                                     {'strategy', 'created_at', 'updated_at'}),
-            )
-
-        for group in original.rule_groups.prefetch_related('rules'):
-            cloned_group = RuleGroup.objects.create(
-                strategy=new_strategy,
-                **copy_fields(group, {'id', 'strategy', 'created_at', 'updated_at'}),
-            )
-            for rule in group.rules.all():
-                Rule.objects.create(
-                    rule_group=cloned_group,
-                    **copy_fields(rule, {'id', 'rule_group', 'created_at', 'updated_at'}),
-                )
-
-        for watched in original.watchlist_instruments.prefetch_related('execution_routes'):
-            cloned_watch = WatchlistInstrument.objects.create(strategy=new_strategy, instrument_id=watched.instrument_id)
-            for route in watched.execution_routes.all():
-                ExecutionRoute.objects.create(
-                    watchlist_instrument=cloned_watch,
-                    **copy_fields(route, {'id', 'watchlist_instrument', 'created_at', 'updated_at'}),
-                )
-
-        # The creation signal records defaults; replace that snapshot with the cloned config.
         new_strategy.versions.all().delete()
         StrategySnapshotService.create_snapshot(new_strategy, user=request.user, change_notes=f'Cloned from {original.name}')
 
@@ -272,12 +291,16 @@ class StrategyViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def versions(self, request, pk=None):
-        """Get history of versions."""
-        strategy = self.get_object()
-        versions = list(strategy.versions.select_related('created_by').order_by('-version_number'))
-        previous = {version.pk: versions[index + 1] if index + 1 < len(versions) else None for index, version in enumerate(versions)}
-        serializer = StrategyVersionSerializer(versions, many=True, context={'previous_versions': previous})
-        return Response(serializer.data)
+        """List metadata only; previews fetch one snapshot and its true predecessor."""
+        versions = self.get_object().versions.select_related('created_by').defer('config_snapshot').order_by('-version_number', '-id')
+        page = self.paginate_queryset(versions)
+        return self.get_paginated_response(StrategyVersionListSerializer(page, many=True).data)
+
+    @action(detail=True, methods=['get'], url_path=r'versions/(?P<version_id>[0-9]+)')
+    def version(self, request, pk=None, version_id=None):
+        from django.shortcuts import get_object_or_404
+        version = get_object_or_404(self.get_object().versions.select_related('created_by', 'strategy'), pk=version_id)
+        return Response(StrategyVersionSerializer(version).data)
 
     @action(detail=True, methods=['post'])
     @transaction.atomic
@@ -343,24 +366,3 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-
-class EntryOrderConfigViewSet(viewsets.ModelViewSet):
-    """ViewSet for entry order configuration."""
-    serializer_class = EntryOrderConfigSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
-
-    def get_queryset(self):
-        return EntryOrderConfig.objects.filter(strategy__user=self.request.user)
-
-
-
-class ExitOrderConfigViewSet(viewsets.ModelViewSet):
-    """ViewSet for exit order configuration."""
-    serializer_class = ExitOrderConfigSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
-
-    def get_queryset(self):
-        return ExitOrderConfig.objects.filter(strategy__user=self.request.user)

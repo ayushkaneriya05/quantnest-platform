@@ -146,6 +146,9 @@ def update_active_run(run_id, *, expected_status=None, **changes):
         if expected_status is not None and run.status != expected_status:
             return None
         for key, value in changes.items():
+            if key == 'evidence':
+                from .evidence import store_evidence
+                value = [store_evidence(run, item) for item in value]
             setattr(run, key, value)
         run.revision += 1
         run.save(update_fields=[*changes, "revision", "updated_at"])

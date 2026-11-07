@@ -1,3 +1,4 @@
+import { Button } from "@/shared/components/ui/button";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useSelector } from "react-redux";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
@@ -21,7 +22,7 @@ function ProtectedRoute() {
   if (!isAuthenticated && error) {
     return <div className="flex min-h-dvh flex-col items-center justify-center gap-4 text-foreground">
       <p>{error}</p>
-      <button onClick={() => dispatch(initializeAuth())} className="rounded-md bg-indigo-600 px-4 py-2 text-white">Retry connection</button>
+      <Button type="button" onClick={() => dispatch(initializeAuth())}>Retry connection</Button>
     </div>;
   }
 

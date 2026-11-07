@@ -20,10 +20,9 @@ export default function useRealtimeCandles(symbol, interval, onCandle, onTick) {
     let data;
     for (let page = 0; page < 2; page++) {
       if (controller.signal.aborted) return null;
-      const response = await terminalApi.getCandles({ symbol, interval, limit, before,
+      const { data: pageData } = await terminalApi.getCandles({ symbol, interval, limit, before,
         fetchMissing: page > 0, signal: controller.signal });
       if (controller.signal.aborted) return null;
-      const pageData = response.data;
       data = pageData;
       setError(pageData.history_error);
       setHistory((current) => {

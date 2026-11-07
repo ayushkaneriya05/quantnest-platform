@@ -50,9 +50,12 @@ export default {
           foreground: "hsl(var(--card-foreground))",
         },
         brand: "hsl(var(--brand) / <alpha-value>)",
+        'brand-foreground': "hsl(var(--brand-foreground) / <alpha-value>)",
         success: "hsl(var(--success) / <alpha-value>)",
+        'success-foreground': "hsl(var(--success-foreground) / <alpha-value>)",
         warning: "hsl(var(--warning) / <alpha-value>)",
         loss: "hsl(var(--loss) / <alpha-value>)",
+        'loss-foreground': "hsl(var(--loss-foreground) / <alpha-value>)",
         // Custom colors for QuantNest
         'qn-dark-blue': "hsl(var(--card))", // A very dark blue-gray for subtle background variation
         'qn-light-cyan': "hsl(var(--success))", // A bright, but not neon, cyan for highlights

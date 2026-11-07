@@ -1,6 +1,6 @@
 """On-demand reports over execution records. No duplicate financial ledger."""
 from datetime import datetime, time, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.db.models import Avg, Count, DecimalField, DurationField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce, NullIf, TruncDate
@@ -146,8 +146,7 @@ def current_position_marks(user, filters):
     from live_trading.models import LivePosition
     from paper_trading.models import PaperPosition
     from trading.models import Position
-    from marketdata.quotes import read_quote
-    from redis.exceptions import RedisError
+    from common.valuation import position_totals
 
     source = filters["source"]
     model = {"TERMINAL": Position, "PAPER": PaperPosition, "LIVE": LivePosition}[source]
@@ -157,35 +156,10 @@ def current_position_marks(user, filters):
             qs = qs.filter(**{SOURCES[source]["account"] if key == "account_id" else key: filters[key]})
     if filters.get("search"):
         qs = qs.filter(Q(instrument__symbol__icontains=filters["search"]) | Q(instrument__name__icontains=filters["search"]))
-    qs = qs.select_related("instrument")
-    total, quotes, times, count, missing = Decimal("0"), {}, [], 0, 0
-    for position in qs:
-        count += 1
-        symbol = position.instrument.sym_ticker
-        if symbol not in quotes:
-            try:
-                quotes[symbol] = read_quote(symbol)
-            except (RedisError, OSError):
-                return {"positions": len(qs), "unrealized_pnl": None, "unpriced_positions": len(qs),
-                        "oldest_quote_at": None, "basis": "Current marks unavailable because the quote cache could not be reached. Historical closes are unaffected."}
-        quote = quotes[symbol]
-        raw_price = quote["price"] if quote["available"] else None
-        try:
-            price = Decimal(str(raw_price))
-        except (InvalidOperation, TypeError, ValueError):
-            missing += 1
-            continue
-        if not price.is_finite() or price <= 0:
-            missing += 1
-            continue
-        quantity = position.quantity
-        average = position.average_price if source == "TERMINAL" else position.avg_price
-        if source != "TERMINAL" and position.side == "SELL":
-            quantity = -quantity
-        total += (price - average) * quantity * position.instrument.qty_multiplier
-        times.append(quote["updated_at"])
-    return {"positions": count, "unrealized_pnl": None if missing else total, "unpriced_positions": missing,
-            "oldest_quote_at": min(times) if times else None,
+    valuation = position_totals(qs, include_history=True)
+    return {"positions": valuation['count'], "valuation_positions": valuation['valuation_positions'],
+            "unrealized_pnl": None if valuation['unpriced_positions'] else valuation['unrealized_pnl'],
+            "unpriced_positions": valuation['unpriced_positions'], "oldest_quote_at": valuation['oldest_quote_at'],
             "basis": "Current open positions · before exit costs · latest available quotes. Date and review-status filters apply only to closed records."}
 
 
@@ -213,6 +187,8 @@ def execution_review_context(user, settings):
     source = filters["source"]
     qs = trade_queryset(user, filters)
     report = execution_report(user, filters)
+    # Live browser inputs are not evidence for the AI review of saved results.
+    report['current_positions'].pop('valuation_positions')
     if values.get("trade_id"):
         trade = get_object_or_404(qs, pk=values["trade_id"])
         qs = qs.filter(pk=trade.pk)

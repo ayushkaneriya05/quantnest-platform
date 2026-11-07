@@ -1,322 +1,603 @@
-# AI Research: application flow, providers and period credits
+# AI Research and Market Screener: complete user and technical guide
 
-AI Research keeps conversations, calculations and confirmations in Django. A
-separate internal service conducts the model conversation. The service has no
-database credentials or order-placement API. The browser communicates with
-Django, never with the provider or the internal AI service.
+**Source reviewed: 7 November 2026.** This guide covers current conversations,
+context, deterministic calculations, evidence, confirmed actions, the non-AI
+screener, period credits and the separate provider service. It replaces earlier
+workflow descriptions; it is not the future research-product roadmap.
 
-## Request to saved answer
+Related references: [Strategy Studio](strategy-configuration.md),
+[Backtesting](backtesting.md), [commercial operations](commercial-operations.md),
+[research-service setup](../research_service/README.md), and
+[integration instructions](../infra/shared/INTEGRATIONS.md).
+The [separate research-product proposal](ai-financial-research-transformation.md)
+and [quantitative roadmap](quantitative-research-roadmap.md) describe future work,
+not features implicitly available in this assistant.
 
-1. `AIResearchAssistant.jsx` selects optional stocks, a named Terminal watchlist, a strategy, completed
-   backtests or execution evidence. Shared searchable selectors load choices on
-   demand. The existing enum context supplies builder labels and parameters.
-2. `ResearchRunViewSet.create` validates the transport payload and calls
-   `research.services.accept_run`. The service locks the user, checks request-ID
-   reuse and the one-active-run constraint, and freezes owned context through
-   `context.resolve_context`. Public instrument/attachment limits are checked here.
-3. Admission creates a `ResearchRun` and a zero-amount `UsageReservation` for
-   `research_tokens`. Its `UsageBucket` identifies the accepted allowance period.
-   Public admission requires at least one token of remaining allowance. No token
-   estimate or charge is made at this stage. Creation and admission are atomic.
-4. `queue_compute_work` dispatches `research.start_research` after the transaction
-   commits. Research shares the **compute** queue with backtesting; waiting in
-   that queue does not consume the execution deadline or customer credits.
-5. The task claims PENDING → RUNNING once. Duplicate delivery cannot make another
-   paid provider request. It can reuse previously selected screening evidence,
-   preserving its original observation date, or prepare an attached execution
-   review. It builds `service_payload` and streams an authenticated HTTP request.
-6. `research_service.main` checks the internal service token. `workflow.py` runs
-   the provider-independent loop. `providers.py` handles the provider SDK,
-   messages, continuation state, normalized usage and bounded retries.
-7. Tools return calculated evidence, not persistent actions. Django validates
-   each tool against the accepted user/context and returns a compact result.
-   Charts and full evidence remain in Django for the user's evidence drawer.
-8. A valid structured answer ends the loop immediately. There is no unconditional
-   second writing request. At the tool limit, the next model call has no tools
-   and must finish from collected evidence. A malformed answer permits one
-   bounded format-repair call.
-9. `services.complete_run` locks the user and run, verifies citations and drafts,
-   independently validates optional action proposals, saves the answer/actions,
-   and settles actual reported tokens **in one database transaction**. A database
-   error rolls back both the answer and its charge. Invalid optional actions are
-   omitted; a fabricated evidence reference still rejects the answer.
-10. Compact WebSocket revisions announce progress/completion. `useResearchData`
-    loads the saved answer, refreshes the credit balance, and ignores older
-    revisions. During an active run, fallback polling fetches only that run.
-    Initial loading and reconnect restore persisted conversation snapshots.
+## Contents
 
-## Named watchlists and custom screens
+- [What the assistant does](#what-the-assistant-does)
+- [Conversations and accepted context](#conversations-and-accepted-context)
+- [Research execution lifecycle](#research-execution-lifecycle)
+- [Tools and evidence](#tools-and-evidence)
+- [Confirmed actions](#confirmed-actions)
+- [Market Screener](#market-screener)
+- [Period credits](#period-credits)
+- [Service and provider architecture](#service-and-provider-architecture)
+- [Requests, events and prompts](#requests-events-and-prompts)
+- [Frontend state and pagination](#frontend-state-and-pagination)
+- [API contracts](#api-contracts)
+- [Implementation ownership and extension](#implementation-ownership-and-extension)
+- [Worked examples](#worked-examples)
+- [Deployment and verification](#deployment-and-verification)
+- [Troubleshooting and limits](#troubleshooting-and-limits)
 
-AI context, Market Screener and watchlist-addition previews use the shared
-`terminal-watchlists` choice resource. It searches and paginates all watchlists
-owned by the current user, displaying their names. A `watchlist_id` identifies
-the selection; the backend checks ownership and records `watchlist_name` for
-display. Research freezes the supported instruments at admission, so later
-watchlist edits do not change completed evidence. New requests read the current
-contents of that selected watchlist.
+## What the assistant does
 
-Migration `research.0005` replaces the retired `use_watchlist` flag in saved
-contexts with the first owned watchlist, matching the old behaviour. Recorded
-instrument snapshots and results remain intact. A deleted watchlist must be
-reselected; the backend never silently switches to another one.
+The assistant combines model-written explanations with deterministic backend
+tools. It does not calculate a price/indicator merely by predicting plausible text.
 
-New screens start without conditions. Users add conditions with the shared rule
-editor or reopen their saved screen. There are no built-in screener presets.
-Watchlist additions require a selected destination before confirmation, and
-ownership is checked again when the confirmed action executes.
+| Workflow | Current implementation |
+| --- | --- |
+| Explain a concept or answer a greeting | Model response without unnecessary market tools/complete builder metadata |
+| Analyze a stock | Closed-candle price/indicator/return/volatility evidence, with a separate labelled display quote where available |
+| Compare selected stocks/watchlist | Shared completed-candle calculations over the accepted stock universe |
+| Screen technical conditions | Deterministic rule evaluation; the separate Market Screener does not call an AI provider |
+| Explain an attached strategy | Frozen owned configuration, sources, expressions, schedule and sizing |
+| Draft user-specified strategy rules | Canonical Studio definition validated/compiled before a proposed create action |
+| Review/compare backtests | Owned completed snapshots, recorded trades/metrics/cost and data assumptions |
+| Review execution | Bounded owned report with source/account/date/fee basis and optional journal notes |
+| Add selected stocks to a watchlist | Preview and explicit user confirmation for an owned named list |
+| Configure/start a backtest | Preview exact snapshot/dates/capital/costs/workload, then explicit confirmation |
 
-## Credits and allowance periods
+Direct market analysis and screening currently focus on **active NSE stocks**.
+Do not infer option-chain research, fundamental filings, unrestricted web search,
+portfolio optimization, news feeds or broker trading from the assistant's name.
+An attached report can describe derivative trades; that does not broaden the
+direct-analysis data universe to every instrument.
 
-| Rule | Behaviour |
-|---|---|
-| Unit | 1 credit = 1,000 reported AI tokens |
-| Explore / Build / Pro | 150 / 500 / 1,500 credits per period |
-| Stored amounts | Exact integer token counts; no floating-point ledger math |
-| Display | Credits to three decimal places in Research; up to three in Pricing/Billing |
-| Success | Settle reported usage only after a validated answer is saved |
-| Failure / cancellation | No customer credit charge; provider-side costs may still exist |
-| Accepted request exceeds balance | Finish it and record full usage; remaining display is zero |
-| Next request | Public rejects admission until a positive balance is available |
-| Renewal | New bucket and fresh allowance; no debt carried forward |
-| Completion after renewal | Charge the reservation's original period |
-| Development | Record actual usage without enforcing the allowance |
-| Private | No commercial reservation or allowance enforcement; per-run provider usage is retained |
+The prompt restricts the assistant to educational research and customer-defined
+logic. It should ask for missing thresholds/rules instead of inventing a supposedly
+profitable strategy or personalized buy/sell instruction. Current strategy-drafting
+prompt guidance emphasizes stock strategies; backend draft validation uses the
+canonical Studio compiler and accepted context. Full arbitrary F&O strategy
+generation is not promised by this interface.
 
-An 88,654-token answer uses **88.654 credits**. If 10 credits remain and an
-accepted answer uses 20, save it and record all 20. This is not a paid overage.
-The next request is blocked; the next period starts with its full allowance.
+## Conversations and accepted context
 
-The internal allowance key is `research_tokens`. `TOKENS_PER_CREDIT` and catalog
-display divisors keep the API, Billing, Pricing and Operations Admin consistent.
-The Admin form accepts credits and converts them to integer tokens on save.
-The standalone screener still uses `screens` (one successful run), not AI credits.
+Open **Research & Analysis → AI Research Assistant**, choose an existing chat or
+create one. Enter a prompt, select the timeframe and attach only the context needed.
+The default assistant timeframe is the research schema's current default, initially
+one day; change it deliberately for intraday calculations.
 
-`settle_usage` locks and settles only RESERVED rows. Completion callbacks and
-duplicate task delivery cannot charge a settled reservation again. Normal
-backtest/screener/Monte Carlo reservations keep their existing fixed/workload
-pricing; postpaid AI pricing is selected by the allowance definition.
+Supported context inputs are:
 
-## Provider usage and missing accounting
+| Input | Accepted meaning |
+| --- | --- |
+| Selected instruments | Owned request's active NSE-stock analysis universe |
+| Terminal watchlist | One selected owned list, including its saved name; only eligible stocks enter direct analysis |
+| Strategy | Owned definition frozen at request acceptance |
+| Completed backtests | Owned snapshots/reports; compare requires at least two |
+| Saved screen / source run | Reuse selected earlier evidence with original provenance |
+| Execution review | Explicit source, account/date/report selection and optional user review content |
 
-The adapter sums each model call's **reported total**. Gemini's `total_tokens`
-already incorporates provider-defined input, output and reasoning accounting.
-Cached and thought counts are descriptive fields, never extra additions to that
-total. See [Gemini's reported usage fields](https://ai.google.dev/gemini-api/docs/tokens).
-Format-repair calls and successful tool-loop calls belong to the same
-successful request's usage.
+All named Terminal watchlists are individually selectable; there is no single
+ambiguous global Terminal watchlist. Index/derivative members are not silently
+analysed as stocks. Use readable names and exact resource selectors; server
+ownership checks remain authoritative.
 
-Missing totals are not estimated. `usage.complete` becomes false; known totals
-are retained and settled, the valid answer is delivered, and Django logs an
-accounting issue. A retried transport failure can have unknown provider cost;
-it also marks accounting incomplete. Customer failures/cancellations remain
-uncharged regardless of any observed provider cost.
+`resolve_context()` validates ownership and produces the immutable accepted request
+context. Changing a conversation's attachments affects later turns, not the facts
+used by a previously accepted turn. A run has its own `as_of`, request ID, context,
+evidence, usage, status and result.
 
-No input/output customer token budgets or `count_tokens` RPCs remain. Model
-context limits, a technical 16,384-token output bound per Gemini call, three
-attempts for transient provider errors, normal API throttling, eight tool
-executions and a ten-minute deadline bound resource use. The deadline starts
-when the compute worker claims the job, not when it enters the queue. Django
-supplies the absolute deadline and remaining tool count to the service.
+Draft eligibility can include instruments from an attached owned frozen strategy
+or backtest. That bounded draft permission is separate from permission to fetch
+new market analysis for arbitrary IDs. A fabricated/foreign attachment or evidence
+reference is rejected.
 
-## One tool registry
+Recent completed turns supply a compact conversation history. Older full evidence
+is retrieved on demand through an authorized tool; every old artifact is not
+attached to every question. This reduces context size and keeps evidence provenance
+explicit.
 
-`backend/research/tool_registry.py` registers each tool's name, description,
-argument schema, callable and required context together. It owns the common
-execution path: availability, cached evidence, the execution counter, provenance,
-and compact results. The provider service does not duplicate tool definitions.
+## Research execution lifecycle
 
-The backend uses these responsibility boundaries:
-
-| Module | Responsibility | Change here when... |
-|---|---|---|
-| `views.py`, `serializers.py` | HTTP, ownership-scoped resources and typed request fields | Adding an API input or endpoint |
-| `context.py` | Resolve owned attachments, freeze the admitted universe and build the model request | Adding a context source |
-| `services.py` | Admit, transition and complete runs; publish revisions; settle credits | Changing run lifecycle or admission |
-| `tasks.py` | Claim queued work and stream the separate AI service | Changing transport or scheduling |
-| `tool_registry.py` | Register and dispatch read-only tools; record/reuse evidence | Exposing a new AI responsibility |
-| `tools.py` | Discovery, metadata, market analysis, saved reviews and draft-validation handlers | Changing a calculation/report presented to AI |
-| `evaluation.py` | Shared historical data loading, frame/evaluation caches and completed-candle evaluation | Changing market-data calculations |
-| `validation.py` | Builder validation, customer-defined rules and answer/citation validation | Changing accepted research inputs/results |
-| `actions.py` | Preview and execute confirmed strategy, watchlist and backtest changes | Adding a persistent action |
-| `models.py`, `admin.py` | Stored conversations, runs and action records | Changing persistence or admin access |
-| `consumers.py`, `routing.py` | Authenticated progress transport | Changing WebSocket delivery |
-
-General educational questions need no data tool. Tools return evidence only.
-Persistent changes require a separately confirmed action, even when suggested by AI.
-
-| Tool | Purpose |
-|---|---|
-| `get_rule_schema` | Fetch builder choices/defaults and requested operand parameters only when needed |
-| `resolve_instruments` | Resolve an NSE stock name; selection for a new request remains explicit |
-| `screen_instruments` | Evaluate customer conditions on completed candles |
-| `compare_instruments` | Compare admitted stocks and condition values |
-| `analyze_stock` | Bounded charts, observations and configured indicators |
-| `get_strategy_snapshot` | Read the attached frozen strategy |
-| `get_execution_review` | Read the attached, owned Terminal/Paper/Live report |
-| `get_backtest_report` | Read actual results, costs, diagnostics and saved configuration |
-| `compare_backtests` | Compare attached experiments and their configuration differences |
-| `get_conversation_evidence` | Retrieve an earlier artifact in the same user's conversation |
-| `validate_strategy_draft` | Validate customer-defined rules with the existing builder serializers |
-
-Only context-appropriate tools are supplied. General questions do not carry
-full enum metadata, strategy snapshots or reports. The six most recent turns
-carry text and evidence references; older evidence is retrieved on demand.
-
-An identical successful tool result is reused before incrementing the tool
-counter. The AI service also caches identical calls within its conversation.
-Calculation/frame caching is retained. A bounded number of model rounds prevents
-repeated cached calls from extending the loop indefinitely.
-
-Adding a read-only capability means adding a deterministic handler to the relevant
-section of `tools.py`, then an `add(...)` entry in `tool_registry.registry`. Return
-`{"data": ...}`; the dispatcher supplies the tool name, evidence ID and provenance.
-Specify `context_field` when it requires an admitted attachment and `minimum=2`
-for comparisons needing two records. Retain ownership checks inside the handler
-when reading records. No provider change is required. Add an evidence renderer
-in `ResearchEvidence.jsx` when it needs a new card.
-
-For a persistent capability, add its `ResearchAction.Type`, a `preview_*` function
-and an `execute_*` function to `actions.py`, then register the pair in
-`ACTION_HANDLERS`. Previews validate and freeze settings without creating resources.
-The shared confirmation path locks user, run and action in that order, checks for
-duplicate confirmation, executes inside a transaction and publishes the result.
-The executor receives `(run, payload)` and returns the created resource IDs.
-Add its user-facing preview/confirmation controls alongside the existing actions.
-
-## Provider interface and HTTP contract
-
-`research_service/schemas.py` is the service's Pydantic HTTP contract. Django's
-`context.service_payload` creates that request; FastAPI validates it on arrival.
-It is not a separately packaged library and the backend image does not need the
-provider SDK or Pydantic at runtime.
-
-Request fields: `prompt`, signed `run_token`, `as_of`, accepted `context`,
-recent `history`, selected `tools`, absolute Unix `deadline`, and
-`max_tool_calls` remaining. Unknown request fields are rejected.
-
-NDJSON events:
-
-```json
-{"type":"progress","message":"Reviewing your question and evidence"}
-{"type":"usage","usage":{"provider":"gemini","model":"configured-model","requests":1,"total_tokens":1234,"complete":true,"tool_calls":0}}
-{"type":"result","result":{"answer":"A verified explanation","evidence_ids":[],"proposed_actions":[]},"usage":{"provider":"gemini","model":"configured-model","requests":1,"total_tokens":1234,"complete":true,"tool_calls":0}}
+```mermaid
+flowchart LR
+    UI[Prompt and selected context] --> API[Django acceptance]
+    API --> Queue[Existing compute queue]
+    Queue --> Task[Research task]
+    Task --> Service[AI conversation service]
+    Service --> Adapter[Provider adapter]
+    Adapter --> Model[Configured provider/model]
+    Service --> Gateway[Django tool gateway]
+    Gateway --> Evidence[Shared data, evaluator and evidence]
+    Task --> Commit[Save answer, actions and token settlement]
+    Commit --> UI
 ```
 
-`heartbeat` keeps idle streams alive. `error` contains a safe message and no
-credentials. Usage events are cumulative snapshots, not deltas: the Django task
-replaces the recorded snapshot rather than summing events. The final result
-supports citations, clarification questions, limitations, artifact references,
-validated draft references and optional action proposals.
+1. The browser generates a UUID `request_id` and submits prompt/context. Prompt
+   length is bounded to 6,000 characters.
+2. `accept_run()` locks the user, checks exact request-id/payload idempotency,
+   resolves context, validates relevant request limits and ensures only one
+   active research/screen request for the user.
+3. It creates `PENDING` work and a zero-charge AI accounting reservation tied to
+   the accepted allowance period, then queues `research.start_research` on `compute`.
+4. The task claims `PENDING` → `RUNNING` once. A duplicate delivery does not make
+   another paid provider call for an already claimed run.
+5. Django creates a deadline/run-scoped tool token and sends compact accepted
+   context, available tool definitions and up to six recent completed turns to
+   the separate service.
+6. The service orchestrates model/tool turns. Tools call back to Django; their
+   results are stored as evidence and only compact projections return to the model.
+7. Progress, cumulative usage, result/error and heartbeat events stream to the
+   task. The browser receives Django's user-scoped revisions, not the provider API.
+8. `complete_run()` locks the active run, validates answer/citations, validates
+   optional actions separately, and commits result/usage/actions/credit settlement
+   in one transaction.
+9. WebSocket revision and REST recovery update the conversation and balance.
 
-An adapter implements `Provider.conversation(request, instruction)` and returns
-a conversation implementing `step(results, *, final_only, feedback="")`. Its `ProviderStep`
-contains plain text, normalized `ToolCall` objects and normalized usage.
-SDK objects and thought signatures remain inside the adapter; they are never
-stored as application conversation history. `close()` releases SDK clients.
+Research and backtests intentionally share **the compute queue**. A PENDING request
+can wait behind other compute work; this is not a Gemini response time. The
+ten-minute execution deadline is tied to started work, not time spent waiting in
+that queue. Expiry cleanup catches excessively long RUNNING work.
 
-`feedback` contains application schema-validation errors only when a final answer
-needs its single permitted format repair. The adapter passes that feedback to the
-model while preserving the existing conversation. Rejected tool arguments return
-an explicit error object, so they cannot be mistaken for successful evidence.
-Blank answers and oversized follow-up text are rejected before Django settlement;
-invalid optional action entries are omitted independently of valid proposals.
+### Cancellation and failures
 
-To add another provider: implement that interface, register its factory in
-`PROVIDERS`, add its SDK/key configuration, verify its usage/continuation format, and set
-`RESEARCH_PROVIDER`/`RESEARCH_MODEL`. The orchestration, tools, quotas, application
-conversations and frontend remain unchanged.
+Pending/running cancellation marks the owned run cancelled; the task and tool
+gateway reject subsequent active work. A provider request already in flight can
+still have consumed provider resources before disconnect/cancellation is observed.
+Customer credits are not charged for a failed/cancelled answer.
 
-## Actions and data correctness
+Failure text belongs to the run; it must not erase earlier successful turns.
+Deletion of a conversation with active work is blocked until cancellation/cleanup.
+Refreshing the page recovers the accepted run instead of starting the same prompt
+again automatically.
 
-The AI service cannot create a strategy, place an order or start a backtest.
-`ResearchAction` persists a reviewed preview. The user must call confirmation;
-`actions.confirm_action` applies it atomically and idempotently.
+## Tools and evidence
 
-The UI keeps the three action paths explicit:
+Tool name, argument schema, description, handler and compact output are defined
+once in `backend/research/tool_registry.py`. Django selects only tools allowed by
+that run's context. The service does not maintain another handwritten list of
+the same arguments.
 
-- A validated draft opens a rules/settings preview before creating its DRAFT
-  strategy, direct instrument routes and initial saved version.
-- Watchlist additions require a named destination. The completed action links
-  to `/terminal?watchlist=<id>` so the same destination opens in the terminal.
-- Backtest configuration prefers the strategy draft created by that reply, then
-  its attached strategy. An attached backtest can be selected to rerun its saved
-  configuration. Dates, capital, slippage and charges remain visible before
-  preview and confirmation; a preview never queues work.
+| Tool | What it reads/calculates | Boundary |
+| --- | --- | --- |
+| `resolve_instruments` | Eligible stock identity search | Does not broaden the accepted research universe automatically |
+| `get_rule_schema` | Relevant Studio operand/parameter metadata | Detailed builder metadata only when needed |
+| `screen_instruments` | User conditions on completed bars | Accepted stocks and valid screening inputs |
+| `compare_instruments` | Common return/volatility/price observations | Accepted universe; deterministic calculated facts |
+| `analyze_stock` | Bounded indicator observations and charts | Selected eligible stocks; compact model-facing observations |
+| `get_strategy_snapshot` | Frozen attached strategy | No foreign/current mutable strategy substitution |
+| `get_backtest_report` | Completed attached result | Recorded historical execution/data assumptions retained |
+| `compare_backtests` | Comparison of attached completed results | At least two; no claim that different dates/costs are comparable |
+| `get_execution_review` | Explicit bounded execution report | Owned source/account/date scope and fee basis |
+| `get_conversation_evidence` | Earlier owned conversation artifact | Preserve original observation time and source turn |
+| `validate_strategy_draft` | Canonical document validation and compile preview | No strategy is saved/deployed by this read/validate tool |
 
-Opening or switching a conversation displays its latest reply. Updates continue
-to follow the bottom while the user stays there; reading older turns stops that
-automatic scrolling. A new chat fetches active-work status without downloading
-unrelated conversation history. Selecting several resolved stocks retains the
-earlier selections within the request allowance.
+### Shared calculations
 
-Instrument analysis uses `marketdata.candles.prepare_frames` and the shared
-execution compiler/evaluator. Candle completion time, warmup, missing-history
-backfill and crossover semantics are unchanged. LTP remains unsupported for
-historical screens; it is supported in live strategy drafts. Backtest reports
-describe the saved execution configuration, not a universal next-open fill rule.
+Research uses `marketdata/candles.prepare_frames()` and calendar-aware completed
+bars, then `research/evaluation.py` and the shared execution compiler/evaluator.
+There is no second AI-only EMA/RSI implementation. An analysis timeframe refers
+to completed candles rather than the newest forming price displayed in Terminal.
 
-The internal tool endpoint requires both the service secret and a signed token
-binding one running request to its user and deadline. The model cannot enlarge
-the admitted universe or retrieve another user's attachments. Saved evidence
-retains provenance and original dates. Account/private journal context is sent
-to the provider only through explicitly accepted attachments.
+`_closed_data()` and completion projection prevents current unfinished bars or future
+history from being treated as evidence at the accepted clock. Coverage, missing
+data and rejected rows are preserved. A separate quote is labelled with its own
+time/source; it does not replace the historical closing price used in an analysis.
+
+### Evidence identity and provenance
+
+Every successful tool artifact receives a run-local evidence ID such as `E1`, a
+tool name, arguments, data and observation/source time. `E1` in another conversation
+is not the same artifact. Reusing prior evidence preserves its original `as_of`
+and source run, while the current run records its own reference.
+
+- Model-facing compact output excludes large chart arrays and full trade tables.
+- Django retains full evidence for the user's tables/charts and validation.
+- Evidence rows are stored separately and server paginated; opening a chat does
+  not repeatedly download every historical row and chart.
+- Citations must resolve to artifacts calculated/accepted for the run. A valid
+  inline citation is normalized even if the model omitted a redundant declaration.
+- An invalid citation/answer fails validation. An invalid **optional action** is
+  filtered/reported independently rather than discarding an otherwise valid answer.
+- A repeated identical successful tool call reuses its run-local artifact/cache
+  instead of spending another tool execution.
+
+The shared maximum is eight uncached tool attempts per run. Failed attempts count;
+the orchestrator does not loop endlessly on identical failures. At the limit it
+requests a final answer from collected evidence, including limitations, rather
+than discard useful completed work. Cached numerical results do not become new
+market observations just because a user asks again.
+
+## Confirmed actions
+
+The model can propose an action; only a backend-validated preview plus an explicit
+user confirmation can persist it. No tool silently deploys, places trades or sends
+customer messages.
+
+### Create strategy draft
+
+1. Supply the intended logic/thresholds. Missing business rules should produce
+   clarification questions rather than invented trading advice.
+2. `validate_strategy_draft` validates the canonical Studio document, owned/accepted
+   active instruments, entry plus exit/stop/target logic, expression sources,
+   dependencies and compile requirements.
+3. Open the draft action preview and inspect the definition.
+4. Confirm. The normal strategy create/snapshot services save the reviewed draft;
+   Paper is enabled, Live is disabled and automatic version saving is disabled.
+5. Open Studio, review/validate/save as needed and deliberately choose any later
+   backtest/deployment. Creating the draft does not activate execution.
+
+One run reuses its already created strategy on repeated confirmation instead of
+creating duplicate drafts. Strategy capacity is enforced at the normal create
+boundary, separately from AI credits.
+
+### Add stocks to a Terminal watchlist
+
+Choose evidence-supported stock rows, open **Add to watchlist**, select the exact
+owned named destination, and preview additions. The preview displays its name.
+Only then confirm. Adding existing members is idempotent. The server rejects IDs
+outside the accepted research universe or a foreign destination list.
+
+### Configure and start a backtest
+
+Choose an attached strategy, newly created reviewed draft, or attached completed
+backtest as the source. Select dates, capital, slippage and charge profile.
+
+The preview freezes the exact source definition and cost assumptions and returns
+the normal workload/credit estimate. An attached completed source uses its saved
+effective configuration rather than silently taking the strategy's latest edits.
+Confirming calls the standard backtest create/start workflow. Backtest credits are
+independent from the AI tokens consumed explaining/configuring it.
+
+Preview defaults are provided by `research/schema/`; they are editable assumptions,
+not recommendations. A preview is not an order or a free bypass of backtest quotas.
+
+### Action states and rollback
+
+Actions are PROPOSED, COMPLETED or FAILED. `confirm_action()` locks user/run/action,
+requires a completed research run and wraps persistent work in a transaction.
+Repeated confirmation returns the already settled action. A failed action leaves
+the valid research answer available and rolls back its persistent changes; create
+a corrected fresh preview to retry. Do not resubmit the entire research prompt
+merely to repair a selected watchlist/date/profile.
+
+## Market Screener
+
+Market Screener is deterministic historical analysis and does not require an AI
+provider response for its screen result. Its period run allowance is separate
+from research token credits.
+
+1. Select manual eligible stocks, an owned strategy's relevant stock universe, or
+   a specific named Terminal watchlist.
+2. Choose timeframe and AND/OR combination.
+3. Add active operand comparisons using the shared Studio metadata. The current
+   schema allows up to 12 screening conditions.
+4. Save a named screen to reuse its settings; saved screens consume saved-screen
+   capacity. There are no built-in trend/momentum/EMA preset cards anymore.
+5. Run with a new observation. The server accepts a SCREEN run, obtains shared
+   completed-bar evidence and evaluates the configured comparisons.
+6. Inspect matched/excluded/data-limited outcomes and calculation details. A data
+   error is not interchangeable with a known false comparison.
+7. Select results and **Ask AI about selected results** if an explanation is useful.
+   The subsequent AI request has its own prompt/context/credit lifecycle.
+
+Screening permits completed-candle operands and their validated math inputs.
+LTP, position state and captured runtime values are not screening data. It is a
+flat AND/OR screen, not the full Studio nested/capture execution state machine.
+
+Named screen edits affect later runs. Reopening a stored result is not automatically
+a new live screen. Saved screens retain their SCREEN type; they cannot be converted
+to CHAT to evade saved-screen capacity. Delete an eligible saved screen to release
+its inventory slot.
+
+## Period credits
+
+**1 credit = 1,000 reported AI tokens.** Internally usage is an exact integer
+token count; UI credits use three decimals, not currency/two-decimal rounding.
+
+| Current default plan | Research credits per allowance period |
+| --- | ---: |
+| Explore | 150 |
+| Build | 500 |
+| Pro | 1,500 |
+
+The accepted subscription/catalog terms are authoritative; a historical catalog
+record is not rewritten merely because the current default offering changed.
+Example: 88,654 reported tokens consume **88.654 credits**.
+
+| Situation | Behavior |
+| --- | --- |
+| Public admission | Must have positive period balance and no other active run |
+| Admission reservation | Zero-charge record tied to the accepted period; no predicted per-request token reservation |
+| Successfully validated/saved answer | Charge summed provider-reported usage once |
+| Answer exceeds remaining balance | Finish/save it and record full usage; remaining display clamps to zero; block new requests |
+| Failed/cancelled request | No customer AI credit charge |
+| Period rollover during work | Charge the original accepted bucket, not the new period |
+| New period | Fresh allowance; no usage debt carried forward |
+| Missing provider usage | Deliver a valid answer, flag incomplete accounting and record known reported totals; do not invent token counts |
+| Development | Record usage without commercial enforcement |
+| Private | No commercial quota recording/enforcement |
+
+Input/output/cached/reasoning fields are diagnostics. The provider's reported total
+already includes components it accounts for; cached/reasoning tokens must not be
+added to that total again. Sum reported totals across model calls needed for the
+successful request, including a required repair pass, once each.
+
+There is no cumulative customer token budget per request and no separate plan-
+specific hourly research cap. Normal API throttling, one active request, deadlines,
+tool limits, provider context/output constraints and concurrency bounds still
+protect the service. Removing a customer budget does not remove technical controls.
+
+The composer shows remaining period credits and completed replies show consumed
+credits. Completion, focus/reconnect and renewal refresh allowance state. Billing
+and Research read the same backend usage accounting rather than calculate competing
+balances in browser state.
+
+## Service and provider architecture
+
+| Boundary | Owns | Must not own |
+| --- | --- | --- |
+| Django `research/` | Ownership, accepted context, deterministic data/tools, evidence, actions, admission/completion and credits | Provider SDK conversation objects |
+| `research_service/main.py` | HTTP authentication, request schema, concurrency, streaming and disconnect cleanup | User database ownership or direct trade creation |
+| `research_service/workflow.py` | Supplied-tool selection, evidence/tool loop, limits, final answer/repair | Gemini-only request fields or another tool registry |
+| `research_service/providers.py` | Provider calls/formats, continuation state, usage normalization and provider errors | Django models or application action persistence |
+| Frontend | Context selection, run display, evidence navigation and explicit confirmations | Provider secrets or authoritative credit settlement |
+
+The current adapter is Gemini using its native SDK/Interactions flow. `Provider`,
+`Conversation`, `ProviderStep` and `ToolCall` define the service-facing protocol.
+Provider/model are configuration. Provider-specific SDK state stays inside the
+adapter; saved application conversations are plain application data.
+
+The service currently permits two concurrent requests. A third can wait for a
+slot within its absolute deadline. The default provider-call timeout is 60 seconds;
+the orchestration deadline is 600 seconds. SDK hidden retry chains are disabled;
+only bounded transient retry within the configured time applies. A timed-out
+call is not endlessly retried because it may have consumed unreported resources.
+
+Current defaults/examples select `gemini-3.5-flash` and low thinking level. This
+documents the configured code default, not a claim that the provider currently
+offers every model to every account. Select an actually accessible model and
+verify its technical capabilities with your configured credentials.
+
+## Requests, events and prompts
+
+### Internal request
+
+The Celery task sends one documented Pydantic `ResearchRequest` to `POST /research`:
+
+| Field | Meaning |
+| --- | --- |
+| `prompt` | User request, 1–6,000 characters |
+| `run_token` | Signed run/user-scoped tool authorization |
+| `as_of` | Accepted observation context |
+| `context` | Compact frozen instruments/attachments/cached evidence |
+| `tools` | Definitions generated by Django's registry |
+| `deadline` | Absolute execution deadline |
+| `max_tool_calls` | Remaining allowed uncached attempts, at most eight |
+| `history` | At most six compact previous completed turns |
+
+Unknown request fields are forbidden. Service HTTP authentication uses the
+constant-time checked `X-Research-Service-Token`; requests also have a bounded
+serialized size. The internal tool callback requires that secret **and** a signed,
+unexpired token for an active RUNNING owned run.
+
+The service streams newline-delimited JSON progress/usage/result/error events and
+heartbeat messages approximately every 15 seconds. **HTTP 200 means streaming
+started, not that research completed.** The task must read the terminal event.
+`/health` indicates service startup/configuration, not a successful paid provider
+request or functioning data tool.
+
+### Final result
+
+The structured result contains a nonblank `answer`, evidence IDs, optional draft
+artifact, next steps, limitations, clarification questions, artifact references
+and optional proposed actions. Lists/text sizes are bounded. Django validates
+citations against its own artifacts, not the model's asserted references.
+
+A valid structured model answer is returned directly. There is no unconditional
+second writing call. One malformed final can receive a bounded final-only repair;
+the repair cannot invent extra untracked tool executions. Exhausted tools should
+produce the best evidence-supported answer and its limits.
+
+### Prompt policy and factual quality
+
+- General questions do not carry every platform enum/indicator parameter schema.
+- Detailed schemas are retrieved only when the user is constructing rules.
+- Quantitative claims about selected data need calculated evidence references.
+- Old evidence must disclose its original source time; refresh is deliberate.
+- Missing data/tool failure is a limitation, not a fabricated numeric conclusion.
+- Customer-defined strategy rules are preserved; missing thresholds require
+  clarification rather than an arbitrary optimized-sounding number.
+- No provider can directly place trades, deploy a strategy or mutate the database
+  through text. Confirmed actions remain a separate application boundary.
+
+These controls reduce specific failure modes; model output still needs user review.
+Data, prompts and selected context reach the configured AI provider. Do not attach
+unnecessary secrets or describe the service as fully local model inference.
+
+## Frontend state and pagination
+
+`useResearchData` is the common owner of REST snapshots, WebSocket revisions,
+active-run polling and reconnect recovery for chat/screener pages.
+
+- `/ws/research/` carries authenticated user-scoped run revisions.
+- Older snapshots cannot overwrite a newer revision or another selected chat.
+- While a run is active, a ten-second fallback poll fetches that run, rather than
+  repeatedly downloading the conversation's full evidence.
+- Reconnect recovers the selected conversation and allowance; opening an existing
+  chat scrolls to its latest content.
+- Conversations, run history, resource selectors and evidence rows use shared
+  server paging. The normal defaults are 25 rows with 10/25/50/100 choices.
+- Evidence opens in a wider detail view with independent table paging/overflow
+  and chart area. Citations can navigate to the calculated artifact.
+- Type-specific evidence renderers handle screen, stock, strategy, backtest and
+  execution artifacts without one growing conditional for every feature.
+- Action previews display exact persistent changes and completion links. An
+  action failure remains distinct from an answer failure.
+
+Shared enums/`StrategyStudio` metadata come from `/api/v1/common/enums/` through
+the common provider/hook. `research/schema/` adds account research limits, screener
+defaults, editable backtest defaults and default charge-profile ID. It does not
+maintain another full operand-definition catalog.
+
+## API contracts
+
+Authenticated application prefix: **`/api/v1/research/`**.
+
+| Method/path | Purpose |
+| --- | --- |
+| `GET schema/` | Research limits/defaults/configuration availability |
+| `GET allowance/` | Period usage/remaining credits from common accounting |
+| `GET/POST sessions/` | Search/page conversations/screens or create one |
+| `GET/PATCH/DELETE sessions/{id}/` | Owned title/context changes and eligible deletion |
+| `GET/POST runs/` | Owned run history or accept a RESEARCH/SCREEN request |
+| `GET runs/{id}/` | Snapshot, status, answer/usage, evidence descriptors and actions |
+| `POST runs/{id}/cancel/` | Cancel active owned work |
+| `GET runs/{id}/evidence/{Eid}/` | Owned evidence detail |
+| `GET runs/{id}/evidence/{Eid}/rows/` | Server-filtered/paged evidence table |
+| `GET runs/{id}/evidence/{Eid}/rows/{ordinal}/` | One row/detail artifact |
+| `POST runs/{id}/propose-action/` | Validate and store preview |
+| `GET actions/`, `GET actions/{id}/`, `POST actions/{id}/confirm/` | Inspect/confirm owned action |
+| `POST tools/` | Internal service-token plus signed-run-token gateway; not ordinary browser access |
+
+Run request context fields include `strategy_id`, `backtest_ids`, `instrument_ids`,
+`watchlist_id`, `timeframe`, `screen`, `source_run_id`, `execution_review`, plus
+`session`, UUID `request_id`, `mode`, `prompt` and deliberate `refresh`.
+Unsupported fields/foreign resources are rejected. Reusing an identical request ID
+with a different payload is a conflict, not permission to replace accepted work.
+
+## Implementation ownership and extension
+
+Backend paths below are relative to `backend/`. Begin with
+[`research/services.py`](../backend/research/services.py) and
+[`tool_registry.py`](../backend/research/tool_registry.py); provider orchestration
+starts in [`research_service/workflow.py`](../research_service/workflow.py).
+
+| File/symbol | Responsibility |
+| --- | --- |
+| `research/views.py`, `serializers.py`, `urls.py` | HTTP input, scoped lists/actions, schema/allowance/tool gateway |
+| `research/services.accept_run`, `complete_run`, `update_active_run` | Admission, state transitions and atomic completion |
+| `research/context.py` | Accepted ownership/universe/snapshot resolution |
+| `research/tool_registry.py` | Single definitions, availability, attempt/cache/artifact boundary and compact output |
+| `research/tools.py`, `evaluation.py` | Feature handlers and shared deterministic calculations |
+| `research/validation.py` | Screening, canonical draft, citations, output and customer-rule validation |
+| `research/evidence.py`, `models.py` | Paginated evidence rows, runs, conversations and actions |
+| `research/actions.py` | Three preview/execute handler pairs and transactional confirmation |
+| `research/tasks.py` | Compute scheduling, internal stream consumption, expiry and failure handling |
+| `commercial/usage.py`, `catalog.py` | Actual-token period accounting and plan definitions |
+| `research_service/schemas.py`, `main.py`, `workflow.py`, `providers.py` | Wire contract, HTTP, provider-independent orchestration and adapters |
+| `AIResearchAssistant.jsx`, `MarketScreener.jsx`, `useResearchData.js` | User workflows and common state recovery |
+| `ResearchEvidence.jsx`, `ResearchActionPreview.jsx`, `ResearchUniverse.jsx` | Evidence rendering, explicit actions and accepted context UI |
+
+To add a **read/calculate capability**, implement a handler, register its schema/
+context availability/compact projection, validate ownership/data/time semantics,
+and add a renderer only if it introduces a new artifact presentation. Do not add a
+provider-specific tool copy.
+
+To add a **persistent action**, add a preview/execute pair, explicit UI confirmation,
+normal service validation/allowance calls and transaction/idempotency behavior.
+Do not give the model direct mutable service access.
+
+To add a **provider**, implement/register the protocol adapter, normalize reported
+usage correctly, isolate native continuation/SDK errors and verify schema/tool/
+final behavior. Django tools/actions and saved conversations should remain unchanged.
+
+## Worked examples
+
+### Ask without unnecessary context
+
+Prompt: “Explain what an EMA crossover means.” No selected market is needed to
+explain the concept. A factual claim about today's crossover for a named stock
+would require selected instruments/timeframe and calculated evidence instead.
+
+### Customer-defined draft
+
+Select a stock and specify: “Use 5-minute completed close crossing above EMA(20)
+for long entry, exit below EMA(20), one unit, entries 09:30–14:30 IST. Ask me for
+any missing required stop-loss detail.” Inspect the validated draft preview,
+confirm creation, then open Studio. It is not automatically a running session and
+does not promise the rule is profitable.
+
+### Review two experiments
+
+Attach two owned completed backtests and ask how costs, trade count, drawdown and
+data assumptions differ. The assistant retrieves both reports. Different dates,
+capital or template lot assumptions must be disclosed rather than comparing only
+raw net P&L. A proposed rerun still needs the exact workload preview/confirmation.
+
+### Credit overrun and renewal
+
+An admitted Public request has 2.000 credits left. A valid saved answer reports
+3,750 tokens (3.750 credits). It completes, records 3.750 in its original period,
+shows zero remaining and blocks the next request. Renewal grants its fresh
+allowance without charging that overrun into the new period. Failure instead
+produces no customer charge even if the provider incurred work internally.
 
 ## Deployment and verification
 
-Configure the service with `RESEARCH_PROVIDER=gemini`, `RESEARCH_MODEL` and
-`GEMINI_API_KEY`. Keep `RESEARCH_SERVICE_TOKEN` identical in Django and the
-research service. Compose supplies `RESEARCH_INTERNAL_API_URL`; native setups
-must point it to Django's internal `/api/v1/research/tools/` endpoint.
+Run the existing compute worker and the separate AI service; do not introduce
+another research queue. From repository root for native development:
 
-The default model is `gemini-3.5-flash` with `GEMINI_THINKING_LEVEL=low`.
-Choose another supported model or increase thinking effort through configuration.
-`RESEARCH_PROVIDER_TIMEOUT_SECONDS=60` bounds each model round, including
-connection, generation and the single permitted transient-error retry. SDK
-retries are disabled. The overall ten-minute deadline still permits multiple
-model/tool rounds. Timeouts report provider delay instead of suggesting bad
-credentials. Service logs distinguish slot wait, model time, tool time and usage;
-the HTTP `200` opens the event stream, whose final result/error determines success.
-
-The Gemini adapter removes size/range bounds and display-only metadata from
-provider schemas, retaining their types, field names, required fields and enums.
-Strict limits remain in application validation. This prevents nested screen/tool
-schemas from exceeding the provider decoder's state limit. Only the adapter
-contains this provider-specific schema conversion and the SDK retry workaround.
-
-The `commercial.0016_research_token_credits` migration publishes a new catalog
-revision, retaining old published catalogs, conversations and old message
-buckets. New token accounting starts empty. It refuses active research or
-existing subscriptions requiring a reviewed terms transition. The current
-cutover is for a database with no subscriptions/payments.
-
-1. Finish/cancel research and wait for in-flight provider work to stop. Drain
-   compute work; do not interrupt a backtest just to update research.
-2. Stop the API, compute worker, research service and background/Beat processes
-   that use the old research code. Back up the database using your deployment
-   instructions. Keep public traffic offline during the catalog/code cutover.
-3. Replace both backend and research images from the same revision. Rename
-   `GEMINI_MODEL` to `RESEARCH_MODEL` and set `RESEARCH_PROVIDER=gemini`. Delete
-   `RESEARCH_INPUT_TOKEN_BUDGET` and `RESEARCH_OUTPUT_TOKEN_BUDGET` if present.
-4. Run `python manage.py migrate` and `python manage.py check` in the new backend.
-5. Deploy the rebuilt frontend, then restart API, research, compute and the
-   usual background/Beat services. No extra queue or worker is needed.
-6. Run one general educational question. Verify the saved total tokens, credit
-   display (`total / 1000`) and Billing balance. Confirm earlier conversations
-   still open. Provider availability and account access must be tested with
-   real credentials; mocks cannot establish that.
-
-Automated checks from the repository root (with dependencies installed):
-
-```text
-python -m compileall -q backend research_service
-python backend/manage.py check
-python backend/manage.py makemigrations --check --dry-run
-npm run lint --prefix frontend
-npm run build --prefix frontend
+```powershell
+uvicorn research_service.main:app --host 127.0.0.1 --port 8001 --env-file research_service/.env
 ```
 
-Repository test suites have been removed. CI runs Django configuration/migration
-checks, Python compilation, frontend lint/build, image builds and all three Compose
-configuration checks. These checks do not verify runtime behaviour. Before rollout,
-manually confirm a general answer, a selected-stock screen, an attached report,
-a draft preview/confirmation, cancellation and the saved token/Billing totals.
+Configure actual values using environment examples without committing secrets:
+
+| Setting | Owner/purpose |
+| --- | --- |
+| `RESEARCH_SERVICE_URL` | Django → reachable service address |
+| `RESEARCH_SERVICE_TOKEN` | Same private internal secret on both sides |
+| `RESEARCH_INTERNAL_API_URL` | Service → reachable Django `/api/v1/research/tools/` |
+| `RESEARCH_PROVIDER`, `RESEARCH_MODEL` | Adapter/model selection |
+| Provider API secret, e.g. `GEMINI_API_KEY` | Service-only provider credential |
+| `RESEARCH_PROVIDER_TIMEOUT_SECONDS` | Provider technical call timeout, default 60 |
+| `GEMINI_THINKING_LEVEL` | Gemini-specific adapter control, default low |
+
+Django centrally defines the 600-second run and eight-tool bounds. The service's
+context/output sizes and concurrency are technical controls, not plan token
+budgets. Hostnames differ inside Compose; `localhost` in a service container is
+that container, not automatically Django or the host.
+
+Deploy Django and service contracts together after active research finishes; apply
+prepared migrations with the deployment procedure. New catalog revisions must
+preserve old catalog/payment history. The retired turn allowance is not restored
+as a second charge, and token accounting does not invent historic token totals.
+Do not rerun an old migration procedure blindly on an already updated database.
+
+Release validation includes general/no-tool prompts, multi-tool stock analysis,
+screens, validated drafts, named watchlist actions, backtest previews, execution
+reviews, invalid optional actions, foreign attachments/citations, duplicate
+delivery/confirmation, cancel/failure refunds, rollover/overrun and missing usage.
+Check an actual Django request against the service schema and exercise a second
+fake adapter without changing orchestration/tools.
+
+Then run one deliberate configured-provider request and compare its reported
+totals with saved usage, reply credits and Billing. A successful local schema or
+`/health` check alone does not establish model access, response quality or latency.
+Setup/cutover commands for all modes remain in [infrastructure](../infra/README.md).
+
+## Troubleshooting and limits
+
+| Symptom | Investigate |
+| --- | --- |
+| PENDING for a long time | Shared compute worker, queue binding and preceding backtests; not automatically a slow provider |
+| HTTP 422 from service | Actual payload versus `schemas.py`, deployment version mismatch; do not add arbitrary fallback fields |
+| HTTP 200 but failed turn | Terminal NDJSON error/result and Django run error; HTTP only opened the stream |
+| Provider timeout | Model access, network, slot wait, per-call timing and bounded retries; a greeting should not load every builder schema |
+| Tools denied | Internal secret, signed token user/run/deadline and active run status |
+| No screen matches | Accepted NSE-stock universe, active conditions, completed timeframe, sufficient history and missing-data outcomes |
+| Draft rejected | Canonical document/compile error, context instruments, missing customer rules or invalid source clocks |
+| Watchlist action fails | Explicit owned destination preview and selected accepted stock IDs |
+| Backtest action fails | Owned source, exact snapshot, dates/profile/workload acceptance and independent backtest allowance |
+| Balance seems unchanged | Successful saved answer, reported usage completeness, original-period bucket and frontend allowance refresh |
+| Old evidence shown | Original `as_of`, source turn and explicit refresh/reuse semantics |
+
+AI prose is not an execution guarantee or investment recommendation. Current
+analysis uses selected technical history and bounded attached reports; it does
+not become a full institutional research database simply by changing the model.
+Useful extensions should preserve deterministic evidence, clear scope and explicit
+confirmation rather than create another opaque autonomous workflow.

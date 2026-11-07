@@ -1,3 +1,4 @@
+import { TabBar, TabButton } from "@/shared/components/ui/tabs";
 import { useId, useState } from 'react';
 import PropTypes from 'prop-types';
 
@@ -13,7 +14,7 @@ IllustrationFrame.propTypes = { name: PropTypes.string.isRequired, title: PropTy
 export function ChoiceNote({ label, choices }) {
   const [selected, setSelected] = useState(0);
   const id = useId();
-  return <div className="site-choice-note"><div role="group" aria-label={label} className="flex flex-wrap gap-2">{choices.map(([title], index) => <button type="button" key={title} aria-pressed={selected === index} aria-controls={id} onClick={() => setSelected(index)} className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${selected === index ? 'border-brand/40 bg-brand/10 text-brand' : 'bg-background text-muted-foreground hover:text-foreground'}`}>{title}</button>)}</div><p id={id} aria-live="polite" className="mt-3 min-h-12 text-xs leading-6 text-muted-foreground">{choices[selected][1]}</p></div>;
+  return <div className="site-choice-note"><TabBar role="group" aria-label={label}>{choices.map(([title], index) => <TabButton key={title} active={selected === index} aria-pressed={selected === index} aria-controls={id} onClick={() => setSelected(index)}>{title}</TabButton>)}</TabBar><p id={id} aria-live="polite" className="mt-3 min-h-12 text-xs leading-6 text-muted-foreground">{choices[selected][1]}</p></div>;
 }
 ChoiceNote.propTypes = { label: PropTypes.string.isRequired, choices: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.string)).isRequired };
 

@@ -1,3 +1,4 @@
+import { Button } from "@/shared/components/ui/button";
 import PropTypes from "prop-types";
 import { useState } from "react";
 import {
@@ -18,10 +19,11 @@ import {
   Dialog,
   DialogContent,
   DialogTrigger,
+  DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { Input } from "@/shared/components/ui/input";
 import { Settings, Clock } from "lucide-react";
-import { useEnums } from "@/shared/context/EnumsContext";
+import { useStrategySpecification } from "@/shared/context/EnumsContext";
 import MathExpressionBuilder from "@/features/strategies/components/MathExpressionBuilder.jsx";
 
 export default function OperandSelector({
@@ -35,33 +37,24 @@ export default function OperandSelector({
   placeholder = "Select Operand",
   ruleType,
   allowedValues,
+  compact = false,
+  defaultTimeframe,
+  candleOnly = false,
 }) {
-  const { enums } = useEnums();
+  const { enums, spec, operandOptions = [], parameterConfig = {} } = useStrategySpecification();
   const [popoverOpen, setPopoverOpen] = useState(false);
 
-  // Group enums for better selection
-  const options = (enums.OperandType || []).filter(
-    (option) => !allowedValues || allowedValues.includes(option.value),
-  );
-  const parameterConfig = enums.OperandParameterConfig || {};
-  const mathVariableTypes = (enums.MathExpressionOperandTypes?.[ruleType || "ENTRY"] || [])
-    .filter((type) => !allowedValues || allowedValues.includes(type));
-  const positionStateTypes = enums.OperandGroups?.["Position State (Exit)"] || [];
-
-  const groupedOptions = Object.fromEntries(
-    Object.entries(enums.OperandGroups || {})
-      .filter(
-        ([groupName]) =>
-          groupName !== "Position State (Exit)" || ruleType !== "ENTRY",
-      )
-      .map(([groupName, values]) => [
-        groupName,
-        options.filter((option) => values.includes(option.value)),
-      ]),
-  );
+  const context = ruleType === "ENTRY" ? 'entry' : 'exit';
+  const options = operandOptions.filter((item) => item.allowed_in[context] &&
+    (!allowedValues || allowedValues.includes(item.value)));
+  const mathVariableTypes = options.filter((item) => item.allowed_in.math &&
+    (!candleOnly || item.allowed_in.rolling)).map((item) => item.value);
+  const groupedOptions = Object.fromEntries((spec?.conditions.groups || []).map((group) => [
+    group.label, options.filter((item) => group.operands.includes(item.value)),
+  ]));
 
   const currentOption = options.find((option) => option.value === value);
-  const paramConfig = parameterConfig[value] || [];
+  const paramConfig = (parameterConfig[value] || []).filter((field) => field.editable !== false);
 
   const getParamValue = (param) => {
     const current = params?.[param.key] ?? param.default;
@@ -76,7 +69,19 @@ export default function OperandSelector({
       const expression = params.expression?.expression;
       return expression ? `(${expression})` : "";
     }
-    return `(${paramConfig.map(getParamValue).join(", ")})`;
+    const visible = paramConfig.filter(
+      (param) => param.key !== "shift" || getParamValue(param),
+    );
+    if (!visible.length) return "Parameters";
+    return `(${visible
+      .map((param) => {
+        const current = getParamValue(param);
+        return (
+          param.options?.find((option) => option.value === current)?.label ||
+          current
+        );
+      })
+      .join(", ")})`;
   };
 
   const handleParamChange = (key, val, isString = false) => {
@@ -87,12 +92,15 @@ export default function OperandSelector({
   };
 
   return (
-    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-1">
+    <div
+      className={`flex min-w-0 max-w-full flex-wrap items-center gap-1.5 ${compact ? "operand-selector-compact" : ""}`}
+    >
       {/* Type Selector */}
-      <div className="flex items-center bg-muted/40 rounded-lg p-0.5 border border-border">
+      <div className="min-w-0">
         <Select value={value || ""} onValueChange={onChangeType}>
           <SelectTrigger
-            className={`w-auto min-w-[120px] max-w-[min(20rem,calc(100vw_-_5rem))] bg-transparent border-none hover:bg-muted/50 text-xs min-h-10 px-2.5 sm:min-h-7 shadow-none focus:ring-0 ${value ? "text-indigo-700 dark:text-indigo-300" : "text-muted-foreground"} font-semibold`}
+            aria-label={compact ? "Value or indicator" : placeholder}
+            className="w-auto min-w-[120px] max-w-[min(20rem,calc(100vw_-_5rem))] text-xs"
           >
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>
@@ -105,7 +113,14 @@ export default function OperandSelector({
                       {groupName}
                     </SelectLabel>
                     {groupOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
+                      <SelectItem
+                        key={opt.value}
+                        value={opt.value}
+                        disabled={
+                          candleOnly &&
+                          !opt.allowed_in.rolling
+                        }
+                      >
                         {opt.label}
                       </SelectItem>
                     ))}
@@ -116,29 +131,44 @@ export default function OperandSelector({
         </Select>
       </div>
 
+      {compact && value === "CONSTANT" && (
+        <Input
+          aria-label="Constant value"
+          type="number"
+          className="w-28"
+          step="any"
+          value={params?.value ?? ""}
+          onChange={(event) => handleParamChange("value", event.target.value)}
+        />
+      )}
+
       {/* Parameter Settings Modal/Popover */}
       {value &&
         paramConfig.length > 0 &&
+        !(compact && value === "CONSTANT") &&
         (paramConfig.some((p) => p.type === "math") ? (
           <Dialog open={popoverOpen} onOpenChange={setPopoverOpen}>
             <DialogTrigger asChild>
-              <button className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold tracking-wider rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors border border-indigo-500/20 cursor-pointer max-w-[200px] truncate">
+              <Button variant="outline" type="button"
+                aria-label={`Edit ${currentOption?.label} parameters`}
+                className="max-w-[200px] text-xs"
+              >
                 {value === "CONSTANT" ? (
                   formatParams()
                 ) : (
                   <span className="truncate">
-                    {currentOption?.label} {formatParams()}
+                    {formatParams() || "Parameters"}
                   </span>
                 )}
                 <Settings className="h-3 w-3 ml-0.5 opacity-70 shrink-0" />
-              </button>
+              </Button>
             </DialogTrigger>
-            <DialogContent className="w-[calc(100%_-_2rem)] max-w-lg bg-card border border-border shadow-2xl p-4">
+            <DialogContent className="operand-parameters w-[calc(100%_-_2rem)] max-w-lg bg-card border border-border shadow-2xl p-3">
               <div className="space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-border">
-                  <h4 className="text-xs font-semibold text-foreground">
+                  <DialogTitle className="text-sm font-semibold text-foreground">
                     Build Math Expression
-                  </h4>
+                  </DialogTitle>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {paramConfig.map((param) => (
@@ -150,8 +180,7 @@ export default function OperandSelector({
                             variables: {},
                           }
                         }
-                        parameterConfig={parameterConfig}
-                        allowedVariableTypes={mathVariableTypes}
+                                                allowedVariableTypes={mathVariableTypes}
                         ruleType={ruleType}
                         onChange={(val) =>
                           handleParamChange(param.key, val, true)
@@ -166,19 +195,22 @@ export default function OperandSelector({
         ) : (
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             <PopoverTrigger asChild>
-              <button className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold tracking-wider rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors border border-indigo-500/20 cursor-pointer max-w-[200px] truncate">
+              <Button variant="outline" type="button"
+                aria-label={`Edit ${currentOption?.label} parameters`}
+                className="max-w-[200px] text-xs"
+              >
                 {value === "CONSTANT" ? (
                   formatParams()
                 ) : (
                   <span className="truncate">
-                    {currentOption?.label} {formatParams()}
+                    {formatParams() || "Parameters"}
                   </span>
                 )}
                 <Settings className="h-3 w-3 ml-0.5 opacity-70 shrink-0" />
-              </button>
+              </Button>
             </PopoverTrigger>
             <PopoverContent
-              className="w-64 max-w-[calc(100vw_-_2rem)] p-3 bg-card border border-border shadow-xl"
+              className="operand-parameters w-64 max-w-[calc(100vw_-_2rem)] p-3 bg-card border border-border shadow-xl"
               sideOffset={5}
             >
               <div className="space-y-3">
@@ -208,7 +240,7 @@ export default function OperandSelector({
                             handleParamChange(param.key, v, true)
                           }
                         >
-                          <SelectTrigger className="h-7 text-xs bg-muted/60 border-border text-foreground focus:ring-0">
+                          <SelectTrigger className="text-xs bg-muted/60 border-border text-foreground">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -217,7 +249,10 @@ export default function OperandSelector({
                               {param.options
                                 .filter((source) => source.group === "Price")
                                 .map((source) => (
-                                  <SelectItem key={source.value} value={source.value}>
+                                  <SelectItem
+                                    key={source.value}
+                                    value={source.value}
+                                  >
                                     {source.label}
                                   </SelectItem>
                                 ))}
@@ -225,9 +260,14 @@ export default function OperandSelector({
                             <SelectGroup>
                               <SelectLabel>Indicators</SelectLabel>
                               {param.options
-                                .filter((source) => source.group === "Indicators")
+                                .filter(
+                                  (source) => source.group === "Indicators",
+                                )
                                 .map((source) => (
-                                  <SelectItem key={source.value} value={source.value}>
+                                  <SelectItem
+                                    key={source.value}
+                                    value={source.value}
+                                  >
                                     {source.label}
                                   </SelectItem>
                                 ))}
@@ -241,7 +281,7 @@ export default function OperandSelector({
                             handleParamChange(param.key, v, true)
                           }
                         >
-                          <SelectTrigger className="h-7 text-xs bg-muted/60 border-border text-foreground focus:ring-0">
+                          <SelectTrigger className="text-xs bg-muted/60 border-border text-foreground">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -259,7 +299,7 @@ export default function OperandSelector({
                             handleParamChange(param.key, v, true)
                           }
                         >
-                          <SelectTrigger className="h-7 text-xs bg-muted/60 border-border text-foreground focus:ring-0">
+                          <SelectTrigger className="text-xs bg-muted/60 border-border text-foreground">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -292,14 +332,14 @@ export default function OperandSelector({
                           min={param.min}
                           max={param.max ?? undefined}
                           step={param.step ?? 1}
-                          className="h-7 text-xs bg-muted/60 border-border text-foreground"
+                          className="text-xs bg-muted/60 border-border text-foreground"
                         />
                       )}
 
                       {param.type === "source" &&
                         parameterConfig[getParamValue(param)] && (
                           <div className="mt-2 p-2 border border-border rounded bg-muted/40">
-                            <span className="text-[10px] text-indigo-700 dark:text-indigo-400 font-bold mb-1 block">
+                            <span className="text-[10px] text-brand font-bold mb-1 block">
                               Source ({getParamValue(param)}) Settings
                             </span>
                             <div className="grid grid-cols-2 gap-2">
@@ -319,18 +359,29 @@ export default function OperandSelector({
                                     </label>
                                     {sp.type === "select" ? (
                                       <Select
-                                        value={params?.source_params?.[sp.key] ?? sp.default}
-                                        onValueChange={(selected) => onChangeParams({
-                                          ...params,
-                                          source_params: { ...(params?.source_params || {}), [sp.key]: selected },
-                                        })}
+                                        value={
+                                          params?.source_params?.[sp.key] ??
+                                          sp.default
+                                        }
+                                        onValueChange={(selected) =>
+                                          onChangeParams({
+                                            ...params,
+                                            source_params: {
+                                              ...(params?.source_params || {}),
+                                              [sp.key]: selected,
+                                            },
+                                          })
+                                        }
                                       >
-                                        <SelectTrigger className="h-7 text-xs bg-muted/60 border-border text-foreground focus:ring-0">
+                                        <SelectTrigger className="text-xs bg-muted/60 border-border text-foreground">
                                           <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
                                           {sp.options.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
+                                            <SelectItem
+                                              key={option.value}
+                                              value={option.value}
+                                            >
                                               {option.label}
                                             </SelectItem>
                                           ))}
@@ -338,27 +389,43 @@ export default function OperandSelector({
                                       </Select>
                                     ) : sp.type === "enum" ? (
                                       <Select
-                                        value={params?.source_params?.[sp.key] ?? sp.default}
-                                        onValueChange={(selected) => onChangeParams({
-                                          ...params,
-                                          source_params: { ...(params?.source_params || {}), [sp.key]: selected },
-                                        })}
+                                        value={
+                                          params?.source_params?.[sp.key] ??
+                                          sp.default
+                                        }
+                                        onValueChange={(selected) =>
+                                          onChangeParams({
+                                            ...params,
+                                            source_params: {
+                                              ...(params?.source_params || {}),
+                                              [sp.key]: selected,
+                                            },
+                                          })
+                                        }
                                       >
-                                        <SelectTrigger className="h-7 text-xs bg-muted/60 border-border text-foreground focus:ring-0">
+                                        <SelectTrigger className="text-xs bg-muted/60 border-border text-foreground">
                                           <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                          {(enums[sp.enumKey] || []).map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                              {option.label}
-                                            </SelectItem>
-                                          ))}
+                                          {(enums[sp.enumKey] || []).map(
+                                            (option) => (
+                                              <SelectItem
+                                                key={option.value}
+                                                value={option.value}
+                                              >
+                                                {option.label}
+                                              </SelectItem>
+                                            ),
+                                          )}
                                         </SelectContent>
                                       </Select>
                                     ) : (
                                       <Input
                                         type="number"
-                                        value={params?.source_params?.[sp.key] ?? sp.default}
+                                        value={
+                                          params?.source_params?.[sp.key] ??
+                                          sp.default
+                                        }
                                         min={sp.min}
                                         max={sp.max ?? undefined}
                                         step={sp.step ?? 1}
@@ -369,10 +436,13 @@ export default function OperandSelector({
                                               : parseFloat(e.target.value);
                                           onChangeParams({
                                             ...params,
-                                            source_params: { ...(params?.source_params || {}), [sp.key]: val },
+                                            source_params: {
+                                              ...(params?.source_params || {}),
+                                              [sp.key]: val,
+                                            },
                                           });
                                         }}
-                                        className="h-7 text-xs bg-muted/60 border-border text-foreground"
+                                        className="text-xs bg-muted/60 border-border text-foreground"
                                       />
                                     )}
                                   </div>
@@ -389,30 +459,40 @@ export default function OperandSelector({
         ))}
 
       {/* Timeframe Selector */}
-      {!hideTimeframe &&
-        value &&
-        value !== "CONSTANT" &&
-        !positionStateTypes.includes(value) && (
-          <div className="flex items-center gap-1.5 bg-muted/30 rounded-md px-1.5 py-0.5 border border-border">
-            <Clock className="h-3 w-3 text-muted-foreground" />
-            <Select
-              value={timeframe || "NONE"}
-              onValueChange={(v) => onChangeTimeframe(v === "NONE" ? null : v)}
+      {!hideTimeframe && currentOption?.supports_timeframe && (
+        <div className="min-w-0">
+          <Select
+            value={timeframe || "NONE"}
+            onValueChange={(v) => onChangeTimeframe(v === "NONE" ? null : v)}
+          >
+            <SelectTrigger
+              aria-label="Input timeframe"
+              className="w-auto text-xs"
             >
-              <SelectTrigger className="w-auto bg-transparent border-none hover:bg-muted/50 text-[10px] h-5 px-1 shadow-none focus:ring-0 text-muted-foreground p-0 font-medium">
-                <SelectValue placeholder="Default TF" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NONE">Default TF</SelectItem>
-                {(enums.CandleTimeframe || []).map((tf) => (
-                  <SelectItem key={tf.value} value={tf.value}>
-                    {tf.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+              <Clock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+              <SelectValue placeholder="Default TF">
+                {compact
+                  ? timeframe
+                    ? `Override · ${timeframe}`
+                    : `Default · ${defaultTimeframe || "TF"}`
+                  : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="NONE">
+                {defaultTimeframe
+                  ? `Default · ${defaultTimeframe}`
+                  : "Default TF"}
+              </SelectItem>
+              {(enums.CandleTimeframe || []).map((tf) => (
+                <SelectItem key={tf.value} value={tf.value}>
+                  {tf.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </div>
   );
 }
@@ -429,4 +509,7 @@ OperandSelector.propTypes = {
   ruleType: PropTypes.string,
   timeframe: PropTypes.string,
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  compact: PropTypes.bool,
+  defaultTimeframe: PropTypes.string,
+  candleOnly: PropTypes.bool,
 };

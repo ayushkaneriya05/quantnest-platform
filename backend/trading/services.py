@@ -6,7 +6,7 @@ from common.enums import (
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Sum, Q
+from django.db.models import F, Sum, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -22,10 +22,10 @@ from marketdata.calendar import MarketSessionCalendar
 
 class TradingInstrumentService:
     @staticmethod
-    def search(query, *, exchange='', instrument_type='', expiry_date=None):
+    def search(query, *, exchange='', instrument_type='', expiry_date=None, include_archived=False):
         query = (query or "").strip()
         
-        qs = Instrument.objects.filter(is_active=True)
+        qs = Instrument.objects.all() if include_archived else Instrument.objects.filter(is_active=True)
         if exchange:
             qs = qs.filter(exchange=exchange)
         if instrument_type:
@@ -39,7 +39,8 @@ class TradingInstrumentService:
         from datetime import date
         
         # Filter out expired contracts
-        qs = qs.filter(Q(expiry_date__isnull=True) | Q(expiry_date__gte=date.today()))
+        if not include_archived:
+            qs = qs.filter(Q(expiry_date__isnull=True) | Q(expiry_date__gte=date.today()))
 
         if not query:
             return qs.order_by('expiry_date', 'sym_ticker')[:50]
@@ -144,7 +145,7 @@ class TradingOrderService:
         if position and position.quantity * signed < 0:
             pending = Order.objects.filter(account=account, instrument=order.instrument,
                 status=TerminalOrderStatus.OPEN, transaction_type=order.transaction_type).exclude(pk=order.pk)
-            already = pending.aggregate(total=Sum('quantity'))['total'] or 0
+            already = pending.aggregate(total=Sum(F('quantity') - F('filled_quantity')))['total'] or 0
             reducing = min(max(abs(position.quantity) - already, 0), order.quantity)
         state = FinancialAccount((ExecutionMode.TERMINAL, account.pk), account.balance,
             futures_margin_pct=account.futures_margin_pct, short_option_margin_pct=account.short_option_margin_pct)
@@ -230,7 +231,7 @@ class TradingOrderService:
             (Decimal(str(quote["price"])), quote["timestamp"], quote["source"]) if quote["available"] else
             (position.average_price, position.created_at.isoformat(), "entry")
         )
-        pnl = contract_from_instrument(position.instrument).value(price - position.average_price, position.quantity)
+        pnl = contract_from_instrument(position.instrument).value(price - position.average_price, position.quantity) - position.settled_pnl
         return {'price': price, 'pnl': pnl, 'at': at, 'source': source}
 
 

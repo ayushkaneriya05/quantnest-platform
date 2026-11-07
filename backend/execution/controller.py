@@ -23,14 +23,24 @@ from marketdata.shared_memory import SharedMemoryManager
 from .ledger import position_view
 from .market import prepare_symbol
 from .messages import (Committed, Control, EvaluationSaved, InstallAccount, InstallUnit, Persist, PrepareMarket,
-    RemoveAccount, RemoveUnit, SaveControl, SessionSettled, UnitFailure)
+    RemoveAccount, RemoveUnit, SaveControl, SaveSettlement, SessionSettled, UnitFailure)
 from .models import Command
 from .recovery import load_configuration, recover_account
 from .repository import enqueue, persist_control, persist_transition
-from .types import ACTIVE_STATUSES, Intent
+from .types import ACTIVE_STATUSES, Intent, terminal_key
 from .worker import partition
 
 logger = logging.getLogger(__name__)
+
+
+def prepare_settlements(accounts):
+    """Background database catch-up cannot hold up the order commit loop."""
+    from .settlement_records import queue_settlements
+    close_old_connections()
+    try:
+        queue_settlements(accounts)
+    finally:
+        close_old_connections()
 
 
 def latest_observation(symbol):
@@ -105,6 +115,7 @@ class Controller:
         self.installed_units = {}
         self.evaluations, self.checkpoint_at = {}, 0.0
         self.maintenance_at = 0.0
+        self.settlement_scan = None
         self.calendar_day = timezone.localdate()
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='execution-io')
         self.brokers = ThreadPoolExecutor(max_workers=4, thread_name_prefix='execution-broker')
@@ -117,17 +128,19 @@ class Controller:
             return
         state = recover_account(key)
         self.recovered_orders.update(state.orders)
-        config = load_configuration(key, instrument_ids=instrument_ids)
+        config = load_configuration(key, instrument_ids=instrument_ids, committed=True)
         self.send(key, InstallAccount(state, config['contracts'], config['calendars'], config['programs']))
         self.accounts.add(key)
+        self.install_units(state, config)
         # Startup refresh is ordered after already accepted user/broker commands.
         enqueue(*key, Kind.REFRESH, {})
 
     def bootstrap(self):
-        from paper_trading.models import PaperTradingSession
+        from paper_trading.models import PaperTradingSession, PaperPosition
         from live_trading.models import TradingSession
         from trading.models import Account
         keys = {(Mode.PAPER, value) for value in PaperTradingSession.objects.exclude(status=Status.STOPPED).values_list('account_id', flat=True)}
+        keys.update((Mode.PAPER, value) for value in PaperPosition.objects.filter(quantity__gt=0).values_list('account_id', flat=True))
         keys.update((Mode.LIVE, value) for value in TradingSession.objects.exclude(status=Status.STOPPED).values_list('broker_credential_id', flat=True))
         keys.update((Mode.TERMINAL, value) for value in Account.objects.values_list('pk', flat=True))
         for key in sorted(keys):
@@ -145,6 +158,14 @@ class Controller:
             return
         self.preparing[key] = self.pool.submit(prepare_symbol, key[1], list(self.programs[key].values()))
 
+    def discard_preparation(self, key):
+        """Release a symbol only after its last evaluator registration is gone."""
+        del self.programs[key]
+        self.retry.pop(key, None)
+        future = self.preparing.pop(key, None)
+        if future is not None:
+            future.cancel()
+
     def remove_units(self, units):
         """Release evaluator state and stop preparing symbols with no remaining rules."""
         if not units:
@@ -156,11 +177,7 @@ class Controller:
             for unit in units:
                 programs.pop(unit, None)
             if not programs:
-                del self.programs[key]
-                self.retry.pop(key, None)
-                future = self.preparing.pop(key, None)
-                if future is not None:
-                    future.cancel()
+                self.discard_preparation(key)
 
     def install_units(self, account, configuration):
         from .models import EvaluationCheckpoint
@@ -171,14 +188,23 @@ class Controller:
         self.installed_units[account.key] = desired
         # Load all rule checkpoints once; restore only the matching version and
         # position revision so a new deployment never inherits unrelated state.
-        checkpoints = {(row.mode, row.session_id, row.instrument_id): row
+        checkpoints = {(row.mode, row.session_id, row.route_id, row.leg_id): row
             for row in EvaluationCheckpoint.objects.filter(mode=account.key[0],
-                session_id__in={unit[1] for unit in desired}, instrument_id__in={unit[2] for unit in desired})}
+                session_id__in={unit[1] for unit in desired})}
         for unit, program in configuration['programs'].items():
-            symbol = configuration['contracts'][unit[2]].symbol
+            symbol = configuration['contracts'][program.binding[1]].symbol
             worker = partition(unit, len(self.inboxes))
-            key = worker, symbol
-            self.programs.setdefault(key, {})[unit] = program
+            binding = configuration['bindings'][unit]
+            # Rebinding a flat route must release the old signal's preparation.
+            for old_key, old_programs in tuple(self.programs.items()):
+                if unit in old_programs and old_key[1] not in binding.values():
+                    old_programs.pop(unit)
+                    if not old_programs:
+                        self.discard_preparation(old_key)
+            for source in set(binding.values()):
+                key = worker, source
+                self.programs.setdefault(key, {})[unit] = configuration['input_programs'][source][unit]
+                touched.add(key)
             position = account.positions.get(unit)
             saved = checkpoints.get(unit)
             if saved is not None and (saved.version_id != program.version or
@@ -186,8 +212,7 @@ class Controller:
                 saved = None
             self.send(unit, InstallUnit(unit, account.key, program, position_view(account, unit),
                 account.statuses[unit[1]], {'symbol': symbol, 'peak': position.peak if position else 0,
-                'state': decode(saved.state) if saved else None}))
-            touched.add(key)
+                'bindings': binding, 'state': decode(saved.state) if saved else None}))
         for key in touched:
             # A version change can arrive during warmup. Discard that old warmup
             # result and prepare the latest set before re-enabling these units.
@@ -221,6 +246,9 @@ class Controller:
                     config['sessions'][session]['capital'] = Decimal(payload['allocation_changes']['allocated_capital'])
             self.configurations[command.pk] = config
             return config
+        if command.kind == Kind.SETTLEMENT:
+            from .settlement_records import command_values
+            return command_values(command, now=now)
         if command.kind == Kind.BROKER:
             return {**payload, 'quantity': int(payload['quantity']), 'average': Decimal(payload['average']),
                     'at': datetime.fromisoformat(payload['at']),
@@ -233,22 +261,13 @@ class Controller:
                     'at': datetime.fromisoformat(payload['at'])}
         if command.kind == Kind.CANCEL:
             return payload
-        if command.kind == Kind.SETTLE:
-            from instruments.models import Instrument
-            from marketdata.calendar import MarketSessionCalendar
-            from .preparation import contract_from_instrument
-            instrument = Instrument.objects.get(pk=payload['instrument_id'])
-            calendar = MarketSessionCalendar.for_instrument(instrument)
-            calendar.load_holidays(instrument.expiry_date, instrument.expiry_date)
-            return dict(identity=str(command.request_id), contract=contract_from_instrument(instrument),
-                calendar=calendar, price=Decimal(payload['settlement_price']), at=now)
         if command.kind in (Kind.ORDER, Kind.AMEND, Kind.PROTECT):
             from instruments.models import Instrument
             from marketdata.calendar import MarketSessionCalendar
             from .preparation import contract_from_instrument
             instrument = Instrument.objects.get(pk=payload['instrument_id'])
             quote = latest_observation(instrument.sym_ticker)
-            unit = key[0], payload.get('session_id', key[1]), instrument.pk
+            unit = terminal_key(key[1], instrument.pk)
             if command.kind == Kind.ORDER:
                 contract = contract_from_instrument(instrument)
                 calendar = MarketSessionCalendar.for_instrument(instrument)
@@ -261,7 +280,8 @@ class Controller:
                     payload.get('position_revision', 0), quote['sequence'], now, payload['side'], payload['reason'],
                     quote['reference_price'], intent=payload.get('intent', OrderIntent.ENTRY),
                     quantity=payload['quantity'], order_type=order_type, reduce_only=payload.get('reduce_only', False),
-                    manual=key[0] == Mode.TERMINAL, generation=quote['generation'], **decimals)
+                    manual=key[0] == Mode.TERMINAL, generation=quote['generation'],
+                    binding=(instrument.pk, instrument.pk), **decimals)
                 return dict(intent=intent, contract=contract, calendar=calendar)
             if command.kind == Kind.PROTECT:
                 return dict(unit=unit, stop=Decimal(payload['stop']) if payload['stop'] is not None else None,
@@ -317,6 +337,11 @@ class Controller:
                 if (order.cancel_requested and order.broker_id and order.status in ACTIVE_STATUSES
                         and order.identity not in self.cancelling):
                     self.cancelling[order.identity] = (self.brokers.submit(broker_call, record.pk, cancel=True), time.monotonic())
+        elif isinstance(message, SaveSettlement):
+            from .settlement_records import persist_settlement
+            persist_settlement(message)
+            self.send(message.account.key, Committed(message.account.key, message.account.revision))
+            self.pending.pop(message.account.key, None)
         elif isinstance(message, SaveControl):
             config = self.configurations.pop(message.identity, None)
             if message.error:
@@ -381,6 +406,13 @@ class Controller:
                 self.send(key, RemoveAccount(key))
                 self.accounts.remove(key)
             today = timezone.localdate()
+            if self.settlement_scan is None or self.settlement_scan.done():
+                if self.settlement_scan is not None:
+                    try:
+                        self.settlement_scan.result()
+                    except Exception:
+                        logger.exception('Settlement source preparation failed; trading workers remain independent.')
+                self.settlement_scan = self.pool.submit(prepare_settlements, set(self.accounts))
             if today != self.calendar_day:
                 # Refresh exchange holidays and contract facts off the tick path.
                 for key in self.accounts:

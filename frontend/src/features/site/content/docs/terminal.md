@@ -74,9 +74,9 @@ exposure and opens the requested new-direction amount.
 Modify or cancel working orders in the Orders panel. Cancelling selected orders
 releases their reservations.
 
-After expiry, Manage → Settle expired contract records a simulation close at an
-official settlement price you enter. Zero is valid for a worthless expired option.
-This is not a broker trade or physical delivery.
+Reviewed settlement records apply futures MTM and qualified index expiry payments.
+View their source, charges and cash changes in History → Settlements. These are
+accounting events, not market fills. Physical delivery is not supported.
 
 ## Account and history
 

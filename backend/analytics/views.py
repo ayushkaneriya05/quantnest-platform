@@ -2,16 +2,12 @@ import csv
 
 from django.http import HttpResponse
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
+from common.pagination import StandardPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
 from .services import SOURCES, TradeFiltersSerializer, execution_report, execution_review_context, trade_queryset, trade_rows
-
-
-class TradePagination(PageNumberPagination):
-    page_size = 25
 
 
 def request_filters(request):
@@ -40,7 +36,7 @@ class ExecutionReportViewSet(ViewSet):
     def trades(self, request):
         filters = request_filters(request)
         qs = trade_queryset(request.user, filters).order_by("-exit_time", "-id")
-        paginator = TradePagination()
+        paginator = StandardPagination()
         page = paginator.paginate_queryset(qs.values_list("id", flat=True), request)
         return paginator.get_paginated_response(trade_rows(qs.filter(pk__in=page), filters["source"], request.user))
 

@@ -1,5 +1,10 @@
+import RefreshButton from "@/shared/components/RefreshButton";
+import Pagination from "@/shared/components/Pagination";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import { usePagination, useQueryState } from "@/shared/hooks/usePagination";
+import PageTabs from "@/shared/components/PageTabs";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import {
@@ -11,7 +16,6 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Input } from "@/shared/components/ui/input";
 import {
   ChevronLeft,
-  ChevronRight,
   Search,
   TrendingUp,
   TrendingDown,
@@ -30,7 +34,6 @@ import {
   DialogDescription,
 } from "@/shared/components/ui/dialog";
 import { backtestApi } from "@/shared/services/backtestApi";
-import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
@@ -38,48 +41,49 @@ import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/for
 export default function BacktestTradeList() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { notify } = useNotifications();
 
   const [run, setRun] = useState(null);
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
-  const [search, setSearch] = useState("");
-  const [instrumentFilter, setInstrumentFilter] = useState("all");
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useQueryState("outcome", "all", { namespace: "", replace: false });
+  const [search, setSearch] = useQueryState("search", "", { namespace: "", replace: true });
+  const [instrumentFilter, setInstrumentFilter] = useQueryState("instrument", "all", { namespace: "", replace: false });
   const [instrumentOptions, setInstrumentOptions] = useState([]);
-  const [page, setPage] = useState(1);
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination(JSON.stringify([id, filter, search, instrumentFilter]));
+  const generation = useRef(0);
   const [selectedTrade, setSelectedTrade] = useState(null);
-  const PAGE_SIZE = 50;
+
 
   const [totalCount, setTotalCount] = useState(0);
 
   const fetchData = useCallback(async () => {
+    const request = ++generation.current;
+    setLoading(true);
+    setError("");
     try {
-      setLoading(true);
       const [runData, tradesData] = await Promise.all([
         backtestApi.getRun(id),
-        backtestApi.getRunTrades(id, { page, filter, search, instrument: instrumentFilter }),
+        backtestApi.getRunTrades(id, { page, page_size: pageSize, filter, search, instrument: instrumentFilter }),
       ]);
+      if (request !== generation.current) return;
       setRun(runData.data);
-      if (tradesData.data.results) {
-        setTrades(tradesData.data.results);
-        setTotalCount(tradesData.data.count);
-        setInstrumentOptions(tradesData.data.instrument_options || []);
-      } else {
-        setTrades(tradesData.data);
-        setTotalCount(tradesData.data.length);
-        setInstrumentOptions([...new Set(tradesData.data.map((trade) => trade.instrument_symbol).filter(Boolean))].sort());
-      }
+      setTrades(tradesData.data.results);
+      setTotalCount(tradesData.data.count);
+      setInstrumentOptions(tradesData.data.instrument_options);
+      accept(tradesData.data);
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load backtest trades"));
+      if (request === generation.current) setError(getApiErrorMessage(error, "Failed to load backtest trades"));
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
-  }, [id, page, filter, search, instrumentFilter, notify]);
+  }, [id, page, pageSize, accept, filter, search, instrumentFilter]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    const timer = setTimeout(fetchData, search ? 250 : 0);
+    const guard = generation;
+    return () => { clearTimeout(timer); guard.current++; };
+  }, [fetchData, search]);
 
 
   const stats = {
@@ -89,28 +93,23 @@ export default function BacktestTradeList() {
     totalPnl: Number(run?.metrics?.final_capital || 0) - Number(run?.initial_capital || 0),
   };
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const paginatedTrades = trades;
 
-  // Reset page on filter/search change
-  useEffect(() => {
-    setPage(1);
-  }, [filter, search, instrumentFilter]);
 
   const pageActions = React.useMemo(() => (
-    <Button
+    <div className="flex items-center gap-2"><RefreshButton onClick={fetchData} label="Refresh backtest trades" loading={loading} /><Button
       variant="outline"
       size="sm"
       onClick={() => navigate(`/backtests/results/${id}`)}
-      className="bg-card border-border hover:bg-secondary h-9"
+      className=""
     >
       <ChevronLeft className="h-4 w-4 mr-2" />
       Back to Results
-    </Button>
-  ), [navigate, id]);
+    </Button></div>
+  ), [navigate, id, fetchData, loading]);
 
   useSetPageActions(pageActions);
 
+  if (error) return <div className="page-content"><WorkspaceState error={error} onRetry={fetchData} /></div>;
   if (loading && !run) {
     return (
       <div className="flex justify-center items-center h-96">
@@ -120,11 +119,11 @@ export default function BacktestTradeList() {
   }
 
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 space-y-6">
+    <div className="page-content">
       {/* Stats Dashboard */}
 
       {/* Stats Dashboard */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           {
             label: "Total Trades",
@@ -136,23 +135,23 @@ export default function BacktestTradeList() {
             label: "Winners",
             value: stats.winners,
             icon: TrendingUp,
-            color: "text-green-700 dark:text-green-400",
+            color: "text-success",
           },
           {
             label: "Losers",
             value: stats.losers,
             icon: TrendingDown,
-            color: "text-red-700 dark:text-red-400",
+            color: "text-loss",
           },
           {
             label: "Total P&L",
             value: formatCurrency(stats.totalPnl),
             icon: TrendingUp,
-            color: stats.totalPnl >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400",
+            color: stats.totalPnl >= 0 ? "text-success" : "text-loss",
           },
         ].map((stat, i) => (
           <Card key={i} className="bg-card/50 border-border">
-            <CardContent className="p-4 flex items-center gap-4">
+            <CardContent className="p-3 flex items-center gap-3">
               <div className={`p-2 rounded-lg bg-secondary ${stat.color}`}>
                 <stat.icon className="h-5 w-5" />
               </div>
@@ -170,22 +169,22 @@ export default function BacktestTradeList() {
       </div>
 
       {/* Filters & Search */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-card/40 p-4 rounded-xl border border-border">
+      <div className="flex flex-col md:flex-row gap-2 justify-between items-start md:items-center">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search symbol..."
-            className="pl-9 bg-secondary/50 border-border text-foreground focus:ring-indigo-500"
+            className="pl-9 bg-secondary/50 border-border text-foreground focus:ring-brand"
           />
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 w-full md:w-auto">
           <Select
             value={instrumentFilter}
             onValueChange={setInstrumentFilter}
           >
-            <SelectTrigger className="w-[180px] bg-secondary border-border text-foreground text-sm focus:ring-0">
+            <SelectTrigger className="w-full sm:w-[180px] bg-secondary border-border text-foreground text-sm">
               <SelectValue placeholder="All Instruments" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border text-foreground">
@@ -196,21 +195,7 @@ export default function BacktestTradeList() {
               ))}
             </SelectContent>
           </Select>
-          <div className="flex bg-secondary p-1 rounded-lg">
-            {["all", "winning", "losing"].map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                  filter === f
-                    ? "bg-indigo-600 text-white shadow-lg"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
-          </div>
+          <PageTabs appearance="outline" label="Trade outcome" value={filter} onValueChange={setFilter} items={["all", "winning", "losing"].map(value => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))} />
         </div>
       </div>
 
@@ -218,50 +203,50 @@ export default function BacktestTradeList() {
       <Card className="bg-card/50 border-border overflow-hidden">
         <CardContent className="p-0">
           <div className="overflow-x-auto scrollbar-thin-theme">
-            <table className="w-full text-left">
+            <table className="w-full min-w-[1080px] text-left whitespace-nowrap [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2">
               <thead>
                 <tr className="bg-secondary/50 border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
-                  <th className="px-6 py-4 font-semibold">Instrument</th>
-                  <th className="px-6 py-4 font-semibold">Side</th>
-                  <th className="px-6 py-4 font-semibold">Timing</th>
-                  <th className="px-6 py-4 font-semibold text-right">Qty</th>
-                  <th className="px-6 py-4 font-semibold text-right">
+                  <th className="px-3 py-3 font-semibold">Instrument</th>
+                  <th className="px-3 py-3 font-semibold">Side</th>
+                  <th className="px-3 py-3 font-semibold">Timing</th>
+                  <th className="px-3 py-3 font-semibold text-right">Qty</th>
+                  <th className="px-3 py-3 font-semibold text-right">
                     Entry/Exit Price
                   </th>
-                  <th className="px-6 py-4 font-semibold text-right">
+                  <th className="px-3 py-3 font-semibold text-right">
                     MAE / MFE (₹)
                   </th>
-                  <th className="px-6 py-4 font-semibold text-right">
+                  <th className="px-3 py-3 font-semibold text-right">
                     Net P&L
                   </th>
-                  <th className="px-6 py-4 font-semibold text-right">
+                  <th className="px-3 py-3 font-semibold text-right">
                     Charges (₹)
                   </th>
-                  <th className="px-6 py-4 font-semibold">Exit Reason</th>
+                  <th className="px-3 py-3 font-semibold">Exit Reason</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {paginatedTrades.map((trade) => (
+                {trades.map((trade) => (
                   <tr
                     key={trade.id}
                     onClick={() => setSelectedTrade(trade)}
                     className="hover:bg-secondary/30 transition-colors group cursor-pointer"
                   >
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3">
                       <div className="text-sm font-bold text-foreground">
                         {trade.instrument_symbol}
                       </div>
                       <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5 uppercase">
                         <Clock className="h-3 w-3" />
-                        {trade.holding_duration_minutes}m duration
+                        {formatNumber(trade.holding_duration_minutes)}m duration
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3">
                       <div
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           trade.side === "BUY"
-                            ? "bg-green-500/10 text-green-700 dark:text-green-400"
-                            : "bg-red-500/10 text-red-700 dark:text-red-400"
+                            ? "bg-success/10 text-success"
+                            : "bg-loss/10 text-loss"
                         }`}
                       >
                         {trade.side === "BUY" ? (
@@ -272,7 +257,7 @@ export default function BacktestTradeList() {
                         {trade.side}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3">
                       <div className="text-[11px] text-foreground">
                         IN: {formatDateTime(trade.entry_time)}
                       </div>
@@ -280,12 +265,12 @@ export default function BacktestTradeList() {
                         OUT: {formatDateTime(trade.exit_time)}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 py-3 text-right">
                       <span className="text-sm font-medium text-foreground">
-                        {trade.quantity}
+                        {formatNumber(trade.quantity, { maximumFractionDigits: 0 })}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 py-3 text-right">
                       <div className="text-sm text-foreground">
                         {formatCurrency(trade.entry_price)}
                       </div>
@@ -293,7 +278,7 @@ export default function BacktestTradeList() {
                         {formatCurrency(trade.exit_price || 0)}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 py-3 text-right">
                       <div className="text-[11px] text-loss font-medium">
                         -{formatCurrency(trade.mae)}
                       </div>
@@ -301,24 +286,24 @@ export default function BacktestTradeList() {
                         +{formatCurrency(trade.mfe)}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 py-3 text-right">
                       <div
-                        className={`text-sm font-bold ${parseFloat(trade.net_pnl) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}
+                        className={`text-sm font-bold ${parseFloat(trade.net_pnl) >= 0 ? "text-success" : "text-loss"}`}
                       >
                         {formatCurrency(trade.net_pnl)}
                       </div>
                       <div
-                        className={`text-[10px] opacity-70 ${parseFloat(trade.net_pnl) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}
+                        className={`text-[10px] opacity-70 ${parseFloat(trade.net_pnl) >= 0 ? "text-success" : "text-loss"}`}
                       >
                         {formatNumber(trade.pnl_pct)}%
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 py-3 text-right">
                       <span className="text-sm font-medium text-foreground">
                         {formatCurrency(trade.charges_breakdown?.total ?? trade.charges_json?.total_charges ?? 0)}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3">
                       <Badge
                         variant="outline"
                         className="text-[10px] border-border text-muted-foreground font-normal"
@@ -337,49 +322,17 @@ export default function BacktestTradeList() {
             )}
           </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t border-border">
-              <span className="text-xs text-muted-foreground">
-                Showing {(page - 1) * PAGE_SIZE + (trades.length > 0 ? 1 : 0)}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount} trades
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                  className="border-border bg-card h-8 px-3"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-                  Prev
-                </Button>
-                <span className="text-xs text-muted-foreground font-medium tabular-nums">
-                  {page} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                  className="border-border bg-card h-8 px-3"
-                >
-                  Next
-                  <ChevronRight className="h-3.5 w-3.5 ml-1" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <Pagination page={page} pageSize={pageSize} count={totalCount} loading={loading} onPageChange={setPage} onPageSizeChange={setPageSize} label="Backtest trade pages" />
         </CardContent>
       </Card>
 
       {/* Trade Details Modal */}
       <Dialog open={!!selectedTrade} onOpenChange={(open) => !open && setSelectedTrade(null)}>
-        <DialogContent className="bg-card border-border text-foreground max-w-2xl max-h-[95dvh] overflow-y-auto scrollbar-theme w-[90vw] [&>button]:text-muted-foreground [&>button]:hover:text-foreground sm:p-5 p-4">
+        <DialogContent className="bg-card border-border text-foreground max-w-2xl max-h-[95dvh] overflow-y-auto scrollbar-theme w-[90vw] [&>button]:text-muted-foreground [&>button]:hover:text-foreground sm:p-3 p-3">
           <DialogHeader className="mb-2">
             <div className="flex items-center gap-3">
               <div
-                className={`flex items-center justify-center p-2.5 rounded-xl ${selectedTrade?.side === "BUY" ? "bg-green-500/10 text-green-700 dark:text-green-400" : "bg-red-500/10 text-red-700 dark:text-red-400"}`}
+                className={`flex items-center justify-center p-2.5 rounded-xl ${selectedTrade?.side === "BUY" ? "bg-success/10 text-success" : "bg-loss/10 text-loss"}`}
               >
                 {selectedTrade?.side === "BUY" ? (
                   <ArrowUpRight className="h-6 w-6" />
@@ -397,7 +350,7 @@ export default function BacktestTradeList() {
                   </Badge>
                   <span className="flex items-center">
                     <Clock className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                    {selectedTrade?.holding_duration_minutes}m holding
+                    {formatNumber(selectedTrade?.holding_duration_minutes)}m holding
                   </span>
                 </DialogDescription>
               </div>
@@ -405,7 +358,7 @@ export default function BacktestTradeList() {
           </DialogHeader>
 
           {selectedTrade && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Financial Summary */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 <div className="bg-secondary/50 rounded-xl p-2.5 border border-border/50">
@@ -429,7 +382,7 @@ export default function BacktestTradeList() {
                     Quantity
                   </div>
                   <div className="text-sm font-bold text-foreground">
-                    {selectedTrade.quantity}
+                    {formatNumber(selectedTrade.quantity, { maximumFractionDigits: 0 })}
                   </div>
                 </div>
                 <div className="bg-secondary/50 rounded-xl p-2.5 border border-border/50">
@@ -437,7 +390,7 @@ export default function BacktestTradeList() {
                     Net P&L
                   </div>
                   <div
-                    className={`text-sm font-bold ${parseFloat(selectedTrade.net_pnl) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}
+                    className={`text-sm font-bold ${parseFloat(selectedTrade.net_pnl) >= 0 ? "text-success" : "text-loss"}`}
                   >
                     {formatCurrency(selectedTrade.net_pnl)}
                   </div>
@@ -449,18 +402,18 @@ export default function BacktestTradeList() {
                 <Card className="bg-secondary/30 border-border shadow-sm">
                   <CardContent className="p-3 space-y-3">
                     <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50 pb-1.5 flex items-center gap-2">
-                       <Activity className="w-4 h-4 text-indigo-700 dark:text-indigo-400" /> Efficiency
+                       <Activity className="w-4 h-4 text-brand" /> Efficiency
                     </h4>
                     <div className="space-y-2">
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground">Max Adverse Excursion (MAE)</span>
-                        <span className="font-bold text-red-700 dark:text-red-400">
+                        <span className="font-bold text-loss">
                           -{formatCurrency(selectedTrade.mae)}
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground">Max Favorable Excursion (MFE)</span>
-                        <span className="font-bold text-green-700 dark:text-green-400">
+                        <span className="font-bold text-success">
                           +{formatCurrency(selectedTrade.mfe)}
                         </span>
                       </div>
@@ -478,12 +431,12 @@ export default function BacktestTradeList() {
                 <Card className="bg-secondary/30 border-border shadow-sm">
                   <CardContent className="p-3 space-y-3">
                     <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50 pb-1.5 flex items-center gap-2">
-                      <DollarSign className="w-4 h-4 text-amber-700 dark:text-amber-400" /> Transaction Costs
+                      <DollarSign className="w-4 h-4 text-warning" /> Transaction Costs
                     </h4>
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground">Gross P&L</span>
-                        <span className={`font-medium ${parseFloat(selectedTrade.gross_pnl) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+                        <span className={`font-medium ${parseFloat(selectedTrade.gross_pnl) >= 0 ? "text-success" : "text-loss"}`}>
                            {formatCurrency(selectedTrade.gross_pnl)}
                         </span>
                       </div>

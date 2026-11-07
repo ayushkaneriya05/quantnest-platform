@@ -2,7 +2,7 @@
 
 from backtesting.models import BacktestRun
 from backtesting.services import backtest_configuration
-from common.enums import CandleTimeframe
+from common.enums import CandleTimeframe, Exchange, InstrumentType
 from django.shortcuts import get_object_or_404
 from instruments.models import Instrument
 from rest_framework.exceptions import ValidationError
@@ -27,7 +27,7 @@ SAVED_CONTEXT_FIELDS = (*CONTEXT_FIELDS, "watchlist_name", "instruments", "execu
 def active_stocks(ids):
     ids = list(dict.fromkeys(ids))
     rows = list(
-        Instrument.objects.filter(pk__in=ids, is_active=True, exchange="NSE", instrument_type="STOCK").values(
+        Instrument.objects.filter(pk__in=ids, is_active=True, exchange=Exchange.NSE, instrument_type=InstrumentType.STOCK).values(
             "id", "symbol", "name", "sym_ticker"
         )
     )
@@ -73,12 +73,18 @@ def resolve_context(user, data, saved=None):
         watchlist = get_object_or_404(Watchlist, pk=context["watchlist_id"], user=user)
         context["watchlist_name"] = watchlist.name
         instruments = list(
-            watchlist.instruments.filter(is_active=True, exchange="NSE", instrument_type="STOCK").values_list(
+            watchlist.instruments.filter(is_active=True, exchange=Exchange.NSE, instrument_type=InstrumentType.STOCK).values_list(
                 "id", flat=True
             )
         )
     elif not instruments and snapshot:
-        instruments = [item["instrument_id"] for item in snapshot.get("watchlist_instruments", [])]
+        # A saved F&O/Studio report is still reviewable. Its optional stock
+        # research universe must not reject the attached immutable definition.
+        # Derivative analytics remain separate from the existing stock tools.
+        inputs = {identity for item in snapshot.get("watchlist_instruments", [])
+                  for identity in (item["instrument_id"], item.get("signal_instrument_id", item["instrument_id"]))}
+        instruments = list(Instrument.objects.filter(pk__in=inputs, is_active=True,
+            exchange=Exchange.NSE, instrument_type=InstrumentType.STOCK).values_list('pk', flat=True))
     context["instruments"] = active_stocks(instruments)
     context["instrument_ids"] = [item["id"] for item in context["instruments"]]
     timeframe = context.get("timeframe") or (snapshot or {}).get("time_rule", {}).get("candle_timeframe") or "1D"
@@ -93,6 +99,20 @@ def resolve_context(user, data, saved=None):
 def research_instrument_ids(run):
     """Tools use only the universe accepted at this run's user-action boundary."""
     return sorted(set(run.request.get("instrument_ids", [])))
+
+
+def draft_instrument_ids(run):
+    """Drafts may reuse contracts from owned, frozen attachments.
+
+    This does not broaden the stock-analysis tools' market-data universe.
+    """
+    ids = set(research_instrument_ids(run))
+    snapshots = [run.request.get('strategy_snapshot') or {},
+                 *(item.get('snapshot') or {} for item in run.request.get('backtests', []))]
+    for snapshot in snapshots:
+        for watch in snapshot.get('watchlist_instruments', []):
+            ids.update((watch['instrument_id'], watch.get('signal_instrument_id', watch['instrument_id'])))
+    return sorted(ids)
 
 
 def service_payload(run):

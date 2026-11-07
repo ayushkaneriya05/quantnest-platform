@@ -1,37 +1,51 @@
+import Pagination from "@/shared/components/Pagination";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import { usePagination } from "@/shared/hooks/usePagination";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import PropTypes from "prop-types";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { Layers, TrendingDown, TrendingUp } from "lucide-react";
 import { paperApi } from "@/shared/services/paperApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import TablePagination from "@/shared/components/TablePagination";
-import { formatCurrency } from "@/shared/utils/formatters";
-import { usePaperPositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
+import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
+import { useLivePositionSummary, usePaperPositionsPnL } from "@/shared/hooks/useLivePositionsPnL";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
 
-const PAGE_SIZE = 10;
 
-export default function PaperPositions({ selectedAccountId }) {
+export default function PaperPositions({ selectedAccountId, refreshKey = 0 }) {
   const fetchPositions = useStableCallback(async () => {
+    const generation = ++request.current;
+    setLoading(true);
+    setError("");
     try {
-      const positionsRes = await paperApi.getPositions();
-      setPositions(positionsRes.data || []);
+      const response = await paperApi.getPositions({ page, page_size: pageSize, account_id: selectedAccountId || undefined });
+      if (generation !== request.current) return;
+      setPositions(response.data.results);
+      setMetadata(response.data);
+      accept(response.data);
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load positions"));
-    } finally {
-      setLoading(false);
-    }
+      if (generation === request.current) setError(getApiErrorMessage(error, "Could not load positions."));
+    } finally { if (generation === request.current) setLoading(false); }
   });
 
   const { notify } = useNotifications();
   const lastMessage = usePaperTradingUpdate();
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [error, setError] = useState("");
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination(String(selectedAccountId), 'positions');
+  const [metadata, setMetadata] = useState({ count: 0 });
+  const [snapshot, setSummary] = useState({});
+  const summary = useLivePositionSummary(snapshot);
+  const request = useRef(0);
+  useEffect(() => {
+    setPositions([]); setSummary({});
+    const guard = request; return () => { guard.current++; };
+  }, [selectedAccountId]);
   const refreshTimerRef = useRef(null);
 
 
@@ -39,62 +53,46 @@ export default function PaperPositions({ selectedAccountId }) {
   useEffect(() => {
     fetchPositions();
     const interval = setInterval(fetchPositions, 30000);
+    const guard = request;
     return () => {
+      guard.current++;
       clearInterval(interval);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [fetchPositions]);
+  }, [fetchPositions, page, pageSize, selectedAccountId, refreshKey]);
 
   useEffect(() => {
-    if (!lastMessage || lastMessage.event_type !== "POSITION_UPDATE") return;
+    if (!lastMessage || !["POSITION_UPDATE", "RECONNECTED"].includes(lastMessage.event_type)) return;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(fetchPositions, 150);
   }, [lastMessage, fetchPositions]);
 
-  const filteredPositions = useMemo(
-    () =>
-      positions.filter(
-        (position) => String(position.account) === String(selectedAccountId),
-      ),
-    [positions, selectedAccountId],
-  );
-  const { livePnLByPositionId } = usePaperPositionsPnL(filteredPositions);
-
-  useEffect(() => setPage(1), [selectedAccountId]);
-  const pageCount = Math.max(1, Math.ceil(filteredPositions.length / PAGE_SIZE));
-  const pagePositions = filteredPositions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-
-  const totalValue = filteredPositions.reduce(
-    (sum, position) => {
-      const livePosition = livePnLByPositionId[position.id];
-      const currentPrice = livePosition?.livePrice ?? Number(position.current_price || 0);
-      return sum + currentPrice * Number(position.quantity || 0);
-    },
-    0,
-  );
-  const totalUnrealizedPnl = filteredPositions.reduce(
-    (sum, position) => sum + (livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)),
-    0,
-  );
-
-  if (loading) return <GlobalLoader fullHeight={false} />;
+    const controller = new AbortController();
+    paperApi.getPositionsSummary({ account_id: selectedAccountId || undefined }, controller.signal)
+      .then(response => { if (!controller.signal.aborted) setSummary(response.data); })
+      .catch(error => { if (!controller.signal.aborted) notify.error(getApiErrorMessage(error, "Could not load summary.")); });
+    return () => controller.abort();
+  }, [selectedAccountId, refreshKey, lastMessage, notify]);
+  const { livePnLByPositionId } = usePaperPositionsPnL(positions);
+  const totalValue = Number(summary.current_value || 0);
+  const totalUnrealizedPnl = Number(summary.unrealized_pnl || 0);
+  if (error) return <WorkspaceState error={error} onRetry={fetchPositions} />;
+  if (loading && !metadata.page) return <GlobalLoader fullHeight={false} />;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="grid grid-cols-3 gap-4">
+    <div className="space-y-3 animate-in fade-in duration-300">
+      <div className="grid grid-cols-3 gap-3">
         <Card className="bg-card/50 border-border">
-          <CardContent className="py-4 text-center">
+          <CardContent className="py-3 text-center">
             <p className="text-2xl font-bold text-foreground">
-              {filteredPositions.length}
+              {metadata.count}
             </p>
             <p className="text-xs text-muted-foreground">Open Positions</p>
           </CardContent>
         </Card>
         <Card className="bg-card/50 border-border">
-          <CardContent className="py-4 text-center">
+          <CardContent className="py-3 text-center">
             <p className="text-2xl font-bold text-foreground">
               {formatCurrency(totalValue)}
             </p>
@@ -102,9 +100,9 @@ export default function PaperPositions({ selectedAccountId }) {
           </CardContent>
         </Card>
         <Card className="bg-card/50 border-border">
-          <CardContent className="py-4 text-center">
+          <CardContent className="py-3 text-center">
             <p
-              className={`text-2xl font-bold ${totalUnrealizedPnl >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}
+              className={`text-2xl font-bold ${totalUnrealizedPnl >= 0 ? "text-success" : "text-loss"}`}
             >
               {totalUnrealizedPnl >= 0 ? "+" : ""}
               {formatCurrency(totalUnrealizedPnl)}
@@ -114,10 +112,10 @@ export default function PaperPositions({ selectedAccountId }) {
         </Card>
       </div>
 
-      {filteredPositions.length === 0 ? (
+      {metadata.count === 0 ? (
         <Card className="bg-card/50 border-border">
           <CardContent className="py-12 text-center">
-            <Layers className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
+            <Layers className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
             <h3 className="text-lg font-medium text-foreground">
               No open positions
             </h3>
@@ -127,19 +125,19 @@ export default function PaperPositions({ selectedAccountId }) {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {pagePositions.map((position) => (
+        <div className="space-y-3">
+          {positions.map((position) => (
             <Card key={position.id} className="bg-card/50 border-border hover:border-border transition-colors">
-              <CardContent className="py-4">
+              <CardContent className="py-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <div
-                      className={`p-3 rounded-lg ${position.side === "BUY" ? "bg-emerald-500/10" : "bg-rose-500/10"}`}
+                      className={`p-3 rounded-lg ${position.side === "BUY" ? "bg-success/10" : "bg-loss/10"}`}
                     >
                       {position.side === "BUY" ? (
-                        <TrendingUp className="h-6 w-6 text-emerald-700 dark:text-emerald-400" />
+                        <TrendingUp className="h-6 w-6 text-success" />
                       ) : (
-                        <TrendingDown className="h-6 w-6 text-rose-700 dark:text-rose-400" />
+                        <TrendingDown className="h-6 w-6 text-loss" />
                       )}
                     </div>
                     <div>
@@ -150,8 +148,8 @@ export default function PaperPositions({ selectedAccountId }) {
                         <Badge
                           className={
                             position.side === "BUY"
-                              ? "bg-emerald-700 text-white"
-                              : "bg-rose-600 text-white"
+                              ? "bg-success text-success-foreground"
+                              : "bg-loss text-loss-foreground"
                           }
                         >
                           {position.side}
@@ -165,11 +163,11 @@ export default function PaperPositions({ selectedAccountId }) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-8">
+                  <div className="flex items-center gap-4">
                     <div className="text-right">
                       <p className="text-xs text-muted-foreground">Quantity</p>
                       <p className="text-foreground font-medium">
-                        {position.quantity}
+                        {formatNumber(position.quantity, { maximumFractionDigits: 0 })}
                       </p>
                     </div>
                     <div className="text-right">
@@ -187,12 +185,12 @@ export default function PaperPositions({ selectedAccountId }) {
                     <div className="text-right min-w-[100px]">
                       <p className="text-xs text-muted-foreground">P&L</p>
                       <p
-                        className={`font-bold ${(livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)) >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400"}`}
+                        className={`font-bold ${(livePnLByPositionId[position.id]?.pnl ?? Number(position.unrealized_pnl || 0)) >= 0 ? "text-success" : "text-loss"}`}
                       >
                         {formatCurrency(livePnLByPositionId[position.id]?.pnl ?? position.unrealized_pnl)}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        ({Number(livePnLByPositionId[position.id]?.pnlPercent ?? position.unrealized_pnl_pct ?? 0).toFixed(2)}%)
+                        ({formatNumber(Number(livePnLByPositionId[position.id]?.pnlPercent ?? position.unrealized_pnl_pct ?? 0))}%)
                       </p>
                     </div>
                   </div>
@@ -200,14 +198,15 @@ export default function PaperPositions({ selectedAccountId }) {
               </CardContent>
             </Card>
           ))}
-          <TablePagination
-            page={page}
-            count={filteredPositions.length}
-            pageSize={PAGE_SIZE}
-            onPageChange={(nextPage) => setPage(Math.min(nextPage, pageCount))}
-          />
+
         </div>
       )}
+          <Pagination
+            page={page}
+            count={metadata.count}
+            pageSize={pageSize} loading={loading} onPageSizeChange={setPageSize} label="Paper positions pages"
+            onPageChange={setPage}
+          />
     </div>
   );
 }
@@ -215,4 +214,5 @@ export default function PaperPositions({ selectedAccountId }) {
 PaperPositions.propTypes = {
   ...PaperPositions.propTypes,
   selectedAccountId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  refreshKey: PropTypes.number,
 };

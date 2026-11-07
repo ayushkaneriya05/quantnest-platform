@@ -42,7 +42,7 @@ export default function PricingCards() {
             <h3 className="mt-3 text-2xl font-semibold">{plan.name}</h3>
             <p className="mt-4 text-4xl font-semibold">
               {plan.price_minor
-                ? `${formatCurrency(plan.price_minor / 100, { minimumFractionDigits: 0 })}`
+                ? `${formatCurrency(plan.price_minor / 100)}`
                 : "Free"}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -66,7 +66,7 @@ export default function PricingCards() {
                     <Check className="h-4 w-4 shrink-0 text-brand" />
                     {catalog.limit_labels[key]}
                   </span>
-                  <strong>{formatNumber(plan.limits[key] / (catalog.limit_divisors?.[key] || 1), { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</strong>
+                  <strong>{formatNumber(plan.limits[key] / (catalog.limit_divisors?.[key] || 1))}</strong>
                 </li>
               ))}
             </ul>

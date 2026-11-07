@@ -1,6 +1,32 @@
 from rest_framework import serializers
 
+from common.enums import CandleTimeframe, ComparisonOperator, OperandType
+from strategies.specification.operands import operand_types
+from strategies.validation import validate_operand_parameters
+
 from .models import ResearchAction, ResearchRun, ResearchSession
+
+
+class ScreenConditionSerializer(serializers.Serializer):
+    """One screening comparison; strategies use composable expression trees."""
+    operand_a_type = serializers.ChoiceField(choices=OperandType.choices)
+    operand_b_type = serializers.ChoiceField(choices=OperandType.choices)
+    operand_a_params = serializers.JSONField(default=dict)
+    operand_b_params = serializers.JSONField(default=dict)
+    operand_a_timeframe = serializers.ChoiceField(choices=CandleTimeframe.choices, allow_null=True, default=None)
+    operand_b_timeframe = serializers.ChoiceField(choices=CandleTimeframe.choices, allow_null=True, default=None)
+    comparison = serializers.ChoiceField(choices=ComparisonOperator.choices)
+    is_active = serializers.BooleanField(default=True)
+
+    def validate(self, attrs):
+        math_variable_types = set(operand_types('screen', math=True))
+        if any(attrs[f'operand_{side}_type'] not in operand_types('screen') for side in ('a', 'b')):
+            raise serializers.ValidationError('Screening conditions require completed-candle inputs, not live prices or position state.')
+        for side in ('a', 'b'):
+            field = f'operand_{side}_params'
+            attrs[field] = validate_operand_parameters(attrs[f'operand_{side}_type'],
+                attrs[field], field, math_variable_types=math_variable_types)
+        return attrs
 
 
 class ResearchActionSerializer(serializers.ModelSerializer):

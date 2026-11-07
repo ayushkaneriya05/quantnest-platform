@@ -176,7 +176,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
+        <div className="grid gap-3 py-3">
           {error && (
             <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive-text">
               <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
@@ -257,7 +257,7 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
                 maxLength={6}
                 value={verificationCode}
                 onChange={handleCodeChange}
-                className="h-11 text-center font-mono text-xl tracking-widest"
+                className="text-center font-mono text-xl tracking-widest"
                 required
                 autoComplete="one-time-code"
               />
@@ -268,8 +268,8 @@ export default function TwoFASetupModal({ isOpen, onClose, onSetupComplete }) {
           )}
 
           {step === 3 && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border bg-muted/40 p-4">
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border bg-muted/40 p-3">
                 {backupCodes.map((code, index) => (
                   <span key={index} className="font-mono text-sm text-foreground tracking-wider text-center">{code}</span>
                 ))}

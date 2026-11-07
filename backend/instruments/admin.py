@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Instrument, WatchlistInstrument, ExecutionRoute
+from .models import Instrument, ContractSpecification
 
 
 @admin.register(Instrument)
@@ -10,15 +10,15 @@ class InstrumentAdmin(admin.ModelAdmin):
     ordering = ['symbol']
 
 
-@admin.register(WatchlistInstrument)
-class WatchlistInstrumentAdmin(admin.ModelAdmin):
-    list_display = ['strategy', 'instrument', 'created_at']
-    list_filter = ['strategy']
-    autocomplete_fields = ['instrument', 'strategy']
-    search_fields = ['instrument__sym_ticker', 'strategy__name']
+@admin.register(ContractSpecification)
+class ContractSpecificationAdmin(admin.ModelAdmin):
+    list_display = ['instrument', 'effective_at', 'lot_size', 'tick_size', 'qty_multiplier', 'source']
+    search_fields = ['instrument__sym_ticker', 'instrument__name', 'source']
+    autocomplete_fields = ['instrument']
+    readonly_fields = ['recorded_at']
 
-@admin.register(ExecutionRoute)
-class ExecutionRouteAdmin(admin.ModelAdmin):
-    list_display = ['watchlist_instrument', 'route_type', 'override_sizing', 'created_at']
-    list_filter = ['route_type']
-    autocomplete_fields = ['watchlist_instrument']
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

@@ -3,18 +3,17 @@ import logging
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Avg, Count, Q, Sum
+from django.db.models import Avg, Count, Exists, OuterRef, Q, Sum
 from django.core.cache import cache
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from brokers.models import BrokerCredential
+from brokers.models import BrokerCredential, BrokerSession
 from brokers.services import BrokerService
 from common.enums import OrderStatus, NotificationType
 from execution.order_reports import ACTIVE
 from notifications.services import NotificationService
 from execution.lifecycle import request_session_refresh
-
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ class LiveExecutionService:
         allocation = LiveStrategyAllocation.objects.select_for_update().get(pk=allocation.pk)
         values = LiveExecutionService._allocation_terms(allocation.broker_credential, funds,
             allocation_amount, exclude_id=allocation.pk)
-        committed = max(allocation.invested_value + allocation.reserved_capital - allocation.realized_pnl, Decimal('0'))
+        committed = max(allocation.margin_used + allocation.reserved_capital - allocation.realized_pnl, Decimal('0'))
         if values['allocated_capital'] < committed:
             raise ValueError('Allocation cannot be reduced below committed position and order capital')
         from execution.models import Command
@@ -247,13 +246,19 @@ class LiveExecutionService:
     def session_summary(user):
         """Return a read-only snapshot; broker I/O runs in the funds sync task."""
         today = timezone.localdate()
-        sessions = TradingSession.objects.filter(user=user)
+        sessions = TradingSession.objects.filter(user=user).annotate(
+            broker_session_valid=Exists(BrokerSession.objects.filter(
+                credential_id=OuterRef('broker_credential_id'), is_valid=True,
+                token_expiry__gt=timezone.now(),
+            )),
+        )
         positions = LivePosition.objects.filter(user=user, quantity__gt=0)
         orders = LiveOrder.objects.filter(user=user)
         session_counts = sessions.aggregate(
             running=Count('id', filter=Q(status='RUNNING')),
             paused=Count('id', filter=Q(status='PAUSED')),
             errors=Count('id', filter=Q(status='ERROR')),
+            authentication_attention=Count('id', filter=Q(broker_session_valid=False) & ~Q(status='STOPPED')),
             brokers=Count('broker_credential', distinct=True),
         )
         credential_ids = list(BrokerCredential.objects.filter(user=user, is_active=True).values_list("pk", flat=True))
@@ -295,18 +300,18 @@ class LiveExecutionService:
             expired=Count("id", filter=Q(status=OrderStatus.EXPIRED)),
             unknown=Count("id", filter=Q(status="UNKNOWN")),
         )
-        position_counts = positions.aggregate(
-            total=Count('id'),
-            unrealized=Sum("unrealized_pnl"),
-            profitable=Count("id", filter=Q(unrealized_pnl__gt=0)),
-            losing=Count("id", filter=Q(unrealized_pnl__lt=0)),
-        )
+        from common.valuation import position_totals
+        valuation = position_totals(positions)
+        statuses = {row['status']: row['count'] for row in sessions.values('status').annotate(count=Count('id')).order_by()}
         return {
             "generated_at": timezone.now().isoformat(),
+            "total_sessions": sum(statuses.values()),
+            "session_statuses": statuses,
             "running_sessions": session_counts['running'],
             "paused_sessions": session_counts['paused'],
             "error_sessions": session_counts['errors'],
-            "open_positions": position_counts['total'],
+            "authentication_attention": session_counts['authentication_attention'],
+            "open_positions": valuation['count'],
             "open_orders": order_counts["active"],
             "rejected_orders": order_counts["rejected"],
             "total_orders": order_counts['total'],
@@ -316,17 +321,18 @@ class LiveExecutionService:
             "cancelled_orders": order_counts["cancelled"],
             "expired_orders": order_counts["expired"],
             "unknown_orders": order_counts["unknown"],
-            "profitable_positions": position_counts["profitable"],
-            "losing_positions": position_counts["losing"],
+            "profitable_positions": valuation["profitable"],
+            "losing_positions": valuation["losing"],
             "total_closed_trades": closed_trade_stats["total"],
             "winning_closed_trades": closed_trade_stats["winning"],
             "losing_closed_trades": closed_trade_stats["losing"],
             "today_orders": order_counts['today'],
             "today_fills": order_counts['today_fills'],
-            "unrealized_pnl": str(position_counts["unrealized"] or Decimal("0")),
+            "unrealized_pnl": str(valuation["unrealized_pnl"]),
+            "valuation_positions": valuation['valuation_positions'],
             "realized_pnl": str(realized_pnl),
             "realized_today": str(realized_today),
-            "day_pnl": str(realized_today + (position_counts["unrealized"] or Decimal("0"))),
+            "day_pnl": str(realized_today + valuation["unrealized_pnl"]),
             "closed_trades_today": closed_trade_stats['today'],
             "winning_trades_today": closed_trade_stats['winning_today'],
             "avg_execution_latency_ms": avg_execution_latency,

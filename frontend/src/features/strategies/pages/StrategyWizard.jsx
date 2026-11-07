@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNavigate, useParams } from 'react-router-dom';
 import { Input } from "@/shared/components/ui/input";
+import { Button } from "@/shared/components/ui/button";
 import { Label } from "@/shared/components/ui/label";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
@@ -19,7 +20,7 @@ import { AlertCircle
 import { strategyApi } from '@/shared/services/strategyApi';
 import { useNotifications } from '@/shared/hooks/useNotifications';
 import { usePageTitle } from '@/shared/hooks/use-page-title';
-import { useEnums } from '@/shared/context/EnumsContext';
+import { useStrategySpecification } from '@/shared/context/EnumsContext';
 import { usePageActions } from '@/shared/context/pageActions'; // Added import
 import StrategyConfigNav from '@/features/strategies/components/StrategyConfigNav.jsx';
 import StrategyFooter from '@/features/strategies/components/StrategyFooter.jsx';
@@ -37,14 +38,14 @@ export default function StrategyWizard() {
       setFormData({
         name: data.name || '',
         description: data.description || '',
-        strategy_type: data.strategy_type || 'INTRADAY',
-        market_type: data.market_type || 'EQUITY',
-        exchange: data.exchange || 'NSE',
-        instrument_type: data.instrument_type || 'STOCK',
-        visibility: data.visibility || 'PRIVATE',
-        status: data.status || 'DRAFT',
-        paper_trading_enabled: data.paper_trading_enabled ?? false,
-        live_trading_enabled: data.live_trading_enabled ?? false,
+        strategy_type: data.strategy_type,
+        market_type: data.market_type,
+        exchange: data.exchange,
+        instrument_type: data.instrument_type,
+        visibility: data.visibility,
+        status: data.status,
+        paper_trading_enabled: data.paper_trading_enabled,
+        live_trading_enabled: data.live_trading_enabled,
         tags: data.tags,
       });
     } catch (error) {
@@ -58,7 +59,7 @@ export default function StrategyWizard() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { notify } = useNotifications();
-  const { enums } = useEnums();
+  const { spec, loading: metadataLoading, error: metadataError, refreshEnums, choicesFor } = useStrategySpecification();
   const { setPageHeader } = usePageActions(); // Use context
   const isEdit = Boolean(id);
 
@@ -68,19 +69,12 @@ export default function StrategyWizard() {
   const [touched, setTouched] = useState({});
 
 
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    strategy_type: 'INTRADAY',
-    market_type: 'EQUITY',
-    exchange: 'NSE',
-    instrument_type: 'STOCK',
-    visibility: 'PRIVATE',
-    status: 'DRAFT',
-    paper_trading_enabled: true,
-    live_trading_enabled: false,
-    tags: [], // Array of tag objects {id, name}
-  });
+  const [formData, setFormData] = useState(() => ({
+    ...(spec?.details.defaults || {}), name: '', description: '', tags: [],
+  }));
+  useEffect(() => {
+    if (!isEdit && spec) setFormData((previous) => ({ ...spec.details.defaults, ...previous }));
+  }, [isEdit, spec]);
 
   usePageTitle({
     title: isEdit ? 'Edit Strategy' : 'Create Strategy',
@@ -88,8 +82,8 @@ export default function StrategyWizard() {
   });
 
   useEffect(() => {
-    if (isEdit) fetchStrategy();
-  }, [id, isEdit, fetchStrategy]);
+    if (isEdit && spec) fetchStrategy();
+  }, [id, isEdit, spec, fetchStrategy]);
 
   // Set Navigation in Header (Edit Mode Only)
   // StrategyConfigNav only reads strategy.status — no need to re-render on every keystroke
@@ -127,8 +121,8 @@ export default function StrategyWizard() {
     const val = value ?? formData[field];
     const newErrors = { ...errors };
     if (field === 'name') {
-      if (!val || val.trim().length < 3) {
-        newErrors.name = 'Strategy name must be at least 3 characters';
+      if (!val || val.trim().length < spec.details.fields.name.min_length) {
+        newErrors.name = `Strategy name must be at least ${spec.details.fields.name.min_length} characters`;
       } else {
         delete newErrors.name;
       }
@@ -140,8 +134,8 @@ export default function StrategyWizard() {
   const validateForm = () => {
     setTouched({ name: true });
     const newErrors = {};
-    if (!formData.name || formData.name.trim().length < 3) {
-      newErrors.name = 'Strategy name must be at least 3 characters';
+    if (!formData.name || formData.name.trim().length < spec.details.fields.name.min_length) {
+      newErrors.name = `Strategy name must be at least ${spec.details.fields.name.min_length} characters`;
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -162,8 +156,8 @@ export default function StrategyWizard() {
         notify.success('Strategy updated');
       } else {
         const created = await strategyApi.create(payload);
-        notify.success('Strategy created! Now configure your rules.');
-        navigate(`/strategies/${created.id}/edit`, { replace: true });
+        notify.success('Strategy created. Build its conditions in Studio.');
+        navigate(`/strategies/${created.id}/studio`, { replace: true });
       }
     } catch (error) {
       notify.error(getApiErrorMessage(
@@ -175,7 +169,11 @@ export default function StrategyWizard() {
     }
   };
 
-  if (loading) {
+  if (metadataError) return <div className="page-content">
+    <p role="alert">Strategy settings could not be loaded.</p>
+    <Button className="mt-2" variant="outline" onClick={refreshEnums}>Retry settings</Button>
+  </div>;
+  if (loading || metadataLoading || !spec) {
     return (
       <div className="flex flex-col justify-center items-center h-96 gap-3">
         <GlobalLoader text="Loading strategy..." />
@@ -189,14 +187,14 @@ export default function StrategyWizard() {
 
       {/* ── Scrollable content ── */}
       <div className="flex-1 overflow-y-auto scrollbar-theme">
-        <div className="container-padding py-6 lg:py-8 space-y-6 max-w-4xl mx-auto">
+        <div className="page-content max-w-4xl mx-auto">
           {/* ── Basic Info Section ── */}
-          <div className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
               {/* Name */}
               <div className="space-y-1.5 md:col-span-2">
                 <Label htmlFor="name" className="text-xs text-muted-foreground">
-                  Strategy Name <span className="text-rose-700 dark:text-rose-400">*</span>
+                  Strategy Name <span className="text-loss">*</span>
                 </Label>
                 <Input
                   id="name"
@@ -204,12 +202,12 @@ export default function StrategyWizard() {
                   onChange={(e) => handleChange('name', e.target.value)}
                   onBlur={() => handleBlur('name')}
                   placeholder="e.g., EMA Crossover Strategy"
-                  className={`bg-secondary/60 border-border text-sm h-9 ${
-                    errors.name && touched.name ? 'border-rose-500' : ''
+                  className={`bg-secondary/60 border-border text-sm ${
+                    errors.name && touched.name ? "border-loss" : ''
                   }`}
                 />
                 {errors.name && touched.name && (
-                  <p className="text-rose-700 dark:text-rose-400 text-xs flex items-center gap-1">
+                  <p className="text-loss text-xs flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
                     {errors.name}
                   </p>
@@ -220,11 +218,11 @@ export default function StrategyWizard() {
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Strategy Type</Label>
                 <Select value={formData.strategy_type} onValueChange={(v) => handleChange('strategy_type', v)}>
-                  <SelectTrigger className="bg-secondary/60 border-border text-sm h-9">
+                  <SelectTrigger className="bg-secondary/60 border-border text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(enums.StrategyType || []).map(t => (
+                    {choicesFor(spec.details.fields.strategy_type).map(t => (
                       <SelectItem key={t.value} value={t.value}>
                         <div className="flex flex-col">
                           <span>{t.label}</span>
@@ -240,11 +238,11 @@ export default function StrategyWizard() {
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Market Type</Label>
                 <Select value={formData.market_type} onValueChange={(v) => handleChange('market_type', v)}>
-                  <SelectTrigger className="bg-secondary/60 border-border text-sm h-9">
+                  <SelectTrigger className="bg-secondary/60 border-border text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(enums.MarketType || []).map(t => (
+                    {choicesFor(spec.details.fields.market_type).map(t => (
                       <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -255,11 +253,11 @@ export default function StrategyWizard() {
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Exchange</Label>
                 <Select value={formData.exchange} onValueChange={(v) => handleChange('exchange', v)}>
-                  <SelectTrigger className="bg-secondary/60 border-border text-sm h-9">
+                  <SelectTrigger className="bg-secondary/60 border-border text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(enums.Exchange || []).map(t => (
+                    {choicesFor(spec.details.fields.exchange).map(t => (
                       <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -270,11 +268,11 @@ export default function StrategyWizard() {
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Instrument Type</Label>
                 <Select value={formData.instrument_type} onValueChange={(v) => handleChange('instrument_type', v)}>
-                  <SelectTrigger className="bg-secondary/60 border-border text-sm h-9">
+                  <SelectTrigger className="bg-secondary/60 border-border text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(enums.InstrumentType || []).map(t => (
+                    {choicesFor(spec.details.fields.instrument_type).map(t => (
                       <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                     ))}
                   </SelectContent>
@@ -309,7 +307,7 @@ export default function StrategyWizard() {
 
             {/* Trading Toggles (edit mode only) */}
             {isEdit && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {executionScopes.includes('paper') && <div className="flex items-center justify-between p-3 bg-secondary/40 rounded-lg border border-border/40">
                   <div>
                     <Label className="text-sm text-foreground">Paper Trading</Label>

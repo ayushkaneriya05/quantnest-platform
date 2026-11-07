@@ -6,25 +6,32 @@ Nothing in this module queries a database, reads a quote, or contacts a broker.
 """
 from copy import deepcopy
 from dataclasses import replace
-from decimal import Decimal, ROUND_HALF_UP
+from math import isfinite
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
 from common.costs import TradingCostCalculator
-from common.enums import ExecutionSessionStatus, InstrumentType, OrderIntent, OrderStatus, OrderType, QuantityType, Side
+from common.enums import ExecutionSessionStatus, InstrumentType, OrderIntent, OrderStatus, OrderType, QuantityType, QuantityUnit, Side
 
 from .types import ACTIVE_STATUSES, Account, ClosedTrade, Contract, EntryLot, Fill, Intent, MONEY, Order, Position, PositionView, Transition, UnitKey, ZERO
 
 
-def margin(account: Account, contract: Contract, quantity: int, price: Decimal) -> Decimal:
-    """Configured simulation collateral; a real broker remains its margin authority."""
+def collateral_per_unit(account: Account, contract: Contract, side: str, price: Decimal) -> Decimal:
+    """Unrounded simulation collateral; shared by sizing and reservations."""
     percentage = Decimal('100')
     if contract.instrument_type == InstrumentType.FUTURE:
         percentage = account.futures_margin_pct
-    elif contract.instrument_type == InstrumentType.OPTION and quantity < 0:
+    elif contract.instrument_type == InstrumentType.OPTION and side == Side.SELL:
         percentage = account.short_option_margin_pct
         if contract.strike_price is None or contract.strike_price <= ZERO:
             raise ValueError('Short option margin requires the contract strike price.')
         price = contract.strike_price
-    return (contract.value(price, abs(quantity)) * percentage / 100).quantize(MONEY, rounding=ROUND_HALF_UP)
+    return contract.value(price, 1) * percentage / 100
+
+
+def margin(account: Account, contract: Contract, quantity: int, price: Decimal) -> Decimal:
+    """Configured simulation collateral; a real broker remains its margin authority."""
+    per_unit = collateral_per_unit(account, contract, Side.BUY if quantity >= 0 else Side.SELL, price)
+    return (per_unit * abs(quantity)).quantize(MONEY, rounding=ROUND_HALF_UP)
 
 
 def available(account: Account, session_id: int) -> Decimal:
@@ -41,24 +48,42 @@ def available(account: Account, session_id: int) -> Decimal:
 
 
 def position_view(account: Account, unit: UnitKey) -> PositionView:
-    pending = any(order.unit == unit for order in account.working.values())
+    working = [order for order in account.working.values() if order.unit == unit]
+    pending = bool(working)
     position = account.positions.get(unit)
     if position is not None:
         return position.view(pending=pending)
-    return PositionView(revision=account.position_revisions.get(unit, 0), pending=pending)
+    return PositionView(revision=account.position_revisions.get(unit, 0), pending=pending,
+        setup_state=next((order.setup_state for order in working if order.setup_state), {}),
+        binding=working[0].binding if working else None)
 
 
-def size_order(sizing: dict, contract: Contract, price: Decimal, capital: Decimal) -> int:
+def size_order(sizing: dict, contract: Contract, price: Decimal, capital: Decimal,
+               *, account: Account, side: str) -> int:
+    """Size whole lots against the same collateral policy used for admission.
+
+    Premium is the capital basis for long options; futures and option writers
+    use configured simulation collateral. This is not a broker margin quote.
+    """
     if price <= ZERO or not price.is_finite():
         return 0
     if sizing['sizing_method'] == QuantityType.FIXED:
         quantity = int(sizing['fixed_quantity'])
+        unit = QuantityUnit(sizing.get('quantity_unit', QuantityUnit.UNITS))
+        if unit == QuantityUnit.LOTS:
+            quantity *= contract.lot_size
+        if quantity <= 0 or quantity != contract.units(quantity):
+            raise ValueError(f'Fixed quantity must be a positive multiple of {contract.lot_size} units; choose Lots or correct the units.')
+        return quantity
     elif sizing['sizing_method'] == QuantityType.CAPITAL_BASED:
-        budget = max(capital, ZERO) * Decimal(str(sizing['capital_percentage'])) / 100
-        quantity = int(budget / contract.value(price, 1))
+        budget = (max(capital, ZERO) * Decimal(str(sizing['capital_percentage'])) / 100).quantize(MONEY, rounding=ROUND_DOWN)
+        lot_cost = collateral_per_unit(account, contract, side, price) * contract.lot_size
+        if lot_cost <= ZERO:
+            raise ValueError('Capital sizing requires a positive collateral amount per lot.')
+        # Round only the final reservation, never each unit/lot before sizing.
+        return int(budget / lot_cost) * contract.lot_size
     else:
         raise ValueError('Unsupported position sizing method.')
-    return contract.units(quantity)
 
 
 def order_transition(account: Account, order: Order, *, fill: Fill | None = None,
@@ -74,7 +99,8 @@ def order_transition(account: Account, order: Order, *, fill: Fill | None = None
 
 def accept_intent(account: Account, intent: Intent, contract: Contract) -> Transition:
     """Admit exactly one action using current account facts, then reserve its funds."""
-    if intent.account != account.key or intent.unit[2] != contract.instrument_id:
+    if (intent.account != account.key or len(intent.unit) != 4 or intent.unit[0] != account.key[0]
+            or intent.binding is None or intent.binding[1] != contract.instrument_id):
         raise ValueError('Intent does not belong to this account/instrument.')
     if intent.identity in account.orders:
         raise ValueError('This order intent has already been accepted.')
@@ -82,11 +108,18 @@ def accept_intent(account: Account, intent: Intent, contract: Contract) -> Trans
         raise ValueError('Unsupported order side or type.')
     if not intent.reference_price.is_finite() or intent.reference_price <= ZERO:
         raise ValueError('An order requires a positive, finite market price.')
+    if not isfinite(intent.initial_risk_distance) or intent.initial_risk_distance < 0:
+        raise ValueError('Initial risk distance must be finite and non-negative.')
     if intent.order_type in (OrderType.LIMIT, OrderType.STOP_LIMIT) and intent.limit_price is None:
         raise ValueError('A limit price is required.')
     if intent.order_type in (OrderType.STOP_MARKET, OrderType.STOP_LIMIT) and intent.trigger_price is None:
         raise ValueError('A trigger price is required.')
     view = position_view(account, intent.unit)
+    owned_position = account.positions.get(intent.unit)
+    if owned_position is not None and owned_position.binding != intent.binding:
+        raise ValueError('Close the owned contract before changing this route binding.')
+    if any(order.unit == intent.unit and order.binding != intent.binding for order in account.working.values()):
+        raise ValueError('Finish working orders before changing this route binding.')
     session = intent.unit[1]
     if intent.position_revision != view.revision:
         raise ValueError('Position changed before this intent was accepted.')
@@ -105,7 +138,8 @@ def accept_intent(account: Account, intent: Intent, contract: Contract) -> Trans
             raise ValueError('There is no owned position to reduce.')
         quantity = min(quantity, abs(view.quantity)) if intent.manual else abs(view.quantity)
     elif not quantity:
-        quantity = size_order(account.sizing[intent.unit], contract, intent.reference_price, available(account, session))
+        quantity = size_order(account.sizing[intent.unit], contract, intent.reference_price, available(account, session),
+                              account=account, side=intent.side)
     if account.live and not closing and (account.broker_observed_at is None or
             not 0 <= (intent.at - account.broker_observed_at).total_seconds() <= 90):
         raise ValueError('Wait for a fresh broker funds snapshot before opening a position.')
@@ -128,6 +162,9 @@ def accept_intent(account: Account, intent: Intent, contract: Contract) -> Trans
         stop_loss=intent.stop_loss, take_profit=intent.take_profit, manual=intent.manual,
         charge_profile=deepcopy(account.profiles.get(session, {})), slippage_pct=account.slippage.get(session, ZERO),
         sequence=intent.sequence, generation=intent.generation, reference_price=intent.reference_price,
+        setup_state=deepcopy(intent.setup_state),
+        binding=intent.binding,
+        initial_risk_distance=intent.initial_risk_distance,
         status='UNKNOWN' if account.live else OrderStatus.PENDING)
     account.orders[order.identity] = order
     return order_transition(account, order)
@@ -211,7 +248,7 @@ def apply_fill(account: Account, fill: Fill) -> Transition:
     """Apply an incremental fill once; broker cumulative quantities are normalized first."""
     order = account.orders[fill.order_id]
     before_available = available(account, order.unit[1])
-    if fill.quantity <= 0 or fill.quantity > order.remaining or not fill.price.is_finite() or fill.price < ZERO:
+    if fill.quantity <= 0 or fill.quantity > order.remaining or not fill.price.is_finite() or fill.price <= ZERO:
         raise ValueError('Invalid incremental fill.')
     # Brokers report whole-second execution clocks. Keep their original time,
     # but compare at that precision so a fast fill in the submission second is valid.
@@ -219,6 +256,9 @@ def apply_fill(account: Account, fill: Fill) -> Transition:
     if fill.at < eligible_at:
         raise ValueError('A fill cannot precede order eligibility.')
     previous = account.positions.get(order.unit)
+    if previous is not None and (previous.contract.instrument_id != order.contract.instrument_id
+                                 or previous.binding != order.binding):
+        raise ValueError('A late fill conflicts with this leg\'s owned binding. Reconcile the broker exposure before resuming.')
     old_quantity = previous.quantity if previous else 0
     change = fill.quantity if order.side == Side.BUY else -fill.quantity
     if order.reduce_only and (not old_quantity or old_quantity * change >= 0 or fill.quantity > abs(old_quantity)):
@@ -236,6 +276,7 @@ def apply_fill(account: Account, fill: Fill) -> Transition:
     if not account.live and opened and new_margin - old_margin > available(account, order.unit[1]) + order.reserved:
         return reject_order(account, order.identity, 'Insufficient capital at the actual fill price.')
     trade = None
+    settled_release = ZERO
     lots = list(previous.lots) if previous else []
     slippage = (order.contract.value(abs(fill.price - fill.reference_price), fill.quantity)
                 if fill.reference_price is not None else ZERO)
@@ -261,15 +302,20 @@ def apply_fill(account: Account, fill: Fill) -> Transition:
             charges, lots = _closing_costs(previous, order, closed, fill)
         fees = Decimal(str(charges.get('total_charges', 0)))
         net = (gross - fees).quantize(MONEY, rounding=ROUND_HALF_UP)
-        account.balance += net
-        account.realized += net
+        # Daily futures MTM is already in cash. Preserve lifetime trade P&L,
+        # but release only the residual amount when these units close.
+        settled_release = previous.settled_pnl * closed / abs(old_quantity)
+        cash_change = net - settled_release
+        account.balance += cash_change
+        account.realized += cash_change
         account.charges_paid += fees
         if order.unit[1] in account.allocations:
-            account.allocations[order.unit[1]] += net
+            account.allocations[order.unit[1]] += cash_change
         trade = ClosedTrade(order.unit, order.contract, closed,
             Side.BUY if old_quantity > 0 else Side.SELL, previous.average, fill.price,
             previous.opened_at, fill.at, gross, net, charges, order.identity, order.reason,
-            previous.mae, previous.mfe, entry_slippage + slippage * closed / fill.quantity)
+            previous.mae, previous.mfe, entry_slippage + slippage * closed / fill.quantity,
+            settled_pnl=settled_release)
     revision = account.position_revisions.get(order.unit, 0) + 1
     account.position_revisions[order.unit] = revision
     if new_quantity:
@@ -278,18 +324,24 @@ def apply_fill(account: Account, fill: Fill) -> Transition:
             lots.append(EntryLot(opened, fill.price, fill.at, order.identity, deepcopy(order.charge_profile), order.quantity, slippage / fill.quantity))
         position = Position(order.unit, order.contract, new_quantity, average,
             fill.at if previous is None or reversal else previous.opened_at,
-            revision, new_margin, lots)
+            revision, new_margin, lots,
+            setup_state=deepcopy(previous.setup_state if previous is not None and not reversal else order.setup_state),
+            binding=previous.binding if previous is not None and not reversal else order.binding)
         if previous is not None and not reversal:
             position.stop_loss, position.take_profit = previous.stop_loss, previous.take_profit
             position.stop_distance, position.peak = previous.stop_distance, previous.peak
             position.mae, position.mfe = previous.mae, previous.mfe
+            position.settled_pnl = previous.settled_pnl - settled_release
+            position.settled_at = previous.settled_at
         else:
             position.peak = float(fill.price)
+            position.stop_distance = order.initial_risk_distance
         if opened:
             if order.stop_loss is not None:
                 position.stop_loss = order.stop_loss
             if order.take_profit is not None:
                 position.take_profit = order.take_profit
+        position.last_fill_at = fill.at
         account.positions[order.unit] = position
     else:
         account.positions.pop(order.unit, None)

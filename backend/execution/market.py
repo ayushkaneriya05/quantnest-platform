@@ -21,7 +21,6 @@ class PreparedSymbol:
     cursor: int
     generation: int
     revisions: dict[str, int]
-    prepared_at: datetime
 
 
 def prepare_symbol(symbol: str, programs: list[Program]) -> PreparedSymbol:
@@ -51,10 +50,20 @@ def _prepare_symbol(symbol: str, programs: list[Program]) -> PreparedSymbol:
         depths[CandleTimeframe.M1] = max(depths.get(CandleTimeframe.M1, 0), calendar.session_minutes + 2)
     buffers = {}
     try:
-        for source in depths:
+        for source in depths or {CandleTimeframe.M1: 1}:
             buffers[source] = SharedMemoryManager(symbol, source)
-        snapshots = {source: buffer.snapshot(depths[source]) for source, buffer in buffers.items()}
+        snapshots = {source: buffer.snapshot(depths.get(source, 1)) for source, buffer in buffers.items()}
         now = datetime.fromtimestamp(snapshots[CandleTimeframe.M1].captured_at, timezone.utc)
+        if not depths:
+            # A newly listed/illiquid option can have no candles and still
+            # supply valid ticks. Subscribe now; never invent warmup prices.
+            calendar.load_holidays(now.date()-timedelta(days=7), now.date()+timedelta(days=31))
+            graph = FeatureGraph(calendar, capacity=256)
+            for program in programs:
+                graph.register(program)
+            minute = snapshots[CandleTimeframe.M1]
+            return PreparedSymbol(symbol, graph, {}, minute.sequence, minute.generation,
+                                  {CandleTimeframe.M1: minute.history_revision})
         sources = {source: candle_frame([dict(zip((*OHLCV, 'time'), row)) for row in snapshot.rows
                                         if row[0] > 0 and row[5] > 0])
                    for source, snapshot in snapshots.items()}
@@ -95,7 +104,7 @@ def _prepare_symbol(symbol: str, programs: list[Program]) -> PreparedSymbol:
                     forming[tf] = combine(old, item) if old and old.opened_at == item.opened_at else item
         minute = snapshots[CandleTimeframe.M1]
         return PreparedSymbol(symbol, graph, forming, minute.sequence, minute.generation,
-                              {tf: snapshot.history_revision for tf, snapshot in snapshots.items()}, now)
+                              {tf: snapshot.history_revision for tf, snapshot in snapshots.items()})
     finally:
         for buffer in buffers.values():
             buffer.close()

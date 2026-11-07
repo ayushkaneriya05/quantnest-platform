@@ -1,86 +1,89 @@
 # QuantNest documentation
 
-**Source review: 23 October 2026.** The four trading guides describe the current
-implementation from customer actions through data preparation, execution,
-persistence and operation. They replace the old execution rebuild plan, runtime,
-technical-reference and execution-review documents.
+**Current-state documentation consolidated: 7 November 2026.** Each topic below
+has one current guide. Mode guides own execution; Strategy Studio owns authoring
+and shared rule meanings. Authentication, site/workspace, Commercial and Support
+each own their current workflows. Retired plans and dated execution reviews are
+no longer separate implementation references.
+
+## Strategy creation and use
+
+Start with [Strategy Studio: complete current guide](strategy-configuration.md).
+It covers every current operand/operator, fixed and automatic markets, sizing,
+formulas, capture/re-entry, schedules, validation, versions, sharing, worked
+strategies, document/API examples and implementation ownership.
+
+- [Create and manage a strategy](strategy-configuration.md#2-create-and-manage-a-strategy)
+- [Fixed instruments and automatic ATM/ITM/OTM selection](strategy-configuration.md#4-markets-fixed-instruments-and-automatic-contracts)
+- [Sizing and initial risk](strategy-configuration.md#5-direction-sizing-and-initial-risk)
+- [All 48 inputs and their parameters](strategy-configuration.md#7-all-rule-inputs-and-indicator-parameters)
+- [Operators and rolling calculations](strategy-configuration.md#8-comparisons-arithmetic-and-rolling-calculations)
+- [Capture, confirmation and re-entry](strategy-configuration.md#10-capture-and-confirmation)
+- [Worked strategies](strategy-configuration.md#14-worked-strategies)
+- [Backend/frontend specification ownership](strategy-configuration.md#19-implementation-ownership-and-maintenance)
 
 ## Trading and execution guides
 
-| Functionality | Complete guide | Main topics |
+| Functionality | Guide | Main topics |
 | --- | --- | --- |
-| Historical strategy testing | [Backtesting](backtesting.md) | Configuration snapshots, allowances, history/warmup, shared rules, OHLC replay, matching, charges, results and Monte Carlo |
-| Automated simulation | [Paper trading](paper-trading.md) | Wallet, fixed allocations, saved-version deployments, live observations, independent units, simulated fills, session controls and runtime operation |
-| Automated broker trading | [Live trading](live-trading.md) | Broker setup, fixed allocations, funds, rules, durable submission, cumulative fills, reconciliation, timestamps and recovery |
-| Manual simulation | [Trading Terminal](trading-terminal.md) | Watchlists, contracts/lots, stored and live charts, tickets, all order types, position actions, charges, account configuration and calendars |
+| Historical strategy testing | [Backtesting](backtesting.md) | Snapshots, allowances, history/warmup, expired derivatives, OHLC replay, signal-time fills, charges, results and Monte Carlo |
+| Automated simulation | [Paper trading](paper-trading.md) | Wallet, fixed allocations, saved-version deployments, live observations, simulated fills, session controls and runtime operation |
+| Automated broker trading | [Live trading](live-trading.md) | Broker setup/funds, allocations, submission, cumulative fills, reconciliation and recovery |
+| Manual simulation | [Trading Terminal](trading-terminal.md) | Watchlists, contracts/lots, charts, tickets, manual order types, position actions, costs and calendars |
+| AI Research and Market Screener | [AI Research](ai-research.md) | Conversations/context, deterministic evidence, confirmed actions, screens, token credits, providers and deployment |
 
-Each guide contains the user procedure, API map, source/method responsibilities,
-worked examples, financial basis and troubleshooting. Paper/Live/Terminal guides
-also cover their source-specific Journal and Reports workflows.
+The mode guides also cover their Journal and Reports workflows. For runtime
+commands/scaling, start with [Paper runtime operations](paper-trading.md#runtime-operations-and-scaling).
+For the shared rule-to-order path use [Saved strategy to execution](strategy-configuration.md#15-from-saved-strategy-to-execution).
+For chart delivery use [Terminal chart flow](trading-terminal.md#chart-history-and-live-candles).
 
-For the shared process model, start with
-[Paper runtime operations and scaling](paper-trading.md#runtime-operations-and-scaling).
-For real order submission/recovery, use
-[Live signal to broker order](live-trading.md#signal-to-broker-order).
-For data delivery to the UI, use
-[Terminal chart flow](trading-terminal.md#chart-history-and-live-candles).
-
-For the dated audit results, corrected defects and remaining verification limits,
-see [Execution verification — 26 October 2026](reviews/execution-2026-10-26.md).
-For the observed candle-close delay and its timestamp fixes, see
-[Paper candle latency — 29 October 2026](reviews/paper-candle-latency-2026-10-29.md).
-For measured tick-to-signal costs with 15–20 rules, six timeframes and long
-lookbacks, see [Complex rule latency — 29 October 2026](reviews/complex-rule-latency-2026-10-29.md).
+Shared live-data acquisition and realtime valuation are documented in the mode
+guides. [Reviewed derivative settlement](paper-trading.md#derivative-settlement)
+is part of the Paper guide and is linked from Backtesting/Terminal/Live. The
+separate settlement document and dated data/P&L reviews are retired; their
+current behavior and operational limits are retained in these guides.
 
 ## Other guides
 
 | Your task | Guide | Responsibility |
 | --- | --- | --- |
 | Understand product direction | [Business plan](business-plan.md) | Customers, positioning, subscriptions and priorities |
-| Plan useful quantitative capabilities and career development | [Quantitative research roadmap](quantitative-research-roadmap.md) | Data quality, validation, portfolio analytics, ML, derivatives, architecture, learning and quant-role evidence |
-| Build a separate quantitative research product | [AI research assistant transformation](ai-financial-research-transformation.md) | Audit of the separate repository, product boundaries, datasets, experiments, portfolio/ML methods, architecture and career evidence |
-| Find a local quant or fintech internship/job | [Ahmedabad, Gandhinagar and GIFT City career plan](quant-fintech-career-plan-ahmedabad-2026-10.md) | Dated employer research, verified versus uncertain vacancies, 2027 graduate eligibility, project evidence, interview preparation and a 30-day application plan |
+| Plan quantitative capabilities | [Quantitative research roadmap](quantitative-research-roadmap.md) | Data quality, validation, portfolio analytics, ML, architecture and learning |
+| Build a separate research product | [AI research assistant transformation](ai-financial-research-transformation.md) | Separate repository, datasets, experiments, portfolio/ML methods and career evidence |
+| Find a local quant/fintech role | [Ahmedabad, Gandhinagar and GIFT City career plan](quant-fintech-career-plan-ahmedabad-2026-10.md) | Dated employer research, eligibility, project evidence and interview/application preparation |
 | Review delivery scope | [Implementation plan](implementation-plan.md) | Implementation map and remaining release work |
-| Build/configure a strategy | [Strategy configuration](strategy-configuration.md) | Current rule schema, sizing, versions, restore and sharing |
-| Design the future builder | [Strategy builder plan](strategy-builder-plan.md) | Deferred expression/setup/sequence design and extension contracts |
-| First deployment as a beginner | [Start here](../infra/START-HERE.md) | Ordered Development/Public/Private walkthroughs, tools, first user and operations |
-| Install/upgrade reference | [Infrastructure](../infra/README.md) | Service commands, environment and migration procedures |
-| Configure external accounts | [Integration setup](../infra/shared/INTEGRATIONS.md) | Provider dashboards, key destinations, callbacks and acceptance |
-| Review provider wire contracts | [Third-party reference](third-party-setup.md) | Deeper existing provider/broker implementation notes |
-| Manage subscriptions/support | [Commercial operations](commercial-operations.md) | Customer/Admin decisions, allowances and routine automation |
+| First deployment as a beginner | [Start here](../infra/START-HERE.md) | Development/Public/Private walkthroughs, tools, first user and operations |
+| Install or upgrade | [Infrastructure](../infra/README.md) | Service commands, environment, migrations and backups |
+| Configure integrations | [Integration setup](../infra/shared/INTEGRATIONS.md) | Provider dashboards, keys, callbacks and acceptance |
+| Review wire contracts | [Third-party reference](third-party-setup.md) | Provider/broker implementation notes |
+| Manage subscriptions and allowances | [Commercial operations](commercial-operations.md) | Catalogues, quota admission/completion, checkout, renewal, invoices, refunds and reconciliation |
+| Handle customer requests and account records | [Customer Support](customer-support.md) | Public enquiries, owned replies, staff inbox, SMTP, custom enquiries, exports and retention |
 | Understand sign-in/security | [Authentication](authentication.md) | Sessions, CSRF, 2FA, OAuth and recovery |
-| Maintain the site/frontend | [Customer site](customer-site.md) | Routing, content, shared presentation and feature structure |
-| Understand AI research | [AI Research](ai-research.md) | End-to-end flow, period credits, provider adapters, tools, contracts and rollout |
-| Start the AI service | [Research service](../research_service/README.md) | Native/Compose configuration, isolation and verification |
+| Maintain the frontend/site | [Customer site](customer-site.md) | Routing, content, shared UI and feature structure |
+| Maintain lists | [Implemented pagination](customer-site.md#shared-pagination-and-resource-selectors) | Shared controls, URL state, server filters/summaries, resource selectors and evidence boundaries |
+| Start the AI service | [Research service](../research_service/README.md) | Native/Compose configuration and verification |
 
-The [original strategy-builder proposal](archive/strategy-builder-original-proposal.md)
-is retained as historical input to the future design. Its proposed behaviour and
-old paths are not documentation of the current runtime.
+## Documentation ownership and updates
 
-## Documentation ownership
+- Strategy configuration owns current authoring behavior, examples and metadata maintenance.
+- The four mode guides own data/financial adapters and session operation; avoid competing runtime plans.
+- AI Research owns current assistant/screener behavior, evidence, confirmed actions and provider/accounting contracts.
+- Infrastructure owns exact installation commands and environment files.
+- Commercial operations owns catalogues, allowance policy, payment and renewal state.
+- Customer Support owns enquiries/replies, outbound email and account-record/retention workflows.
+- Authentication owns sessions, credentials and administrator access; Customer site owns shared frontend/pagination contracts.
+- Backend specification/validation remains authoritative for allowed inputs and defaults.
+- Application `/docs/` articles are concise user-facing help; this folder provides technical/operator depth.
+- Future quantitative/product research remains explicitly separate from implemented features.
 
-- Use lowercase topic names separated by hyphens; retain conventional `README.md` indexes.
-- The four mode guides own execution behaviour. Avoid another competing runtime plan/reference.
-- Strategy configuration owns authoring/versioning; the future builder plan is explicitly deferred.
-- Infrastructure READMEs own exact installation commands and mode-specific environment files.
-- Commercial operations owns customer/operator business workflows and allowance policy.
-- Backend enums, validation and published catalogue terms remain authoritative for API values and limits.
-- Application `/docs/` articles are user-facing help; this folder provides deeper technical/operator detail.
-
-## Keeping documentation current
-
-Trace the frontend action, API validation, saved configuration, asynchronous
-command/task, numerical operation and durable result. Explain requested versus
-applied state, simulation versus real fills, and gross versus net results.
-Update links and Private release packaging when changing filenames.
-
-Code review is not a measured latency guarantee or proof of every production
-failure case. Historical migrations remain required even when their retired
-features are no longer documented as current functionality.
+Trace changes through UI, API validation, saved version, prepared inputs, numerical
+decision and financial result. Update examples and relative links together. Code
+inspection is not a latency guarantee or proof of a real broker fill. Historical
+database migrations remain necessary even when retired plans/docs are deleted.
 
 ## Personal Private policy
 
-Private currently serves only the operator on a separate production instance;
-customer Live and Private sales are unavailable. See [deployment setup](../infra/private/README.md).
+Private currently serves the operator on a separate instance; customer Live and
+Private sales are unavailable. See [Private deployment](../infra/private/README.md).
 The [old Private marketing source](archive/private-marketing-2026-10-23.md) is
 inactive reference material and is not bundled into the application.

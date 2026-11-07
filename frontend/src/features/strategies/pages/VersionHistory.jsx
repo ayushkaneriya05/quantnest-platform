@@ -1,315 +1,194 @@
-import { GlobalLoader } from '@/shared/components/ui/global-loader';
+import Pagination from "@/shared/components/Pagination";
+import { usePagination } from "@/shared/hooks/usePagination";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { History, RotateCcw, Eye, GitBranch } from "lucide-react";
+import { GlobalLoader } from "@/shared/components/ui/global-loader";
 import { formatDateTime } from "@/shared/utils/formatters";
-/**
- * Version History - strategy version management and rollback
- */
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Card, CardContent } from "@/shared/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Button } from "@/shared/components/ui/button";
 import { Switch } from "@/shared/components/ui/switch";
 import { Badge } from "@/shared/components/ui/badge";
-import { History, RotateCcw, Eye, GitBranch } from 'lucide-react';
-import StrategyConfigNav from '@/features/strategies/components/StrategyConfigNav.jsx';
-import { strategyApi } from '@/shared/services/strategyApi';
-import { useNotifications } from '@/shared/hooks/useNotifications';
-import { usePageActions } from '@/shared/context/pageActions';
-import StrategySnapshotViewer from '@/features/strategies/components/StrategySnapshotViewer.jsx';
-import { customConfirm, customPrompt } from '@/shared/components/ui/custom-dialog';
+import { strategyApi } from "@/shared/services/strategyApi";
+import { useNotifications } from "@/shared/hooks/useNotifications";
+import { usePageActions } from "@/shared/context/pageActions";
+import { customConfirm, customPrompt } from "@/shared/components/ui/custom-dialog";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import StrategyConfigNav from "../components/StrategyConfigNav";
+import StrategySnapshotViewer from "../components/StrategySnapshotViewer";
 
 export default function VersionHistory() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { notify } = useNotifications();
-  const { setPageHeader } = usePageActions();
-  
+  const { setPageHeader, setPageActions } = usePageActions();
   const [strategy, setStrategy] = useState(null);
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState(null);
-  
+  const inFlight = useRef(false);
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination(String(id), 'versions');
+  const [metadata, setMetadata] = useState({ count: 0 });
+  const generation = useRef(0);
+  const previewRequest = useRef(0);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const preview = async version => {
+    const request = ++previewRequest.current;
+    setSelectedVersion(version); setPreviewLoading(true);
+    try {
+      const data = await strategyApi.getVersion(id, version.id);
+      if (request === previewRequest.current) setSelectedVersion(data);
+    } catch (failure) { if (request === previewRequest.current) notify.error(getApiErrorMessage(failure)); }
+    finally { if (request === previewRequest.current) setPreviewLoading(false); }
+  };
 
+  const fetchData = useCallback(async () => {
+    const request = ++generation.current;
+    setLoading(true);
+    setError("");
+    try {
+      const [item, history] = await Promise.all([
+        strategyApi.getById(id), strategyApi.getVersions(id, { page, page_size: pageSize }),
+      ]);
+      if (request !== generation.current) return;
+      setStrategy(item);
+      setVersions(history.results); setMetadata(history); accept(history);
+    } catch (failure) {
+      if (request === generation.current) setError(getApiErrorMessage(failure, "Could not load version history."));
+    } finally {
+      if (request === generation.current) setLoading(false);
+    }
+  }, [id, page, pageSize, accept]);
+  useEffect(() => { fetchData(); const guard = generation; return () => { guard.current++; }; }, [fetchData]);
 
-  // Set Navigation in Header
+  const handleRollback = async (versionId) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const confirmed = await customConfirm("Restore this saved version as the current strategy configuration? Running sessions keep their deployed version.", "Restore strategy version", "Restore version");
+      if (!confirmed) return;
+      await strategyApi.rollback(id, versionId);
+      notify.success("Strategy version restored.");
+      navigate(`/strategies/${id}/edit`);
+    } catch (failure) {
+      notify.error(getApiErrorMessage(failure, "Could not restore strategy version."));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  };
+
+  const handleCreateVersion = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const notes = await customPrompt("Add change notes (optional). This snapshot captures the current saved configuration.", "", "Create snapshot", "Save snapshot");
+      if (notes === null) return;
+      await strategyApi.createVersion(id, notes);
+      notify.success("Snapshot created.");
+      await fetchData();
+    } catch (failure) {
+      notify.error(getApiErrorMessage(failure, "Could not create snapshot."));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }, [id, notify, fetchData]);
+
+  const handleToggleAutoSave = useCallback(async (checked) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    const previous = strategy.auto_version_enabled;
+    setStrategy((item) => ({ ...item, auto_version_enabled: checked }));
+    try {
+      await strategyApi.update(id, { auto_version_enabled: checked });
+      notify.success(`Automatic snapshots ${checked ? "enabled" : "paused"}.`);
+    } catch (failure) {
+      setStrategy((item) => ({ ...item, auto_version_enabled: previous }));
+      notify.error(getApiErrorMessage(failure, "Could not update snapshot settings."));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }, [id, strategy, notify]);
+
+  // Workspace controls stay above the scrolling timeline, like the Studio toolbar.
   useEffect(() => {
     setPageHeader(<StrategyConfigNav strategy={strategy} />);
     return () => setPageHeader(null);
   }, [strategy, setPageHeader]);
+  useEffect(() => {
+    setPageActions(<div className="page-toolbar flex items-center gap-3">
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        Auto snapshots
+        <Switch checked={strategy?.auto_version_enabled ?? false}
+          onCheckedChange={handleToggleAutoSave} disabled={loading || busy || !strategy || Boolean(error)}
+          aria-label="Automatic version snapshots" />
+      </label>
+      <Button onClick={handleCreateVersion} disabled={loading || busy || !strategy || Boolean(error)}>
+        <GitBranch />Snapshot
+      </Button>
+    </div>);
+    return () => setPageActions(null);
+  }, [strategy, loading, busy, error, handleCreateVersion, handleToggleAutoSave, setPageActions]);
 
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const [strategyData, versionsData] = await Promise.all([
-        strategyApi.getById(id),
-        strategyApi.getVersions(id)
-      ]);
-      setStrategy(strategyData);
-      setVersions(versionsData);
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, 'Failed to load version history'));
-    } finally {
-      setLoading(false);
-    }
-  }, [id, notify]);
+  if (loading && !metadata.page) return <div className="flex h-64 items-center justify-center"><GlobalLoader text="Loading version history…" /></div>;
+  if (error) return <div className="page-content"><p role="alert" className="text-destructive-text">{error}</p><Button className="justify-self-start" onClick={fetchData}>Retry</Button></div>;
 
-  useEffect(() => { if (id) fetchData(); }, [id, fetchData]);
-
-  const handleRollback = async (versionId) => {
-    const confirmed = await customConfirm('Rollback to this version? This will override current settings.');
-    if (!confirmed) return;
-    try {
-      await strategyApi.rollback(id, versionId);
-      notify.success('Strategy rolled back to version');
-      navigate(`/strategies/${id}/edit`);
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, 'Failed to roll back strategy version'));
-    }
-  };
-
-  const handleCreateVersion = async () => {
-    const notes = await customPrompt('Enter change notes for this version (optional):', '', 'Create Snapshot', 'Save Snapshot');
-    if (notes === null) return; // User cancelled
-    
-    try {
-      setLoading(true);
-      await strategyApi.createVersion(id, notes);
-      notify.success('New version created');
-      fetchData(); // Refresh list
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, 'Failed to create strategy version'));
-      setLoading(false);
-    }
-  };
-
-
-  const handleToggleAutoSave = async (checked) => {
-      try {
-          // Optimistic update
-          setStrategy(prev => ({ ...prev, auto_version_enabled: checked }));
-          await strategyApi.update(id, { auto_version_enabled: checked });
-          notify.success(`Auto-versioning ${checked ? 'enabled' : 'paused'}`);
-      } catch (e) {
-          notify.error(getApiErrorMessage(e, 'Failed to update version settings'));
-          // Revert
-          setStrategy(prev => ({ ...prev, auto_version_enabled: !checked }));
-      }
-  };
-
-  const formatDate = (dateString) => {
-    return formatDateTime(dateString, {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const getRelativeTime = (dateString) => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return formatDate(dateString);
-  };
-
-  if (loading) {
-    return (
-      <div className="flex flex-col justify-center items-center h-96 gap-3">
-        <GlobalLoader text="Loading version history..." />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex-1 overflow-y-auto scrollbar-theme">
-        <div className="container-padding py-6 lg:py-8 space-y-6">
-      {/* Header and Controls */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
-            <History className="h-6 w-6 text-purple-700 dark:text-purple-400" />
-            Version History
-          </h2>
-          <p className="text-muted-foreground text-sm mt-1">Manage and rollback strategy configurations</p>
-        </div>
-        
-        <div className="flex items-center gap-4">
-           {/* Auto-Save Toggle */}
-           <div className="flex items-center gap-3 bg-card/60 p-2 pl-3 rounded-xl border border-border/60 backdrop-blur-sm">
-              <div className="flex flex-col items-end mr-1">
-                 <span className="text-xs font-medium text-foreground">Auto-Save</span>
-                 <span className="text-[10px] text-muted-foreground">
-                    {strategy?.auto_version_enabled ? 'Active' : 'Paused'}
-                 </span>
-              </div>
-              <Switch 
-                 checked={strategy?.auto_version_enabled ?? true}
-                 onCheckedChange={handleToggleAutoSave}
-                 className="data-[state=checked]:bg-purple-600"
-              />
-           </div>
-
-           <Button onClick={handleCreateVersion} variant="outline" className="text-purple-700 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/10">
-              <GitBranch className="h-4 w-4 mr-2" />
-              Snapshot
-           </Button>
-        </div>
-      </div>
-
-      {/* Versions List */}
-      {versions.length === 0 ? (
-        <Card className="bg-card/40 border-border/80">
-          <CardContent className="py-16 text-center">
-            <div className="p-4 rounded-2xl bg-purple-500/10 w-fit mx-auto mb-4">
-              <History className="h-10 w-10 text-purple-700 dark:text-purple-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-foreground mb-1">No versions yet</h3>
-            <p className="text-muted-foreground text-sm max-w-sm mx-auto">
-              Versions are created automatically when you save changes to your strategy. Each version captures a snapshot of your configuration.
-            </p>
-            <div className="flex justify-center mt-4">
-              <Button onClick={handleCreateVersion} variant="outline" className="text-purple-700 dark:text-purple-400 border-purple-500/30 hover:bg-purple-500/10">
-                <GitBranch className="h-4 w-4 mr-2" />
-                Create First Version
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="relative">
-
-
-          {/* Timeline line */}
-          <div className="absolute left-[27px] top-0 bottom-0 w-px bg-secondary/80" />
-
-          <div className="space-y-3">
-            {versions.map((version, index) => {
-              const isSelected = selectedVersion?.id === version.id;
-              const isCurrent = index === 0;
-              
-              return (
-                <div key={version.id} className="relative pl-14">
-                  {/* Timeline dot */}
-                  <div className={`absolute left-[20px] top-5 w-[15px] h-[15px] rounded-full border-2 z-10 ${
-                    isCurrent 
-                      ? 'bg-emerald-500 border-emerald-500 shadow-lg shadow-emerald-500/20' 
-                      : isSelected 
-                        ? 'bg-purple-500 border-purple-500' 
-                        : 'bg-secondary border-border'
-                  }`} />
-
-                  <Card 
-                    className={`bg-card/40 border-border/80 cursor-pointer transition-all duration-200 ${
-                      isSelected 
-                        ? 'border-purple-500/50 bg-purple-500/5' 
-                        : 'hover:border-border hover:bg-card/60'
-                    }`}
-                    onClick={() => setSelectedVersion(version)}
-                  >
-                    <CardContent className="py-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-foreground font-medium text-sm">
-                              Version {version.version_number}
-                            </h4>
-                            {isCurrent && (
-                              <Badge variant="outline" className="text-[10px] text-emerald-700 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
-                                Latest snapshot
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-muted-foreground">
-                              {getRelativeTime(version.created_at)}
-                            </span>
-                            {version.created_by_username && (
-                              <>
-                                <span className="text-foreground">•</span>
-                                <span className="text-xs text-muted-foreground">{version.created_by_username}</span>
-                              </>
-                            )}
-                          </div>
-                          {version.change_notes && (
-                            <p className="text-xs text-muted-foreground mt-1.5 max-w-md">
-                              {version.change_notes}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex gap-1.5 shrink-0 ml-4">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedVersion(version);
-                            }}
-                            className="border-border/80 text-muted-foreground hover:text-foreground h-8 w-8 p-0"
-                            title="View details"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                          {!isCurrent && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRollback(version.id);
-                              }}
-                              className="border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10 h-8 w-8 p-0"
-                              title="Rollback to this version"
-                            >
-                              <RotateCcw className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+  return <div className="scrollbar-theme min-h-0 flex-1 overflow-y-auto">
+    <div className="page-content">
+      {versions.length === 0 ? <div className="rounded-xl border border-border bg-card p-4 text-center">
+        <History className="mx-auto mb-3 h-8 w-8 text-brand" aria-hidden="true" />
+        <h2 className="font-semibold">No saved versions yet</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Create a snapshot of your saved configuration, or turn on automatic snapshots to record future saves.</p>
+        <Button className="mt-3" onClick={handleCreateVersion} disabled={busy}><GitBranch />Create first snapshot</Button>
+      </div> : <ol aria-label="Strategy version history" className="space-y-3">
+        {versions.map((version, index) => {
+          const latest = page === 1 && index === 0;
+          return <li key={version.id} className="relative pl-8">
+            {/* Each segment ends at the next dot, including differently sized cards. */}
+            {index < versions.length - 1 && <span aria-hidden="true" data-version-connector className="absolute -bottom-9 left-[7px] top-6 w-0.5 bg-input" />}
+            <span aria-hidden="true" className={`absolute left-0 top-4 z-10 h-4 w-4 rounded-full border-2 ${latest ? "border-brand bg-brand" : "border-input bg-card"}`} />
+            <article className="relative rounded-lg border border-border bg-card p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="plain" size="content" className="font-semibold" onClick={() => preview(version)} aria-label={`View version ${version.version_number}`}>
+                      Version {version.version_number}
+                    </Button>
+                    {latest && <Badge variant="outline" className="border-brand/40 bg-brand/10 text-brand">Latest snapshot</Badge>}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                    <time dateTime={version.created_at}>{formatDateTime(version.created_at)}</time>
+                    {version.created_by_username && <><span aria-hidden="true">·</span><span>{version.created_by_username}</span></>}
+                  </div>
+                  {version.change_notes && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{version.change_notes}</p>}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Version Details Modal */}
-      <Dialog open={!!selectedVersion} onOpenChange={(open) => !open && setSelectedVersion(null)}>
-        <DialogContent className="flex max-w-5xl max-h-[90dvh] flex-col overflow-hidden border-border bg-background text-foreground">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-purple-500/10">
-                <GitBranch className="h-5 w-5 text-purple-700 dark:text-purple-400" />
+                <div className="flex shrink-0 gap-2">
+                  <Button variant="outline" size="icon" onClick={() => preview(version)} title={`View version ${version.version_number} details`}><Eye /></Button>
+                  {!latest && <Button variant="warning" size="icon" onClick={() => handleRollback(version.id)} disabled={busy} title={`Restore version ${version.version_number}`}><RotateCcw /></Button>}
+                </div>
               </div>
-              <span>Version {selectedVersion?.version_number} Details</span>
-            </DialogTitle>
-          </DialogHeader>
-          
-          {selectedVersion && (
-            <div className="scrollbar-theme min-h-0 flex-1 overflow-y-auto pr-2">
-               <StrategySnapshotViewer 
-                 snapshot={selectedVersion.config_snapshot} 
-                 changes={selectedVersion.changes}
-                 previousVersionNumber={selectedVersion.previous_version_number}
-               />
-            </div>
-          )}
+            </article>
+          </li>;
+        })}
+      </ol>}
+
+      <Pagination {...metadata} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={setPageSize} label="Strategy version pages" />
+
+      <Dialog open={Boolean(selectedVersion)} onOpenChange={(open) => { if (!open) { previewRequest.current++; setSelectedVersion(null); } }}>
+        <DialogContent className="flex max-h-[90dvh] max-w-5xl flex-col overflow-hidden">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><GitBranch className="h-5 w-5 text-brand" />Version {selectedVersion?.version_number} details</DialogTitle></DialogHeader>
+          {selectedVersion && <div className="scrollbar-theme min-h-0 flex-1 overflow-y-auto pr-2">
+            {previewLoading ? <GlobalLoader inline text="Loading snapshot…" /> : <StrategySnapshotViewer snapshot={selectedVersion.config_snapshot} changes={selectedVersion.changes} previousVersionNumber={selectedVersion.previous_version_number} />}
+          </div>}
         </DialogContent>
       </Dialog>
-        </div>
-      </div>
     </div>
-  );
+  </div>;
 }

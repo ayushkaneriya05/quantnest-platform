@@ -13,6 +13,8 @@ from common.enums import (
     TransactionType, ExecutionSessionStatus
 )
 from decimal import Decimal
+from execution.order_reports import ACTIVE
+from execution.models import RouteOwnership
 import uuid
 
 
@@ -64,8 +66,11 @@ class Portfolio(BaseTimestampModel):
 
     @property
     def realized_pnl(self):
-        return PaperTrade.objects.filter(account__user_id=self.user_id).aggregate(
+        closed = PaperTrade.objects.filter(account__user_id=self.user_id).aggregate(
             total=models.Sum('net_pnl'))['total'] or Decimal('0')
+        settled = PaperPosition.objects.filter(account__user_id=self.user_id).aggregate(
+            total=models.Sum('settled_pnl'))['total'] or Decimal('0')
+        return closed + settled
 
     @property
     def unrealized_pnl(self):
@@ -76,8 +81,13 @@ class Portfolio(BaseTimestampModel):
     def today_pnl(self):
         from django.utils import timezone
         realized_today = PaperTrade.objects.filter(account__user_id=self.user_id,
-            exit_time__date=timezone.localdate()).aggregate(total=models.Sum('net_pnl'))['total'] or Decimal('0')
-        return realized_today + self.unrealized_pnl
+            exit_time__date=timezone.localdate()).aggregate(total=models.Sum(models.F('net_pnl') - models.F('settled_pnl')))['total'] or Decimal('0')
+        from execution.models import SettlementPosting
+        from common.enums import ExecutionMode, SettlementKind
+        mtm = SettlementPosting.objects.filter(mode=ExecutionMode.PAPER,
+            account_id__in=self.user.paper_accounts.values('pk'), price__kind=SettlementKind.DAILY,
+            price__effective_at__date=timezone.localdate()).aggregate(total=models.Sum('cash_change'))['total'] or Decimal('0')
+        return realized_today + mtm + self.unrealized_pnl
 
     @property
     def today_trades(self):
@@ -162,13 +172,18 @@ class PaperAccountQuerySet(models.QuerySet):
         money = models.DecimalField(max_digits=18, decimal_places=4)
         zero = models.Value(Decimal("0"), output_field=money)
         positions = PaperPosition.objects.filter(account_id=models.OuterRef("pk")).order_by().values("account_id")
+        orders = PaperOrder.objects.filter(account_id=models.OuterRef("pk"), status__in=ACTIVE).order_by().values("account_id")
         return self.annotate(
-            annotated_realized_pnl=Coalesce(models.Sum("trades__net_pnl"), zero),
+            annotated_realized_pnl=Coalesce(models.Sum("trades__net_pnl"), zero) + Coalesce(models.Subquery(
+                positions.annotate(total=models.Sum("settled_pnl")).values("total")[:1], output_field=money), zero),
             annotated_trade_count=models.Count("trades"),
             annotated_today_trades=models.Count("trades", filter=models.Q(
                 trades__exit_time__date=timezone.localdate())),
             annotated_used_capital=Coalesce(models.Subquery(
                 positions.annotate(total=models.Sum("margin_blocked")).values("total")[:1],
+                output_field=money), zero),
+            annotated_reserved_capital=Coalesce(models.Subquery(
+                orders.annotate(total=models.Sum("reserved_capital")).values("total")[:1],
                 output_field=money), zero),
             annotated_unrealized_pnl=Coalesce(models.Subquery(
                 positions.annotate(total=models.Sum("unrealized_pnl")).values("total")[:1],
@@ -176,7 +191,7 @@ class PaperAccountQuerySet(models.QuerySet):
             annotated_open_positions=Coalesce(models.Subquery(
                 positions.annotate(total=models.Count("pk")).values("total")[:1]), models.Value(0)),
         ).annotate(
-            annotated_available_capital=Greatest(zero, models.F("current_balance") - models.F("annotated_used_capital")),
+            annotated_available_capital=Greatest(zero, models.F("current_balance") - models.F("annotated_used_capital") - models.F("annotated_reserved_capital")),
         )
 
 
@@ -215,7 +230,9 @@ class PaperAccount(BaseTimestampModel):
 
     @property
     def realized_pnl(self):
-        return self.trades.aggregate(value=models.Sum("net_pnl"))["value"] or Decimal("0")
+        closed = self.trades.aggregate(value=models.Sum("net_pnl"))["value"] or Decimal("0")
+        settled = self.positions.aggregate(value=models.Sum("settled_pnl"))["value"] or Decimal("0")
+        return closed + settled
 
     @property
     def unrealized_pnl(self):
@@ -230,8 +247,13 @@ class PaperAccount(BaseTimestampModel):
         from django.utils import timezone
         realized_today = self.trades.filter(
             exit_time__date=timezone.localdate()
-        ).aggregate(value=models.Sum("net_pnl"))["value"] or Decimal("0")
-        return realized_today + self.unrealized_pnl
+        ).aggregate(value=models.Sum(models.F("net_pnl") - models.F("settled_pnl")))["value"] or Decimal("0")
+        from execution.models import SettlementPosting
+        from common.enums import ExecutionMode, SettlementKind
+        mtm = SettlementPosting.objects.filter(mode=ExecutionMode.PAPER, account_id=self.pk,
+            price__kind=SettlementKind.DAILY, price__effective_at__date=timezone.localdate()
+        ).aggregate(value=models.Sum('cash_change'))['value'] or Decimal('0')
+        return realized_today + mtm + self.unrealized_pnl
 
     @property
     def today_trades(self):
@@ -244,10 +266,14 @@ class PaperAccount(BaseTimestampModel):
 
     @property
     def margin_available(self):
-        return max(Decimal("0"), self.current_balance - self.margin_used)
+        return max(Decimal("0"), self.current_balance - self.margin_used - self.reserved_capital)
+
+    @property
+    def reserved_capital(self):
+        return self.orders.filter(status__in=ACTIVE).aggregate(value=models.Sum("reserved_capital"))["value"] or Decimal("0")
 
 
-class PaperPosition(BaseTimestampModel):
+class PaperPosition(BaseTimestampModel, RouteOwnership):
     """
     Open position in a paper trading account.
     """
@@ -272,6 +298,7 @@ class PaperPosition(BaseTimestampModel):
     side = models.CharField(max_length=10, choices=Side.choices)
     quantity = models.PositiveIntegerField()
     avg_price = models.DecimalField(max_digits=12, decimal_places=4)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
     
     # Current values
     current_price = models.DecimalField(max_digits=12, decimal_places=4, default=0)
@@ -289,7 +316,7 @@ class PaperPosition(BaseTimestampModel):
         db_table = 'paper_position'
         verbose_name = 'Paper Position'
         verbose_name_plural = 'Paper Positions'
-        unique_together = ['account', 'instrument', 'side']
+        unique_together = ['account', 'route_id', 'leg_id']
 
     def __str__(self):
         return f"{self.side} {self.quantity} {self.instrument.symbol}"
@@ -303,7 +330,8 @@ class PaperPosition(BaseTimestampModel):
         return self.quantity * self.avg_price * self.instrument.qty_multiplier
 
 
-class PaperOrder(BaseTimestampModel):
+class PaperOrder(BaseTimestampModel, RouteOwnership):
+    reserved_capital = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     """
     Order placed in paper trading.
     """
@@ -371,7 +399,7 @@ class PaperOrder(BaseTimestampModel):
         return self.status in [OrderStatus.PENDING, OrderStatus.PLACED]
 
 
-class PaperTrade(BaseTimestampModel):
+class PaperTrade(BaseTimestampModel, RouteOwnership):
     """
     Completed trade (entry + exit) in paper trading.
     """
@@ -420,6 +448,7 @@ class PaperTrade(BaseTimestampModel):
     # P&L
     gross_pnl = models.DecimalField(max_digits=12, decimal_places=2)
     net_pnl = models.DecimalField(max_digits=12, decimal_places=2)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
     pnl_pct = models.DecimalField(max_digits=8, decimal_places=4)
     brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     taxes = models.DecimalField(max_digits=12, decimal_places=2, default=0)

@@ -22,7 +22,7 @@ Private is an operator-managed personal production instance. It is not offered t
 customers and has no sales, contract activation or licence renewal workflow.
 Personal Live code remains available separately from Public simulation.
 
-Current execution supports NSE stocks with DIRECT routes. NSE futures and options
+The public strategy workflow focuses on NSE stocks with explicit instrument bindings. NSE futures and options
 appear as **Coming soon** in Build and Pro; they are not enabled products.
 Additional markets and global distribution remain future work.
 
@@ -219,14 +219,14 @@ needs local business, payment, privacy and support decisions.
 ### Defer until justified
 
 A strategy marketplace, public demo tooling, user-to-user strategy invitations,
-customer API keys, broad broker support and a new expression graph editor are
+customer API keys, broad broker support and coordinated multi-leg execution are
 outside current scope. Customer requests and economics should determine whether
 any becomes a funded roadmap item.
 
-The [future strategy builder plan](strategy-builder-plan.md) preserves and extends
-the original expressions/anchors/sequences proposal. It defines a staged path
-from richer stock rules to qualified cross-instrument and global-market support,
-after production stabilization. It does not change the current plan catalog.
+The [current Strategy Studio guide](strategy-configuration.md) describes implemented
+expressions, capture setups, signal/traded bindings and contract selection. Future
+quantitative/global-market proposals remain separate from shipped capabilities
+and do not change the current plan catalog.
 
 ## 9. Decisions and evidence to maintain
 

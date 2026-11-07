@@ -55,18 +55,18 @@ export default function NotificationsTab() {
   if (loading || error) return <WorkspaceState loading={loading} error={error} title={loading ? 'Loading notification preferences' : undefined} onRetry={error ? loadPreferences : undefined} />;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div>
         <h2 className="text-xl font-semibold text-foreground">Notification Preferences</h2>
         <p className="mt-1 text-sm text-muted-foreground">Choose which in-app notification types appear in your feed and toast alerts.</p>
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-3">
         {preferences.map((preference) => (
           <Card key={preference.id} className="border-border bg-card">
-            <CardHeader className="py-4">
+            <CardHeader className="py-3">
               <CardTitle className="text-base text-foreground">{labels[preference.type] || preference.type}</CardTitle>
             </CardHeader>
-            <CardContent className="flex items-center justify-between gap-4 border-t border-border py-4">
+            <CardContent className="flex items-center justify-between gap-3 border-t border-border py-3">
               <div className="flex items-center gap-2 text-foreground">
                 <Bell className="h-4 w-4 shrink-0 text-brand" />
                 <span className="text-sm">In-app notifications</span>

@@ -114,6 +114,9 @@ class Command(BaseCommand):
             f"Sync complete: {total_created} created, {total_updated} updated, "
             f"{total_deactivated} deactivated, {total_errors} errors"
         )
+        if not dry_run and (total_created or total_updated or total_deactivated):
+            from execution.lifecycle import request_catalog_refresh
+            request_catalog_refresh()
         if total_errors:
             raise CommandError(summary + ". Failed sources were not archived.")
         self.stdout.write(self.style.SUCCESS(summary))
@@ -196,6 +199,13 @@ class Command(BaseCommand):
                             update_fields=SYNC_FIELDS,
                             batch_size=2000,
                         )
+                        from django.utils import timezone
+                        from instruments.specifications import record_observed_specifications
+                        # The upsert holds row locks until this transaction ends.
+                        # Archive changed terms at observation time, never at a
+                        # guessed historical listing/effective date.
+                        record_observed_specifications(all_instruments, at=timezone.now(),
+                            source=f'{self.master.__class__.__module__}: observed instrument master')
 
             except Exception as exc:
                 logger.error("Bulk database operation failed: %s", exc)

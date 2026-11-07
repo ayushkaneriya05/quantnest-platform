@@ -2,11 +2,13 @@
 Instruments app - asset metadata, filtering, and option selection rules.
 """
 from django.db import models
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
+from decimal import Decimal
 from common.models import BaseTimestampModel
 from common.enums import (
     Exchange, InstrumentType,
     FyersSegment, ExchangeInstrumentType,
-    QuantityType
 )
 
 
@@ -17,8 +19,8 @@ class Instrument(BaseTimestampModel):
     """
     # ── Identity ──
     fy_token = models.CharField(
-        max_length=30, unique=True, db_index=True, default='',
-        help_text="Fyers unique token (e.g. 101000000016921)"
+        max_length=30, unique=True, db_index=True, null=True, blank=True, default=None,
+        help_text="Fyers token; unknown for history-only contracts discovered after expiry"
     )
     exchange_token = models.IntegerField(
         default=0,
@@ -64,7 +66,7 @@ class Instrument(BaseTimestampModel):
 
     # ── Derivatives fields ──
     strike_price = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True,
+        max_digits=14, decimal_places=4, null=True, blank=True,
         help_text="-1 for non-options"
     )
     expiry_date = models.DateField(null=True, blank=True)
@@ -85,10 +87,10 @@ class Instrument(BaseTimestampModel):
         max_digits=10, decimal_places=2, null=True, blank=True
     )
     circuit_limit_upper = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
+        max_digits=14, decimal_places=4, null=True, blank=True
     )
     circuit_limit_lower = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
+        max_digits=14, decimal_places=4, null=True, blank=True
     )
     trading_session = models.CharField(
         max_length=100, blank=True, default='',
@@ -97,7 +99,7 @@ class Instrument(BaseTimestampModel):
 
     # ── Market data (updated daily via sync) ──
     previous_close = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
+        max_digits=14, decimal_places=4, null=True, blank=True
     )
     previous_oi = models.DecimalField(
         max_digits=15, decimal_places=2, null=True, blank=True
@@ -141,63 +143,32 @@ class Instrument(BaseTimestampModel):
         return f"{self.sym_ticker}"
 
 
-class WatchlistInstrument(BaseTimestampModel):
+class ContractSpecification(models.Model):
+    """Immutable terms observed from a master or supplied by an official source.
+
+    A current master proves terms from observation onward, not for older dates.
+    Historical revisions require an explicit effective time and source reference.
     """
-    Instruments added to a strategy's watchlist for trading.
-    """
-    strategy = models.ForeignKey(
-        'strategies.Strategy',
-        on_delete=models.CASCADE,
-        related_name='watchlist_instruments'
-    )
-    instrument = models.ForeignKey(
-        Instrument,
-        on_delete=models.CASCADE
-    )
+    instrument = models.ForeignKey(Instrument, on_delete=models.PROTECT, related_name='specifications')
+    effective_at = models.DateTimeField()
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(max_length=500)
+    lot_size = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    tick_size = models.DecimalField(max_digits=10, decimal_places=4, validators=[MinValueValidator(Decimal('0.0001'))])
+    qty_multiplier = models.DecimalField(max_digits=10, decimal_places=4, validators=[MinValueValidator(Decimal('0.0001'))])
+    qty_freeze = models.PositiveIntegerField(default=0)
+    strike_price = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
 
     class Meta:
-        unique_together = ['strategy', 'instrument']
+        ordering = ['instrument_id', '-effective_at']
+        constraints = [models.UniqueConstraint(fields=['instrument', 'effective_at'], name='contract_spec_effective_unique')]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError('Contract specifications are immutable. Add a sourced revision instead.')
+        self.full_clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.strategy.name} - {self.instrument.symbol}"
-
-
-class ExecutionRoute(BaseTimestampModel):
-    watchlist_instrument = models.ForeignKey(
-        WatchlistInstrument, on_delete=models.CASCADE,
-        related_name='execution_routes'
-    )
-    
-    # ── Route Type ──
-    route_type = models.CharField(
-        max_length=20,
-        choices=[
-            ('DIRECT', 'Trade Same Instrument'),
-        ],
-        default='DIRECT'
-    )
-    
-    # ── Optional Per-Instrument Position Sizing Override ──
-    override_sizing = models.BooleanField(
-        default=False,
-        help_text='When enabled, this instrument uses its own sizing config instead of the strategy default.'
-    )
-    sizing_method = models.CharField(
-        max_length=20, choices=QuantityType.choices,
-        null=True, blank=True,
-        help_text='Overrides strategy sizing method (FIXED or CAPITAL_BASED)'
-    )
-    fixed_quantity = models.IntegerField(
-        null=True, blank=True,
-        help_text='For FIXED method: exact quantity (will be rounded to lot size)'
-    )
-    capital_percentage = models.DecimalField(
-        max_digits=6, decimal_places=2, null=True, blank=True,
-        help_text='For CAPITAL_BASED method: percent of portfolio capital to allocate'
-    )
-    
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['watchlist_instrument'], name='one_execution_route_per_instrument')]
-
-    def __str__(self):
-        return f"{self.watchlist_instrument} -> {self.route_type}"
+        return f'{self.instrument.sym_ticker} · {self.effective_at.isoformat()}'

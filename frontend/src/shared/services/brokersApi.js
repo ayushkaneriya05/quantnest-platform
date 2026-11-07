@@ -9,6 +9,7 @@ export const brokersApi = {
   disconnectCredential: (id) => api.post(`${BASE_URL}/credentials/${id}/disconnect/`),
   getProfile: (id) => api.get(`${BASE_URL}/credentials/${id}/profile/`),
   getFunds: (id) => api.get(`${BASE_URL}/credentials/${id}/funds/`),
+  getLog: (id) => api.get(`${BASE_URL}/logs/${id}/`),
   getLogs: (params) => api.get(`${BASE_URL}/logs/`, { params }),
 
   // Charge Profiles

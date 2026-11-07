@@ -4,7 +4,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from analytics.views import TradePagination
+from common.pagination import StandardPagination
 from .models import AuditLog
 from common.enums import ActivityResource
 from .serializers import AuditLogSerializer
@@ -26,7 +26,7 @@ class ActivityFilters(serializers.Serializer):
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = AuditLogSerializer
-    pagination_class = TradePagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         qs = AuditLog.objects.filter(user=self.request.user)
@@ -44,7 +44,7 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(timestamp__date__gte=data["date_from"])
         if data.get("date_to"):
             qs = qs.filter(timestamp__date__lte=data["date_to"])
-        return qs
+        return qs.order_by('-timestamp', '-id')
 
     @action(detail=False, methods=["get"])
     def stats(self, request):

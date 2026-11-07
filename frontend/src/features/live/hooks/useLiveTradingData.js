@@ -1,213 +1,115 @@
-import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
+import { useStableCallback } from "@/shared/hooks/useStableCallback";
+import { usePagination, useQueryState } from "@/shared/hooks/usePagination";
 import { liveTradingApi } from "@/shared/services/liveTradingApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import { useLivePositionSummary } from "@/shared/hooks/useLivePositionsPnL";
 
-const PAGE_SIZE = 25;
-const PNL_POSITION_PAGE_SIZE = 200;
-const emptyPage = () => ({ count: 0, next: null, previous: null, results: [] });
+const emptyPage = () => ({ count: 0, results: [] });
 
-export function useLiveTradingData({ includePortfolio = false, notify } = {}) {
-  const [summary, setSummary] = useState(null);
+export function useLiveTradingData({ includePortfolio = false, activeTab = "portfolio", sessionStatus = "all", notify } = {}) {
+  const [summary, setSummary] = useState({});
   const [sessions, setSessions] = useState([]);
+  const [sessionMetadata, setSessionMetadata] = useState(emptyPage);
   const [positions, setPositions] = useState(emptyPage);
-  const [pnlPositions, setPnlPositions] = useState([]);
   const [orders, setOrders] = useState(emptyPage);
   const [trades, setTrades] = useState(emptyPage);
   const [positionsSummary, setPositionsSummary] = useState({});
   const [ordersSummary, setOrdersSummary] = useState({});
   const [tradesSummary, setTradesSummary] = useState({});
-  const [positionsPage, setPositionsPage] = useState(1);
-  const [ordersPage, setOrdersPage] = useState(1);
-  const [tradesPage, setTradesPage] = useState(1);
-  const [positionAllocation, setPositionAllocation] = useState("");
-  const [orderAllocation, setOrderAllocation] = useState("");
-  const [tradeAllocation, setTradeAllocation] = useState("");
-  const [orderStatus, setOrderStatus] = useState("");
+  const liveSummary = useLivePositionSummary(summary);
+  const livePositionsSummary = useLivePositionSummary(positionsSummary);
+  const [positionAllocation, setPositionAllocation] = useQueryState("allocation", "", { namespace: "positions", replace: false });
+  const [orderAllocation, setOrderAllocation] = useQueryState("allocation", "", { namespace: "orders", replace: false });
+  const [tradeAllocation, setTradeAllocation] = useQueryState("allocation", "", { namespace: "trades", replace: false });
+  const [orderStatus, setOrderStatus] = useQueryState("status", "", { namespace: "orders", replace: false });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const refreshTimer = useRef(null);
-  const pollRef = useRef(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [error, setError] = useState("");
+  const positionPages = usePagination(positionAllocation, "positions");
+  const orderPages = usePagination(JSON.stringify([orderAllocation, orderStatus]), "orders");
+  const tradePages = usePagination(tradeAllocation, "trades");
+  const sessionPages = usePagination(sessionStatus, "sessions");
+  const requests = useRef({});
+  const summaryIdentity = useRef("");
+  const timer = useRef(null);
 
-  const fetchSessions = useCallback(async () => {
-    const response = await liveTradingApi.getSessions();
-    setSessions(response.data);
-  }, []);
-
-  const fetchSummary = useCallback(async () => {
-    const response = await liveTradingApi.getSummary();
-    setSummary(response.data || {});
-  }, []);
-
-  const fetchPositions = useCallback(async (page = positionsPage, allocation = positionAllocation) => {
-    const response = await liveTradingApi.getPositions({ page, page_size: PAGE_SIZE, ...(allocation ? { allocation } : {}) });
-    setPositions(response.data);
-    setPositionsPage(page);
-  }, [positionAllocation, positionsPage]);
-
-  const fetchPositionsSummary = useCallback(async (allocation = positionAllocation) => {
-    const response = await liveTradingApi.getPositionsSummary(allocation ? { allocation } : {});
-    setPositionsSummary(response.data || {});
-  }, [positionAllocation]);
-
-  const fetchAllPositionsForPnL = useCallback(async () => {
-    const firstResponse = await liveTradingApi.getPositions({ page: 1, page_size: PNL_POSITION_PAGE_SIZE });
-    const allPositions = [...firstResponse.data.results];
-    const count = firstResponse.data.count;
-    const pageCount = Math.ceil(count / PNL_POSITION_PAGE_SIZE);
-    if (pageCount > 1) {
-      const remainingPages = await Promise.all(
-        Array.from({ length: pageCount - 1 }, (_, index) =>
-          liveTradingApi.getPositions({ page: index + 2, page_size: PNL_POSITION_PAGE_SIZE }),
-        ),
-      );
-      remainingPages.forEach((response) => allPositions.push(...response.data.results));
-    }
-    setPnlPositions(allPositions);
-  }, []);
-
-  const fetchOrders = useCallback(async (page = ordersPage, status = orderStatus, allocation = orderAllocation) => {
-    const response = await liveTradingApi.getOrders({ page, page_size: PAGE_SIZE, ...(status ? { status } : {}), ...(allocation ? { allocation } : {}) });
-    setOrders(response.data);
-    setOrdersPage(page);
-  }, [orderStatus, orderAllocation, ordersPage]);
-
-  const fetchOrdersSummary = useCallback(async (status = orderStatus, allocation = orderAllocation) => {
-    const response = await liveTradingApi.getOrdersSummary({ ...(status ? { status } : {}), ...(allocation ? { allocation } : {}) });
-    setOrdersSummary(response.data || {});
-  }, [orderStatus, orderAllocation]);
-
-  const fetchTrades = useCallback(async (page = tradesPage, allocation = tradeAllocation) => {
-    const response = await liveTradingApi.getTrades({ page, page_size: PAGE_SIZE, ...(allocation ? { allocation } : {}) });
-    setTrades(response.data);
-    setTradesPage(page);
-  }, [tradesPage, tradeAllocation]);
-
-  const fetchTradesSummary = useCallback(async (allocation = tradeAllocation) => {
-    const response = await liveTradingApi.getTradesSummary(allocation ? { allocation } : {});
-    setTradesSummary(response.data || {});
-  }, [tradeAllocation]);
-
-  const loadData = useCallback(async (showSpinner = true) => {
-    if (showSpinner) setLoading(true);
+  // Only the visible table loads display rows; compact summary inputs cover all exposure.
+  const fetchPage = useStableCallback(async (withSummary = false) => {
+    const kind = includePortfolio ? activeTab : "sessions";
+    const config = {
+      sessions: { paging: sessionPages, filters: sessionStatus === "all" ? {} : { status: sessionStatus },
+        save: data => { setSessions(data.results); setSessionMetadata(data); }, query: liveTradingApi.getSessions },
+      positions: { paging: positionPages, filters: positionAllocation ? { allocation: positionAllocation } : {},
+        save: setPositions, query: liveTradingApi.getPositions, aggregate: liveTradingApi.getPositionsSummary, saveSummary: setPositionsSummary },
+      orders: { paging: orderPages, filters: { ...(orderAllocation ? { allocation: orderAllocation } : {}), ...(orderStatus ? { status: orderStatus } : {}) },
+        save: setOrders, query: liveTradingApi.getOrders, aggregate: liveTradingApi.getOrdersSummary, saveSummary: setOrdersSummary },
+      trades: { paging: tradePages, filters: tradeAllocation ? { allocation: tradeAllocation } : {},
+        save: setTrades, query: liveTradingApi.getTrades, aggregate: liveTradingApi.getTradesSummary, saveSummary: setTradesSummary },
+    }[kind];
+    if (!config) { setError(""); setListLoading(false); return; }
+    const { paging, filters, save, query, aggregate, saveSummary } = config;
+    requests.current[kind]?.abort();
+    const controller = new AbortController(); requests.current[kind] = controller;
+    setListLoading(true); setError("");
+    const identity = JSON.stringify([kind, filters]);
     try {
-      const tasks = [fetchSummary(), fetchSessions()];
-      if (includePortfolio) tasks.push(
-        fetchPositions(1, positionAllocation), fetchPositionsSummary(positionAllocation),
-        fetchAllPositionsForPnL(),
-        fetchOrders(1, orderStatus, orderAllocation), fetchOrdersSummary(orderStatus, orderAllocation),
-        fetchTrades(1, tradeAllocation), fetchTradesSummary(tradeAllocation),
-      );
-      await Promise.all(tasks);
-    } catch (error) {
-      notify?.error(getApiErrorMessage(error, "Failed to load live trading data"));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [fetchAllPositionsForPnL, fetchOrders, fetchOrdersSummary, fetchPositions, fetchPositionsSummary, fetchSessions, fetchSummary, fetchTrades, fetchTradesSummary, includePortfolio, notify, orderAllocation, orderStatus, positionAllocation, tradeAllocation]);
-
-  const handleLiveUpdate = useCallback((payload) => {
-    const type = payload?.event_type;
-    if (!["SESSION_UPDATE", "ORDER_UPDATE", "POSITION_UPDATE"].includes(type)) return;
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => {
-      const tasks = [fetchSummary(), fetchSessions()];
-      if (includePortfolio && type !== "SESSION_UPDATE") {
-        tasks.push(fetchPositions(positionsPage, positionAllocation), fetchPositionsSummary(positionAllocation));
-        tasks.push(fetchAllPositionsForPnL());
-        tasks.push(fetchOrders(ordersPage, orderStatus, orderAllocation), fetchOrdersSummary(orderStatus, orderAllocation));
-        tasks.push(fetchTrades(tradesPage, tradeAllocation), fetchTradesSummary(tradeAllocation));
-      } else if (includePortfolio) {
-        tasks.push(fetchPositions(1, positionAllocation), fetchPositionsSummary(positionAllocation));
-        tasks.push(fetchAllPositionsForPnL());
-        tasks.push(fetchOrders(1, orderStatus, orderAllocation), fetchOrdersSummary(orderStatus, orderAllocation));
-        tasks.push(fetchTrades(1, tradeAllocation), fetchTradesSummary(tradeAllocation));
+      const response = await query({ ...filters, page: paging.page, page_size: paging.pageSize }, controller.signal);
+      if (controller.signal.aborted) return;
+      save(response.data); paging.accept(response.data);
+      if (aggregate && (withSummary || summaryIdentity.current !== identity)) {
+        const snapshot = await aggregate(filters, controller.signal);
+        if (!controller.signal.aborted) { saveSummary(snapshot.data); summaryIdentity.current = identity; }
       }
-      Promise.all(tasks).catch((error) => {
-        console.error("Live trading refresh failed", error);
-      });
-    }, 200);
-  }, [fetchAllPositionsForPnL, fetchOrders, fetchOrdersSummary, fetchPositions, fetchPositionsSummary, fetchSessions, fetchSummary, fetchTrades, fetchTradesSummary, includePortfolio, orderAllocation, orderStatus, ordersPage, positionAllocation, positionsPage, tradeAllocation, tradesPage]);
-
-  const refreshSnapshot = useCallback(() => {
-    const tasks = [fetchSummary(), fetchSessions()];
-    if (includePortfolio) {
-      tasks.push(fetchPositions(positionsPage, positionAllocation), fetchPositionsSummary(positionAllocation));
-      tasks.push(fetchAllPositionsForPnL());
-      tasks.push(fetchOrders(ordersPage, orderStatus, orderAllocation), fetchOrdersSummary(orderStatus, orderAllocation));
-      tasks.push(fetchTrades(tradesPage, tradeAllocation), fetchTradesSummary(tradeAllocation));
-    }
-    Promise.all(tasks).catch((error) => console.error("Live trading polling refresh failed", error));
-  }, [fetchAllPositionsForPnL, fetchOrders, fetchOrdersSummary, fetchPositions, fetchPositionsSummary, fetchSessions, fetchSummary, fetchTrades, fetchTradesSummary, includePortfolio, orderAllocation, orderStatus, ordersPage, positionAllocation, positionsPage, tradeAllocation, tradesPage]);
-  pollRef.current = refreshSnapshot;
-
-  const { isConnected } = useLiveTradingWebSocket(handleLiveUpdate);
-
+    } catch (error) { if (!controller.signal.aborted) setError(getApiErrorMessage(error, "Could not load live records.")); }
+    finally { if (!controller.signal.aborted) setListLoading(false); }
+  });
+  const fetchSummary = useStableCallback(async () => {
+    requests.current.summary?.abort();
+    const controller = new AbortController(); requests.current.summary = controller;
+    try {
+      const response = await liveTradingApi.getSummary(controller.signal);
+      if (!controller.signal.aborted) setSummary(response.data);
+    } catch (error) { if (!controller.signal.aborted) notify?.error(getApiErrorMessage(error, "Could not refresh live trading.")); }
+    finally { if (!controller.signal.aborted) setLoading(false); }
+  });
+  const loadData = useStableCallback(async (spinner = true) => {
+    if (spinner) setLoading(true);
+    await Promise.all([fetchSummary(), fetchPage(true)]);
+    setRefreshing(false);
+  });
   useEffect(() => {
-    loadData();
-    const pollTimer = setInterval(() => {
-      pollRef.current?.();
-    }, 30000);
-    return () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      clearInterval(pollTimer);
-    };
-  }, [loadData]);
-
-  const refresh = useCallback(() => {
-    setRefreshing(true);
-    return loadData(false);
-  }, [loadData]);
-
-  const changePositionsPage = useCallback((page) => fetchPositions(page, positionAllocation), [fetchPositions, positionAllocation]);
-  const changeOrdersPage = useCallback((page) => fetchOrders(page, orderStatus, orderAllocation), [fetchOrders, orderAllocation, orderStatus]);
-  const changeTradesPage = useCallback((page) => fetchTrades(page, tradeAllocation), [fetchTrades, tradeAllocation]);
-  const filterPositions = useCallback((allocation) => {
-    setPositionAllocation(allocation);
-    return Promise.all([fetchPositions(1, allocation), fetchPositionsSummary(allocation)]);
-  }, [fetchPositions, fetchPositionsSummary]);
-  const filterOrders = useCallback((status) => {
-    setOrderStatus(status);
-    return Promise.all([fetchOrders(1, status, orderAllocation), fetchOrdersSummary(status, orderAllocation)]);
-  }, [fetchOrders, fetchOrdersSummary, orderAllocation]);
-  const filterOrderAllocation = useCallback((allocation) => {
-    setOrderAllocation(allocation);
-    return Promise.all([fetchOrders(1, orderStatus, allocation), fetchOrdersSummary(orderStatus, allocation)]);
-  }, [fetchOrders, fetchOrdersSummary, orderStatus]);
-  const filterTrades = useCallback((allocation) => {
-    setTradeAllocation(allocation);
-    return Promise.all([fetchTrades(1, allocation), fetchTradesSummary(allocation)]);
-  }, [fetchTrades, fetchTradesSummary]);
-
+    fetchSummary();
+    const poll = setInterval(() => loadData(false), 30000);
+    const active = requests.current;
+    const timers = timer;
+    return () => { clearInterval(poll); clearTimeout(timers.current); Object.values(active).forEach(controller => controller.abort()); };
+  }, [loadData, fetchSummary]);
+  useEffect(() => { summaryIdentity.current = ''; }, [activeTab]);
+  useEffect(() => {
+    fetchPage();
+    const kind = includePortfolio ? activeTab : "sessions";
+    const pending = requests.current;
+    return () => pending[kind]?.abort();
+  }, [fetchPage, activeTab, sessionStatus, includePortfolio, positionPages.page, positionPages.pageSize, orderPages.page, orderPages.pageSize, tradePages.page, tradePages.pageSize, sessionPages.page, sessionPages.pageSize, positionAllocation, orderAllocation, orderStatus, tradeAllocation]);
+  const liveUpdate = useCallback(() => { clearTimeout(timer.current); timer.current = setTimeout(() => loadData(false), 200); }, [loadData]);
+  const { isConnected } = useLiveTradingWebSocket(liveUpdate);
+  const refresh = useCallback(() => { setRefreshing(true); return loadData(false); }, [loadData]);
   return {
-    summary,
-    sessions,
-    positions,
-    pnlPositions,
-    orders,
-    trades,
-    positionsSummary,
-    ordersSummary,
-    tradesSummary,
-    positionsPage,
-    ordersPage,
-    tradesPage,
-    positionAllocation,
-    orderAllocation,
-    tradeAllocation,
-    orderStatus,
-    loading,
-    refreshing,
-    isConnected,
-    refresh,
-    loadData,
-    changePositionsPage,
-    changeOrdersPage,
-    changeTradesPage,
-    filterPositions,
-    filterOrders,
-    filterOrderAllocation,
-    filterTrades,
+    summary: { ...liveSummary, day_pnl: Number(summary.realized_today || 0) + Number(liveSummary.unrealized_pnl || 0),
+      profitable_positions: liveSummary.profitable ?? summary.profitable_positions,
+      losing_positions: liveSummary.losing ?? summary.losing_positions },
+    sessions: sessions.map(session => ({ ...session, pnl: Number(session.allocation?.realized_pnl || 0)
+      + Number(liveSummary.by_account?.[session.allocation?.id]?.unrealized_pnl || 0) })),
+    sessionMetadata, positions, orders, trades, positionsSummary: livePositionsSummary, ordersSummary, tradesSummary,
+    loading, refreshing, listLoading, error, isConnected, refresh, loadData,
+    positionPages, orderPages, tradePages, sessionPages,
+    positionAllocation, orderAllocation, tradeAllocation, orderStatus,
+    filterPositions: value => { requests.current.positions?.abort(); setPositions(emptyPage()); setPositionsSummary({}); setPositionAllocation(value); },
+    filterOrderAllocation: value => { requests.current.orders?.abort(); setOrders(emptyPage()); setOrdersSummary({}); setOrderAllocation(value); },
+    filterOrders: value => { requests.current.orders?.abort(); setOrders(emptyPage()); setOrdersSummary({}); setOrderStatus(value); },
+    filterTrades: value => { requests.current.trades?.abort(); setTrades(emptyPage()); setTradesSummary({}); setTradeAllocation(value); },
   };
 }

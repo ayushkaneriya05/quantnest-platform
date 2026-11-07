@@ -1,7 +1,8 @@
+import RefreshButton from "@/shared/components/RefreshButton";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Lock, Share2, RefreshCw } from "lucide-react";
+import { Lock, Share2 } from "lucide-react";
 import { strategyApi } from "@/shared/services/strategyApi";
 import StrategyConfiguration from "@/shared/components/StrategyConfiguration";
 import { Button } from "@/shared/components/ui/button";
@@ -36,7 +37,7 @@ export default function SharedStrategyPage() {
           <div><p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"><Share2 className="h-4 w-4" />Shared strategy configuration</p>
             <h1 className="text-2xl font-semibold">{data.configuration.name}</h1>
             <p className="mt-2 text-sm text-muted-foreground">Current saved configuration</p></div>
-          <Button variant="outline" onClick={() => setRevision((value) => value + 1)}><RefreshCw />Refresh</Button>
+          <RefreshButton onClick={() => setRevision((value) => value + 1)} label="Refresh shared strategy" />
         </section>
         <StrategyConfiguration snapshot={data.configuration} />
       </>}

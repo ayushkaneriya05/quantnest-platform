@@ -13,6 +13,7 @@ from .services import TradingOrderService
 
 class InstrumentSerializer(serializers.ModelSerializer):
     orderable = serializers.SerializerMethodField()
+    analysis_only = serializers.SerializerMethodField()
 
     class Meta:
         from instruments.models import Instrument
@@ -20,10 +21,13 @@ class InstrumentSerializer(serializers.ModelSerializer):
         fields = ['id', 'symbol', 'name', 'exchange', 'segment', 'sym_ticker',
                   'instrument_type', 'option_type', 'strike_price', 'expiry_date',
                   'underlying_symbol', 'lot_size', 'qty_multiplier', 'tick_size',
-                  'qty_freeze', 'currency_code', 'orderable']
+                  'qty_freeze', 'currency_code', 'orderable', 'analysis_only']
+
+    def get_analysis_only(self, obj):
+        return obj.instrument_type in (InstrumentType.INDEX, InstrumentType.MF) or obj.ex_inst_type == ExchangeInstrumentType.UNDCUR
 
     def get_orderable(self, obj):
-        return obj.is_active and obj.is_tradeable and obj.instrument_type not in (InstrumentType.INDEX, InstrumentType.MF) and obj.ex_inst_type != ExchangeInstrumentType.UNDCUR and (not obj.expiry_date or obj.expiry_date >= timezone.localdate())
+        return obj.is_active and obj.is_tradeable and not self.get_analysis_only(obj) and (not obj.expiry_date or obj.expiry_date >= timezone.localdate())
 
 
 class WatchlistSerializer(serializers.ModelSerializer):
@@ -80,8 +84,8 @@ class PositionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Position
-        fields = ['id', 'instrument', 'quantity', 'average_price', 'stop_loss', 'take_profit']
-        read_only_fields = ['quantity', 'average_price']
+        fields = ['id', 'instrument', 'quantity', 'average_price', 'settled_pnl', 'stop_loss', 'take_profit']
+        read_only_fields = ['quantity', 'average_price', 'settled_pnl']
 
     @transaction.atomic
     def update(self, instance, data):
@@ -90,7 +94,6 @@ class PositionSerializer(serializers.ModelSerializer):
         position = Position.objects.select_for_update().get(pk=instance.pk)
         enqueue(ExecutionMode.TERMINAL, position.account_id, ExecutionCommandType.PROTECT, {
             'instrument_id': position.instrument_id,
-            'unit': [ExecutionMode.TERMINAL, position.account_id, position.instrument_id],
             'stop': data.get('stop_loss', position.stop_loss),
             'target': data.get('take_profit', position.take_profit),
         })

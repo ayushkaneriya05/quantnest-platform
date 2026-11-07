@@ -1,8 +1,9 @@
+import RefreshButton from "@/shared/components/RefreshButton";
 import { LoaderMark } from '@/shared/components/ui/global-loader';
 import { chartTooltipProps } from "@/shared/lib/chartTheme";
 import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Download, RefreshCw, Sparkles, BookOpen, } from "lucide-react";
+import { Download, Sparkles, BookOpen } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -14,6 +15,7 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { formatDateTime } from "@/shared/utils/formatters";
 import { SourceTabs, ReviewFilters, MetricCard } from "@/features/journal/components/ReviewWorkspace.jsx";
 import { useReviewWorkspace, displayMoney, displayNumber, pnlTone, modes } from "@/features/journal/hooks/useReviewWorkspace.js";
+import { useLivePositionSummary } from "@/shared/hooks/useLivePositionsPnL";
 
 export default function PerformanceReports() {
   const { filters, details: report, loading, error, update, reload } = useReviewWorkspace("report");
@@ -23,7 +25,8 @@ export default function PerformanceReports() {
   const { notify } = useNotifications();
   const navigate = useNavigate();
   const summary = report?.summary;
-  const positions = report?.current_positions;
+  const positions = useLivePositionSummary(report?.current_positions);
+  const unrealized = positions.unpriced_positions ? null : positions.unrealized_pnl;
   const source = modes.find((mode) => mode.value === filters.source);
   const journalUrl = `/journal?${new URLSearchParams(filters)}`;
 
@@ -54,20 +57,20 @@ export default function PerformanceReports() {
   }
 
   const actions = useMemo(() => <>
-    <div className="hidden xl:block"><SourceTabs source={filters.source} onChange={(source) => update({ source })} /></div>
+    <div className="hidden xl:block"><SourceTabs appearance="plain" source={filters.source} onChange={(source) => update({ source })} /></div>
     <Button size="sm" disabled={busy || loading || !!error || !summary?.closes} onClick={() => { setIncludeNotes(false); setResearchOpen(true); }} aria-label="Ask AI about these results">
       <Sparkles size={15} /><span className="ml-2 hidden sm:inline">Ask AI</span>
     </Button>
     <Button variant="outline" size="sm" disabled={busy || loading || !!error} onClick={exportCsv} aria-label="Export report CSV"><Download size={15} /><span className="ml-2 hidden 2xl:inline">Export CSV</span></Button>
-    <Button variant="outline" size="sm" disabled={loading} onClick={reload} aria-label="Refresh report"><RefreshCw size={15} /><span className="ml-2 hidden 2xl:inline">Refresh</span></Button>
+    <RefreshButton onClick={reload} label="Refresh report" disabled={loading} loading={loading} />
   </>, [filters, update, busy, loading, error, summary?.closes, exportCsv, reload]);
   useSetPageActions(actions);
 
   const chart = (report?.daily || []).map((row) => ({ ...row, realized_pnl: Number(row.realized_pnl) }));
-  return <div className="container-padding space-y-4 py-4">
+  return <div className="page-content">
     <div className="xl:hidden"><SourceTabs source={filters.source} onChange={(source) => update({ source })} /></div>
     <ReviewFilters filters={filters} onChange={update} />
-    {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300">
+    {error && <div role="alert" className="rounded-xl border border-loss/30 bg-loss/10 p-3 text-sm text-loss">
       {error}<Button variant="ghost" size="sm" onClick={reload}>Retry</Button>
     </div>}
     <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
@@ -76,19 +79,19 @@ export default function PerformanceReports() {
       <MetricCard label="Win rate" value={loading ? "—" : summary?.win_rate == null ? "N/A" : displayNumber(summary.win_rate) + "%"} hint="Winning closes / all closes" />
       <MetricCard label="Profit factor" value={loading ? "—" : displayNumber(summary?.profit_factor)} hint="Winning P&L / absolute losing P&L" />
     </div>
-    <section aria-label="Additional report metrics" className="grid gap-4 rounded-xl border border-border bg-background/60 p-4 sm:grid-cols-3">
+    <section aria-label="Additional report metrics" className="grid gap-3 rounded-xl border border-border bg-background/60 p-3 sm:grid-cols-3">
       <div><p className="text-xs text-muted-foreground">Average P&L per close</p><p className="mt-1 font-semibold tabular-nums">{loading ? "—" : displayMoney(summary?.average_pnl)}</p></div>
       <div><p className="text-xs text-muted-foreground">Recorded charges</p><p className="mt-1 font-semibold tabular-nums">{loading ? "—" : displayMoney(summary?.recorded_charges)}</p><p className="mt-1 text-[11px] text-muted-foreground">{filters.source === "PAPER" ? "Simulated brokerage and taxes" : "Unavailable for this execution source"}</p></div>
-      <div><p className="text-xs text-muted-foreground">Current unrealized P&L</p><p className={`mt-1 font-semibold tabular-nums ${pnlTone(positions?.unrealized_pnl)}`}>{loading ? "—" : displayMoney(positions?.unrealized_pnl)}</p>
-        {positions && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{positions.positions} open positions · before exit costs · {positions.unpriced_positions ? `${positions.unpriced_positions} awaiting price data` : positions.oldest_quote_at ? `oldest quote ${formatDateTime(positions.oldest_quote_at)}` : "no open exposure"}. Separate from the selected close-date period.</p>}
+      <div><p className="text-xs text-muted-foreground">Current unrealized P&L</p><p className={`mt-1 font-semibold tabular-nums ${pnlTone(unrealized)}`}>{loading ? "—" : displayMoney(unrealized)}</p>
+        {positions.count != null && <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{positions.count} open positions · before exit costs · {positions.unpriced_positions ? `${positions.unpriced_positions} awaiting price data` : positions.oldest_quote_at ? `oldest quote ${formatDateTime(positions.oldest_quote_at)}` : "no open exposure"}. Separate from the selected close-date period.</p>}
       </div>
     </section>
-    <section className="rounded-xl border border-border bg-background/60 p-4">
+    <section className="rounded-xl border border-border bg-background/60 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div><h2 className="font-semibold">Daily realized P&L</h2><p className="mt-1 text-xs text-muted-foreground">Grouped by close date · excludes open positions and cash transfers</p></div>
         <Link to={journalUrl} className="flex items-center gap-1.5 text-xs text-foreground hover:text-foreground"><BookOpen size={14} />Review closes in journal</Link>
       </div>
-      <div className="mt-4 h-64">{chart.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={chart}>
+      <div className="mt-3 h-64">{chart.length ? <ResponsiveContainer width="100%" height="100%"><BarChart data={chart}>
         <CartesianGrid vertical={false} stroke="hsl(var(--chart-grid))" strokeDasharray="3 3" />
         <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} minTickGap={40} />
         <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickFormatter={displayNumber} />
@@ -96,11 +99,11 @@ export default function PerformanceReports() {
         <Bar dataKey="realized_pnl" radius={[3, 3, 0, 0]}>{chart.map((row) => <Cell key={row.date} fill={row.realized_pnl < 0 ? "hsl(var(--loss))" : "hsl(var(--success))"} />)}</Bar>
       </BarChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-muted-foreground">{loading ? "Calculating report…" : "No closes in this period."}</div>}</div>
     </section>
-    <div className={`grid gap-4 ${filters.source !== "TERMINAL" ? "lg:grid-cols-2" : ""}`}>
+    <div className={`grid gap-3 ${filters.source !== "TERMINAL" ? "lg:grid-cols-2" : ""}`}>
       {[
         ["Instrument breakdown", report?.instruments, "symbol"],
         ...(filters.source !== "TERMINAL" ? [["Strategy comparison", report?.strategies, "strategy_name"]] : []),
-      ].map(([title, rows, name]) => <section key={title} className="rounded-xl border border-border bg-background/60 p-4">
+      ].map(([title, rows, name]) => <section key={title} className="rounded-xl border border-border bg-background/60 p-3">
         <h2 className="mb-3 font-semibold">{title}</h2>
         <div className="scrollbar-theme max-h-80 space-y-2 overflow-y-auto">
           {!rows?.length && <p className="text-sm text-muted-foreground">No results for these filters.</p>}
@@ -120,11 +123,11 @@ export default function PerformanceReports() {
     </div>
     <Dialog open={researchOpen} onOpenChange={(open) => { if (!busy) setResearchOpen(open); }}>
       <DialogContent className="flex max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] flex-col gap-0 overflow-hidden rounded-xl p-0">
-        <div className="shrink-0 border-b border-border p-5 pr-12">
+        <div className="shrink-0 border-b border-border p-3 pr-12">
           <DialogTitle className="flex items-center gap-2"><Sparkles size={18} />Investigate these results</DialogTitle>
           <DialogDescription className="mt-2">Open a conversation with the recorded evidence from this report.</DialogDescription>
         </div>
-        <div className="scrollbar-theme min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        <div className="scrollbar-theme min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
           <div className="rounded-lg border border-border bg-card/50 p-3 text-sm">
             <p className="font-medium">{source.label} · {filters.date_from} to {filters.date_to}</p>
             <p className="mt-1 text-muted-foreground">{summary?.closes} recorded closes · {displayMoney(summary?.realized_pnl)} realized P&L</p>
@@ -136,7 +139,7 @@ export default function PerformanceReports() {
           </label>
           <p className="text-xs leading-5 text-muted-foreground">You can edit the question before sending. Sending starts AI research.</p>
         </div>
-        <div className="flex shrink-0 justify-end gap-2 border-t border-border p-4">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border p-3">
           <Button variant="outline" disabled={busy} onClick={() => setResearchOpen(false)}>Cancel</Button>
           <Button disabled={busy || loading || !!error || !summary?.closes} onClick={research}>{busy && <LoaderMark size={15} className="mr-2" />}Open research</Button>
         </div>

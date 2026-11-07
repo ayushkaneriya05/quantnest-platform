@@ -110,15 +110,15 @@ export default function TwoFAModal({
               </p>
             </div>
 
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={handleToggleMode}
-              className="focus-ring min-h-11 justify-self-center rounded-sm text-sm font-medium text-brand transition hover:text-foreground"
+              className="focus-ring min-h-11 justify-self-center rounded-sm text-sm font-medium transition"
             >
               {useBackupCode
                 ? "Use authenticator app instead"
                 : "Use a backup code instead"}
-            </button>
+            </Button>
 
             <div className="grid grid-cols-2 gap-3 pt-1">
               <Button

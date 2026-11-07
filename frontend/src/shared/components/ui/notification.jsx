@@ -43,7 +43,7 @@ export function Notification({
   }, [duration, handleClose]);
 
   return (
-    <div role={variant === "error" || type === "CRITICAL" ? "alert" : "status"} aria-atomic="true" className={`relative z-[9999] w-full max-w-sm rounded-lg border p-4 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out motion-reduce:transition-none ${config.className} ${isVisible && !isLeaving ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}>
+    <div role={variant === "error" || type === "CRITICAL" ? "alert" : "status"} aria-atomic="true" className={`relative z-[9999] w-full max-w-sm rounded-lg border p-4 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out motion-reduce:transition-none ${config.className}  ${isVisible && !isLeaving ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"}`}>
       <div className="flex items-start gap-3">
         <Icon className="mt-0.5 h-5 w-5 flex-shrink-0" />
         <div className="min-w-0 flex-1">
@@ -63,7 +63,7 @@ export function Notification({
             </div>
           )}
         </div>
-        <Button variant="ghost" size="sm" onClick={handleClose} className="h-auto p-1 text-current hover:bg-muted/50" aria-label="Dismiss notification">
+        <Button variant="ghost" size="sm" onClick={handleClose} className="h-auto p-1 text-current" aria-label="Dismiss notification">
           <X className="h-4 w-4" />
         </Button>
       </div>

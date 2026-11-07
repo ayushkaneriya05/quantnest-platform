@@ -1,267 +1,79 @@
 import logging
 from copy import deepcopy
 from django.db import transaction
-from .models import Strategy, StrategyVersion, StrategyTag, EntryOrderConfig, ExitOrderConfig
-from rules_engine.models import PositionSizingRule, RuleGroup, Rule, TimeRule
-from instruments.models import WatchlistInstrument
+from django.utils import timezone
+from .models import Strategy, StrategyVersion, StrategyTag
 from execution.order_reports import ACTIVE
 
 logger = logging.getLogger(__name__)
 
 class StrategySnapshotService:
-    """
-    Service to handle strategy versioning: snapshotting and rolling back.
-    """
+    """Immutable versions copy the same document used by Studio and execution."""
 
     @staticmethod
     def validate_config_snapshot(snapshot):
-        """Validate that config snapshot has all required fields."""
+        from .definitions import document_from_snapshot
         if not isinstance(snapshot, dict):
             raise ValueError('Strategy configuration must be an object.')
-        required_fields = [
-            'name', 'strategy_type', 'market_type', 'exchange', 'instrument_type',
-            'entry_order_config', 'exit_order_config', 'rule_groups', 'watchlist_instruments',
-            'time_rule', 'position_sizing_rule'
-        ]
-        missing = [field for field in required_fields if field not in snapshot]
-        if missing:
-            raise ValueError(f"Config snapshot missing required fields: {missing}")
-        objects = ('entry_order_config', 'exit_order_config', 'time_rule', 'position_sizing_rule')
-        if any(not isinstance(snapshot[field], dict) for field in objects):
-            raise ValueError('Order, time and sizing configurations must be objects.')
-        if any(not isinstance(snapshot[field], list) for field in ('rule_groups', 'watchlist_instruments')):
-            raise ValueError('Rules and instruments must be lists.')
-        if any(not isinstance(group, dict) or not isinstance(group.get('rules', []), list) or
-                any(not isinstance(rule, dict) for rule in group.get('rules', [])) for group in snapshot['rule_groups']):
-            raise ValueError('Each rule group must contain a list of rule objects.')
+        required = ('name', 'strategy_type', 'market_type', 'exchange', 'instrument_type')
+        if any(field not in snapshot for field in required):
+            raise ValueError('The strategy snapshot is missing its classification.')
+        document_from_snapshot(snapshot)
         return True
 
     @staticmethod
     @transaction.atomic
     def create_snapshot(strategy, user=None, change_notes=None, *, config_snapshot=None):
-        """
-        Creates a new version snapshot of the strategy.
-        """
-        try:
-            # 1. Serialize the full strategy state
-            # We use specific serializers or manual dict construction to ensure deep nesting is captured
-            strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
-            snapshot = (StrategySnapshotService._serialize_strategy(strategy)
-                        if config_snapshot is None else deepcopy(config_snapshot))
-            
-            # 2. Validate snapshot completeness
-            StrategySnapshotService.validate_config_snapshot(snapshot)
-            
-            # 3. Determine version number
-            last_version = strategy.versions.order_by('-version_number').first()
-            next_version = (last_version.version_number + 1) if last_version else 1
-            
-            # 4. Save Version
-            version = StrategyVersion.objects.create(
-                strategy=strategy,
-                version_number=next_version,
-                config_snapshot=snapshot,
-                change_notes=change_notes,
-                created_by=user
-            )
-            from audit.services import AuditService
-            AuditService.configuration_changed(strategy, last_version.config_snapshot if last_version else {}, snapshot, version)
-            return version
-        except Exception as e:
-            logger.error(f"Error creating snapshot for strategy {strategy.id}: {str(e)}")
-            raise
+        # The row lock serializes version numbers with edits and restores.
+        strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
+        snapshot = (StrategySnapshotService._serialize_strategy(strategy)
+                    if config_snapshot is None else deepcopy(config_snapshot))
+        StrategySnapshotService.validate_config_snapshot(snapshot)
+        previous = strategy.versions.order_by('-version_number').first()
+        version = StrategyVersion.objects.create(strategy=strategy,
+            version_number=previous.version_number + 1 if previous else 1,
+            config_snapshot=snapshot, change_notes=change_notes, created_by=user)
+        from audit.services import AuditService
+        AuditService.configuration_changed(strategy, previous.config_snapshot if previous else {}, snapshot, version)
+        return version
 
     @staticmethod
     @transaction.atomic
     def restore_version(strategy, version_id):
-        """
-        Restores the strategy to a specific version.
-        WARNING: This is a destructive operation for the current configuration.
-        """
+        from .definitions import compile_preview, document_from_snapshot, validate_definition
+        strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
         try:
-            version = StrategyVersion.objects.get(id=version_id, strategy=strategy)
-            snapshot = deepcopy(version.config_snapshot)
-            StrategySnapshotService.validate_config_snapshot(snapshot)
-            strategy = Strategy.objects.select_for_update().get(pk=strategy.pk)
-            auto_version_enabled = strategy.auto_version_enabled
-            strategy.auto_version_enabled = False
-            
-            # 1. Restore Strategy Base Fields
-            strategy.name = snapshot.get('name', strategy.name)
-            strategy.description = snapshot.get('description', strategy.description)
-            strategy.strategy_type = snapshot.get('strategy_type', strategy.strategy_type)
-            strategy.market_type = snapshot.get('market_type', strategy.market_type)
-            strategy.exchange = snapshot.get('exchange', strategy.exchange)
-            strategy.instrument_type = snapshot.get('instrument_type', strategy.instrument_type)
-            strategy.save()
-            strategy.tags.set([StrategyTag.objects.get_or_create(name=name)[0] for name in snapshot.get('tags', [])])
-
-            # 2. Restore 1:1 Configs (Update in place)
-            if 'time_rule' in snapshot:
-                StrategySnapshotService._restore_time_rule(strategy, snapshot['time_rule'])
-                
-            if 'entry_order_config' in snapshot:
-                StrategySnapshotService._restore_entry_config(strategy, snapshot['entry_order_config'])
-
-
-                
-            if 'exit_order_config' in snapshot:
-                StrategySnapshotService._restore_exit_config(strategy, snapshot['exit_order_config'])
-
-            if 'position_sizing_rule' in snapshot:
-                StrategySnapshotService._restore_position_sizing_rule(strategy, snapshot['position_sizing_rule'])
-                
-            # 3. Restore Rule Groups (Delete all existing and recreate)
-            # This is safer than trying to diff/update heavily nested structures
-            strategy.rule_groups.all().delete()
-            
-            if 'rule_groups' in snapshot:
-                for group_data in snapshot['rule_groups']:
-                    StrategySnapshotService._restore_rule_group(strategy, group_data)
-
-            # 5. Restore watchlist instruments
-            if 'watchlist_instruments' in snapshot:
-                StrategySnapshotService._restore_watchlist(strategy, snapshot['watchlist_instruments'])
-            
-            # 4. Create a new version to represent this rollback state
-            # This ensures the "Current" version in history matches the restored state
-            strategy.auto_version_enabled = auto_version_enabled
-            strategy.save(update_fields=['auto_version_enabled', 'updated_at'])
-            StrategySnapshotService.create_snapshot(
-                strategy, user=strategy.user, 
-                change_notes=f"Rollback to version {version.version_number}"
-            )
-
-            return strategy
+            version = strategy.versions.get(pk=version_id)
         except StrategyVersion.DoesNotExist:
-            raise ValueError("Version not found")
-        except Exception as e:
-            logger.error(f"Error restoring version {version_id} for strategy {strategy.id}: {str(e)}")
-            raise
-
+            raise ValueError('Version not found.') from None
+        snapshot = version.config_snapshot
+        StrategySnapshotService.validate_config_snapshot(snapshot)
+        document = validate_definition(document_from_snapshot(snapshot))
+        fields = ('name', 'description', 'strategy_type', 'market_type', 'exchange', 'instrument_type')
+        values = {key: snapshot[key] for key in fields if key in snapshot}
+        # Restore passes the same compiler boundary as an editor save.
+        for key, value in values.items():
+            setattr(strategy, key, value)
+        compile_preview(strategy, document)
+        # One explicit version below; model signals must not create another.
+        Strategy.objects.filter(pk=strategy.pk).update(**values, definition=document, updated_at=timezone.now())
+        strategy.refresh_from_db()
+        auto_version = strategy.auto_version_enabled
+        strategy.auto_version_enabled = False
+        strategy.tags.set([StrategyTag.objects.get_or_create(name=name)[0] for name in snapshot.get('tags', [])])
+        strategy.auto_version_enabled = auto_version
+        StrategySnapshotService.create_snapshot(strategy, user=strategy.user,
+            change_notes=f'Rollback to version {version.version_number}')
+        return strategy
 
     @staticmethod
     def _serialize_strategy(strategy):
-        """
-        Constructs a clean JSON dictionary of the strategy state.
-        Uses DRF serializers where appropriate but ensures flattened structure for snapshot.
-        """
-      
-        # Let's build a custom robust dict
-        data = {
-            'id': strategy.id,
-            'user_id': strategy.user_id,
-            'name': strategy.name,
-            'description': strategy.description,
-            'strategy_type': strategy.strategy_type,
-            'market_type': strategy.market_type,
-            'exchange': strategy.exchange,
-            'instrument_type': strategy.instrument_type,
-            'status': strategy.status,
-            'visibility': strategy.visibility,
-            'auto_version_enabled': strategy.auto_version_enabled,
-            'paper_trading_enabled': strategy.paper_trading_enabled,
-            'live_trading_enabled': strategy.live_trading_enabled,
-            'tags': list(strategy.tags.order_by('name').values_list('name', flat=True)),
-        }
-
-        for rel_name in ('entry_order_config', 'exit_order_config', 'time_rule', 'position_sizing_rule'):
-            rel_obj = getattr(strategy, rel_name)
-            data[rel_name] = StrategySnapshotService._model_to_dict(rel_obj, exclude=['id', 'strategy', 'created_at', 'updated_at'])
-
-        # Watchlist instruments and execution routes
-        watchlist_data = []
-        for wi in strategy.watchlist_instruments.select_related('instrument').prefetch_related('execution_routes').order_by('instrument_id'):
-            wi_dict = {'instrument_id': wi.instrument_id, 'instrument_symbol': wi.instrument.sym_ticker, 'instrument_name': wi.instrument.name}
-            
-            routes_data = []
-            for route in sorted(wi.execution_routes.all(), key=lambda item: item.pk):
-                routes_data.append(StrategySnapshotService._model_to_dict(
-                    route, 
-                    exclude=['id', 'watchlist_instrument', 'created_at', 'updated_at']
-                ))
-                
-            if routes_data:
-                wi_dict['execution_routes'] = routes_data
-                
-            watchlist_data.append(wi_dict)
-            
-        data['watchlist_instruments'] = watchlist_data
-
-        # Rule Groups (Deep nesting)
-        groups = []
-        for group in strategy.rule_groups.prefetch_related('rules').order_by('rule_type', 'priority', 'id'):
-            g_data = StrategySnapshotService._model_to_dict(group, exclude=['id', 'strategy', 'created_at', 'updated_at', 'rules'])
-            
-            # Rules
-            g_data['rules'] = [StrategySnapshotService._model_to_dict(r, exclude=['id', 'rule_group', 'created_at', 'updated_at']) for r in sorted(group.rules.all(), key=lambda item: item.pk)]
-            
-            groups.append(g_data)
-        
-        data['rule_groups'] = groups
-        return data
-
-    @staticmethod
-    def _model_to_dict(instance, exclude=None):
-        from django.forms.models import model_to_dict
-        d = model_to_dict(instance, exclude=exclude)
-
-        for key, value in d.items():
-            import decimal
-            import datetime
-            if isinstance(value, decimal.Decimal):
-                d[key] = float(value) # or str(value)
-            elif isinstance(value, (datetime.time, datetime.date, datetime.datetime)):
-                d[key] = value.isoformat()
-        return d
-
-    @staticmethod
-    def _restore_time_rule(strategy, data):
-        TimeRule.objects.update_or_create(strategy=strategy, defaults=data)
-
-    @staticmethod
-    def _restore_entry_config(strategy, data):
-        fields = {field.name for field in EntryOrderConfig._meta.fields} - {'id', 'strategy', 'created_at', 'updated_at'}
-        EntryOrderConfig.objects.update_or_create(strategy=strategy, defaults={key: value for key, value in data.items() if key in fields})
-
-    @staticmethod
-    def _restore_exit_config(strategy, data):
-        ExitOrderConfig.objects.update_or_create(strategy=strategy, defaults=data)
-
-    @staticmethod
-    def _restore_position_sizing_rule(strategy, data):
-        PositionSizingRule.objects.update_or_create(strategy=strategy, defaults=data)
-
-    @staticmethod
-    def _restore_rule_group(strategy, group_data):
-        rules_data = group_data.pop('rules', [])
-        
-        # Create Group
-        group = RuleGroup.objects.create(strategy=strategy, **group_data)
-        
-        # Create Nested Rules
-        for r_data in rules_data:
-            Rule.objects.create(rule_group=group, **r_data)
-
-    @staticmethod
-    def _restore_watchlist(strategy, watchlist_data):
-        """Restore the complete selection; fail if a saved instrument is unavailable."""
-        from instruments.models import Instrument, ExecutionRoute
-        ids = {item['instrument_id'] for item in watchlist_data}
-        instruments = Instrument.objects.in_bulk(ids)
-        missing = ids - set(instruments)
-        if missing:
-            raise ValueError(f"Saved instruments are unavailable: {sorted(missing)}.")
-        strategy.watchlist_instruments.all().delete()
-        for item in watchlist_data:
-            watch = WatchlistInstrument.objects.create(strategy=strategy, instrument=instruments[item['instrument_id']])
-            for route in item.get('execution_routes', []):
-                fields = {field.name for field in ExecutionRoute._meta.fields} - {'id', 'watchlist_instrument', 'created_at', 'updated_at'}
-                values = {key: value for key, value in route.items() if key in fields}
-                for field in ExecutionRoute._meta.fields:
-                    if field.is_relation and field.name in values:
-                        values[field.attname] = values.pop(field.name)
-                ExecutionRoute.objects.create(watchlist_instrument=watch, **values)
+        from .definitions import current_document
+        fields = ('id', 'user_id', 'name', 'description', 'strategy_type', 'market_type', 'exchange',
+                  'instrument_type', 'status', 'visibility', 'auto_version_enabled',
+                  'paper_trading_enabled', 'live_trading_enabled')
+        return {**{key: getattr(strategy, key) for key in fields}, **current_document(strategy),
+                'tags': list(strategy.tags.order_by('name').values_list('name', flat=True))}
 
 
 class StrategyLifecycleService:
@@ -299,63 +111,46 @@ class StrategyDeploymentService:
     def validate_snapshot(snapshot, mode='paper'):
         """Validate the immutable configuration that execution will actually use."""
         from instruments.services import InstrumentResolver
-        from instruments.serializers import ExecutionRouteSerializer
-        from rules_engine.serializers import TimeRuleSerializer, RuleSerializer, RuleGroupSerializer
-        from rules_engine.serializers import PositionSizingRuleSerializer
-        from .serializers import EntryOrderConfigSerializer, ExitOrderConfigSerializer
         from rest_framework.exceptions import ValidationError
+        from common.enums import InstrumentType, QuantityType, QuantityUnit, RuleType, Side, StrategyType
+        from .definitions import document_from_snapshot, validate_definition
+        from execution.preparation import compile_markets
         StrategySnapshotService.validate_config_snapshot(snapshot)
-        instruments = InstrumentResolver.validate_execution_snapshot(snapshot)
-        def validate(serializer_class, data):
-            serializer = serializer_class(data=data, partial=True)
-            for field in ('strategy', 'rule_group'):
-                if field in serializer.fields:
-                    serializer.fields[field].read_only = True
-            serializer.is_valid(raise_exception=True)
-            return serializer.validated_data
         try:
-            for name, serializer in (('time_rule', TimeRuleSerializer),
-                    ('entry_order_config', EntryOrderConfigSerializer),
-                    ('exit_order_config', ExitOrderConfigSerializer),
-                    ('position_sizing_rule', PositionSizingRuleSerializer)):
-                validate(serializer, snapshot[name])
-            from common.enums import InstrumentType
-            if (snapshot['strategy_type'] != 'INTRADAY' and snapshot['entry_order_config'].get('entry_side') == 'SELL'
-                    and any(item.instrument_type == InstrumentType.STOCK for item in instruments.values())):
+            validate_definition(document_from_snapshot(snapshot))
+            instruments = InstrumentResolver.validate_execution_snapshot(snapshot, historical=mode == 'backtest')
+            if (snapshot['strategy_type'] != StrategyType.INTRADAY and snapshot['entry_order_config']['entry_side'] == Side.SELL
+                    and any(instruments[watch['instrument_id']].instrument_type == InstrumentType.STOCK
+                            and 'contract_selection' not in watch for watch in snapshot['watchlist_instruments'])):
                 raise ValueError('Stock short entries require an Intraday strategy. Delivery execution does not include stock borrowing.')
-            for watch in snapshot['watchlist_instruments']:
-                for route in watch.get('execution_routes', []):
-                    validate(ExecutionRouteSerializer, route)
             active = [group for group in snapshot['rule_groups'] if group.get('is_active', True)]
-            entries = [group for group in active if group.get('rule_type') == 'ENTRY']
-            if not entries or any(not any(rule.get('is_active', True) for rule in group.get('rules', [])) for group in entries):
-                raise ValueError('The selected version needs complete active entry rules.')
-            if mode == 'live' and not any(group.get('rule_type') == 'STOP_LOSS' and
-                    any(rule.get('is_active', True) for rule in group.get('rules', [])) for group in active):
-                raise ValueError('The selected live version needs an active stop-loss rule.')
-            for group in active:
-                validate(RuleGroupSerializer, group)
-                for rule in group.get('rules', []):
-                    if rule.get('is_active', True):
-                        serializer = RuleSerializer(data=rule, context={'rule_type': group['rule_type']})
-                        serializer.fields['rule_group'].read_only = True
-                        serializer.is_valid(raise_exception=True)
-            from marketdata.calendar import MarketSessionCalendar
-            from execution.compiler import compile_strategy
-            markets = set()
-            for watch in snapshot['watchlist_instruments']:
-                instrument_id, side, _ = InstrumentResolver.resolve(watch,
-                    snapshot['entry_order_config']['entry_side'], snapshot['position_sizing_rule'])
-                instrument = instruments[instrument_id]
-                markets.add((instrument.exchange, instrument.segment, side))
-            for exchange, segment, side in markets:
-                config = deepcopy(snapshot)
-                config['entry_order_config']['entry_side'] = side
-                compile_strategy(config, 0, calendar=MarketSessionCalendar.for_exchange(exchange, segment))
+            if not any(group['rule_type'] == RuleType.ENTRY for group in active):
+                raise ValueError('The selected version needs an active entry condition.')
+            if mode == 'live' and not any(group['rule_type'] == RuleType.STOP_LOSS for group in active):
+                raise ValueError('The selected live version needs an active stop-loss condition.')
+            if mode != 'backtest':
+                from execution.preparation import contract_from_instrument
+                compiled = compile_markets(snapshot, 0)
+                if any(not item.is_active for item in compiled.instruments.values()):
+                    raise ValueError('Signal and traded instruments must be active before deployment.')
+                # Validate every tradable candidate once before admission. Index
+                # underlyings are data inputs and never receive financial terms.
+                contracts = {}
+                now = timezone.now()
+                for identity in compiled.trade_ids:
+                    contract = contract_from_instrument(compiled.instruments[identity])
+                    contract.validate(contract.lot_size, (), now.astimezone(compiled.calendars[identity].zone))
+                    contracts[identity] = contract
+                for watch in snapshot['watchlist_instruments']:
+                    identity = watch['instrument_id']
+                    sizing = InstrumentResolver.sizing_for(watch, snapshot['position_sizing_rule'])
+                    if ('contract_selection' not in watch and sizing['sizing_method'] == QuantityType.FIXED
+                            and sizing['quantity_unit'] == QuantityUnit.UNITS
+                            and int(sizing['fixed_quantity']) % contracts[identity].lot_size):
+                        raise ValueError(f'{instruments[identity].name}: fixed units must be a multiple of lot size {contracts[identity].lot_size}; choose Lots or correct the units.')
         except ValidationError as exc:
             from backend.middleware.api_responses import error_envelope
-            message = error_envelope(exc.detail, 400)['message']
-            raise ValueError(f'Invalid selected version: {message}') from None
+            raise ValueError(f"Invalid selected version: {error_envelope(exc.detail, 400)['message']}") from None
 
     @staticmethod
     @transaction.atomic
@@ -391,9 +186,20 @@ class StrategyDeploymentService:
         ).exclude(pk=allocation.pk).exists():
             raise ValueError("This strategy version already has a Paper deployment. Choose another version.")
         StrategyDeploymentService.validate_snapshot(version.config_snapshot, scope)
-        identities = {int(item['instrument_id']) for item in version.config_snapshot['watchlist_instruments']}
-        if positions.exclude(instrument_id__in=identities).exists():
-            raise ValueError('Close positions before removing their instruments from the deployed version.')
+        from instruments.services import InstrumentResolver
+        old_bindings = {(item['route_id'], item['leg_id']): (InstrumentResolver.input_bindings(item), item.get('contract_selection'))
+                        for item in allocation.deployed_version.config_snapshot['watchlist_instruments']}
+        new_bindings = {(item['route_id'], item['leg_id']): (InstrumentResolver.input_bindings(item), item.get('contract_selection'))
+                        for item in version.config_snapshot['watchlist_instruments']}
+        if any(old_bindings.get(identity) != new_bindings.get(identity)
+               for identity in positions.values_list('route_id', 'leg_id')):
+            raise ValueError('Close positions before changing their signal or traded instrument.')
+        # An existing position belongs to its captured occurrence. Applying a
+        # different setup would replace the meaning of its protection values.
+        if positions.exists() and any(group.get('setup') for snapshot in
+                (allocation.deployed_version.config_snapshot, version.config_snapshot)
+                for group in snapshot.get('rule_groups', []) if group.get('is_active', True)):
+            raise ValueError('Close positions before changing a version that uses captured setup values.')
         active_statuses = ['PENDING', 'PLACED', 'PARTIAL_FILL', 'UNKNOWN']
         if orders.filter(status__in=active_statuses).exists():
             raise ValueError('Wait for outstanding orders to settle before changing the version.')

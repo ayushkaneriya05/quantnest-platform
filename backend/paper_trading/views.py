@@ -1,3 +1,6 @@
+from common.pagination import StandardPagination
+from common.list_filters import record_filters
+from django.db.models import Count, Q
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -54,24 +57,38 @@ class PortfolioViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({'success': True, 'new_balance': transaction.balance_after})
 
 class FundTransactionViewSet(viewsets.ReadOnlyModelViewSet):
+    pagination_class = StandardPagination
     """ViewSet for fund transactions (read-only)."""
     serializer_class = FundTransactionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return FundTransaction.objects.filter(portfolio__user=self.request.user)
+        qs = record_filters(FundTransaction.objects.filter(portfolio__user=self.request.user), self.request.query_params, 'created_at', instrument=False, account=False)
+        kind = self.request.query_params.get('type')
+        if kind:
+            qs = qs.filter(transaction_type=kind)
+        search = self.request.query_params.get('search')
+        if search:
+            qs = qs.filter(Q(notes__icontains=search) | Q(transaction_type__icontains=search))
+        return qs.order_by('-created_at', '-id')
 
 
 class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    pagination_class = StandardPagination
     """ViewSet for paper trading sessions."""
     serializer_class = PaperTradingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        counts = {row['status']: row['count'] for row in PaperTradingSession.objects.filter(user=request.user).values('status').annotate(count=Count('id')).order_by()}
+        return Response({'total': sum(counts.values()), 'statuses': counts})
+
     def get_queryset(self):
         sessions = PaperTradingSession.objects.filter(user=self.request.user).select_related(
-            "strategy", "allocation__deployed_version", "charge_profile"
-        ).prefetch_related(Prefetch("account", queryset=PaperAccount.objects.with_totals())).order_by("-updated_at")
-        session_status = self.request.query_params.get("status")
+            "strategy", "allocation__deployed_version__created_by", "charge_profile"
+        ).prefetch_related(Prefetch("account", queryset=PaperAccount.objects.with_totals())).order_by("-created_at", "-id")
+        session_status = self.request.query_params.get("status") if self.action == "list" else None
         if session_status:
             from common.enums import ExecutionSessionStatus
             from rest_framework.fields import ChoiceField
@@ -169,56 +186,101 @@ class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
 class PaperAccountViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for paper trading accounts."""
     serializer_class = PaperAccountSerializer
+    pagination_class = StandardPagination
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PaperAccount.objects.with_totals().filter(user=self.request.user).prefetch_related('sessions')
+        return PaperAccount.objects.with_totals().filter(user=self.request.user).prefetch_related('sessions').order_by('-created_at', '-id')
 
 class PaperPositionViewSet(viewsets.ReadOnlyModelViewSet):
+    pagination_class = StandardPagination
     """ViewSet for paper positions (read-only - strategy managed only)."""
     serializer_class = PaperPositionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PaperPosition.objects.filter(
-            account__user=self.request.user
-        ).select_related('instrument', 'strategy')
+        qs = PaperPosition.objects.filter(account__user=self.request.user, quantity__gt=0).select_related('instrument', 'strategy')
+        return record_filters(qs, self.request.query_params, 'opened_at').order_by('-opened_at', '-id')
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        from common.valuation import position_totals
+        return Response(position_totals(self.get_queryset()))
 
 
 class PaperOrderViewSet(viewsets.ReadOnlyModelViewSet):
+    pagination_class = StandardPagination
     """ViewSet for paper orders (read-only - strategy execution only)."""
     serializer_class = PaperOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PaperOrder.objects.filter(
-            account__user=self.request.user
-        ).select_related('instrument', 'strategy')
+        qs = PaperOrder.objects.filter(account__user=self.request.user).select_related('instrument', 'strategy')
+        qs = record_filters(qs, self.request.query_params, 'placed_at')
+        value = self.request.query_params.get('status')
+        if value:
+            from rest_framework.fields import ChoiceField
+            value = ChoiceField(choices=PaperOrder._meta.get_field('status').choices).run_validation(value)
+            qs = qs.filter(status=value)
+        return qs.order_by('-placed_at', '-id')
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        from common.enums import OrderStatus
+        return Response(self.get_queryset().aggregate(total=Count('id'),
+            filled=Count('id', filter=Q(status=OrderStatus.FILLED)),
+            active=Count('id', filter=Q(status__in=[OrderStatus.PENDING, OrderStatus.PLACED, OrderStatus.PARTIAL_FILL])),
+            rejected=Count('id', filter=Q(status=OrderStatus.REJECTED))))
 
 
 class PaperTradeViewSet(viewsets.ReadOnlyModelViewSet):
+    pagination_class = StandardPagination
     """ViewSet for paper trades (read-only)."""
     serializer_class = PaperTradeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PaperTrade.objects.filter(
-            account__user=self.request.user
-        ).select_related('instrument', 'strategy')
+        qs = PaperTrade.objects.filter(account__user=self.request.user).select_related('instrument', 'strategy')
+        qs = record_filters(qs, self.request.query_params, 'exit_time')
+        mode = self.request.query_params.get('pnl_mode', 'net')
+        from rest_framework.fields import ChoiceField
+        mode = ChoiceField(choices=['net', 'gross']).run_validation(mode)
+        field = mode + '_pnl'
+        outcome = ChoiceField(choices=['all', 'winning', 'losing']).run_validation(self.request.query_params.get('filter', 'all'))
+        if outcome != 'all':
+            qs = qs.filter(**{field + ('__gt' if outcome == 'winning' else '__lt'): 0})
+        return qs.order_by('-exit_time', '-id')
 
     @action(detail=False, methods=['get'])
     def analytics(self, request):
         """Read one aggregate snapshot, with the same fields even when empty."""
         from django.db.models import Avg, Count, Q, Sum
-        stats = self.get_queryset().aggregate(
+        field = 'gross_pnl' if request.query_params.get('pnl_mode') == 'gross' else 'net_pnl'
+        qs = self.get_queryset()
+        stats = qs.aggregate(
             total_trades=Count('id'),
-            winning_trades=Count('id', filter=Q(net_pnl__gt=0)),
-            losing_trades=Count('id', filter=Q(net_pnl__lt=0)),
-            avg_pnl=Avg('net_pnl'), total_pnl=Sum('net_pnl'),
-            avg_winner=Avg('net_pnl', filter=Q(net_pnl__gt=0)),
-            avg_loser=Avg('net_pnl', filter=Q(net_pnl__lt=0)),
+            winning_trades=Count('id', filter=Q(**{field + '__gt': 0})),
+            losing_trades=Count('id', filter=Q(**{field + '__lt': 0})),
+            avg_pnl=Avg(field), total_pnl=Sum(field),
+            avg_winner=Avg('net_pnl', filter=Q(**{field + '__gt': 0})),
+            avg_loser=Avg('net_pnl', filter=Q(**{field + '__lt': 0})),
         )
         for key in ('avg_pnl', 'total_pnl', 'avg_winner', 'avg_loser'):
             stats[key] = float(stats[key] or 0)
         stats['win_rate'] = stats['winning_trades'] / stats['total_trades'] * 100 if stats['total_trades'] else 0
+        from django.db.models.functions import TruncDate
+        from django.utils import timezone
+        from datetime import timedelta
+        today = timezone.localdate()
+        recent = qs.filter(exit_time__date__gte=today - timedelta(days=29), exit_time__date__lte=today)
+        daily = list(recent.annotate(date=TruncDate('exit_time')).values('date').annotate(pnl=Sum(field)).order_by('date'))
+        wins = recent.aggregate(total=Count('id'), wins=Count('id', filter=Q(**{field + '__gt': 0})))
+        stats['performance'] = {
+            'weekPnl': qs.filter(exit_time__date__gte=today - timedelta(days=6), exit_time__date__lte=today).aggregate(pnl=Sum(field))['pnl'] or 0,
+            'monthPnl': qs.filter(exit_time__date__gte=today.replace(day=1), exit_time__date__lte=today).aggregate(pnl=Sum(field))['pnl'] or 0,
+            'bestDay': max(daily, key=lambda row: row['pnl']) if daily else None,
+            'worstDay': min(daily, key=lambda row: row['pnl']) if daily else None,
+            'winRate': wins['wins'] / wins['total'] * 100 if wins['total'] else 0,
+            'closedTradeCount': wins['total'], 'pnlBars': daily[-14:],
+        }
         return Response(stats)

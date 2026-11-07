@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone as utc
 from math import ceil
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 from celery import current_app
 from celery.signals import task_failure, task_postrun
@@ -18,6 +19,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
+from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import F
@@ -160,8 +162,13 @@ def require_request_limits(user, *, policy=None, **sizes):
 def estimate_backtest_workload(user, config, start_date, end_date, *, policy=None):
     from backtesting.services import estimate_source_workload
     policy = policy if policy is not None else get_account_policy(user)
-    preview = estimate_source_workload(config, start_date, end_date)
+    preview = estimate_source_workload(config, start_date, end_date, maximum=policy['limits']['backtest_workload'])
     _check_limits(policy, {"backtest_workload": preview["instrument_candles"]})
+    # Keep full strike grids off browser tokens. The signed reference expires
+    # with the reviewed estimate; admission copies the immutable plan to the run.
+    plan_key = f'backtest-plan:{user.pk}:{uuid4().hex}'
+    cache.set(plan_key, preview.pop('plan'), 1800)
+    preview['plan_key'] = plan_key
     if policy["record_usage"]:
         unit = policy["catalog"].specification["credit_candles"]
         preview.update(credits=max(1, ceil(preview["instrument_candles"] / unit)), credit_candles=unit,
@@ -170,7 +177,7 @@ def estimate_backtest_workload(user, config, start_date, end_date, *, policy=Non
         preview.update(credits=None, credit_candles=None,
                        definition="Personal Private has no commercial usage quotas. Server capacity and execution controls still apply.")
     preview["config_hash"] = hash_payload(config)
-    return {**preview, "token": signing.dumps({"user": user.pk, **preview}, salt="backtest-workload")}
+    return {**preview, "token": signing.dumps({"user": user.pk, **preview}, salt="backtest-workload", compress=True)}
 
 
 # 4. Period credits: one entry point for fixed units and workload-priced credits.
@@ -184,29 +191,40 @@ def reserve_usage(user, feature, key, payload, *, resource, amount=1, estimate_t
     Keep resource creation and this call inside the same outer transaction.
     """
     policy = _prepare_allowance(user, "period", {feature: amount}, policy)
-    if not policy["record_usage"]:
+    definition = ALLOWANCES[feature]
+    if not policy['record_usage'] and definition.get('pricing') != 'source_candles':
         return None
     if not isinstance(key, str) or not key or len(key) > 160:
         reject_request("idempotency_required", "Provide an Idempotency-Key of up to 160 characters.")
-    definition = ALLOWANCES[feature]
     postpaid = definition.get("pricing") == "reported_tokens"
     if postpaid:
         amount = 0  # Admission anchors the period; the answer's actual usage settles later.
     if definition.get("pricing") == "source_candles":
         config = payload["config"]
-        if policy["limits_enforced"]:
+        if estimate_token:
             try:
                 preview = signing.loads(estimate_token, salt="backtest-workload", max_age=1800)
             except signing.BadSignature:
                 reject_request("estimate_required", "Review a fresh workload and credit estimate before starting.")
             if (preview["user"] != user.pk or preview["config_hash"] != hash_payload(config) or
                 preview["start_date"] != resource.start_date.isoformat() or preview["end_date"] != resource.end_date.isoformat() or
-                preview.get("credit_candles") != policy["catalog"].specification["credit_candles"]):
+                preview.get("credit_candles") != (policy["catalog"].specification["credit_candles"] if policy['record_usage'] else None)):
                 reject_request("estimate_changed", "The strategy, dates or credit terms changed. Review a new estimate.")
-            require_request_limits(user, policy=policy, backtest_workload=preview["instrument_candles"])
         else:
+            if policy['limits_enforced']:
+                reject_request('estimate_required', 'Review a fresh workload and credit estimate before starting.')
             preview = estimate_backtest_workload(user, config, resource.start_date, resource.end_date, policy=policy)
+        require_request_limits(user, policy=policy, backtest_workload=preview["instrument_candles"])
+        plan = cache.get(preview['plan_key'])
+        if plan is None:
+            reject_request('estimate_expired', 'The prepared workload expired. Review a fresh estimate.')
         amount = preview["credits"]
+        # Keep reviewed inputs with the run: a later catalog import must not
+        # silently increase the prepared universe beyond its accepted allowance.
+        resource.data_quality['accepted_workload'] = plan
+        resource.save(update_fields=['data_quality'])
+    if not policy["record_usage"]:
+        return None
     payload = json.loads(json.dumps(payload, cls=DjangoJSONEncoder))
     fingerprint = hash_payload({"feature": feature, "amount": amount, "payload": payload})
     existing = UsageReservation.objects.filter(user=user, idempotency_key=key).first()

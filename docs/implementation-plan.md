@@ -36,7 +36,7 @@ for those responsibilities.
 | Personal Private | Separate production stack, shared signup/UI, instance-local accounts and standard Docker deployment | Personal data/broker configuration and host acceptance |
 | Account privacy | export and erasure | Documented retention behaviour and provider agreements |
 | Research | Django research orchestration and private FastAPI service | Numeric allowances, service/model configuration and provider usage |
-| Strategy workflow | strategies, rules_engine and React strategy pages | Existing rule model; no proposed expression-node graph |
+| Strategy workflow | strategies, execution/expressions and React strategy pages | Canonical strategy documents and compiled expression graphs |
 | Paper/Live | execution owners, shared calculations, gateways, ledgers and reconciliation | Different fill models; Live qualification and current limitations require explicit acceptance |
 | Reports/journal | analytics, trade_journal, audit and React review workspace | Source-specific realized P&L; no fabricated combined equity |
 | Operations | mode Compose files, shared deploy/diagnostics and encrypted backup/restore scripts | Real backups, empty-database restoration, health and capacity evidence |
@@ -221,14 +221,13 @@ Preserve one owner per actor/account partition and safe financial serialization.
 
 ### Builder evolution
 
-The current model compares two typed operands within AND/OR rule groups, including
-restricted arithmetic expressions. A general expression DAG, arbitrary transform
-graph, temporal event-node editor and an expression runtime are **not implemented**.
-If justified later, design migration, validation, lookback, completion-time
-semantics, UI and parity as one separate feature. The detailed future design is
-now in [Strategy builder plan](strategy-builder-plan.md), with the full original
-proposal retained as an explicitly marked archive. Implementation is deferred
-until current production behavior is stable; this is not a newly enabled capability.
+The current [Strategy Studio](strategy-configuration.md) supports typed expression
+trees, nested boolean groups, numeric/rolling calculations, reusable formulas,
+capture/confirmation and fixed or automatic signal-to-contract bindings. The
+backend specification owns its vocabulary/defaults and feeds the frontend cache.
+Coordinated legs, open-position rollover, portfolio-wide conditions and arbitrary
+user code are not current builder capabilities. Any later extension must define
+validation, lookback, data availability, ownership, UI and mode behavior together.
 
 ## 10. Keeping delivery reviewable
 

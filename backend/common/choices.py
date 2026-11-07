@@ -26,7 +26,7 @@ SOURCES = {
     },
     "strategies": {
         "model": Strategy, "owner": "user", "fields": ("name",),
-        "annotations": {"timeframe": F("time_rule__candle_timeframe")},
+        "annotations": {"timeframe": F("definition__time_rule__candle_timeframe")},
         "search": ("name",), "filters": ("status", "paper_trading_enabled", "live_trading_enabled"),
         "label": lambda row: row["name"],
     },

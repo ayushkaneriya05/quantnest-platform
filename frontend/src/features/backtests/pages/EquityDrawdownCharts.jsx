@@ -34,7 +34,7 @@ import {
 import { backtestApi } from "@/shared/services/backtestApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
-import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
+import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 import PropTypes from "prop-types";
 
 /* ─── Helpers ─── */
@@ -51,7 +51,7 @@ function ChartTooltip({ active, payload, label, type }) {
       <p className="text-[11px] text-muted-foreground mb-1">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-sm font-semibold" style={{ color: p.color }}>
-          {type === "currency" ? formatCurrency(p.value) : `${toNumber(p.value).toFixed(2)}%`}
+          {type === "currency" ? formatCurrency(p.value) : `${formatNumber(toNumber(p.value))}%`}
         </p>
       ))}
     </div>
@@ -108,7 +108,7 @@ export default function EquityDrawdownCharts() {
       variant="outline"
       size="sm"
       onClick={() => navigate(`/backtests/results/${id}`)}
-      className="bg-card border-border hover:bg-secondary h-9"
+      className=""
     >
       <ChevronLeft className="h-4 w-4 mr-2" />
       Back to Results
@@ -128,11 +128,11 @@ export default function EquityDrawdownCharts() {
   const initialCapital = toNumber(run?.initial_capital);
 
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 space-y-6">
+    <div className="page-content">
       {/* ── Summary Stats ── */}
 
       {/* ── Summary Stats ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           {
             label: "Starting Capital",
@@ -144,28 +144,28 @@ export default function EquityDrawdownCharts() {
             value: formatCurrency(metrics?.final_capital),
             color:
               toNumber(metrics?.total_return_pct) >= 0
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-red-700 dark:text-red-400",
+                ? "text-success"
+                : "text-loss",
           },
           {
             label: "Total Return",
-            value: `${toNumber(metrics?.total_return_pct).toFixed(2)}%`,
+            value: `${formatNumber(toNumber(metrics?.total_return_pct))}%`,
             color:
               toNumber(metrics?.total_return_pct) >= 0
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-red-700 dark:text-red-400",
+                ? "text-success"
+                : "text-loss",
           },
           {
             label: "Max Drawdown",
-            value: `${toNumber(metrics?.max_drawdown_pct).toFixed(2)}%`,
-            color: "text-red-700 dark:text-red-400",
+            value: `${formatNumber(toNumber(metrics?.max_drawdown_pct))}%`,
+            color: "text-loss",
           },
         ].map((stat) => (
           <Card
             key={stat.label}
             className="bg-card/60 border-border"
           >
-            <CardContent className="py-4 px-5">
+            <CardContent className="py-3 px-4">
               <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
                 {stat.label}
               </p>
@@ -181,7 +181,7 @@ export default function EquityDrawdownCharts() {
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <CardTitle className="text-foreground flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+            <TrendingUp className="h-5 w-5 text-success" />
             Equity Curve
           </CardTitle>
           <CardDescription className="text-muted-foreground text-xs">
@@ -267,7 +267,7 @@ export default function EquityDrawdownCharts() {
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <CardTitle className="text-foreground flex items-center gap-2">
-            <TrendingDown className="h-5 w-5 text-red-700 dark:text-red-400" />
+            <TrendingDown className="h-5 w-5 text-loss" />
             Drawdown Chart
           </CardTitle>
           <CardDescription className="text-muted-foreground text-xs">
@@ -301,7 +301,7 @@ export default function EquityDrawdownCharts() {
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(val) => `${val.toFixed(1)}%`}
+                    tickFormatter={(val) => `${formatNumber(val)}%`}
                     domain={["auto", 0]}
                   />
                   <Tooltip
@@ -325,22 +325,22 @@ export default function EquityDrawdownCharts() {
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <CardTitle className="text-foreground flex items-center gap-2">
-            <Activity className="h-5 w-5 text-indigo-700 dark:text-indigo-400" />
+            <Activity className="h-5 w-5 text-brand" />
             Risk-Adjusted Metrics
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
-              { label: "CAGR", value: `${toNumber(metrics?.cagr).toFixed(2)}%` },
-              { label: "Volatility", value: `${toNumber(metrics?.volatility_pct).toFixed(2)}%` },
-              { label: "Sharpe", value: toNumber(metrics?.sharpe_ratio).toFixed(2) },
-              { label: "Sortino", value: toNumber(metrics?.sortino_ratio).toFixed(2) },
-              { label: "Calmar", value: toNumber(metrics?.calmar_ratio).toFixed(2) },
+              { label: "CAGR", value: `${formatNumber(toNumber(metrics?.cagr))}%` },
+              { label: "Volatility", value: `${formatNumber(toNumber(metrics?.volatility_pct))}%` },
+              { label: "Sharpe", value: formatNumber(toNumber(metrics?.sharpe_ratio)) },
+              { label: "Sortino", value: formatNumber(toNumber(metrics?.sortino_ratio)) },
+              { label: "Calmar", value: formatNumber(toNumber(metrics?.calmar_ratio)) },
             ].map((m) => (
               <div
                 key={m.label}
-                className="p-4 bg-secondary/50 rounded-lg text-center border border-border/50 hover:border-border transition-colors"
+                className="p-3 bg-secondary/50 rounded-lg text-center border border-border/50 hover:border-border transition-colors"
               >
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">
                   {m.label}

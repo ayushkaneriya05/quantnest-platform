@@ -8,6 +8,15 @@ order: 5
 - Choose your saved strategy, dates, initial capital, slippage and charge profile.
 - Turn charges off only if that is an intentional comparison.
 - Review the workload and credit estimate before confirming. Changed rules or dates need a fresh estimate.
+- For separate signal and traded instruments, the workload includes both data sources. Rules can use the signal market; fills, quantities and P&L use the actual traded contract.
+
+## Testing futures and options
+
+- Choose exact contracts and configure Lots or valid whole-lot Units in Studio.
+- Historical derivative terms must be recorded for the requested start date. Today's lot size is not assumed to apply to older contracts.
+- An archived contract can be tested when its identity, sourced specifications and provider history are available. Ask the platform operator to resolve missing records.
+- Ranges crossing specification changes must be split. Multi-session futures require reviewed daily settlement records. Expiry needs a qualified final cash-settlement record; a quote cannot replace missing settlement data.
+- Futures and option-writing collateral are configured estimates, not broker/exchange portfolio-margin calculations.
 
 ## Understand credits
 
@@ -18,6 +27,8 @@ order: 5
 ## Read the result
 
 - Inspect trades, costs, drawdown and instrument/date concentration.
+- Market entries and exits use the traded quote available when the signal fires, with configured slippage and tick rounding. They do not wait for the next candle high, low or close. If an underlying supplies the signal, execution uses the selected contract's available price.
+- This assumes zero execution latency within the candle simulation. Existing results keep their original execution assumptions until rerun.
 - Empty totals are zero; undefined ratios are N/A.
 - Read recorded entry diagnostics when no trades occurred. If diagnostics were not recorded, the result cannot establish the reason.
 - Check coverage and warmup before drawing a conclusion. Any remaining position is closed at its last available completed candle close, with modeled slippage and charges, and marked END_OF_BACKTEST. This is a test-ending assumption, not a strategy exit signal.

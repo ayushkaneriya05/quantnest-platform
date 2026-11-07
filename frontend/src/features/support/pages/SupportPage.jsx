@@ -1,8 +1,11 @@
+import Pagination from "@/shared/components/Pagination";
+import { usePagination } from "@/shared/hooks/usePagination";
+import RefreshButton from "@/shared/components/RefreshButton";
 import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
-import { formatDateTime } from "@/shared/utils/formatters";
+import { formatDateTime, formatNumber } from "@/shared/utils/formatters";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, Plus, RefreshCw, Send } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Plus, Send } from 'lucide-react';
 import api from '@/shared/services/api';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
@@ -19,7 +22,7 @@ export default function SupportPage() {
   const { notify } = useNotifications();
   const [params] = useSearchParams();
   const { requestTypes, requestLabels, ticketStatusLabels, contact, loading: optionsLoading, error: optionsError, refresh: refreshOptions } = useSupportOptions();
-  const [page, setPage] = useState(1);
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination("", "requests");
   const [history, setHistory] = useState({ results: [], count: 0, next: null, previous: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -39,11 +42,11 @@ export default function SupportPage() {
   const loadSupportRequests = useCallback(async () => {
     const request = ++listRequest.current; setLoading(true); setError('');
     try {
-      const { data } = await api.get('/support/tickets/', { params: { page } });
-      if (request === listRequest.current) setHistory(data);
+      const { data } = await api.get('/support/tickets/', { params: { page, page_size: pageSize } });
+      if (request === listRequest.current) { setHistory(data); accept(data); }
     } catch (failure) { if (request === listRequest.current) setError(getApiErrorMessage(failure)); }
     finally { if (request === listRequest.current) setLoading(false); }
-  }, [page]);
+  }, [page, pageSize, accept]);
   useEffect(() => { loadSupportRequests(); }, [loadSupportRequests]);
   useEffect(() => () => { detailRequest.current++; }, []);
   useEffect(() => { setKind(params.get('request') || 'support'); }, [params]);
@@ -72,25 +75,25 @@ export default function SupportPage() {
     finally { mutation.current = false; setBusy(false); }
   }
   const openRequestForm = () => { setModal(true); };
-  return <div className="container-padding space-y-4 py-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Support for your workspace</h2><p className="mt-1 text-xs leading-6 text-muted-foreground">{contact?.hours}</p></div><div className="flex gap-2"><Button size="sm" variant="outline" disabled={loading || busy} onClick={() => { loadSupportRequests(); if (selected) openSupportRequest(selected); }}>{loading ? <LoaderMark className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}Refresh</Button><Button size="sm" onClick={openRequestForm}><Plus className="h-4 w-4" />New request</Button></div></div>
-    <section aria-label="Requests and replies" className={`grid items-start gap-4 ${selected ? 'lg:grid-cols-[320px_1fr]' : ''}`}>
-      <div className={`min-w-0 rounded-xl border bg-card ${selected ? 'hidden lg:block' : ''}`}><div className="flex items-center justify-between border-b px-4 py-3"><h3 className="text-sm font-semibold">Your requests</h3>{!loading && !error && <span className="text-xs text-muted-foreground">{history.count} total</span>}</div><div className="p-3">
-        {error ? <WorkspaceState error={error} onRetry={loadSupportRequests} /> : loading ? <WorkspaceState loading title="Loading requests" description="Fetching your latest messages and statuses." /> : history.results.length === 0 ? <div className="px-4 py-8 text-center"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-brand" /><h3 className="font-medium">No support requests yet</h3><p className="mx-auto mb-5 mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Ask about your account, send a suggestion, or discuss a custom software project. Your requests and replies will appear here.</p><Button variant="outline" size="sm" onClick={openRequestForm}>Create your first request</Button></div> : <ul className="max-h-[480px] space-y-2 overflow-y-auto scrollbar-thin-theme">{history.results.map(ticket => <li key={ticket.id}><button disabled={busy} onClick={() => openSupportRequest(ticket)} className={`w-full rounded-lg border p-3 text-left transition-colors ${selected?.id === ticket.id ? 'border-brand/40 bg-brand/5' : 'hover:bg-accent'}`}><p className="break-words text-sm font-medium">{ticket.subject}</p><p className="mt-2 text-xs text-muted-foreground">{ticket.request_type_label} · {ticketStatusLabels[ticket.status] || ticket.status.replaceAll('_', ' ')}</p><p className="mt-1 text-xs text-muted-foreground">{formatDateTime(ticket.updated_at)}</p></button></li>)}</ul>}
-        {!error && !loading && (history.previous || history.next) && <nav aria-label="Request history pages" className="mt-3 flex items-center justify-between gap-2 border-t pt-3"><Button size="sm" variant="ghost" disabled={!history.previous || busy} onClick={() => setPage(value => value - 1)} aria-label="Previous request page"><ChevronLeft className="h-4 w-4" /></Button><span className="text-xs text-muted-foreground">Page {page}</span><Button size="sm" variant="ghost" disabled={!history.next || busy} onClick={() => setPage(value => value + 1)} aria-label="Next request page"><ChevronRight className="h-4 w-4" /></Button></nav>}
+  return <div className="page-content">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Support for your workspace</h2><p className="mt-1 text-xs leading-6 text-muted-foreground">{contact?.hours}</p></div><div className="flex gap-2"><RefreshButton onClick={async () => { await loadSupportRequests(); if (selected) await openSupportRequest(selected); }} label="Refresh support requests" disabled={loading || busy} loading={loading || detailLoading} /><Button size="sm" onClick={openRequestForm}><Plus className="h-4 w-4" />New request</Button></div></div>
+    <section aria-label="Requests and replies" className={`grid items-start gap-3 ${selected ? 'lg:grid-cols-[320px_1fr]' : ''}`}>
+      <div className={`min-w-0 rounded-xl border bg-card ${selected ? 'hidden lg:block' : ''}`}><div className="flex items-center justify-between border-b px-4 py-3"><h3 className="text-sm font-semibold">Your requests</h3>{!loading && !error && <span className="text-xs text-muted-foreground">{formatNumber(history.count, { maximumFractionDigits: 0 })} total</span>}</div><div className="p-3">
+        {error ? <WorkspaceState error={error} onRetry={loadSupportRequests} /> : loading ? <WorkspaceState loading title="Loading requests" description="Fetching your latest messages and statuses." /> : history.results.length === 0 ? <div className="px-4 py-8 text-center"><MessageSquare className="mx-auto mb-3 h-8 w-8 text-brand" /><h3 className="font-medium">No support requests yet</h3><p className="mx-auto mb-3 mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Ask about your account, send a suggestion, or discuss a custom software project. Your requests and replies will appear here.</p><Button variant="outline" size="sm" onClick={openRequestForm}>Create your first request</Button></div> : <ul className="max-h-[480px] space-y-2 overflow-y-auto scrollbar-thin-theme">{history.results.map(ticket => <li key={ticket.id}><Button variant="ghost" type="button" disabled={busy} onClick={() => openSupportRequest(ticket)} className={`block h-auto w-full whitespace-normal rounded-lg border p-3 text-left transition-colors ${selected?.id === ticket.id ? "" : ""}`}><p className="break-words text-sm font-medium">{ticket.subject}</p><p className="mt-2 text-xs text-muted-foreground">{ticket.request_type_label} · {ticketStatusLabels[ticket.status] || ticket.status.replaceAll('_', ' ')}</p><p className="mt-1 text-xs text-muted-foreground">{formatDateTime(ticket.updated_at)}</p></Button></li>)}</ul>}
+        <Pagination {...history} compact page={page} pageSize={pageSize} loading={loading || busy} onPageChange={setPage} onPageSizeChange={setPageSize} label="Support request pages" />
       </div></div>
-      {selected && <article className="min-w-0 rounded-xl border bg-card"><header className="border-b p-4"><Button variant="ghost" size="sm" className="mb-2 lg:hidden" disabled={busy} onClick={() => { detailRequest.current++; setSelected(null); }}><ArrowLeft className="h-4 w-4" />All requests</Button><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words text-lg font-semibold">{selected.subject}</h3><p className="mt-1 text-xs text-muted-foreground">{selected.request_type_label} · {ticketStatusLabels[selected.status] || selected.status.replaceAll('_', ' ')}</p></div><Button size="sm" variant="ghost" disabled={detailLoading || busy} onClick={() => openSupportRequest(selected)} aria-label="Refresh this request"><RefreshCw className="h-4 w-4" /></Button></div><p className="mt-2 break-all text-[11px] text-muted-foreground">Reference: {selected.id}</p></header><div className="space-y-4 p-4">
+      {selected && <article className="min-w-0 rounded-xl border bg-card"><header className="border-b p-3"><Button variant="ghost" size="sm" className="mb-2 lg:hidden" disabled={busy} onClick={() => { detailRequest.current++; setSelected(null); }}><ArrowLeft className="h-4 w-4" />All requests</Button><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words text-lg font-semibold">{selected.subject}</h3><p className="mt-1 text-xs text-muted-foreground">{selected.request_type_label} · {ticketStatusLabels[selected.status] || selected.status.replaceAll('_', ' ')}</p></div></div><p className="mt-2 break-all text-[11px] text-muted-foreground">Reference: {selected.id}</p></header><div className="space-y-3 p-3">
         {detailLoading && <p className="text-sm text-muted-foreground"><GlobalLoader inline text="Loading the conversation…" /></p>}{detailError && <WorkspaceState error={detailError} onRetry={() => openSupportRequest(selected)} />}
-        <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1 scrollbar-thin-theme"><div className="rounded-xl bg-muted/40 p-4"><p className="mb-2 text-xs font-medium text-muted-foreground">You · {formatDateTime(selected.created_at)}</p><p className="whitespace-pre-wrap break-words text-sm leading-7">{selected.body}</p></div>{selected.replies.map(item => <div key={item.id} className={`rounded-xl border p-4 ${item.staff ? 'border-brand/20 bg-brand/5' : 'bg-muted/30'}`}><p className="mb-2 text-xs font-medium text-muted-foreground">{item.staff ? 'QuantNest support' : 'You'} · {formatDateTime(item.created_at)}</p><p className="whitespace-pre-wrap break-words text-sm leading-7">{item.body}</p></div>)}</div>
+        <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1 scrollbar-thin-theme"><div className="rounded-xl bg-muted/40 p-3"><p className="mb-2 text-xs font-medium text-muted-foreground">You · {formatDateTime(selected.created_at)}</p><p className="whitespace-pre-wrap break-words text-sm leading-7">{selected.body}</p></div>{selected.replies?.map(item => <div key={item.id} className={`rounded-xl border p-3 ${item.staff ? 'border-brand/20 bg-brand/5' : 'bg-muted/30'}`}><p className="mb-2 text-xs font-medium text-muted-foreground">{item.staff ? 'QuantNest support' : 'You'} · {formatDateTime(item.created_at)}</p><p className="whitespace-pre-wrap break-words text-sm leading-7">{item.body}</p></div>)}</div>
         <form onSubmit={submitSupportReply} className="space-y-3 border-t pt-4"><Label htmlFor="support-reply">Your reply</Label><Textarea id="support-reply" rows={3} maxLength={10000} minLength={2} required value={reply} onChange={event => setReply(event.target.value)} disabled={busy || detailLoading} /><div className="flex justify-end"><Button type="submit" size="sm" disabled={busy || detailLoading || reply.trim().length < 2}>{busy ? <LoaderMark className="h-4 w-4" /> : <Send className="h-4 w-4" />}Send reply</Button></div></form>
       </div></article>}
     </section>
     <Dialog open={modal} onOpenChange={value => { if (!busy) setModal(value); }}>
       <DialogContent className="max-h-[90dvh] max-w-xl overflow-y-auto scrollbar-thin-theme">
         <DialogHeader><DialogTitle>New support request</DialogTitle><DialogDescription>Keep passwords, broker credentials and recovery codes out of your message.</DialogDescription></DialogHeader>
-        <form onSubmit={submitSupportRequest} className="space-y-4">
+        <form onSubmit={submitSupportRequest} className="space-y-3">
           {(optionsLoading || optionsError) && <WorkspaceState loading={optionsLoading} error={optionsError ? 'Request types could not load. Please try again.' : ''} title={optionsLoading ? 'Loading request types' : undefined} onRetry={optionsError ? refreshOptions : undefined} />}
-          
+
           <div className="space-y-2"><Label htmlFor="support-kind">Request type</Label><Select value={selectedKind} onValueChange={setKind} disabled={busy || optionsLoading || optionsError || !selectedKind}><SelectTrigger id="support-kind"><SelectValue placeholder="Choose a request type" /></SelectTrigger><SelectContent>{requestTypes.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
           <div className="space-y-2"><Label htmlFor="support-subject">Subject</Label><Input id="support-subject" value={subject} onChange={event => setSubject(event.target.value)} minLength={3} maxLength={180} required disabled={busy} /></div>
           <div className="space-y-2"><Label htmlFor="support-details">What would you like to discuss?</Label><Textarea id="support-details" value={body} onChange={event => setBody(event.target.value)} minLength={10} maxLength={10000} rows={5} required disabled={busy} /></div>

@@ -1,7 +1,7 @@
 import api from "./api";
 
 export const notificationApi = {
-  getNotifications: () => api.get("/notifications/items/"),
+  getNotifications: (params = {}, signal) => api.get("/notifications/items/", { params, signal }),
   getSummary: () => api.get("/notifications/items/summary/"),
   markRead: (id) => api.post(`/notifications/items/${id}/mark-read/`),
   markAllRead: () => api.post("/notifications/items/mark-all-read/"),

@@ -10,9 +10,10 @@ function getFormatter(kind, options) {
 }
 
 export function formatNumber(value, options = {}) {
+  const amount = Number(value);
   const maximumFractionDigits = options.maximumFractionDigits ?? 2;
   return getFormatter('number', { maximumFractionDigits,
-    minimumFractionDigits: Math.min(2, maximumFractionDigits), ...options }).format(Number(value || 0));
+    minimumFractionDigits: Math.min(2, maximumFractionDigits), ...options }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 export function formatCurrency(value, options = {}) {

@@ -5,6 +5,7 @@ Handles backtest runs, trades, metrics, equity curves,
 optimization, and Monte Carlo simulations.
 """
 from django.db import models
+from execution.models import RouteOwnership
 from django.conf import settings
 from common.models import BaseTimestampModel
 from common.enums import BacktestStatus, Side
@@ -88,7 +89,7 @@ class BacktestRun(BaseTimestampModel):
         return f"{self.name} ({self.status})"
 
 
-class BacktestTrade(BaseTimestampModel):
+class BacktestTrade(BaseTimestampModel, RouteOwnership):
     """
     One position opened by an entry and closed by one or more exit fills.
     """

@@ -26,6 +26,12 @@ class BacktestRunListSerializer(serializers.ModelSerializer):
 
 class BacktestCostSerializer(serializers.ModelSerializer):
     charge_profile_detail = serializers.SerializerMethodField()
+    data_quality = serializers.SerializerMethodField()
+
+    def get_data_quality(self, obj):
+        # The worker's full reviewed strike grid is durable internal input,
+        # not presentation data to resend on every progress refresh.
+        return {key: value for key, value in obj.data_quality.items() if key != 'accepted_workload'}
 
     def get_charge_profile_detail(self, obj):
         snapshot = obj.charge_profile_snapshot
@@ -99,7 +105,7 @@ class BacktestTradeSerializer(serializers.ModelSerializer):
             'id', 'instrument', 'instrument_symbol', 'side', 'entry_time', 'exit_time',
             'entry_price', 'exit_price', 'quantity', 'gross_pnl', 'brokerage',
             'slippage', 'net_pnl', 'charges_json', 'charges_breakdown', 'pnl_pct', 'mae', 'mfe', 'holding_duration_minutes',
-            'exit_reason'
+            'exit_reason', 'route_id', 'leg_id'
         ]
 
     def get_charges_breakdown(self, obj):
@@ -183,3 +189,12 @@ class MonteCarloResultSerializer(serializers.ModelSerializer):
             'id', 'metric_name', 'valid_simulations', 'mean_value', 'median_value', 'std_dev',
             'lower_outcome_bound', 'upper_outcome_bound', 'worst_case', 'best_case'
         ]
+
+
+class MonteCarloListSerializer(serializers.ModelSerializer):
+    backtest_name = serializers.CharField(source='backtest_run.name', read_only=True)
+
+    class Meta:
+        model = MonteCarloRun
+        fields = ('id', 'backtest_run', 'backtest_name', 'num_simulations', 'confidence_level',
+                  'status', 'error_message', 'completed_at', 'created_at')

@@ -1,14 +1,13 @@
-import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
+import { useQueryState } from "@/shared/hooks/usePagination";
+import api from "@/shared/services/api";
+import RefreshButton from "@/shared/components/RefreshButton";
+import PageTabs from "@/shared/components/PageTabs";
+
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-  TrendingUp,
-  BarChart3,
-  RefreshCw,
-  BookOpen,
-  Terminal,
-} from "lucide-react";
+import { TrendingUp, BarChart3, BookOpen, Terminal } from "lucide-react";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePageActions } from "@/shared/context/pageActions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
@@ -20,33 +19,49 @@ import PaperPortfolioOverview from "@/features/paper/components/PaperPortfolioOv
 import PaperPositions from "@/features/paper/components/PaperPositions.jsx";
 import PaperOrderBook from "@/features/paper/components/PaperOrderBook.jsx";
 import PaperTradeHistory from "@/features/paper/components/PaperTradeHistory.jsx";
+import SettlementHistory from '@/shared/components/SettlementHistory';
 import { formatCurrency } from "@/shared/utils/formatters";
 import { usePaperTradingUpdate, usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
 
+const PORTFOLIO_TABS = [
+  { value: "overview", label: "Overview", icon: BarChart3 },
+  { value: "positions", label: "Positions", icon: TrendingUp },
+  { value: "orders", label: "Orders", icon: Terminal },
+  { value: "trades", label: "History", icon: BookOpen },
+  { value: "settlements", label: "Settlements" },
+];
+
 export default function PaperPortfolio() {
   const handleRefresh = useStableCallback(async () => {
-    if (await fetchData()) notify.success("Data refreshed");
+    if (await fetchData(false)) setRefreshRevision((value) => value + 1);
   });
 
   usePaperTradingWebSocket();
   const lastMessage = usePaperTradingUpdate();
   const { notify } = useNotifications();
   const { setPageHeader, clearPageHeader } = usePageActions();
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useQueryState("section", "overview", { resetPage: false });
   const [loading, setLoading] = useState(true);
+  const [refreshRevision, setRefreshRevision] = useState(0);
   const [accounts, setAccounts] = useState([]);
+  const settlementRefresh = useMemo(() => ({ event: lastMessage, revision: refreshRevision }), [lastMessage, refreshRevision]);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedAccount = searchParams.get("account_id");
-  const selectedAccount = accounts.find((account) => String(account.id) === requestedAccount)?.id.toString()
-    || accounts[0]?.id.toString() || "";
+  const selectedAccount = requestedAccount || accounts[0]?.id.toString() || "";
 
+  const accountRequest = useRef(0);
   const fetchData = useCallback(async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const accountsRes = await paperApi.getAccounts();
-
-      const loadedAccounts = accountsRes.data || [];
-      setAccounts(loadedAccounts);
+      const request = ++accountRequest.current;
+      let identity = requestedAccount;
+      if (!identity) {
+        const choices = await api.get('/common/choices/', { params: { resource: 'paper-accounts' } });
+        identity = choices.data.results[0]?.id;
+      }
+      const loaded = identity ? await paperApi.getAccount(identity) : null;
+      if (request !== accountRequest.current) return false;
+      setAccounts(loaded ? [loaded.data] : []);
       return true;
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to load paper trading data"));
@@ -54,10 +69,11 @@ export default function PaperPortfolio() {
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, [notify, requestedAccount]);
 
   useEffect(() => {
-    fetchData();
+    fetchData(); const guard = accountRequest;
+    return () => { guard.current++; };
   }, [fetchData]);
 
   useEffect(() => {
@@ -69,6 +85,7 @@ export default function PaperPortfolio() {
   const handleAccountChange = useStableCallback((accountId) => {
     const next = new URLSearchParams(searchParams);
     next.set("account_id", accountId);
+    for (const list of ["positions", "orders", "trades", "settlements"]) next.set(`${list}_page`, "1");
     setSearchParams(next, { replace: true });
   });
 
@@ -84,68 +101,23 @@ export default function PaperPortfolio() {
 
   useEffect(() => {
     const HeaderContent = () => (
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0 w-full">
-        <div className="flex min-w-0 max-w-full items-center gap-1 bg-card/50 p-1 rounded-xl border border-border backdrop-blur-md overflow-x-auto scrollbar-thin-theme">
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-              activeTab === "overview"
-                ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.1)]"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-            }`}
-          >
-            <BarChart3 className="h-4 w-4" />
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveTab("positions")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-              activeTab === "positions"
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-            }`}
-          >
-            <TrendingUp className="h-4 w-4" />
-            Positions
-          </button>
-          <button
-            onClick={() => setActiveTab("orders")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-              activeTab === "orders"
-                ? "bg-sky-500/10 text-sky-700 dark:text-sky-400 shadow-[0_0_15px_rgba(14,165,233,0.1)]"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-            }`}
-          >
-            <Terminal className="h-4 w-4" />
-            Orders
-          </button>
-          <button
-            onClick={() => setActiveTab("trades")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-              activeTab === "trades"
-                ? "bg-purple-500/10 text-purple-700 dark:text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.1)]"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-            }`}
-          >
-            <BookOpen className="h-4 w-4" />
-            History
-          </button>
-        </div>
+      <div className="flex min-w-0 w-full items-center justify-between gap-3">
+        <PageTabs items={PORTFOLIO_TABS} value={activeTab} onValueChange={setActiveTab} label="Paper portfolio sections" />
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2">
           {/* Account Selector integrated in header */}
           {!loading && accounts.length > 0 && (
-             <div className="flex items-center gap-2 bg-card/50 border border-border rounded-xl p-1 px-3 h-10">
-                <div className="flex items-center gap-2 mr-2">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Session</span>
+             <div className="flex items-center gap-2 rounded-md border border-border p-1 px-2">
+                <div className="flex shrink-0 items-center gap-2 sm:mr-2">
+                  <div className="h-2 w-2 rounded-full bg-success shrink-0" />
+                  <span className="hidden sm:inline text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Session</span>
                 </div>
                 <Select resource="paper-accounts"
                   value={selectedAccount?.toString()}
                   onValueChange={(val) => handleAccountChange(val)}
                   disabled={loading}
                 >
-                  <SelectTrigger className="w-[280px] bg-transparent border-none text-foreground text-sm focus:ring-0 outline-none shadow-none h-8 font-medium px-2 hover:bg-secondary/50">
+                  <SelectTrigger aria-label="Paper session" className="min-w-0 flex-1 sm:flex-none sm:w-[280px] bg-transparent border-none text-foreground text-sm outline-none font-medium px-2 [&>span]:truncate">
                     <SelectValue placeholder="Select session" />
                   </SelectTrigger>
                   <SelectContent className="bg-card border-border text-foreground">
@@ -156,15 +128,8 @@ export default function PaperPortfolio() {
                     ))}
                   </SelectContent>
                 </Select>
-                <div className="h-4 w-[1px] bg-secondary mx-1" />
-                <button
-                  onClick={handleRefresh}
-                  disabled={loading}
-                  className="flex items-center gap-2 text-[10px] font-black text-muted-foreground hover:text-foreground transition-colors px-1 tracking-tighter"
-                >
-                  {loading ? <LoaderMark className="h-3 w-3" /> : <RefreshCw className="h-3 w-3" />}
-                  <span>REFRESH</span>
-                </button>
+                <div className="h-4 w-[1px] shrink-0 bg-secondary mx-1" />
+                <RefreshButton onClick={handleRefresh} label="Refresh paper portfolio" disabled={loading} loading={loading} />
              </div>
           )}
 
@@ -178,7 +143,7 @@ export default function PaperPortfolio() {
     return () => {
       clearPageHeader();
     };
-  }, [activeTab, selectedAccount, accounts, loading, setPageHeader, clearPageHeader, handleRefresh, handleAccountChange]);
+  }, [activeTab, setActiveTab, selectedAccount, accounts, loading, setPageHeader, clearPageHeader, handleRefresh, handleAccountChange]);
 
 
 
@@ -191,15 +156,12 @@ export default function PaperPortfolio() {
   }
 
   return (
-    <div className="container-padding pb-8">
-
-      {/* Tab Content */}
-      <div className="mt-6">
-        {activeTab === "overview" && <PaperPortfolioOverview account={selectedAccountData} />}
-        {activeTab === "positions" && <PaperPositions selectedAccountId={selectedAccount} />}
-        {activeTab === "orders" && <PaperOrderBook selectedAccountId={selectedAccount} />}
-        {activeTab === "trades" && <PaperTradeHistory selectedAccountId={selectedAccount} />}
-      </div>
+    <div className="page-content">
+      {activeTab === "overview" && <PaperPortfolioOverview account={selectedAccountData} refreshKey={refreshRevision} />}
+      {activeTab === "positions" && <PaperPositions selectedAccountId={selectedAccount} refreshKey={refreshRevision} />}
+      {activeTab === "orders" && <PaperOrderBook selectedAccountId={selectedAccount} refreshKey={refreshRevision} />}
+      {activeTab === "trades" && <PaperTradeHistory selectedAccountId={selectedAccount} refreshKey={refreshRevision} />}
+      {activeTab === 'settlements' && selectedAccount && <SettlementHistory key={selectedAccount} accountId={selectedAccount} refreshKey={settlementRefresh} />}
     </div>
   );
 }

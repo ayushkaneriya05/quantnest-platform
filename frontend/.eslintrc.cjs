@@ -14,7 +14,7 @@ module.exports = {
   rules: {
     'react-refresh/only-export-components': [
       'warn',
-      { allowConstantExport: true, allowExportNames: ['buttonVariants', 'badgeVariants', 'useEnums', 'useSystemNotificationsContext'] },
+      { allowConstantExport: true, allowExportNames: ['buttonVariants', 'badgeVariants', 'useEnums', 'useStrategySpecification', 'useSystemNotificationsContext'] },
     ],
   },
 }

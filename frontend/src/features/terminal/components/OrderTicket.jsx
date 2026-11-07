@@ -66,15 +66,15 @@ export default function OrderTicket({ instrument, account, side, onSideChange, o
     } catch (failure) { notify.error(getApiErrorMessage(failure, 'Could not submit order.')); }
     finally { setBusy(false); }
   };
-  if (!instrument) return <p className="p-4 text-sm text-muted-foreground">Select an instrument to place an order.</p>;
+  if (!instrument) return <p className="p-3 text-sm text-muted-foreground">Select an instrument to place an order.</p>;
   return <form onSubmit={submit} className="flex h-full min-h-0 flex-col">
     <header className="shrink-0 border-b px-3 py-2.5 pr-10 xl:pr-3"><h2 className="text-sm font-semibold">Order ticket</h2>
       <p className="mt-0.5 truncate text-xs text-muted-foreground" title={instrument.name}>{instrument.name} · {instrument.exchange}</p></header>
     {/* Only the fields scroll; funds and the submit button remain visible. */}
-    <div className="scrollbar-thin-theme flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [&>*]:shrink-0 [&_input]:h-9 [&_label]:text-xs [&_[role=combobox]]:h-9">
-    <div className="grid grid-cols-2 gap-2">{enums.Side.map(({ value, label }) => <Button key={value} type="button" variant={side === value ? 'default' : 'outline'}
+    <div className="scrollbar-thin-theme flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [&>*]:shrink-0 [&_label]:text-xs">
+    <div className="grid grid-cols-2 gap-2">{enums.Side.map(({ value, label }) => <Button key={value} type="button" variant={side === value ? value === values.Side.BUY ? 'success' : 'sell' : 'outline'}
       size="sm" aria-pressed={side === value}
-      onClick={() => onSideChange(value)} className={side === value ? value === values.Side.BUY ? 'bg-emerald-700 text-white hover:bg-emerald-800' : 'bg-rose-600 text-white hover:bg-rose-700' : ''}>{label}</Button>)}</div>
+      onClick={() => onSideChange(value)}>{label}</Button>)}</div>
     <div className="space-y-1.5"><Label htmlFor="terminal-type">Order type</Label>
       <Select value={type} onValueChange={setType}><SelectTrigger id="terminal-type"><SelectValue /></SelectTrigger>
         <SelectContent>{orderTypes.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
@@ -96,7 +96,7 @@ export default function OrderTicket({ instrument, account, side, onSideChange, o
       : !open ? <p className="text-xs text-muted-foreground">Orders are available during this segment’s trading session.</p>
       : !hasPrice && type === values.TerminalOrderType.MARKET && <p className="text-xs text-muted-foreground">Waiting for a market price.</p>}
     <Button type="submit" disabled={busy || !instrument.orderable || !open || !valid || type === values.TerminalOrderType.MARKET && !hasPrice}
-      className={side === values.Side.BUY ? 'w-full bg-emerald-700 text-white hover:bg-emerald-800' : 'w-full bg-rose-600 text-white hover:bg-rose-700'}>
+      variant={side === values.Side.BUY ? 'success' : 'sell'} className="w-full">
       {busy ? 'Submitting…' : (side === values.Side.BUY ? 'Buy' : 'Sell') + ' ' + formatNumber(size, { maximumFractionDigits: 0 }) + (derivative ? Number(size) === 1 ? ' lot' : ' lots' : Number(size) === 1 ? ' unit' : ' units')}</Button>
     </footer>
   </form>;

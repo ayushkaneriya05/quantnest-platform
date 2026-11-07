@@ -38,11 +38,19 @@ function CitedText({ text, evidence, onEvidence }) {
   const linked = text.replace(/\[(E\d+)\](?!\()/g, (match, id) => evidence.some((item) => item.evidence_id === id) ? `[${id}](#evidence-${id})` : match);
   const renderLink = ({ href, children }) => {
     const item = evidence.find((value) => href === `#evidence-${value.evidence_id}`);
-    return item ? <button className="inline rounded bg-indigo-500/10 px-1 text-xs font-medium text-indigo-700 dark:text-indigo-300" onClick={() => onEvidence(item)} aria-label={`Open ${item.evidence_id} evidence`}>{children}</button> : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+    return item ? <Button variant="ghost" type="button" className="inline rounded px-1 text-xs font-medium " onClick={() => onEvidence(item)} aria-label={`Open ${item.evidence_id} evidence`}>{children}</Button> : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
   };
   return <Markdown renderLink={renderLink}>{linked}</Markdown>;
 }
 CitedText.propTypes = { text: PropTypes.string.isRequired, evidence: PropTypes.array.isRequired, onEvidence: PropTypes.func.isRequired };
+
+// Keep the conversation browser's page/search when opening another chat. Its
+// transcript and evidence get their own identities instead of reusing old offsets.
+function conversationQuery(id, params) {
+  const next = new URLSearchParams([...params].filter(([key]) => key.startsWith('conversations_')));
+  if (id != null) next.set('session', String(id));
+  return next;
+}
 
 export default function AIResearchAssistant() {
   const { notify } = useNotifications();
@@ -73,7 +81,7 @@ export default function AIResearchAssistant() {
   const submitting = useRef(false);
   const { allowance, runs, receive, loading, activeRun, active, connected, reload, hasMore, loadMore } = useResearchData(session);
   const exhausted = allowance?.enforced && allowance.remaining === 0;
-  const credits = (tokens) => formatNumber(tokens / (allowance?.tokens_per_credit || 1000), { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  const credits = (tokens) => formatNumber(tokens / (allowance?.tokens_per_credit || 1000));
   const turns = session ? runs.filter((run) => String(run.session) === session) : [];
   const latest = turns.at(-1);
   const contextReady = !session || restored.current === session;
@@ -94,7 +102,7 @@ export default function AIResearchAssistant() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (!session && activeRun && !params.get("backtest") && !params.get("source")) setParams({ session: String(activeRun.session) }, { replace: true });
+    if (!session && activeRun && !params.get("backtest") && !params.get("source")) setParams(conversationQuery(activeRun.session, params), { replace: true });
   }, [activeRun, session, params, setParams]);
   useEffect(() => {
     const context = latest?.request;
@@ -139,13 +147,13 @@ export default function AIResearchAssistant() {
   }, [prompt]);
 
   function newChat() {
-    setParams({}); restored.current = null; openedSession.current = null; setPrompt(""); setError(""); setSource(null); setAttached([]); setExecutionReview(null);
+    setParams(conversationQuery(null, params)); restored.current = null; openedSession.current = null; setPrompt(""); setError(""); setSource(null); setAttached([]); setExecutionReview(null);
     setUniverse({ strategy_id: null, instruments: [], watchlist_id: null });
     setTimeframe(schema?.defaults.timeframe || ""); setSidebar(false); inputRef.current?.focus();
   }
   const headerActions = useMemo(() => <>
-    <Button variant="ghost" size="icon" aria-label="Open conversations" className="h-9 w-9 lg:hidden" onClick={() => setSidebar(true)}><PanelLeft size={17} /></Button>
-    <Button variant="ghost" size="icon" aria-label="Toggle conversation sidebar" aria-expanded={!sidebarCollapsed} className="hidden h-9 w-9 lg:flex" onClick={() => setSidebarCollapsed((previous) => !previous)}><PanelLeft size={17} /></Button>
+    <Button variant="ghost" size="icon" aria-label="Open conversations" className="w-9 lg:hidden" onClick={() => setSidebar(true)}><PanelLeft size={17} /></Button>
+    <Button variant="ghost" size="icon" aria-label="Toggle conversation sidebar" aria-expanded={!sidebarCollapsed} className="hidden w-9 lg:flex" onClick={() => setSidebarCollapsed((previous) => !previous)}><PanelLeft size={17} /></Button>
     <Button variant="outline" size="sm" onClick={newChat}><Plus className="h-4 w-4" /><span className="hidden sm:inline">New chat</span><span className="sr-only sm:hidden">New chat</span></Button>
   </>, [schema, sidebarCollapsed]); // eslint-disable-line react-hooks/exhaustive-deps
   useSetPageActions(headerActions);
@@ -161,7 +169,7 @@ export default function AIResearchAssistant() {
         ["strategy_id", "instrument_ids", "backtest_ids", "timeframe", "watchlist_id", "source_run_id", "execution_review"].includes(key))) };
     try {
       const response = await researchApi.start(payload); receive([response.data]);
-      setParams({ session: String(response.data.session) }); setPrompt("");
+      setParams(conversationQuery(response.data.session, params)); setPrompt("");
       requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; });
     } catch (error) { notify.error(getApiErrorMessage(error, "Could not start research")); }
     finally { submitting.current = false; setBusy(false); }
@@ -183,60 +191,60 @@ export default function AIResearchAssistant() {
     setDetails(null); if (!prompt.trim()) followUp("Use the selected stocks for this investigation.");
   }
   function toggleSelected(runId, id) { setSelected((previous) => ({ ...previous, [runId]: (previous[runId] || []).includes(id) ? previous[runId].filter((item) => item !== id) : [...previous[runId] || [], id] })); }
-  const conversations = <ResearchConversations session={session} refreshKey={`${latest?.id || ""}-${latest?.status || ""}`} onSelect={(id) => { setParams({ session: String(id) }); setPrompt(""); setSidebar(false); setError(""); }} onDelete={(id) => { if (String(id) === session) newChat(); }} />;
+  const conversations = <ResearchConversations session={session} refreshKey={`${latest?.id || ""}-${latest?.status || ""}`} onSelect={(id) => { setParams(conversationQuery(id, params)); setPrompt(""); setSidebar(false); setError(""); }} onDelete={(id) => { if (String(id) === session) newChat(); }} />;
 
   return <div className="flex min-h-0 flex-1 overflow-hidden bg-background/40 text-foreground">
     <aside className={`hidden w-60 shrink-0 border-r border-border p-3 ${sidebarCollapsed ? "" : "lg:block"}`}>{conversations}</aside>
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <div ref={scrollRef} role="log" aria-label="Research conversation" className="scrollbar-theme min-h-0 flex-1 overflow-y-auto overscroll-contain"
         onScroll={(event) => { const node = event.currentTarget; followLatest.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100; }}>
-        <div className={`mx-auto w-full max-w-[1040px] space-y-6 px-4 py-5 sm:px-6 ${!session ? "flex min-h-full flex-col justify-center" : ""}`}>
+        <div className={`mx-auto w-full max-w-[1040px] space-y-3 px-3 py-3 sm:px-4 ${!session ? "flex min-h-full flex-col justify-center" : ""}`}>
           {loading && session && <p className="text-sm text-muted-foreground"><GlobalLoader inline text="Loading conversation…" /></p>}
-          {!session && <div className="space-y-5 py-3"><div className="flex items-start gap-3"><Brain className="mt-1 h-7 w-7 shrink-0 text-indigo-700 dark:text-indigo-400" /><div><h2 className="text-xl font-semibold sm:text-2xl">What would you like to investigate?</h2><p className="mt-2 text-sm text-muted-foreground">Explore stocks, develop rules, and learn from real backtests. Attach context when it helps.</p></div></div><div className="grid gap-4 sm:grid-cols-2">{starters.map((group) => <section key={group.title} className="rounded-xl border border-border p-4"><h3 className="mb-3 text-sm font-semibold text-indigo-700 dark:text-indigo-300">{group.title}</h3><div className="space-y-2">{group.prompts.map(([label, text]) => <button key={label} onClick={() => followUp(text)} className="block w-full rounded-lg bg-card/60 p-3 text-left text-sm hover:bg-secondary">{label}</button>)}</div></section>)}</div></div>}
+          {!session && <div className="space-y-3 py-2"><div className="flex items-start gap-3"><Brain className="mt-1 h-7 w-7 shrink-0 text-brand" /><div><h2 className="text-xl font-semibold sm:text-2xl">What would you like to investigate?</h2><p className="mt-2 text-sm text-muted-foreground">Explore stocks, develop rules, and learn from real backtests. Attach context when it helps.</p></div></div><div className="grid gap-3 sm:grid-cols-2">{starters.map((group) => <section key={group.title} className="rounded-lg border border-border p-3"><h3 className="mb-3 text-sm font-semibold text-brand">{group.title}</h3><div className="space-y-2">{group.prompts.map(([label, text]) => <Button variant="ghost" type="button" key={label} onClick={() => followUp(text)} className="block h-auto w-full whitespace-normal rounded-md px-2.5 py-2 text-left text-sm">{label}</Button>)}</div></section>)}</div></div>}
           {hasMore && session && <Button className="w-full" variant="outline" disabled={loading} onClick={loadMore}>Load earlier turns</Button>}
-          {turns.map((run) => <article key={run.id} className="space-y-4" data-run-id={run.id}>
+          {turns.map((run) => <article key={run.id} className="space-y-3" data-run-id={run.id}>
             <div className="ml-auto max-w-[85%] rounded-xl bg-secondary/70 px-4 py-3"><p className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">You</p><p className="whitespace-pre-wrap text-sm">{run.prompt || "Run the saved market screen."}</p></div>
-            <div className="space-y-4"><div className="flex items-center gap-2 text-xs text-indigo-700 dark:text-indigo-300"><Brain size={16} />QuantNest Research<span className="ml-auto text-muted-foreground">{formatDateTime(run.as_of)}</span></div>
+            <div className="space-y-3"><div className="flex items-center gap-2 text-xs text-brand"><Brain size={16} />QuantNest Research<span className="ml-auto text-muted-foreground">{formatDateTime(run.as_of)}</span></div>
               {run.request && <p className="text-xs text-muted-foreground">{run.request.execution_review ? `${run.request.execution_review.filters.source.toLowerCase()} execution · ${run.request.execution_review.filters.date_from} – ${run.request.execution_review.filters.date_to}` : `${run.request.instruments.map((item) => item.symbol).join(", ") || "General research"} · ${run.request.timeframe} · closed candles`}</p>}
-              {isResearchActive(run) || !run.request || run.status === "COMPLETED" && run.loadedRevision < run.revision ? <div role="status" className="flex items-center gap-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4"><LoaderMark className="h-4 w-4" /><p className="flex-1 text-sm text-foreground">{run.progress_message}</p>{isResearchActive(run) && <Button size="sm" variant="outline" disabled={busy} onClick={() => cancel(run)}>Cancel</Button>}</div> : run.status === "COMPLETED" ? <>
+              {isResearchActive(run) || !run.request || run.status === "COMPLETED" && run.loadedRevision < run.revision ? <div role="status" className="flex items-center gap-3 rounded-xl border border-brand/20 bg-brand/5 p-3"><LoaderMark className="h-4 w-4" /><p className="flex-1 text-sm text-foreground">{run.progress_message}</p>{isResearchActive(run) && <Button size="sm" variant="outline" disabled={busy} onClick={() => cancel(run)}>Cancel</Button>}</div> : run.status === "COMPLETED" ? <>
                 <CitedText text={run.result.answer} evidence={run.evidence} onEvidence={setDetails} />
                 {run.mode === "RESEARCH" && Number.isInteger(run.usage?.total_tokens) && <p className="text-xs text-muted-foreground">{credits(run.usage.total_tokens)} AI credits{run.usage.complete === false ? " · reported usage is incomplete" : ""}</p>}
-                {run.evidence.filter((item) => (run.result.artifact_refs?.length ? run.result.artifact_refs : run.result.evidence_ids || []).includes(item.evidence_id)).map((item) => <ResearchEvidence key={item.evidence_id} evidence={item} enums={enums} onDetails={setDetails} onChoose={active ? undefined : chooseInstrument} selected={selected[run.id] || []} onSelect={item.data.rows ? (id) => toggleSelected(run.id, id) : undefined} />)}
-                {run.result.clarification_questions?.length > 0 && <div className="rounded-xl border border-indigo-500/20 p-4"><h4 className="mb-3 text-sm font-medium">To continue</h4>{run.result.clarification_questions.map((text, index) => <CitedText key={index} text={text} evidence={run.evidence} onEvidence={setDetails} />)}</div>}
+                {run.evidence.filter((item) => (run.result.artifact_refs?.length ? run.result.artifact_refs : run.result.evidence_ids || []).includes(item.evidence_id)).map((item) => <ResearchEvidence key={item.evidence_id} evidence={item} enums={enums} onDetails={setDetails} onChoose={active ? undefined : chooseInstrument} selected={selected[run.id] || []} onSelect={item.data.row_count != null ? (id) => toggleSelected(run.id, id) : undefined} />)}
+                {run.result.clarification_questions?.length > 0 && <div className="rounded-xl border border-brand/20 p-3"><h4 className="mb-3 text-sm font-medium">To continue</h4>{run.result.clarification_questions.map((text, index) => <CitedText key={index} text={text} evidence={run.evidence} onEvidence={setDetails} />)}</div>}
                 {run.result.limitations?.length > 0 && <details className="text-sm text-muted-foreground"><summary className="cursor-pointer">Limitations and assumptions</summary><div className="mt-3 space-y-2">{run.result.limitations.map((text, index) => <CitedText key={index} text={text} evidence={run.evidence} onEvidence={setDetails} />)}</div></details>}
                 <div className="flex flex-wrap gap-2">{run.result.next_steps?.map((text, index) => <Button key={index} variant="outline" size="sm" className="h-auto whitespace-normal text-left" onClick={() => followUp(text)}>{text.replace(/\[E\d+\]/g, "")}</Button>)}</div>
-                <div className="flex flex-wrap gap-2">{run.evidence.map((item) => <Button key={item.evidence_id} size="sm" variant="ghost" onClick={() => setDetails(item)}>Source {item.evidence_id}</Button>)}<Button variant="ghost" size="sm" disabled={active || busy} onClick={() => send(run)}>Refresh analysis</Button>{run.result.draft && !run.created_strategy && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "CREATE_DRAFT" })}>Preview strategy draft</Button>}{selected[run.id]?.length > 0 && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "ADD_TO_WATCHLIST", payload: { instrument_ids: selected[run.id] } })}>Preview watchlist additions</Button>}{Boolean(run.created_strategy || run.request.strategy_id || run.request.backtest_ids.length) && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "START_BACKTEST" })}>Configure one backtest</Button>}</div>
-                {run.actions?.map((action) => <div key={action.id} className="space-y-2 rounded-lg border border-border p-3 text-sm"><p>{actionLabel[action.action_type]} · {action.status === "PROPOSED" ? "Awaiting confirmation" : action.status.toLowerCase()}</p>{action.status === "PROPOSED" && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: action.action_type, action })}>Review proposed action</Button>}{action.error_message && <p className="text-rose-700 dark:text-rose-300">{action.error_message}</p>}<ResearchActionLinks action={action} /></div>)}
-              </> : <div role="alert" className="space-y-3 rounded-xl border border-rose-500/20 p-4"><p className="text-sm text-rose-700 dark:text-rose-300">{run.status === "CANCELLED" ? "Research was cancelled. Earlier messages and evidence are retained." : run.error_message}</p><Button variant="outline" size="sm" disabled={busy || active} onClick={() => send(run)}>Retry this question</Button></div>}
+                <div className="flex flex-wrap gap-2">{run.evidence.map((item) => <Button key={item.evidence_id} size="sm" variant="ghost" onClick={() => setDetails(item)}>Source {item.evidence_id}</Button>)}<Button variant="ghost" size="sm" disabled={active || busy} onClick={() => send(run)}>Run analysis again</Button>{run.result.draft && !run.created_strategy && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "CREATE_DRAFT" })}>Preview strategy draft</Button>}{selected[run.id]?.length > 0 && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "ADD_TO_WATCHLIST", payload: { instrument_ids: selected[run.id] } })}>Preview watchlist additions</Button>}{Boolean(run.created_strategy || run.request.strategy_id || run.request.backtest_ids.length) && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "START_BACKTEST" })}>Configure one backtest</Button>}</div>
+                {run.actions?.map((action) => <div key={action.id} className="space-y-2 rounded-lg border border-border p-3 text-sm"><p>{actionLabel[action.action_type]} · {action.status === "PROPOSED" ? "Awaiting confirmation" : action.status.toLowerCase()}</p>{action.status === "PROPOSED" && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: action.action_type, action })}>Review proposed action</Button>}{action.error_message && <p className="text-loss">{action.error_message}</p>}<ResearchActionLinks action={action} /></div>)}
+              </> : <div role="alert" className="space-y-3 rounded-xl border border-loss/20 p-3"><p className="text-sm text-loss">{run.status === "CANCELLED" ? "Research was cancelled. Earlier messages and evidence are retained." : run.error_message}</p><Button variant="outline" size="sm" disabled={busy || active} onClick={() => send(run)}>Retry this question</Button></div>}
             </div>
           </article>)}
         </div>
       </div>
-      <div className="safe-bottom shrink-0 border-t border-border bg-background px-3 py-2 sm:px-6 sm:py-3"><div className="mx-auto w-full max-w-[1040px] space-y-2">
+      <div className="safe-bottom shrink-0 border-t border-border bg-background px-3 py-2 sm:px-3 sm:py-3"><div className="mx-auto w-full max-w-[1040px] space-y-2">
         <div className="scrollbar-thin-theme flex max-h-20 flex-wrap items-center gap-2 overflow-y-auto text-xs">
-          {universe.instruments.map((item) => <button key={item.id} className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5" aria-label={`Remove ${item.symbol}`} disabled={active} onClick={() => setUniverse({ ...universe, instruments: universe.instruments.filter((value) => value.id !== item.id) })}>{item.symbol}<X size={12} /></button>)}
-          {(universe.strategy_id || universe.watchlist_id) && <button className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5" disabled={active} onClick={() => setUniverse({ strategy_id: null, instruments: [], watchlist_id: null })} aria-label="Remove watchlist context">{universe.watchlist_id ? `Watchlist: ${universe.watchlist_name || "Selected watchlist"}` : "Strategy"}<X size={12} /></button>}
-          {attached.map((id) => <button key={id} className="flex max-w-52 items-center gap-2 rounded-full border border-border px-3 py-1.5" disabled={active} aria-label={`Remove backtest ${id}`} onClick={() => setAttached(attached.filter((value) => value !== id))}><span className="truncate">{backtests.find((item) => item.id === id)?.name || `Backtest #${id}`}</span><X size={12} /></button>)}
-          {source && <button className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5" disabled={active} onClick={() => setSource(null)} aria-label="Remove screening evidence">Screen evidence #{source}<X size={12} /></button>}
-          {executionReview && <button className="flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-indigo-700 dark:text-indigo-200" disabled={active} onClick={() => setExecutionReview(null)} aria-label="Remove execution review context">{executionReview.filters.source.toLowerCase()} execution {executionReview.trade_id ? `#${executionReview.trade_id}` : `· ${executionReview.filters.date_from} – ${executionReview.filters.date_to}`}<X size={12} /></button>}
-          <Select value={timeframe} onValueChange={setTimeframe} disabled={active || !schema}><SelectTrigger aria-label="Research timeframe" className="h-8 w-36 text-xs"><SelectValue placeholder="Timeframe" /></SelectTrigger><SelectContent>{enums?.CandleTimeframe?.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select>
+          {universe.instruments.map((item) => <Button variant="ghost" type="button" key={item.id} className="flex items-center gap-2 rounded-full border px-3 py-1.5" aria-label={`Remove ${item.symbol}`} disabled={active} onClick={() => setUniverse({ ...universe, instruments: universe.instruments.filter((value) => value.id !== item.id) })}>{item.symbol}<X size={12} /></Button>)}
+          {(universe.strategy_id || universe.watchlist_id) && <Button variant="ghost" type="button" className="flex items-center gap-2 rounded-full border px-3 py-1.5" disabled={active} onClick={() => setUniverse({ strategy_id: null, instruments: [], watchlist_id: null })} aria-label="Remove watchlist context">{universe.watchlist_id ? `Watchlist: ${universe.watchlist_name || "Selected watchlist"}` : "Strategy"}<X size={12} /></Button>}
+          {attached.map((id) => <Button variant="ghost" type="button" key={id} className="flex max-w-52 items-center gap-2 rounded-full border px-3 py-1.5" disabled={active} aria-label={`Remove backtest ${id}`} onClick={() => setAttached(attached.filter((value) => value !== id))}><span className="truncate">{backtests.find((item) => item.id === id)?.name || `Backtest #${id}`}</span><X size={12} /></Button>)}
+          {source && <Button variant="ghost" type="button" className="flex items-center gap-2 rounded-full border px-3 py-1.5" disabled={active} onClick={() => setSource(null)} aria-label="Remove screening evidence">Screen evidence #{source}<X size={12} /></Button>}
+          {executionReview && <Button variant="ghost" type="button" className="flex items-center gap-2 rounded-full border px-3 py-1.5 " disabled={active} onClick={() => setExecutionReview(null)} aria-label="Remove execution review context">{executionReview.filters.source.toLowerCase()} execution {executionReview.trade_id ? `#${executionReview.trade_id}` : `· ${executionReview.filters.date_from} – ${executionReview.filters.date_to}`}<X size={12} /></Button>}
+          <Select value={timeframe} onValueChange={setTimeframe} disabled={active || !schema}><SelectTrigger aria-label="Research timeframe" className="w-36 text-xs"><SelectValue placeholder="Timeframe" /></SelectTrigger><SelectContent>{enums?.CandleTimeframe?.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select>
           <Button variant="ghost" size="sm" disabled={active || !schema} onClick={() => setAttachmentsOpen(true)}><Paperclip size={14} className="mr-1" />Attach context</Button>
-          <TooltipHint content={connected ? "Live research updates connected" : "Reconnecting; saved research is retained"}><span tabIndex={0} role="status" aria-label={connected ? "Research updates connected" : "Research updates reconnecting"} className={`ml-auto mr-1 h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-400" : "bg-amber-400"}`} /></TooltipHint>
+          <TooltipHint content={connected ? "Live research updates connected" : "Reconnecting; saved research is retained"}><span tabIndex={0} role="status" aria-label={connected ? "Research updates connected" : "Research updates reconnecting"} className={`ml-auto mr-1 h-2 w-2 shrink-0 rounded-full ${connected ? "bg-success" : "bg-warning"}`} /></TooltipHint>
         </div>
-        <form className="flex items-end gap-2 rounded-xl border border-border bg-card/40 p-1.5 focus-within:border-indigo-500/60" onSubmit={(event) => { event.preventDefault(); send(); }}><Textarea ref={inputRef} rows={1} aria-label="Research question" title="Enter to send; Shift+Enter for a new line" placeholder="Ask a question or describe your trading idea…" className="max-h-32 min-h-[40px] resize-none rounded-lg border-0 bg-transparent py-2.5 focus-visible:ring-0 focus-visible:ring-offset-0" value={prompt} maxLength={6000} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} /><Button type="submit" size="icon" className="h-10 w-10 shrink-0 bg-indigo-600 text-white hover:bg-indigo-700" aria-label="Send research question" disabled={exhausted || busy || active || loading || !contextReady || !prompt.trim() || !schema?.service_configured}><Send size={17} /></Button></form>
-        {(error || !schema?.service_configured && schema) && <p role="alert" className="text-xs text-rose-700 dark:text-rose-300">{error || "The research service needs configuration before you can send a question."}</p>}
-        {activeRun && String(activeRun.session) !== session && <p className="text-xs text-amber-700 dark:text-amber-300">Another conversation has active research. <button className="underline" onClick={() => setParams({ session: String(activeRun.session) })}>Open it to follow progress or cancel.</button></p>}
+        <form className="flex items-end gap-2 rounded-xl border border-border bg-card/40 p-1.5 focus-within:border-brand/60" onSubmit={(event) => { event.preventDefault(); send(); }}><Textarea ref={inputRef} rows={1} aria-label="Research question" title="Enter to send; Shift+Enter for a new line" placeholder="Ask a question or describe your trading idea…" className="max-h-32 min-h-[40px] resize-none rounded-lg border-0 bg-transparent py-2.5 focus-visible:ring-0 focus-visible:ring-offset-0" value={prompt} maxLength={6000} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} /><Button variant="default" type="submit" size="icon" className="w-10 shrink-0" aria-label="Send research question" disabled={exhausted || busy || active || loading || !contextReady || !prompt.trim() || !schema?.service_configured}><Send size={17} /></Button></form>
+        {(error || !schema?.service_configured && schema) && <p role="alert" className="text-xs text-loss">{error || "The research service needs configuration before you can send a question."}</p>}
+        {activeRun && String(activeRun.session) !== session && <p className="text-xs text-warning">Another conversation has active research. <Button variant="ghost" type="button" className="inline h-auto whitespace-normal p-0 text-xs underline" onClick={() => setParams(conversationQuery(activeRun.session, params))}>Open it to follow progress or cancel.</Button></p>}
       </div></div>
     </section>
     <ResearchDrawer open={sidebar} onOpenChange={setSidebar} title="Conversations">{sidebar && conversations}</ResearchDrawer>
     <ResearchDrawer wide open={Boolean(details)} onOpenChange={(open) => { if (!open) setDetails(null); }} title="Evidence and calculations">{details && <ResearchEvidence evidence={details} enums={enums} onChoose={active ? undefined : chooseInstrument} detailed />}</ResearchDrawer>
     <Dialog open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
-      <DialogContent style={{ "--tw-enter-scale": 1, "--tw-exit-scale": 1 }} className="flex max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-xl flex-col border-border bg-background p-5 text-foreground">
+      <DialogContent style={{ "--tw-enter-scale": 1, "--tw-exit-scale": 1 }} className="flex max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-xl flex-col border-border bg-background p-3 text-foreground">
         <div className="space-y-2 pr-7">
         <DialogTitle>Attach research context</DialogTitle>
         <DialogDescription>Optional stocks, a watchlist, a strategy, or completed backtests within your allowance.</DialogDescription>
         </div>
-        <div className="scrollbar-theme min-h-0 space-y-5 overflow-y-auto pr-1">
+        <div className="scrollbar-theme min-h-0 space-y-3 overflow-y-auto pr-1">
         <ResearchUniverse value={universe} onChange={(value, preferredTimeframe) => { setUniverse(value); if (preferredTimeframe) setTimeframe(preferredTimeframe); }} disabled={active} maxInstruments={schema?.limits.instruments} />
         <section>
           <h3 className="mb-3 text-sm">Completed backtests ({attached.length}{schema?.limits.backtests != null ? `/${schema.limits.backtests}` : ''})</h3>
@@ -252,9 +260,9 @@ export default function AIResearchAssistant() {
           </Select>
           <div className="mt-3 flex flex-wrap gap-2">{attached.map((id) => <Button key={id} size="sm" variant="outline" disabled={active} onClick={() => setAttached(attached.filter((value) => value !== id))}>{backtests.find((item) => item.id === id)?.name || `Backtest #${id}`}<X size={12} /></Button>)}</div>
         </section>
-        <Link to="/screener" className="text-xs text-indigo-700 dark:text-indigo-300">Open the market screener</Link>
+        <Link to="/screener" className="text-xs text-brand">Open the market screener</Link>
         </div>
-        <div className="safe-bottom shrink-0 border-t border-border pt-3"><Button className="w-full bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => setAttachmentsOpen(false)}>Done</Button></div>
+        <div className="safe-bottom shrink-0 border-t border-border pt-3"><Button variant="default" className="w-full" onClick={() => setAttachmentsOpen(false)}>Done</Button></div>
       </DialogContent>
     </Dialog>
     {target && schema && <ResearchActionPreview key={`${target.run.id}-${target.type}-${target.action?.id || "new"}`} target={target} schema={schema} onClose={() => setTarget(null)} onComplete={() => reload(true)} />}

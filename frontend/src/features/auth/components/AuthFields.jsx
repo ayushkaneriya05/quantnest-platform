@@ -1,3 +1,4 @@
+import { Button } from "@/shared/components/ui/button";
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { Eye, EyeOff } from "lucide-react";
@@ -24,15 +25,15 @@ export function AuthField({ id, label, icon: Icon, type = "text", ...props }) {
           {...props}
         />
         {isPassword && (
-          <button
+          <Button variant="ghost"
             type="button"
             onClick={() => setShowPassword((visible) => !visible)}
             aria-label={`${showPassword ? "Hide" : "Show"} ${label.toLowerCase()}`}
             aria-pressed={showPassword}
-            className="focus-ring absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground"
+            className="absolute inset-y-0 right-0 h-full w-11 rounded-xl"
           >
             {showPassword ? <EyeOff aria-hidden="true" className="h-4 w-4" /> : <Eye aria-hidden="true" className="h-4 w-4" />}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -49,7 +50,7 @@ export function PasswordGuidance({ value }) {
   }
   const level = strength < 50 ? 0 : strength < 75 ? 1 : strength < 100 ? 2 : 3;
   const labels = ["Weak", "Fair", "Good", "Strong"];
-  const colors = ["bg-loss", "bg-warning", "bg-blue-500", "bg-success"];
+  const colors = ["bg-loss", "bg-warning", "bg-brand", "bg-success"];
 
   return (
     <div className="space-y-2">

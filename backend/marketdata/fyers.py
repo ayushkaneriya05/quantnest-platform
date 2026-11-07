@@ -1,16 +1,18 @@
 """FYERS market-data API and SDK adapters; consumers receive QuantNest data."""
 import logging
+import re
 import socket
 import ssl
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from django.conf import settings
 from fyers_apiv3.FyersWebsocket import data_ws
 from websocket import WebSocketException
 
+from common.enums import ChartTimeframe, InstrumentType
 from .live_feed import MarketObservationClient
 from .contracts import HistoryRequest, normalize_symbol, ProviderError
 from .models import MarketDataToken
@@ -21,7 +23,11 @@ logger = logging.getLogger(__name__)
 class FyersProvider:
     name = "fyers"
     DATA_URL = "https://api-t1.fyers.in/data"
+    EXPIRED_HISTORY_ENDPOINT = "history/fno/expired/historical-data"
+    EXPIRY_DATES_ENDPOINT = "history/fno/expired/expiry-dates"
+    EXPIRED_CONTRACTS_ENDPOINT = "history/fno/expired/underlying-symbols"
     RESOLUTIONS = {"1m": "1", "1D": "D"}
+    MONTH_NAMES = ('JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC')
     history_window_days = {"1m": 30, "1D": 360}
     quota_timezone = "Asia/Kolkata"
     # Enhanced source-account entitlement. Keep vendor limits in this adapter.
@@ -29,6 +35,9 @@ class FyersProvider:
     quote_batch_size = 50  # FYERS' GET quotes endpoint limit.
     request_interval_ms = 120  # Within 10/second and 500/minute.
     daily_request_limit = 500000
+
+    def __init__(self):
+        self._transport = threading.local()
 
     @property
     def account_key(self):
@@ -45,14 +54,17 @@ class FyersProvider:
         if not access_token:
             raise ProviderError("Authorize the market-data connection before fetching FYERS data.")
         acquire_data_request(self)
+        if not hasattr(self._transport, 'session'):
+            self._transport.session = requests.Session()
         try:
-            response = requests.get(f"{self.DATA_URL}/{endpoint}", params=parameters,
+            response = self._transport.session.get(f"{self.DATA_URL}/{endpoint}", params=parameters,
                 headers={"Authorization": f"{settings.FYERS_CLIENT_ID}:{access_token}", "version": "3"},
                 timeout=(5, 15))
         except requests.RequestException as exc:
             kind = type(exc).__name__
             logger.warning("FYERS data transport failed endpoint=%s category=%s", endpoint, kind)
-            raise ProviderError(f"FYERS data connection failed ({kind}). Check network/DNS/TLS connectivity and retry.") from exc
+            raise ProviderError(f"FYERS data connection failed ({kind}). Check network/DNS/TLS connectivity and retry.",
+                retryable=isinstance(exc, (requests.ConnectionError, requests.Timeout))) from exc
         try:
             payload = response.json()
         except ValueError as exc:
@@ -62,11 +74,105 @@ class FyersProvider:
         if response.status_code in (401, 403) or payload.get("code") in (-8, -15, -16, -17):
             raise ProviderError("FYERS data authorization failed. Check the source account's access and reauthorize market data.")
         if not response.ok:
-            raise ProviderError(f"FYERS data request failed (HTTP {response.status_code}): {payload.get('message') or 'Provider unavailable.'}")
+            raise ProviderError(f"FYERS data request failed (HTTP {response.status_code}): {payload.get('message') or 'Provider unavailable.'}",
+                retryable=response.status_code in (502, 503, 504))
         return payload
 
     def live_client(self):
         return FyersLiveFeedClient()
+
+    def _discovery_data(self, endpoint, parameters):
+        """Only documented successful discovery responses can establish a list.
+
+        FYERS returns a short underlying name in data.symbol (for example SBIN),
+        not the exchange-qualified request symbol. Retain both as provenance;
+        never invent a mapping by stripping guessed symbol suffixes.
+        """
+        response = self._get(endpoint, parameters)
+        if response.get('s') != 'ok':
+            raise ProviderError(f"FYERS contract discovery failed (code {response.get('code')}): {response.get('message') or 'No reason supplied.'}")
+        data = response.get('data')
+        if not isinstance(data, dict) or not isinstance(data.get('symbol'), str) or not data['symbol'].strip():
+            raise ProviderError('FYERS returned malformed contract discovery data.')
+        return data
+
+    def expiry_dates(self, symbol: str, start: date, end: date) -> dict:
+        """Discover actual expiries in one inclusive range of at most 366 days."""
+        if not 0 <= (end - start).days < 366:
+            raise ValueError('Choose an increasing expiry range of at most 366 days.')
+        symbol = normalize_symbol(symbol)
+        data = self._discovery_data(self.EXPIRY_DATES_ENDPOINT, {
+            'symbol': symbol, 'range_from': start.isoformat(), 'range_to': end.isoformat(), 'date_format': '1'})
+        try:
+            if data['from_date'] != start.isoformat() or data['to_date'] != end.isoformat():
+                raise ValueError('Range mismatch')
+            expiries = {}
+            for kind, field in ((InstrumentType.FUTURE, 'futures'), (InstrumentType.OPTION, 'options')):
+                values = data['expiry_dates'][field]
+                if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+                    raise ValueError('Expected dates')
+                dates = [date.fromisoformat(value) for value in values]
+                if (any(value.isoformat() != text for value, text in zip(dates, values)) or
+                        any(not start <= value <= end for value in dates)):
+                    raise ValueError('Outside range')
+                expiries[kind] = sorted(set(dates))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderError('FYERS returned invalid expiry dates or a different requested range.') from exc
+        return {'underlying': symbol, 'provider_underlying': data['symbol'], 'expiries': expiries}
+
+    def expired_contracts(self, symbol: str, expiry: date) -> dict:
+        """Discover exact symbols only; this endpoint does not establish lot terms."""
+        symbol = normalize_symbol(symbol)
+        data = self._discovery_data(self.EXPIRED_CONTRACTS_ENDPOINT,
+                                    {'symbol': symbol, 'expiry_date': expiry.isoformat()})
+        try:
+            if data['expiry_date'] != expiry.isoformat():
+                raise ValueError('Expiry mismatch')
+            contracts, seen = {}, set()
+            for kind, field in ((InstrumentType.FUTURE, 'futures'), (InstrumentType.OPTION, 'options')):
+                values = data['contracts'][field]
+                if not isinstance(values, list):
+                    raise ValueError('Expected symbols')
+                unique = []
+                for value in values:
+                    if (not isinstance(value, str) or normalize_symbol(value) != value or
+                            value.split(':')[0] != symbol.split(':')[0]):
+                        raise ValueError('Invalid or foreign-exchange symbol')
+                    if value in seen:
+                        continue  # FYERS can repeat identical symbols in an expired list.
+                    seen.add(value)
+                    unique.append(value)
+                contracts[kind] = unique
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderError('FYERS returned invalid expired-contract symbols or a different expiry.') from exc
+        return {'underlying': symbol, 'provider_underlying': data['symbol'], 'expiry': expiry, 'contracts': contracts}
+
+    @staticmethod
+    def expired_contract_terms(listing: dict) -> list[dict]:
+        """Read strike/right from exact discovered symbols, never invent a ticker.
+
+        FYERS monthly names use YYMMM; weekly names use YYMDD (OND for Oct-Dec).
+        The discovery response supplies the underlying and actual expiry, so no
+        expiry-calendar guessing or first-number extraction is necessary.
+        """
+        from decimal import Decimal
+        expiry = listing['expiry']
+        root = re.escape(listing['underlying'].split(':')[0] + ':' + listing['provider_underlying'])
+        monthly = f'{expiry:%y}{FyersProvider.MONTH_NAMES[expiry.month-1]}'
+        weekly = f'{expiry:%y}{"123456789OND"[expiry.month-1]}{expiry.day:02}'
+        prefixes = f'(?:{monthly}|{weekly})'
+        result = []
+        for kind, symbols in listing['contracts'].items():
+            suffix = r'(?P<strike>\d+(?:\.\d+)?)(?P<right>CE|PE)' if kind == InstrumentType.OPTION else 'FUT'
+            pattern = re.compile(root + prefixes + suffix)
+            for symbol in symbols:
+                match = pattern.fullmatch(symbol)
+                if match is None:
+                    raise ProviderError(f'Unsupported FYERS expired-contract format: {symbol}.')
+                result.append({'sym_ticker': symbol, 'expiry_date': expiry, 'instrument_type': kind,
+                    'strike_price': Decimal(match['strike']) if kind == InstrumentType.OPTION else None,
+                    'option_type': match['right'] if kind == InstrumentType.OPTION else 'XX'})
+        return result
 
     def quotes(self, symbols: list[str]) -> dict[str, dict]:
         """Acquire watchlist snapshots together; one bad symbol does not hide others."""
@@ -99,6 +205,9 @@ class FyersProvider:
     def history(self, window: HistoryRequest):
         symbol, timeframe = window.instrument.sym_ticker, window.timeframe
         start_dt, end_dt = window.start, window.end - timedelta(seconds=1)
+        expired = (window.instrument.instrument_type in (InstrumentType.FUTURE, InstrumentType.OPTION)
+                   and window.instrument.expiry_date is not None
+                   and window.instrument.expiry_date < datetime.now(window.calendar.zone).date())
         request = {
             "symbol": normalize_symbol(symbol),
             "resolution": self.RESOLUTIONS[timeframe], "date_format": "0",
@@ -106,20 +215,45 @@ class FyersProvider:
             # Every stored series belongs to this exact contract, not a roll.
             "cont_flag": "0",
         }
+        endpoint = "history"
+        if expired:
+            # Archived contracts use FYERS' distinct endpoint. Keep transport,
+            # quotas and canonical candle validation shared with active history.
+            endpoint = self.EXPIRED_HISTORY_ENDPOINT
+            request.pop('cont_flag')
+            request.update(resolution="1D" if timeframe == ChartTimeframe.D1 else self.RESOLUTIONS[timeframe],
+                           include_oi=0, include_greeks=0)
         try:
-            response = self._get("history", request)
-            if response["s"] == "no_data":
-                logger.debug("FYERS history empty symbol=%s timeframe=%s from=%s to=%s",
-                             request["symbol"], timeframe, start_dt.isoformat(), end_dt.isoformat())
-                return []
-            if response["s"] != "ok":
+            response = self._get(endpoint, request)
+            if response["s"] not in ("ok", "no_data"):
                 logger.error("FYERS history rejected symbol=%s timeframe=%s from=%s to=%s status=%s code=%s message=%s",
                              request["symbol"], timeframe, start_dt.isoformat(), end_dt.isoformat(),
                              response["s"], response.get("code"), response.get("message"))
                 raise ProviderError(f"FYERS rejected historical data (code {response.get('code')}): {response.get('message') or 'No reason supplied.'}")
+            rows = response.get('candles', []) if response['s'] == 'no_data' else response['candles']
+            if expired:
+                columns = response.get('columns', [])
+                required = ('timestamp', 'open', 'high', 'low', 'close', 'volume')
+                if (response.get('schema_version') != 1 or response.get('symbol') != request['symbol']
+                        or response.get('resolution') != request['resolution']
+                        or not isinstance(columns, list) or not all(isinstance(name, str) for name in columns)
+                        or len(columns) != len(set(columns)) or not set(required).issubset(columns)):
+                    raise ProviderError('FYERS returned an unsupported expired-contract candle schema or identity.')
+                indexes = [columns.index(name) for name in required]
+                if (not isinstance(response.get('candles'), list)
+                        or any(not isinstance(row, list) or len(row) != len(columns) for row in rows)
+                        or response['s'] == 'no_data' and rows):
+                    raise ProviderError('FYERS returned a malformed expired-contract candle.')
+                # Optional provider columns never shift prices/volume. OI and
+                # Greeks are not requested until a consumer needs them.
+                rows = [[row[index] for index in indexes] for row in rows]
+            if response['s'] == 'no_data':
+                logger.debug("FYERS history empty symbol=%s timeframe=%s from=%s to=%s",
+                             request["symbol"], timeframe, start_dt.isoformat(), end_dt.isoformat())
+                return []
             return [{"time": datetime.fromtimestamp(row[0], timezone.utc),
                      "open": row[1], "high": row[2], "low": row[3], "close": row[4], "volume": row[5]}
-                    for row in response["candles"]]
+                    for row in rows]
         except ProviderError:
             raise
         except Exception as exc:

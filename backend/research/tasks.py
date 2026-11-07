@@ -89,6 +89,8 @@ def start_research(run_id):
             if previous_screen and set(run.request["instrument_ids"]) <= set(previous_screen.request["instrument_ids"]):
                 source = next((item for item in previous_screen.evidence if item["tool"] == "screen_instruments"), None)
                 if source:
+                    from .evidence import hydrate_evidence
+                    source = hydrate_evidence(source)
                     run = update_active_run(
                         run_id,
                         evidence=[

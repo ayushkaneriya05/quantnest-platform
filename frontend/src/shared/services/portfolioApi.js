@@ -20,6 +20,6 @@ export const portfolioApi = {
     }),
 
   // Transactions
-  getTransactions: () => axiosInstance.get(`${BASE_URL}/transactions/`),
+  getTransactions: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/transactions/`, { params, signal }),
 
 };

@@ -4,7 +4,8 @@ Views for the backtesting app.
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
+from common.pagination import StandardPagination
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.db import transaction
 from .models import (
@@ -21,14 +22,27 @@ from .services import create_backtest, start_backtest, publish_backtest_update, 
 
 class BacktestRunViewSet(viewsets.ModelViewSet):
     """ViewSet for backtest runs."""
+    pagination_class = StandardPagination
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def get_queryset(self):
         queryset = BacktestRun.objects.filter(user=self.request.user).select_related('strategy')
+        if self.action == 'list':
+            queryset = queryset.only('id', 'name', 'strategy', 'strategy__name', 'strategy_version',
+                'start_date', 'end_date', 'initial_capital', 'status', 'progress_pct', 'progress_message', 'created_at')
+        if self.action in {'list', 'summary'} and self.request.query_params.get('search'):
+            query = self.request.query_params['search'][:100]
+            queryset = queryset.filter(Q(name__icontains=query) | Q(strategy__name__icontains=query))
         if self.action == 'list' and self.request.query_params.get('status'):
             queryset = queryset.filter(status=self.request.query_params['status'])
-        return queryset
+        return queryset.order_by('-created_at', '-id')
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        rows = self.get_queryset().values('status').annotate(count=Count('id')).order_by()
+        counts = {row['status']: row['count'] for row in rows}
+        return Response({'total': sum(counts.values()), 'statuses': counts})
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -124,7 +138,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
     def trades(self, request, pk=None):
         """Get all trades for a backtest run."""
         run = self.get_object()
-        trades = run.trades.all()
+        trades = run.trades.select_related('instrument').order_by('-exit_time', '-id')
 
         trade_filter = request.query_params.get('filter')
         if trade_filter == 'winning':
@@ -134,28 +148,21 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
 
         instrument = request.query_params.get('instrument')
         if instrument and instrument != 'all':
-            trades = trades.filter(instrument__symbol=instrument)
+            trades = trades.filter(instrument__sym_ticker=instrument)
 
         search = request.query_params.get('search')
         if search:
-            trades = trades.filter(instrument__symbol__icontains=search)
+            trades = trades.filter(Q(instrument__symbol__icontains=search) | Q(instrument__sym_ticker__icontains=search) | Q(instrument__name__icontains=search))
 
-        class TradePagination(PageNumberPagination):
-            page_size = 50
-            page_size_query_param = 'page_size'
-
-        paginator = TradePagination()
+        paginator = StandardPagination()
         page = paginator.paginate_queryset(trades, request, view=self)
-        if page is not None:
-            serializer = BacktestTradeSerializer(page, many=True)
-            response = paginator.get_paginated_response(serializer.data)
-            response.data['instrument_options'] = list(
-                run.trades.order_by().values_list('instrument__symbol', flat=True).distinct().order_by('instrument__symbol')
-            )
-            return response
+        serializer = BacktestTradeSerializer(page, many=True)
+        response = paginator.get_paginated_response(serializer.data)
+        response.data['instrument_options'] = list(
+            run.trades.order_by().values_list('instrument__sym_ticker', flat=True).distinct().order_by('instrument__sym_ticker')
+        )
+        return response
 
-        serializer = BacktestTradeSerializer(trades, many=True)
-        return Response(serializer.data)
 
     @action(detail=True, methods=['get'], url_path='equity_curve')
     def equity_curve(self, request, pk=None):
@@ -185,13 +192,29 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
 class MonteCarloRunViewSet(viewsets.ModelViewSet):
     """ViewSet for Monte Carlo runs."""
     serializer_class = MonteCarloRunSerializer
+    pagination_class = StandardPagination
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ["get", "post", "head", "options"]
 
+    def get_serializer_class(self):
+        if self.action == 'list':
+            from .serializers import MonteCarloListSerializer
+            return MonteCarloListSerializer
+        return MonteCarloRunSerializer
+
     def get_queryset(self):
-        return MonteCarloRun.objects.filter(
-            backtest_run__user=self.request.user
-        ).select_related('backtest_run')
+        qs = MonteCarloRun.objects.filter(backtest_run__user=self.request.user).select_related('backtest_run')
+        if self.request.query_params.get('backtest_run'):
+            from rest_framework.fields import IntegerField
+            identity = IntegerField(min_value=1).run_validation(self.request.query_params['backtest_run'])
+            qs = qs.filter(backtest_run_id=identity)
+        ordering = self.request.query_params.get('ordering', '-created_at')
+        from rest_framework.fields import ChoiceField
+        ordering = ChoiceField(choices=['created_at', '-created_at', 'status', '-status', 'num_simulations', '-num_simulations']).run_validation(ordering)
+        if self.action == 'list':
+            qs = qs.only('id', 'backtest_run', 'backtest_run__name', 'num_simulations', 'confidence_level',
+                'status', 'error_message', 'completed_at', 'created_at')
+        return qs.order_by(ordering, '-id')
 
     @transaction.atomic
     def perform_create(self, serializer):

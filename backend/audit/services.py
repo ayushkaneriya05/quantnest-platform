@@ -18,7 +18,7 @@ SAFE_FIELDS = {
 }
 CONFIG_FIELDS = ("name", "description", "strategy_type", "market_type", "exchange", "instrument_type",
                  "time_rule", "entry_order_config", "exit_order_config",
-                 "position_sizing_rule", "watchlist_instruments", "rule_groups")
+                 "position_sizing_rule", "watchlist_instruments", "rule_groups", "expressions", "initial_risk")
 
 
 def json_safe(value):

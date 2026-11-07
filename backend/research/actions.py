@@ -11,17 +11,15 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
-from instruments.models import ExecutionRoute, WatchlistInstrument
 from rest_framework.exceptions import APIException, ValidationError
-from rules_engine.models import Rule, RuleGroup
 from strategies.models import Strategy
 from strategies.serializers import StrategyCreateSerializer
 from strategies.services import StrategySnapshotService
 
-from .context import active_stocks, research_instrument_ids
+from .context import active_stocks, research_instrument_ids, draft_instrument_ids
 from .models import ResearchAction, ResearchRun
 from .services import publish_run
-from .validation import CONFIG_SERIALIZERS, json_data, validate_draft
+from .validation import json_data, validate_draft
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +42,7 @@ def preview_strategy_draft(run, payload):
     if not evidence:
         raise ValidationError("The draft must pass backend validation first.")
     return {
-        "draft": validate_draft(evidence["data"]["draft"], research_instrument_ids(run)),
+        "draft": validate_draft(evidence["data"]["draft"], draft_instrument_ids(run)),
         "evidence_id": evidence_id,
     }
 
@@ -55,27 +53,16 @@ def execute_strategy_draft(run, payload):
     draft = payload["draft"]
     if run.created_strategy_id:
         return {"strategy_id": run.created_strategy_id}
-    draft = validate_draft(draft, research_instrument_ids(run))
+    draft = validate_draft(draft, draft_instrument_ids(run))
     base_keys = {"name", "description", "strategy_type", "market_type", "exchange", "instrument_type"}
     serializer = StrategyCreateSerializer(
         data={key: draft[key] for key in base_keys if key in draft}, context={"request": SimpleNamespace(user=user)}
     )
     serializer.is_valid(raise_exception=True)
     strategy = serializer.save(paper_trading_enabled=True, live_trading_enabled=False, auto_version_enabled=False)
-    for name, config_serializer in CONFIG_SERIALIZERS.items():
-        config = config_serializer(getattr(strategy, name), data=draft[name], partial=True)
-        config.is_valid(raise_exception=True)
-        config.save()
-    for group in draft["rule_groups"]:
-        rules = group["rules"]
-        created = RuleGroup.objects.create(
-            strategy=strategy, **{key: value for key, value in group.items() if key != "rules"}
-        )
-        for rule in rules:
-            Rule.objects.create(rule_group=created, **rule)
-    for item in draft["watchlist_instruments"]:
-        watchlist = WatchlistInstrument.objects.create(strategy=strategy, instrument_id=item["instrument_id"])
-        ExecutionRoute.objects.create(watchlist_instrument=watchlist, route_type="DIRECT")
+    from strategies.definitions import document_from_snapshot
+    strategy.definition = document_from_snapshot(draft)
+    Strategy.objects.filter(pk=strategy.pk).update(definition=strategy.definition)
     StrategySnapshotService.create_snapshot(
         strategy, user=user, change_notes=f"Reviewed research draft from run {run.pk}"
     )

@@ -15,14 +15,14 @@ import { Input } from "./input";
 import { HelpCircle, Edit3 } from "lucide-react";
 
 // The underlying React Component that renders the custom dialog
-const CustomDialogComponent = ({ 
+const CustomDialogComponent = ({
   type,
-  title, 
-  message, 
-  onResolve, 
+  title,
+  message,
+  onResolve,
   onClose,
   confirmText = "Confirm",
-  defaultValue = ""
+  defaultValue = "",
 }) => {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState(defaultValue);
@@ -44,14 +44,23 @@ const CustomDialogComponent = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => {
-      if (!isOpen) handleClose(isPrompt ? null : false);
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) handleClose(isPrompt ? null : false);
+      }}
+    >
       <DialogContent className="bg-card border-border text-foreground sm:max-w-md">
-        <DialogHeader className="flex flex-row items-center gap-4">
-          <div className="mt-1"><Icon className={`h-6 w-6 ${isPrompt ? "text-success" : "text-indigo-500"}`} /></div>
+        <DialogHeader className="flex flex-row items-start gap-3 space-y-0">
+          <div className="mt-0.5 shrink-0">
+            <Icon
+              className="h-6 w-6 text-brand"
+            />
+          </div>
           <div className="flex flex-col gap-1">
-            <DialogTitle className={isPrompt ? "text-success" : "text-foreground"}>{title}</DialogTitle>
+            <DialogTitle>
+              {title}
+            </DialogTitle>
             <DialogDescription className="text-muted-foreground">
               {message}
             </DialogDescription>
@@ -70,12 +79,14 @@ const CustomDialogComponent = ({
             )}
           </div>
         </DialogHeader>
-        <DialogFooter className="gap-2 sm:gap-0 mt-4">
-          <Button variant="outline" className="border-border hover:bg-secondary text-foreground" onClick={() => handleClose(isPrompt ? null : false)}>
+        <DialogFooter className="gap-2 mt-2">
+          <Button
+            variant="outline"
+            onClick={() => handleClose(isPrompt ? null : false)}
+          >
             Cancel
           </Button>
-          <Button 
-            className={isPrompt ? "bg-emerald-700 hover:bg-emerald-800 text-white" : "bg-indigo-600 hover:bg-indigo-700 text-white"}
+          <Button
             onClick={() => handleClose(isPrompt ? inputValue : true)}
           >
             {confirmText}
@@ -105,7 +116,7 @@ const createDialog = (options) => {
         {...options}
         onResolve={resolve}
         onClose={cleanup}
-      />
+      />,
     );
   });
 };
@@ -116,7 +127,11 @@ const createDialog = (options) => {
  * @param {string} title - Optional title
  * @param {string} confirmText - Optional text for the confirm button
  */
-export const customConfirm = (message, title = "Please Confirm", confirmText = "Confirm") => {
+export const customConfirm = (
+  message,
+  title = "Please Confirm",
+  confirmText = "Confirm",
+) => {
   return createDialog({ type: "confirm", message, title, confirmText });
 };
 
@@ -127,8 +142,19 @@ export const customConfirm = (message, title = "Please Confirm", confirmText = "
  * @param {string} title - Optional title
  * @param {string} confirmText - Optional text for the confirm button
  */
-export const customPrompt = (message, defaultValue = "", title = "Input Required", confirmText = "Submit") => {
-  return createDialog({ type: "prompt", message, title, defaultValue, confirmText });
+export const customPrompt = (
+  message,
+  defaultValue = "",
+  title = "Input Required",
+  confirmText = "Submit",
+) => {
+  return createDialog({
+    type: "prompt",
+    message,
+    title,
+    defaultValue,
+    confirmText,
+  });
 };
 
 CustomDialogComponent.propTypes = {

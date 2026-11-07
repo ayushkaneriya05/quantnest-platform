@@ -4,7 +4,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from analytics.views import TradePagination, request_filters
+from analytics.views import request_filters
+from common.pagination import StandardPagination
 from analytics.services import SOURCES, trade_queryset
 from .models import JournalEntry
 from .serializers import JournalEntrySerializer
@@ -14,7 +15,7 @@ from .services import journal_summary
 class JournalEntryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = JournalEntrySerializer
-    pagination_class = TradePagination
+    pagination_class = StandardPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
@@ -24,7 +25,7 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
             relation = SOURCES[filters["source"]]["review"]
             trades = trade_queryset(self.request.user, filters)
             qs = qs.filter(source=filters["source"], **{f"{relation}_id__in": trades.values("id")})
-        return qs
+        return qs.order_by('-updated_at', '-id')
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

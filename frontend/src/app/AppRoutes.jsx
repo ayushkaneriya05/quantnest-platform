@@ -40,11 +40,7 @@ const SiteLayout = lazy(() => import("@/features/site/SiteLayout"));
 const CustomerPages = lazy(() => import("@/features/site/CustomerPages"));
 const StrategyList = lazy(() => import("@/features/strategies/pages/StrategyList"));
 const StrategyWizard = lazy(() => import("@/features/strategies/pages/StrategyWizard"));
-const EntryRulesBuilder = lazy(() => import("@/features/strategies/pages/EntryRulesBuilder"));
-const ExitRulesBuilder = lazy(() => import("@/features/strategies/pages/ExitRulesBuilder"));
-const TimeRulesEditor = lazy(() => import("@/features/strategies/pages/TimeRulesEditor"));
-const AssetRulesEditor = lazy(() => import("@/features/strategies/pages/AssetRulesEditor"));
-const PositionSizing = lazy(() => import("@/features/strategies/pages/PositionSizing"));
+const StrategyStudio = lazy(() => import("@/features/strategies/pages/StrategyStudio"));
 const VersionHistory = lazy(() => import("@/features/strategies/pages/VersionHistory"));
 const StrategyPermissions = lazy(() => import("@/features/strategies/pages/StrategyPermissions"));
 const TradingTerminal = lazy(() => import("@/features/terminal/pages/TradingTerminal"));
@@ -114,11 +110,7 @@ export default function AppRoutes() {
           <Route path="/strategies" element={<StrategyList />} />
           <Route path="/strategies/create" element={<StrategyWizard />} />
           <Route path="/strategies/:id/edit" element={<StrategyWizard />} />
-          <Route path="/strategies/:id/entry" element={<EntryRulesBuilder />} />
-          <Route path="/strategies/:id/exit" element={<ExitRulesBuilder />} />
-          <Route path="/strategies/:id/time" element={<TimeRulesEditor />} />
-          <Route path="/strategies/:id/assets" element={<AssetRulesEditor />} />
-          <Route path="/strategies/:id/sizing" element={<PositionSizing />} />
+          <Route path="/strategies/:id/studio" element={<StrategyStudio />} />
           <Route path="/strategies/:id/versions" element={<VersionHistory />} />
           <Route path="/strategies/:id/permissions" element={<StrategyPermissions />} />
           <Route path="/terminal" element={<TradingTerminal />} />

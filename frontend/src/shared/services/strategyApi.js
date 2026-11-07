@@ -7,13 +7,16 @@ const STRATEGIES_URL = '/strategies/';
 
 // Strategy CRUD
 export const strategyApi = {
+  getDefinition: async (id) => (await api.get(`${STRATEGIES_URL}strategies/${id}/definition/`)).data,
+  validateDefinition: async (id, document) => (await api.post(`${STRATEGIES_URL}strategies/${id}/validate-definition/`, { document })).data,
+  saveDefinition: async (id, document, revision) => (await api.put(`${STRATEGIES_URL}strategies/${id}/definition/`, { document, revision })).data,
   getShared: async (id, signal) => {
     const response = await api.get(`${STRATEGIES_URL}shared/${id}/`, { signal, publicRequest: true, withCredentials: false });
     return response.data;
   },
   // Get all strategies
-  getAll: async () => {
-    const response = await api.get(`${STRATEGIES_URL}strategies/`);
+  getAll: async (params = {}, signal) => {
+    const response = await api.get(`${STRATEGIES_URL}strategies/`, { params, signal });
     return response.data;
   },
 
@@ -76,9 +79,11 @@ export const strategyApi = {
     return response.data;
   },
 
+  summary: async (params = {}) => (await api.get(`${STRATEGIES_URL}strategies/summary/`, { params })).data,
+  getVersion: async (id, versionId) => (await api.get(`${STRATEGIES_URL}strategies/${id}/versions/${versionId}/`)).data,
   // Get versions
-  getVersions: async (id) => {
-    const response = await api.get(`${STRATEGIES_URL}strategies/${id}/versions/`);
+  getVersions: async (id, params = {}, signal) => {
+    const response = await api.get(`${STRATEGIES_URL}strategies/${id}/versions/`, { params, signal });
     return response.data;
   },
 
@@ -120,13 +125,3 @@ export const strategyApi = {
     return response.data;
   },
 };
-
-// Entry Order Config
-export const entryConfigApi = {
-  update: async (id, data) => {
-    const response = await api.patch(`${STRATEGIES_URL}entry-configs/${id}/`, data);
-    return response.data;
-  },
-};
-
-export default strategyApi;

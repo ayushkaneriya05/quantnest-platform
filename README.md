@@ -5,9 +5,10 @@ customer's own trading rules. The customer website and workspace share one React
 frontend. Public subscriptions support simulation through Paper; personal Live
 execution is retained in a separate personal Private instance; customer Live is not offered.
 
-[Commercial operations](docs/commercial-operations.md) covers no-code plan limits,
-availability, required database setup, billing/support and personal deployment actions and their
-frontend-to-backend flows.
+[Commercial operations](docs/commercial-operations.md) covers catalogue publication,
+allowances, checkout, renewal and payment recovery. [Customer Support](docs/customer-support.md)
+covers enquiries, replies, email delivery and account records; deployment commands
+remain in [infrastructure](infra/START-HERE.md).
 
 ## Application workflow
 
@@ -190,16 +191,17 @@ separate research-cache Redis is disposable.
 
 Start with the [documentation index](docs/README.md) to choose the guide for your task.
 
-- [Complete customer and operator workflows](docs/commercial-operations.md)
+- [Commercial operations: catalogues, allowances and billing](docs/commercial-operations.md)
+- [Customer Support: requests, replies and account records](docs/customer-support.md)
 - [Backtesting: complete workflow](docs/backtesting.md)
 - [Paper trading: execution and operations](docs/paper-trading.md)
 - [Live trading: broker orders and recovery](docs/live-trading.md)
 - [Trading Terminal: manual simulation](docs/trading-terminal.md)
+- [AI Research and Market Screener: complete workflow](docs/ai-research.md)
 - [Deployment boundaries](infra/README.md)
-- [Strategy configuration](docs/strategy-configuration.md)
-- [Future strategy builder plan](docs/strategy-builder-plan.md)
+- [Strategy Studio: complete current guide and examples](docs/strategy-configuration.md)
 - [Authentication and session lifecycle](docs/authentication.md)
-- [Customer website](docs/customer-site.md)
+- [Customer website, workspace and shared pagination](docs/customer-site.md)
 - [Research service configuration](research_service/README.md)
 - [Integration setup](docs/third-party-setup.md)
 - [Business plan](docs/business-plan.md)

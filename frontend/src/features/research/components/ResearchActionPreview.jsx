@@ -14,13 +14,13 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import WorkspaceState from "@/shared/components/WorkspaceState";
 import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
-import ResearchStrategyPreview from "@/features/research/components/ResearchStrategyPreview.jsx";
+import StrategyConfiguration from "@/shared/components/StrategyConfiguration";
 
 import { actionLabel } from "@/features/research/researchActions";
 
 export function ResearchActionLinks({ action }) {
-  return <div className="flex flex-wrap gap-3 text-sm text-indigo-700 dark:text-indigo-300">
-    {action.resource_ids?.strategy_id && <Link to={`/strategies/${action.resource_ids.strategy_id}/edit`} className="underline">Open strategy builder</Link>}
+  return <div className="flex flex-wrap gap-3 text-sm text-brand">
+    {action.resource_ids?.strategy_id && <Link to={`/strategies/${action.resource_ids.strategy_id}/studio`} className="underline">Open strategy builder</Link>}
     {action.resource_ids?.backtest_id && <Link to={`/backtests/results/${action.resource_ids.backtest_id}`} className="underline">Open backtest progress and results</Link>}
     {action.resource_ids?.watchlist_id && <Link to={`/terminal?watchlist=${action.resource_ids.watchlist_id}`} className="underline">Open terminal watchlist</Link>}
   </div>;
@@ -71,7 +71,7 @@ export default function ResearchActionPreview({ target, schema, onClose, onCompl
   const payload = preview?.payload;
   return <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}><DialogContent className="flex max-h-[90dvh] max-w-2xl flex-col border-border bg-background text-foreground">
     <DialogTitle>{actionLabel[target.type]}</DialogTitle><DialogDescription>Review the exact settings. This action executes only after your confirmation.</DialogDescription>
-    <div className="scrollbar-theme min-h-0 overflow-y-auto space-y-4 pr-1">
+    <div className="scrollbar-theme min-h-0 overflow-y-auto space-y-3 pr-1">
       {chooseWatchlist && <form id="research-watchlist-settings" onSubmit={(event) => {
         event.preventDefault();
         propose({ instrument_ids: preview?.payload.instrument_ids || target.payload?.instrument_ids, watchlist_id: Number(watchlistId) });
@@ -84,15 +84,15 @@ export default function ResearchActionPreview({ target, schema, onClose, onCompl
         </label>
       </form>}
       {payload?.watchlist_name && <p className="text-sm">Destination: <strong>{payload.watchlist_name}</strong></p>}
-      {!preview && target.type === "START_BACKTEST" && <form id="research-backtest-settings" className="space-y-4" onSubmit={(event) => { event.preventDefault(); propose({ ...settings, charge_profile: settings.charge_profile || null }); }}>
+      {!preview && target.type === "START_BACKTEST" && <form id="research-backtest-settings" className="space-y-3" onSubmit={(event) => { event.preventDefault(); propose({ ...settings, charge_profile: settings.charge_profile || null }); }}>
         {run.request.backtest_ids?.length > 0 && <label className="block text-sm">Strategy configuration<Select value={String(settings.source_backtest_id || "strategy")} onValueChange={(value) => setSettings({ ...settings, source_backtest_id: value === "strategy" ? undefined : Number(value) })}><SelectTrigger className="mt-2" aria-label="Strategy configuration"><SelectValue /></SelectTrigger><SelectContent>{Boolean(run.created_strategy || run.request.strategy_id) && <SelectItem value="strategy">{run.created_strategy ? "Created strategy draft" : "Attached strategy"}</SelectItem>}{run.request.backtests.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent></Select></label>}
-        <div className="grid gap-3 sm:grid-cols-2">{[["Name", "name", "text"], ["From", "start_date", "date"], ["Through", "end_date", "date"], ["Initial capital (₹)", "initial_capital", "number"], ["Slippage (%)", "slippage_pct", "number"]].map(([label, key, type]) => <label key={key} className="text-sm text-muted-foreground">{label}{type === "date" ? <DatePicker date={settings[key] ? parseISO(settings[key]) : undefined} setDate={(date) => setSettings({ ...settings, [key]: date ? format(date, "yyyy-MM-dd") : "" })} /> : <Input aria-label={label} className="mt-2" required type={type} step={type === "number" ? "0.0001" : undefined} min={type === "number" ? "0" : undefined} value={settings[key] || ""} onChange={(event) => setSettings({ ...settings, [key]: event.target.value })} />}</label>)}</div>
+        <div className="grid gap-3 sm:grid-cols-2">{[["Name", "name", "text"], ["From", "start_date", "date"], ["Through", "end_date", "date"], ["Initial capital (₹)", "initial_capital", "number"], ["Slippage (%)", "slippage_pct", "number"]].map(([label, key, type]) => <label key={key} className="text-sm text-muted-foreground">{label}{type === "date" ? <DatePicker className="mt-2" date={settings[key] ? parseISO(settings[key]) : undefined} setDate={(date) => setSettings({ ...settings, [key]: date ? format(date, "yyyy-MM-dd") : "" })} /> : <Input aria-label={label} className="mt-2" required type={type} step={type === "number" ? "0.0001" : undefined} min={type === "number" ? "0" : undefined} value={settings[key] || ""} onChange={(event) => setSettings({ ...settings, [key]: event.target.value })} />}</label>)}</div>
         <label htmlFor="research-include-charges" className="flex cursor-pointer items-center gap-2 text-sm"><Checkbox id="research-include-charges" checked={settings.include_charges} onCheckedChange={(checked) => setSettings({ ...settings, include_charges: checked === true })} />Include charges</label>
         {settings.include_charges && <label className="block text-sm">Charge profile<Select resource="charge-profiles" required name="charge_profile" value={String(settings.charge_profile)} onValueChange={(value) => setSettings({ ...settings, charge_profile: Number(value) })}><SelectTrigger className="mt-2" aria-label="Charge profile"><SelectValue placeholder="Select charge profile" /></SelectTrigger><SelectContent /></Select></label>}
       </form>}
       {payload?.instruments && <ul className="space-y-2 text-sm">{payload.instruments.map((item) => <li key={item.id}>{item.symbol} · {item.name}</li>)}</ul>}
-      {payload?.snapshot && <div className="space-y-2 rounded-lg bg-card p-4 text-sm"><p>{payload.start_date} – {payload.end_date}</p><p>Capital {formatCurrency(payload.initial_capital)} · slippage {formatNumber(payload.slippage_pct)}%</p><p>{payload.include_charges ? `Charges: ${payload.charge_profile_name}` : "Charges excluded"}</p><p className="text-xs text-muted-foreground">Simulated fills follow the saved execution configuration. Exit rules close the full position.</p></div>}
-      {(payload?.draft || payload?.snapshot) && <ResearchStrategyPreview snapshot={payload.draft || payload.snapshot} enums={enums} />}
+      {payload?.snapshot && <div className="space-y-2 rounded-lg bg-card p-3 text-sm"><p>{payload.start_date} – {payload.end_date}</p><p>Capital {formatCurrency(payload.initial_capital)} · slippage {formatNumber(payload.slippage_pct)}%</p><p>{payload.include_charges ? `Charges: ${payload.charge_profile_name}` : "Charges excluded"}</p><p className="text-xs text-muted-foreground">Simulated fills follow the saved execution configuration. Exit rules close the full position.</p></div>}
+      {(payload?.draft || payload?.snapshot) && <StrategyConfiguration snapshot={payload.draft || payload.snapshot} enums={enums} />}
       {error && <WorkspaceState error={error} onRetry={() => propose(submittedPayload.current, true)} />}
       {preview && preview.status !== "PROPOSED" && <><p className="text-sm">{preview.status === "COMPLETED" ? "Action completed." : "Action failed. Any created resource is linked below."}</p><ResearchActionLinks action={preview} /></>}
     </div>

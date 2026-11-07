@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework import generics, status, views
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
+from common.pagination import StandardPagination
 
 from .models import Account, Position, Order, TradeHistory, ClosedPositionLog, Watchlist
 from .serializers import (
@@ -58,6 +58,7 @@ class InstrumentSearchView(generics.ListAPIView):
             exchange = serializers.ChoiceField(choices=Exchange.choices, allow_blank=True, default='')
             instrument_type = serializers.ChoiceField(choices=InstrumentType.choices, allow_blank=True, default='')
             expiry_date = serializers.DateField(required=False)
+            include_archived = serializers.BooleanField(default=False)
         data = SearchInput(data=self.request.query_params)
         data.is_valid(raise_exception=True)
         fields = dict(data.validated_data)
@@ -152,7 +153,6 @@ class PositionActionView(views.APIView):
         class ActionInput(serializers.Serializer):
             action = serializers.ChoiceField(choices=TerminalPositionAction.choices)
             quantity = serializers.IntegerField(min_value=1, required=False)
-            settlement_price = serializers.DecimalField(max_digits=20, decimal_places=8, min_value=0, required=False)
 
         data = ActionInput(data=request.data)
         data.is_valid(raise_exception=True)
@@ -161,7 +161,7 @@ class PositionActionView(views.APIView):
             account = TradingAccountService.get_or_create_account(request.user)
             Account.objects.select_for_update().get(pk=account.pk)
             position = get_object_or_404(Position.objects.select_for_update().select_related('instrument'), pk=id, account=account)
-            quantity = abs(position.quantity) if action in (TerminalPositionAction.CLOSE, TerminalPositionAction.SETTLE) else data.validated_data.get('quantity')
+            quantity = abs(position.quantity) if action == TerminalPositionAction.CLOSE else data.validated_data.get('quantity')
             if not quantity:
                 raise serializers.ValidationError('Quantity is required.')
             if action == TerminalPositionAction.REDUCE and quantity > abs(position.quantity):
@@ -170,29 +170,9 @@ class PositionActionView(views.APIView):
             side = same_side if action == TerminalPositionAction.INCREASE else (Side.SELL if same_side == Side.BUY else Side.BUY)
             if action == TerminalPositionAction.REVERSE:
                 quantity += abs(position.quantity)
-            if action == TerminalPositionAction.SETTLE:
-                from common.costs import snapshot_charge_profile
-                if 'settlement_price' not in data.validated_data:
-                    raise serializers.ValidationError('Enter the official settlement price for this simulation.')
-                from uuid import uuid4
-                from common.enums import ExecutionMode, ExecutionCommandType
-                from execution.repository import enqueue
-                from marketdata.calendar import MarketSessionCalendar
-                calendar = MarketSessionCalendar.for_instrument(position.instrument)
-                if position.instrument.expiry_date:
-                    calendar.load_holidays(position.instrument.expiry_date, position.instrument.expiry_date)
-                if not position.instrument.expiry_date or timezone.now() < calendar.session_close(position.instrument.expiry_date):
-                    raise serializers.ValidationError('Settlement is available only after contract expiry.')
-                order = Order.objects.create(account=account, instrument=position.instrument, request_id=uuid4(),
-                    transaction_type=side, quantity=quantity, order_type=TerminalOrderType.SETTLEMENT, reduce_only=True,
-                    charge_profile_snapshot=snapshot_charge_profile(account.charge_profile))
-                enqueue(ExecutionMode.TERMINAL, account.pk, ExecutionCommandType.SETTLE,
-                    {'instrument_id': position.instrument_id, 'settlement_price': str(data.validated_data['settlement_price'])},
-                    request_id=order.request_id)
-            else:
-                order = TradingOrderService.create_order(request.user, {'instrument': position.instrument,
-                    'transaction_type': side, 'quantity': quantity, 'order_type': TerminalOrderType.MARKET,
-                    'reduce_only': action in (TerminalPositionAction.CLOSE, TerminalPositionAction.REDUCE)})
+            order = TradingOrderService.create_order(request.user, {'instrument': position.instrument,
+                'transaction_type': side, 'quantity': quantity, 'order_type': TerminalOrderType.MARKET,
+                'reduce_only': action in (TerminalPositionAction.CLOSE, TerminalPositionAction.REDUCE)})
         return Response(OrderSerializer(order).data)
 
 
@@ -246,19 +226,14 @@ class OrderPreviewView(views.APIView):
                          'estimated_funds': str(TradingOrderService.required_cash(order, account, price)),
                          'margin_basis': 'Configured simulation margin; not a broker margin quotation.'})
 
-class HistoricalDataPagination(PageNumberPagination):
-    page_size = 50
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
 class OrderView(generics.ListCreateAPIView):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = HistoricalDataPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         account = TradingAccountService.get_or_create_account(self.request.user)
-        queryset = Order.objects.filter(account=account).select_related('instrument').order_by('-created_at')
+        queryset = Order.objects.filter(account=account).select_related('instrument').order_by('-created_at', '-pk')
         
         status_filter = self.request.query_params.get('status')
         symbol_filter = self.request.query_params.get('symbol')
@@ -288,11 +263,11 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
 class TradeHistoryView(generics.ListAPIView):
     serializer_class = TradeHistorySerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = HistoricalDataPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         account = TradingAccountService.get_or_create_account(self.request.user)
-        queryset = TradeHistory.objects.filter(order__account=account).select_related('order', 'order__instrument').order_by('-timestamp')
+        queryset = TradeHistory.objects.filter(order__account=account).select_related('order', 'order__instrument').order_by('-timestamp', '-pk')
         
         symbol_filter = self.request.query_params.get('symbol')
         side_filter = self.request.query_params.get('side') # BUY/SELL
@@ -308,11 +283,11 @@ class TradeHistoryView(generics.ListAPIView):
 class ClosedPositionLogView(generics.ListAPIView):
     serializer_class = ClosedPositionLogSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = HistoricalDataPagination
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         account = TradingAccountService.get_or_create_account(self.request.user)
-        queryset = ClosedPositionLog.objects.filter(account=account).select_related('instrument').order_by('-exit_time')
+        queryset = ClosedPositionLog.objects.filter(account=account).select_related('instrument').order_by('-exit_time', '-pk')
         
         symbol_filter = self.request.query_params.get('symbol')
         if symbol_filter:

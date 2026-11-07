@@ -54,6 +54,24 @@ class ResearchRun(BaseTimestampModel):
         ]
 
 
+class ResearchEvidenceRow(models.Model):
+    """Immutable calculated rows, separate from lightweight conversation snapshots."""
+    run = models.ForeignKey(ResearchRun, on_delete=models.CASCADE, related_name='evidence_rows')
+    evidence_id = models.CharField(max_length=12)
+    ordinal = models.PositiveIntegerField()
+    instrument_id = models.PositiveBigIntegerField()
+    symbol = models.CharField(max_length=150)
+    close = models.FloatField(null=True)
+    return_20_bars_pct = models.FloatField(null=True)
+    volatility_20_bars_pct = models.FloatField(null=True)
+    payload = models.JSONField()
+
+    class Meta:
+        ordering = ['ordinal']
+        constraints = [models.UniqueConstraint(fields=['run', 'evidence_id', 'ordinal'], name='research_evidence_row_unique')]
+        indexes = [models.Index(fields=['run', 'evidence_id', 'symbol'], name='research_evidence_symbol_idx')]
+
+
 class ResearchAction(BaseTimestampModel):
     class Type(models.TextChoices):
         CREATE_DRAFT = "CREATE_DRAFT", "Create strategy draft"

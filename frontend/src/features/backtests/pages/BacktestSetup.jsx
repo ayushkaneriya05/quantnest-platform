@@ -41,37 +41,8 @@ import { brokersApi } from "@/shared/services/brokersApi";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { Switch } from "@/shared/components/ui/switch";
-import PropTypes from "prop-types";
 
 /* ─── Step Indicator ─── */
-function StepIndicator({ number, title, active }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div
-        className={`flex items-center justify-center h-8 w-8 rounded-full text-xs font-bold transition-all ${
-          active
-            ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/30"
-            : "bg-secondary text-muted-foreground border border-border"
-        }`}
-      >
-        {number}
-      </div>
-      <span
-        className={`text-sm font-medium transition-colors ${
-          active ? "text-foreground" : "text-muted-foreground"
-        }`}
-      >
-        {title}
-      </span>
-    </div>
-  );
-}
-
-StepIndicator.propTypes = {
-  number: PropTypes.number.isRequired,
-  title: PropTypes.string.isRequired,
-  active: PropTypes.bool.isRequired,
-};
 
 /* ─── Date Duration Helper ─── */
 function dateDuration(start, end) {
@@ -123,34 +94,17 @@ export default function BacktestSetup() {
     }
   }, [notify]);
 
+  useEffect(() => { fetchChargeProfiles(); }, [fetchChargeProfiles]);
   useEffect(() => {
-    if (preSelectedStrategy && strategies.length > 0) {
-      const strategy = strategies.find(
-        (item) => item.id.toString() === preSelectedStrategy,
-      );
-      if (strategy) {
-        setFormData((current) => ({
-          ...current,
-          strategy: preSelectedStrategy,
-          name: `${strategy.name} - Backtest ${new Date().getFullYear()}`,
-        }));
-      }
-    }
-  }, [preSelectedStrategy, strategies]);
-
-  const fetchStrategies = useCallback(async () => {
-    try {
-      const response = await strategyApi.getAll();
-      setStrategies(response);
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load strategies"));
-    }
-  }, [notify]);
-
-  useEffect(() => {
-    fetchStrategies();
-    fetchChargeProfiles();
-  }, [fetchStrategies, fetchChargeProfiles]);
+    let active = true;
+    if (!formData.strategy) { setStrategies([]); return undefined; }
+    strategyApi.getById(formData.strategy).then(strategy => {
+      if (!active) return;
+      setStrategies([strategy]);
+      setFormData(current => ({ ...current, name: current.name || `${strategy.name} - Backtest ${new Date().getFullYear()}` }));
+    }).catch(error => { if (active) notify.error(getApiErrorMessage(error, "Could not load strategy.")); });
+    return () => { active = false; };
+  }, [formData.strategy, notify]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -210,7 +164,7 @@ export default function BacktestSetup() {
       variant="outline"
       size="sm"
       onClick={() => navigate("/backtests")}
-      className="bg-card border-border hover:bg-secondary h-9"
+      className=""
     >
       <ChevronLeft className="h-4 w-4 mr-2" />
       Back to List
@@ -218,30 +172,20 @@ export default function BacktestSetup() {
   );
 
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 space-y-6">
-      {/* ── Step Indicators ── */}
+    <div className="page-content">
 
-      {/* ── Step Indicators ── */}
-      <div className="flex items-center gap-8 px-1">
-        <StepIndicator number={1} title="Strategy & Period" active />
-        <div className="h-px flex-1 bg-secondary" />
-        <StepIndicator number={2} title="Capital & Costs" active />
-        <div className="h-px flex-1 bg-secondary" />
-        <StepIndicator number={3} title="Launch" active />
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {estimate && <Card><CardHeader><CardTitle>Review workload before confirming</CardTitle></CardHeader><CardContent className="space-y-2"><p>{formatNumber(estimate.instrument_candles, { minimumFractionDigits: 0 })} instrument-candles including warmup · {estimate.credits === null ? 'Unmetered usage' : <>{estimate.credits} credit{estimate.credits === 1 ? '' : 's'}</>}</p><p className="text-sm text-muted-foreground">{estimate.definition} For public plans, successful runs use the reviewed credits; failed or cancelled runs restore them automatically.</p><Button variant="outline" type="button" onClick={()=>setEstimate(null)}>Recalculate preview</Button></CardContent></Card>}
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {estimate && <Card><CardHeader><CardTitle>Review workload before confirming</CardTitle></CardHeader><CardContent className="space-y-2"><p>{formatNumber(estimate.instrument_candles, { minimumFractionDigits: 0 })} instrument-candles including warmup · {estimate.credits === null ? 'Unmetered usage' : <>{estimate.credits} credit{estimate.credits === 1 ? '' : 's'}</>}</p><p className="text-sm text-muted-foreground">{estimate.definition} For public plans, successful runs use the reviewed credits; failed or cancelled runs restore them automatically.</p>{estimate.warnings?.length > 0 && <details className="text-sm"><summary className="cursor-pointer text-warning">Current contract details will be used where historical terms are unavailable</summary><ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pl-4 list-disc text-muted-foreground">{estimate.warnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}</ul></details>}<Button variant="outline" type="button" onClick={()=>setEstimate(null)}>Recalculate preview</Button></CardContent></Card>}
         {/* ── STEP 1: Strategy & Period ── */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 gap-3">
           <Card className="bg-card/50 border-border backdrop-blur-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-base text-foreground flex items-center gap-2">
-                <Settings className="h-4 w-4 text-indigo-700 dark:text-indigo-400" />
+                <Settings className="h-4 w-4 text-brand" />
                 Strategy Selection
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               <div className="space-y-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">
                   Strategy *
@@ -250,7 +194,7 @@ export default function BacktestSetup() {
                   value={formData.strategy}
                   onValueChange={(value) => handleChange("strategy", value)}
                 >
-                  <SelectTrigger className="bg-secondary/80 border-border h-11">
+                  <SelectTrigger className="bg-secondary/80 border-border">
                     <SelectValue placeholder="Select a strategy" />
                   </SelectTrigger>
                   <SelectContent className="bg-secondary border-border text-foreground">
@@ -264,12 +208,6 @@ export default function BacktestSetup() {
                     ))}
                   </SelectContent>
                 </Select>
-                {strategies.length === 0 && (
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                    No strategies found. You need to create a strategy before
-                    you can run a backtest.
-                  </p>
-                )}
               </div>
               <div className="space-y-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">
@@ -279,16 +217,16 @@ export default function BacktestSetup() {
                   value={formData.name}
                   onChange={(e) => handleChange("name", e.target.value)}
                   placeholder="e.g., Mean Reversion - Q1 2024"
-                  className="bg-secondary/80 border-border h-11 text-foreground focus:ring-indigo-500"
+                  className="bg-secondary/80 border-border text-foreground focus:ring-brand"
                 />
               </div>
 
               {/* Strategy Info Card */}
               {selectedStrategy && (
-                <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 space-y-2">
+                <div className="rounded-lg border border-brand/20 bg-brand/5 p-3 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Layers className="h-3.5 w-3.5 text-indigo-700 dark:text-indigo-400" />
-                    <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">
+                    <Layers className="h-3.5 w-3.5 text-brand" />
+                    <span className="text-xs font-semibold text-brand uppercase tracking-wider">
                       Strategy Info
                     </span>
                   </div>
@@ -326,12 +264,12 @@ export default function BacktestSetup() {
           <Card className="bg-card/50 border-border backdrop-blur-sm">
             <CardHeader className="pb-4">
               <CardTitle className="text-base text-foreground flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-indigo-700 dark:text-indigo-400" />
+                <Calendar className="h-4 w-4 text-brand" />
                 Timeframe & Data
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">
                     Start Date *
@@ -370,7 +308,7 @@ export default function BacktestSetup() {
                 </div>
               </div>
               {duration && (
-                <div className="flex items-center gap-2 text-xs text-indigo-700 dark:text-indigo-400">
+                <div className="flex items-center gap-2 text-xs text-brand">
                   <Clock className="h-3.5 w-3.5" />
                   <span className="font-medium">Period: {duration}</span>
                 </div>
@@ -391,12 +329,12 @@ export default function BacktestSetup() {
         <Card className="bg-card/50 border-border backdrop-blur-sm">
           <CardHeader className="pb-4">
             <CardTitle className="text-base text-foreground flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+              <DollarSign className="h-4 w-4 text-success" />
               Capital & Transaction Costs
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-3 gap-3">
               <div className="space-y-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider font-semibold">
                   Initial Capital (₹)
@@ -407,7 +345,7 @@ export default function BacktestSetup() {
                   onChange={(e) =>
                     handleChange("initial_capital", parseFloat(e.target.value))
                   }
-                  className="bg-secondary/80 border-border text-foreground font-mono h-11"
+                  className="bg-secondary/80 border-border text-foreground font-mono"
                 />
               </div>
               <div className="space-y-2">
@@ -421,7 +359,7 @@ export default function BacktestSetup() {
                   onChange={(e) =>
                     handleChange("slippage_pct", parseFloat(e.target.value))
                   }
-                  className="bg-secondary/80 border-border text-foreground font-mono h-11"
+                  className="bg-secondary/80 border-border text-foreground font-mono"
                 />
               </div>
               <div className="space-y-2">
@@ -435,7 +373,7 @@ export default function BacktestSetup() {
                   }}
                   disabled={!formData.include_charges}
                 >
-                  <SelectTrigger className="bg-secondary/80 border-border h-11">
+                  <SelectTrigger className="bg-secondary/80 border-border">
                     <SelectValue placeholder="Select charge profile" />
                   </SelectTrigger>
                   <SelectContent className="bg-secondary border-border text-foreground">
@@ -447,7 +385,7 @@ export default function BacktestSetup() {
                   </SelectContent>
                 </Select>
                 {formData.include_charges && !chargeProfileId && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                  <p className="text-xs text-warning">
                     Choose a charge profile or turn off charges before launching.
                   </p>
                 )}
@@ -473,14 +411,14 @@ export default function BacktestSetup() {
         </Card>
 
         {/* ── STEP 3: Launch ── */}
-        <div className="flex flex-col items-center gap-4 pt-2">
-          <Button
+        <div className="flex flex-col items-center gap-3 pt-2">
+          <Button variant="default"
             type="submit"
             disabled={loading || !formData.strategy || !formData.name.trim() || (formData.include_charges && !chargeProfileId)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-12 px-10 shadow-lg shadow-indigo-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="font-bold disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loading ? (
-              <LoaderMark className="h-5 w-5" />
+              <><LoaderMark className="h-4 w-4" /><span>{estimate ? 'Starting simulation…' : 'Preparing historical workload…'}</span></>
             ) : (
               <>
                 <Play className="h-4 w-4 mr-2 fill-current" />
@@ -488,6 +426,7 @@ export default function BacktestSetup() {
               </>
             )}
           </Button>
+          {loading && !estimate && <p role="status" className="text-xs text-muted-foreground text-center max-w-md">The first derivative preview discovers expired contracts and loads missing underlying history. Later previews reuse that data.</p>}
           <p className="text-[11px] text-muted-foreground max-w-md text-center">
             A strategy snapshot will be created automatically. Changes to the
             live strategy after launch will not affect this run.

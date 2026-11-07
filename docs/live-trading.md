@@ -1,279 +1,468 @@
-# Live trading: complete workflow and technical reference
+# Live trading: complete user and technical guide
 
-Reviewed against the source on 23 October 2026. Live trading evaluates saved strategies locally and submits real orders through an owned broker connection. Broker order observations determine actual fills. This guide describes the current FYERS integration and shared execution architecture, not unimplemented broker support.
+**Source reviewed: 7 November 2026.** Live deploys saved strategies to a connected
+broker account. Signals are calculated locally; only broker-confirmed order fills
+create real executed exposure in the platform. This guide describes implemented
+behavior and identifies the remaining broker/settlement qualification boundaries.
+
+Use [Strategy Studio](strategy-configuration.md) for authoring and shared rules,
+[Paper](paper-trading.md) to exercise those rules with simulated fills, and
+[integration setup](../infra/shared/INTEGRATIONS.md) for provider dashboards and
+connection configuration. Public deployment is Paper scope; current Private use is
+the operator's separate instance, not a public customer Live offering.
 
 ## Contents
 
-- [User setup and deployment](#user-setup-and-deployment)
-- [Admission, allocations and funds](#admission-allocations-and-funds)
-- [Market data and rule evaluation](#market-data-and-rule-evaluation)
+- [Scope and prerequisites](#scope-and-prerequisites)
+- [Connect the broker and prepare funds](#connect-the-broker-and-prepare-funds)
+- [Deploy a saved version](#deploy-a-saved-version)
+- [Account and strategy ownership](#account-and-strategy-ownership)
 - [Signal to broker order](#signal-to-broker-order)
+- [Broker events and cumulative fills](#broker-events-and-cumulative-fills)
 - [Order reconciliation and timestamps](#order-reconciliation-and-timestamps)
-- [Session management](#session-management)
-- [Portfolio, charges and review](#portfolio-charges-and-review)
-- [API map](#api-map)
+- [Manage running sessions](#manage-running-sessions)
+- [Data and contract lifecycle](#data-and-contract-lifecycle)
+- [Valuation, charges and reporting](#valuation-charges-and-reporting)
 - [Operations and recovery](#operations-and-recovery)
-- [Source map and extension points](#source-map-and-extension-points)
+- [API contracts](#api-contracts)
+- [Implementation ownership](#implementation-ownership)
+- [Worked examples](#worked-examples)
+- [Release checks and unsupported behavior](#release-checks-and-unsupported-behavior)
 
-Related: [strategy configuration](strategy-configuration.md), [Backtesting](backtesting.md), [Paper](paper-trading.md), [Terminal](trading-terminal.md), [provider setup](third-party-setup.md).
+## Scope and prerequisites
 
-## User setup and deployment
-
-### Connect the broker
-
-Open Broker Connections, select the supported broker and complete its credential/authorization flow. FYERS uses the individual user's app credentials and configured callback. The broker-specific form and adapter own these requirements; another broker need not use the same credential fields.
-
-The callback URL shown during setup must match the registered application callback. It is a routing address, not an API secret. Credentials and tokens are stored through the encrypted credential layer. The user's trading connection is separate from the operator's market-data connection.
-
-See [third-party setup](third-party-setup.md) for account registration and environment configuration. Browser login to QuantNest does not authorize a broker trading account by itself.
-
-### Prepare a strategy
-
-Create/configure the strategy, save the version to deploy, activate it and enable Live trading. Configure valid instruments, side, sizing, time rule and active entry rules. **Live validation requires an active stop-loss rule.** Unsupported/incomplete rules are rejected before a worker installs them.
-
-Automated snapshots use DIRECT routing to an explicitly selected active, tradable catalogue instrument. Indices, mutual funds and underlying references are excluded. Actual broker/product support, contract validity and market data remain additional requirements; accepting a concrete derivative instrument does not provide dynamic futures/options selection routes.
-
-Use Backtesting/Paper to inspect the same strategy semantics. Neither a good backtest nor a successful Paper fill establishes that a broker will accept or fill a real order.
-
-### Deploy
-
-From the strategy list choose Live deployment, select a saved version and owned broker account, and enter a fixed capital allocation. The backend verifies broker access, authorization, funds, strategy/version and uniqueness before creating the allocation and RUNNING session.
-
-Multiple deployments of one strategy are supported across **different broker accounts**. Another allocation for the same strategy and broker is rejected even if an older session is stopped; manage the existing deployment. Unlike Paper, selecting another version does not allow another deployment on the same broker account.
-
-Use Live Deployments to filter sessions by status and manage them. Live Portfolio displays session/position/order/trade aggregates; detailed broker-account cards belong in Broker Connections rather than the portfolio workspace.
-
-## Admission, allocations and funds
-
-### Three separate controls
-
-| Control | Meaning |
+| Requirement | Why it matters |
 | --- | --- |
-| Installation execution scope | `EXECUTION_ENABLED_SCOPES` must contain `live`; Public mode forbids enabling Live |
-| User/scope/broker access | Owned active account, enabled strategy, Live scope and valid broker authorization |
-| Financial capacity | Broker funds and per-allocation commitments limit new exposure |
+| Instance includes `live` in execution scopes | Backend deployment control; hiding/showing a button is not authorization |
+| Active owner, owned eligible strategy, Active status and Live flag | Prevent deploying another user's or unavailable strategy |
+| Saved owned version | Runtime executes a deliberate snapshot, not every unsaved Studio edit |
+| Entry and stop-loss logic passing Live validation | Live validation requires both; a valid authoring document alone is not deployment eligibility |
+| Verified broker connection and valid broker session | Broker APIs must be authorized for that account |
+| Usable broker funds snapshot and fixed allocation | Account/session budget admission remains necessary |
+| Market data/history and exchange/segment calendar | Correct prices, warmup, bar clocks and session availability |
+| Execution, market-data, broker-events, API and supporting stores | Each handles a separate part of the lifecycle |
 
-Development disables numeric plan enforcement. Personal Private has no commercial quotas, licence dependency or subscription expiry. Ownership, instrument validity, enabled Live scope, broker authorization and real broker funds remain required. Public cannot enable Live. There is no commercial lookup in tick evaluation.
+FYERS is the current broker adapter. Broker-specific authentication, request keys,
+response normalization and order-stream formats belong to that adapter. The common
+service consumes normalized contracts so a new broker does not require changes to
+the numerical rule engine.
 
-`LiveExecutionService.deploy_session()` locks the broker credential and strategy, validates the selected snapshot, calls `BrokerService.ensure_session()`, synchronizes funds and creates `LiveStrategyAllocation` plus `TradingSession`. `request_session_refresh()` then queues runtime installation.
+Broker approval, account/API eligibility, network access and any applicable use
+requirements must be established independently. An enabled Live screen or passing
+local fixtures is not proof of a qualified real broker deployment.
 
-### Allocation is a budget, not a transfer
+## Connect the broker and prepare funds
 
-`_allocation_terms()` requires positive broker net equity and checks total allocations against that equity. Allocating 20,000 does not transfer 20,000 out of the broker account; it creates a strategy budget inside QuantNest.
+1. Open **Broker Integration → Connections** and select the available broker.
+2. Complete its broker-specific connection configuration and authorization flow.
+   Use the connection details returned for that broker; do not copy another
+   broker's credential fields or callback format.
+3. Verify the connected identity/account and current authorization state. Secret
+   credentials belong on the server, not in frontend bundles or documentation.
+4. Refresh/read broker funds and confirm the net-equity/margin information is
+   plausible for that exact account.
+5. Configure the separate market-data connection used by the shared feed.
+   A trading broker session and the platform's market-data authorization are
+   separate boundaries even when both use FYERS.
+6. Run the required runtime services before expecting the deployment to execute.
 
-All sessions on one broker account share a single financial owner keyed by `(LIVE, broker_credential_id)`. The owner's available amount is constrained by both the session budget and broker-wide available funds after reservations/known spending. Independent evaluators therefore cannot spend the same funds simultaneously without serialization.
+`BrokerService` is the common facade. `ensure_session()` retrieves a usable broker
+session; adapter methods handle the actual profile, funds, orderbook, placement,
+cancellation and stream creation. Disconnect/reconfigure operations reject unsafe
+changes while related active work/exposure must be settled.
 
-`sync_funds()` obtains the broker snapshot outside the tick path and queues a FUNDS command. It carries ordering information so a response started before a fill cannot incorrectly release money spent while the request was in flight.
+Fund synchronization creates a timestamped `BrokerFundsSnapshot` and a durable
+`FUNDS` command. The account owner applies it with checkpoint/revision fences;
+an old external observation must not erase more recent local commitments.
 
-New exposure requires a recent broker-funds observation (the ledger currently allows a 90-second interval). **This is a funds check, not the removed tick-age rule.** Closing exposure is not blocked by the new-entry funds-age condition.
+New exposure currently requires a broker funds observation within **90 seconds**
+of the intent clock. This is a broker-account funds rule, not a market tick-age
+rule. Protective closing is not blocked solely by that funds freshness check.
 
-Margin calculations in the shared kernel are an admission model. The real broker remains authoritative and can reject an order for its own margin, product, session or instrument rules.
+## Deploy a saved version
 
-## Market data and rule evaluation
+From **My Strategies → Live deployment**:
 
-```mermaid
-flowchart LR
-  Provider[Market data provider] --> SHM[Local observation ring]
-  History[Confirmed history and calendar] --> Prepare[Background warmup]
-  Prepare --> Graph[Compiled features and programs]
-  SHM --> Units[Independent session instrument units]
-  Graph --> Units
-  Units --> Owner[One owner per broker account]
-  Owner --> Persist[Commit owned order and checkpoint]
-  Persist --> Broker[Broker I/O pool]
-  Broker --> Reports[Order reports]
-  Reports --> Owner
-```
+1. Select the saved version and connected owned broker account.
+2. Enter a fixed capital budget. Percentage allocation is removed.
+3. Review selected markets, automatic contract policies, entry direction, size,
+   stop/exit rules and schedule before confirming.
+4. The service validates the version/definition, connection and funds. Other
+   allocations plus the new budget cannot exceed observed broker net equity.
+5. A session/allocation is created and a runtime refresh is requested.
+6. Open **Live Trading → Deployments**, filter status and inspect applied version,
+   broker connection, open exposure, pending work and any application error.
 
-### Preparation
+Multiple versions do not permit duplicate deployment of the same strategy to the
+same broker account. The current unique relationship is **strategy + broker
+credential**. Deploying the strategy to a different owned broker account is
+allowed. Paper instead permits different saved versions of one strategy.
 
-The controller loads the deployed snapshot, resolves instruments/routes and prepares contracts/calendars. `strategy_requirements()` derives indicator/timeframe dependencies; `source_windows()` determines warmup. The common history service acquires only missing source windows, then calendar-aware aggregation prepares completed bars.
+Allocation is a local risk budget; it is not a transfer of real money to a new
+broker subaccount. Real broker cash and all sessions using that connection remain
+shared. A successful deploy request is not a signal, submission or fill.
 
-`prepare_symbol()` runs outside numerical evaluation. `compile_strategy()` produces typed programs; `FeatureGraph` shares feature calculations per symbol/configuration within a worker. Warmup is not a database query inside every rule.
+## Account and strategy ownership
 
-### Independent evaluation and shared capital
+The financial account owner is keyed by Live mode and broker credential. Each
+automated unit has `(mode, session_id, route_id, leg_id)` ownership and a separate
+signal/traded-contract binding.
 
-An evaluation unit is `(LIVE, session_id, instrument_id)`. It owns its rule samples, pending signal and acknowledged position view. Separate sessions on the same symbol can evaluate independently without waiting for the other session's signal result.
+- Each unit's conditions, crossing samples, captures and position state remain
+  independent of another strategy's state.
+- Shared market feature calculations may be reused without sharing private setup
+  state or duplicating available account cash.
+- The account owner serializes reservations, fill deltas and releases across all
+  allocations on that broker account.
+- An open or pending unit pins its exact contract. A new ATM selection cannot
+  retarget an already submitted order or change a position into another strike.
+- Only platform-owned orders contribute to those session-level projections.
 
-CPU workers still run bounded actor turns; a process does not execute infinitely many instructions at the same instant. Features are shared where possible, and account financial changes are serialized. Worker count should follow actual cores and measured workload, not user count alone.
-
-### Price and candle semantics
-
-- LTP reads the latest observed tick for the event being processed.
-- CLOSE and indicator inputs use completed candles, aligned to exchange/segment sessions.
-- Sequence/generation tracking prevents replaying an old observation as a new one.
-- Cross rules compare sequential samples and need history before they can assert a cross.
-- The strategy end time blocks new entry; it is not automatic square-off.
-- Automated exit signals request the full remaining position. Broker partial fills may still happen.
-- No fixed tick-age threshold rejects a quiet instrument's observed price. A detected disconnect invalidates execution observations until a new one arrives; silent feed freezes are not solved by this policy.
+Broker aggregate positions may include manual trades, other systems and offsetting
+sessions. They cannot identify the platform's individual strategy ownership and
+therefore do not overwrite it. Users must reconcile external/manual activity
+deliberately instead of assuming the platform has assigned it to a strategy.
 
 ## Signal to broker order
 
-### 1. Evaluate and propose
+```mermaid
+sequenceDiagram
+    participant Feed as Market feed
+    participant Worker as Strategy worker
+    participant Owner as Account owner
+    participant DB as Durable projection
+    participant Adapter as Broker adapter
+    participant Broker as Broker
+    Feed->>Worker: Sequenced tick / completed bar
+    Worker->>Owner: Intent with unit, contract, revision and quote
+    Owner->>DB: Accepted order, reservation and checkpoint
+    DB-->>Adapter: Committed owned order may be submitted
+    Adapter->>Broker: Place with QN local-order tag
+    Broker-->>Owner: Normalized cumulative order observation
+    Owner->>DB: Fill delta, position/trade and order state
+    DB-->>Worker: Committed position revision
+```
 
-`EvaluationUnit.evaluate()` emits an `Intent` with account/unit, version, position revision, observation and direction. It does not submit HTTP or write ORM models. The intent describes a decision, not a completed trade.
+1. `market-data` writes canonical observations to local buffers. Completed source
+   bars advance the prepared graph; LTP inputs read live observations.
+2. The shared evaluator runs only on available dependencies, without ORM, network
+   or broker access in the numerical tick path.
+3. The unit emits an intent carrying ownership, selected contract, current position
+   revision, signal clock and traded reference price.
+4. The account owner checks status, duplicate/pending work, quantity/lot/tick/session,
+   funds and allocation, then accepts/reserves or rejects with a reason.
+5. The controller persists the financial transition and owned `LiveOrder` before
+   broker I/O. It exists durably in an unresolved/`UNKNOWN` submission state.
+6. `controller.broker_call()` validates authentication before placement. A definite
+   local auth failure becomes a rejected observation because no order was sent.
+7. `BrokerService.place_order()` calls the adapter with symbol, side, quantity,
+   market order type, product type and tag **`QN{LiveOrder.pk}`**.
+8. Placement acknowledgement binds broker order ID/state. It is not treated as
+   the requested quantity having filled.
+9. Order-stream or REST observations produce cumulative fill changes through the
+   same account writer. Only those confirmed changes update positions/trades.
 
-### 2. Admit through the account owner
-
-`AccountOwner.accept()` and `ledger.accept_intent()` verify current version/position/pending state, entry calendar, contract constraints, sizing, allocation and funds. The ledger reserves the required capital and creates an order transition.
-
-Live orders begin as UNKNOWN because a local intent is not evidence of broker acceptance. The controller commits the owned `LiveOrder` and account checkpoint before submitting it externally.
-
-### 3. Submit outside the numerical path
-
-`Controller.receive()` dispatches a newly committed order to its broker thread pool. `broker_call()` calls `BrokerService.place_order()` with the canonical instrument symbol, side, quantity, order/product type and a correlation tag `QN{LiveOrder.pk}`.
-
-The current automated FYERS placement adapter is market-order oriented and supplies zero limit/stop prices. Do not infer that the manual Terminal's full limit/stop order ticket is available for automated broker placement simply because both use shared order types. The adapter's supported payload is the implementation boundary.
-
-`Contract.product` chooses CNC for the supported cash instrument types and MARGIN for derivatives; strategy type does not switch it to INTRADAY. Actual same-day closing and broker accounting are separate matters. FYERS submission currently uses DAY validity internally; there is no Terminal validity selector.
-
-### 4. Observe acceptance and fills
-
-The response is normalized into an order observation command. Broker acceptance can provide an order ID without a fill. Subsequent order reports carry cumulative filled quantity, average price and status.
-
-`AccountOwner.broker_observation()` uses `observe_order()` to derive the **incremental** fill from cumulative broker reports. Only that incremental fill reaches `apply_fill()`. Repeated reports must not double quantity, P&L or capital effects.
-
-### 5. Persist and acknowledge
-
-`persist_transition()` updates the checkpoint and Live order/position/trade projections in a transaction, then the controller acknowledges the committed revision. Filled exposure can be protected immediately, but uncommitted gains/released collateral cannot be spent prematurely.
-
-Example: a broker reports 4 of 10 shares filled, then 10 of 10. QuantNest applies fills of 4 and 6, not 4 and 10. A repeated report of 10 creates no additional fill. A full-position exit can consequently produce more than one recorded close as fills arrive.
-
-## Order reconciliation and timestamps
-
-### What is synchronized
-
-QuantNest synchronizes **owned broker orders**. It derives its own session positions and trades from their fills. Broker aggregate positions or broker trade lists do not overwrite local strategy/session exposure: the broker may net several strategies and manual activity differently.
-
-The order-event service provides prompt updates. `reconcile_all_active_accounts` periodically performs REST order reconciliation and funds refresh once per credential. Its queryset includes paused/stopping/error sessions and unresolved exposure, so a websocket failure does not stop reconciliation.
-
-The session Sync action calls `reconcile_orders()` for its credential. Synchronization matches an owned order through its broker ID or validated QuantNest tag. It does not import arbitrary manual broker orders as strategy trades.
+The current Studio execution generates market orders. Manual limit/stop ticket
+matching belongs to the simulated Terminal; it is not a hidden Live strategy
+setting. Equity product mapping uses CNC and derivatives MARGIN rather than
+switching product merely because the strategy is called Intraday.
 
 ### Ambiguous submission
 
-If a network timeout occurs after submission, the order may already exist at the broker. It remains unresolved for reconciliation rather than being blindly submitted again. `find_owned_order()` can use the `QN` tag to associate an order whose broker ID was not saved from the first response.
+A timeout after placement starts can mean the broker accepted the order but the
+response was lost. The system keeps that owned order/reservation unresolved and
+reconciles it by broker ID or exact local tag. It does not blindly submit another
+order. A real unknown order is a state to resolve, not a failed fill to fabricate.
 
-On recovery, pre-existing ambiguous orders are reconciled. They are not treated as newly accepted intents eligible for another submission. Inspect broker and local order state before manually intervening.
+Submission runs outside numerical workers. DB commit, broker HTTP transport,
+exchange processing and order-stream delivery are additional stages after signal
+calculation; no single latency number represents all of them.
+
+## Broker events and cumulative fills
+
+`python -m quantnest_runtime broker-events` manages the active broker order streams.
+Its manager refreshes the required connection set periodically, so deployments and
+connection lifecycle changes do not need one stream per strategy or instrument.
+
+The normalized observation includes broker ID, tag/identity, symbol/side/quantity
+when supplied, order state, cumulative filled quantity, cumulative average,
+broker timestamps, exchange ID and rejection text.
+
+`live_trading/order_processor.py` finds an **owned** order:
+
+1. Scope to the same user and broker credential.
+2. Match the exact stored broker order ID first.
+3. Otherwise parse the exact `QN` plus positive local-order-ID tag and validate
+   that the candidate is owned by this credential/session/allocation.
+4. Reject conflicting IDs or supplied symbol/side/quantity inconsistencies.
+5. Ignore unmatched external orders rather than import an unrelated position.
+6. Queue a `BROKER` command to the account owner.
+
+The owner calculates incremental execution from cumulative totals. Example:
+
+```text
+Report 1: 10 cumulative units, average 100.00 -> 10 units at 100.00
+Report 2: 15 cumulative units, average 101.00 -> 5 new units at 103.00
+```
+
+The second delta price is `(15×101 − 10×100) / 5 = 103`. Applying 15 units again or
+using 101 as the second fill would corrupt the position and cash.
+
+Duplicate observations do not fill twice. Regressive/contradictory quantities,
+turnover or terminal states require reconciliation rather than silent rewriting.
+Filled/cancelled/rejected terminal outcomes release the appropriate remaining
+reservation through the committed transition. Partial fills remain owned exposure
+even if the unfilled remainder is later cancelled.
+
+## Order reconciliation and timestamps
+
+REST orderbook reconciliation is the recovery complement to the order WebSocket.
+Both paths feed the same normalized observation writer; there is no second
+financial implementation that independently rebuilds trades from a broker tradebook.
+
+- Scheduled reconciliation runs approximately every 60 seconds when Live scope
+  is enabled. It groups by credential rather than calling the broker per session.
+- It includes active/paused/stopping/error work and accounts with unresolved orders
+  or open exposure, rather than assuming only RUNNING sessions need recovery.
+- User **Sync** requests an owned orderbook reconciliation for the session's broker
+  account. It does not import all broker positions/trades.
+- Funds snapshots refresh the financial ceiling separately from order fills.
+- WebSocket disconnects can increase confirmation delay until REST catches up;
+  they do not justify marking an order filled locally.
 
 ### Broker timestamps
 
-The FYERS adapter parses documented `orderDateTime` using `%d-%b-%Y %H:%M:%S` in the broker timezone and normalizes event timestamps. Broker order time and the available broker update time are preserved separately. A newly discovered REST fill without an execution-event timestamp uses local observation time; its exact exchange fill time is unavailable from that snapshot. Whole-second broker clocks are compared with order eligibility at the same precision.
+FYERS normalization parses documented `orderDateTime` with
+`%d-%b-%Y %H:%M:%S` in `Asia/Kolkata` and converts to an aware UTC timestamp.
+Its available event epoch supplies the normalized update time; exchange order ID
+is retained where supplied. A missing event timestamp falls back to the local
+observation receipt time, not a fabricated historical fill time.
 
-The data available in an order snapshot can be coarser than exchange transaction-level history. Preserve the distinction between broker order time, available execution event time and local observation time; do not claim unavailable trade-level timestamps.
+The projections keep order/submission, broker event/fill and local persistence
+facts separately where the model supports them. Local `created_at` is not proof
+of exchange execution time. UI formatters render aware timestamps consistently;
+do not remove timezone information when correlating logs.
 
-## Session management
+## Manage running sessions
 
-| Action | Behaviour |
+| Action | Behavior and constraints |
 | --- | --- |
-| Pause | Stop new entries; existing positions and broker reconciliation remain relevant |
-| Resume | Revalidate strategy/version, broker access/session and funds; enqueue refresh |
-| Stop without close | Default API option; request STOPPING and stop new execution while preserving the requested exposure policy |
-| Stop with close | Explicit `close_positions=true`; request liquidation and wait for broker completion |
-| Sync | Reconcile owned orders; does not copy broker aggregate positions |
-| Change version | Validate and refresh the existing allocation/session |
-| Change allocation | Recheck broker equity and committed capital, then queue owner application |
-| Disconnect/change broker credentials | Reject while sessions run/stop, exposure or unresolved orders exist, or account commands await application; disconnect only after those are settled |
+| Pause | Stop new entries, retain protective/exit handling and owned exposure; pending unfulfilled setup state is reset as applied |
+| Resume | Revalidate version/strategy/scope, broker session/funds and current budget, then request runtime refresh |
+| Stop without close | API default `close_positions: false`; stop entries/cancel entry work while keeping owned positions managed |
+| Stop & close | Explicit `close_positions: true`; close through real broker orders and wait for confirmed fills |
+| Change fixed allocation | Sync funds, validate total account budget and committed margin/reservations, then queue the owner change |
+| Change saved version | Validate same-strategy snapshot, open owners/contracts and pending orders before asynchronous application |
+| Sync | Read broker orders and queue their normalized observations |
 
-STOPPING is a transition, not a guarantee all broker orders are cancelled or positions flat. Closing orders can be rejected or partially filled. Continue inspecting unresolved records and broker state.
+Stopping a process or session does not prove broker positions are flat. With close
+requested, a submitted exit can remain partial/unresolved while the broker is
+unavailable. Repeated Stop without close is idempotent for STOPPING/STOPPED;
+explicit close can request the remaining cleanup.
 
-The worker marks STOPPED only once the session has no positions and no active orders. Stopping without requesting liquidation can therefore remain STOPPING while exposure exists. The UI/API stop request is not a way to hide or detach an open broker position.
+The API's 2xx response acknowledges the user action, not a completed broker fill
+or instant version install. Requested/applied version, command errors, open orders
+and positions provide the actual state. Keep the service running to apply accepted
+commands; normal capital/version edits do not require a restart.
 
-### Version changes
+### Version and capital fences
 
-Use the allocation's deploy-version action. The version must belong to the strategy and satisfy Live validation, including a stop-loss rule. It must retain instruments with open positions. Outstanding PENDING/PLACED/PARTIAL_FILL/UNKNOWN orders block the change.
+New configuration cannot delete/rebind an open unit or replace its contract.
+Working orders must settle before a conflicting change. Setup changes around open
+positions can require flat exposure; initial-risk edits are not retroactive entry
+prices/stops for an already filled position.
 
-The allocation is updated and refresh commands are queued. The controller compiles/prepares the replacement and installs it through the existing session; the user does not need to stop and relaunch the runtime. Session `applied_version` and `applied_at` acknowledge application. Existing positions remain attached to the same session. Editing an unrelated draft does not update an already deployed snapshot.
+Live allocation reduction must preserve committed margin/reservations and the
+account's current realized basis. Only one allocation-change operation can be
+pending. Multiple sessions cannot each allocate the same free broker funds as if
+their budgets were independent real deposits.
 
-### Capital changes
+Public/Development/Private commercial rules are centralized at usage admission.
+Private has no commercial resource caps, but ownership, execution scope, data,
+contract validity and actual account funds remain necessary. There is no
+per-tick licence/subscription query.
 
-The amount is fixed, not a percentage. `update_allocation()` refreshes funds, checks the proposed total allocation and prevents reductions below committed position/order capital. It rejects overlapping pending allocation changes and queues a REFRESH carrying the proposed values.
+## Data and contract lifecycle
 
-The owner applies the change and persistence updates the records. An accepted HTTP request and a worker-applied budget are different stages. Inspect command/session errors when they diverge.
+Live uses the same history preparation, calendar, local observation buffers,
+compiler, indicators, rolling/formula semantics and setup state machine as Paper.
+See [shared data preparation](paper-trading.md#live-data-preparation).
 
-## Portfolio, charges and review
+- Completed-bar rules wait for completion; LTP rules react to received observations.
+- Separate signal/traded instruments are joined causally. An index quote cannot
+  serve as an option fill or a future's margin reference price.
+- Simple level conditions and capture false→true re-arming remain different.
+- A new automatic contract can be selected only for eligible flat/pending-free
+  entry. Historical preparation is selective rather than the full option chain.
+- Open/pending contracts retain subscriptions and ownership after the underlying
+  moves to another ATM or a new desired expiry.
+- No tick is rejected merely for exceeding a fixed age in seconds; reconnect
+  generations, missing observations and graph readiness still matter.
+- Entry-end schedule prevents new local entry admission; it does not mean
+  intraday square-off or proof that an already accepted broker order was cancelled.
 
-Live Portfolio shows owned session/order/position/trade data. Broker funds snapshots support account health and admission; they are not a replacement for strategy-level P&L. Summary reads use stored/cached values instead of calling broker REST on every screen refresh.
+Active/tradable status, expiry, listed strike availability, whole lots, price tick,
+freeze constraints and exchange/segment sessions are checked. Current simulation
+collateral rates are not a substitute for the broker's actual margin/risk rules;
+the broker can still reject an otherwise locally admitted order.
 
-`LiveTrade.realized_pnl` and shared Live reports are **before fees**. The platform does not replace unavailable broker charges with hypothetical Paper fees. Recorded slippage compares signal/reference and execution prices; it is different from a broker fee.
+## Valuation, charges and reporting
 
-Choose **LIVE** in Journal/Reports. Filters use ownership, source, exit dates, account/strategy/instrument/search and review status. The current open-position mark is separate from historical closed P&L and may be unavailable if quote coverage is missing.
+Live Portfolio combines overview, positions, orders, trade history and performance.
+Deployments manages sessions/versions/capital; Execution Logs exposes scoped
+execution events. Detailed broker-account balance cards were removed from the
+portfolio; connection/funds administration belongs to Broker Integration.
 
-Private reviews store notes, lessons, optional rating and mistake tags against completed owned closes. Deleting a review leaves the trade. A close tagged twice contributes to both tag groups; grouped results overlap.
+Open P&L uses the same shared quote/valuation layer as Paper/Terminal:
 
-CSV export uses the same filters and rejects exports above 50,000 closes. Ask AI creates a frozen evidence context and owned research conversation; no model request begins until the user sends a message. Including saved private journal notes is explicit and research usage still applies.
+```text
+Open P&L = direction × (mark − entry average) × units × multiplier − settled MTM
+```
 
-Activity History records supported configuration/lifecycle changes without producing one audit event per tick or fill. Reports aggregate existing closes rather than maintaining a second financial ledger. A cumulative closed-P&L series is not a verified historical equity curve.
+The backend supplies full-filter `valuation_positions`; frontend valuation updates
+rows and aggregate cards from the same quote store, including off-page exposure.
+Financial events/reconnects refresh exposure, not every price tick. Missing marks
+are incomplete/N/A, not a claim of zero exposure.
 
-## API map
+**Current Live closing does not integrate actual broker charges.** The Live ledger
+does not apply the simulated profile as a broker invoice; its closing charge
+dictionary is empty. A field labelled net cannot be interpreted as independently
+reconciled after-broker-fee profit. Use the displayed before-charges basis and the
+broker's actual statement until a qualified charge-report adapter is implemented.
+Paper/Backtest/Terminal simulated close-cost profiles have a different role.
 
-Paths below are relative to `/api/v1/`.
+Recorded trades derive from owned order fills. Journal reviews add notes/tags/
+ratings without changing fills. Performance reports preserve source/account/date
+and fee basis; AI research can review an explicitly attached owned report.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `POST strategies/strategies/{id}/deploy-live/` | Deploy selected version to owned broker account |
-| `GET live/sessions/`, `sessions/{id}/`, `sessions/summary/` | Deployments and aggregate state |
-| `POST live/sessions/{id}/pause/`, `resume/`, `stop/`, `sync/` | Lifecycle/reconciliation |
-| `GET live/allocations/` | Allocation records |
-| `POST live/allocations/{id}/update-allocation/`, `deploy-version/` | Budget/version changes |
-| `GET live/orders/`, `positions/`, `trades/` | Owned execution records |
-| `GET live/orders/summary/`, `positions/summary/`, `trades/summary/` | Source summaries |
-| `GET live/execution-logs/`, `slippage/` | Execution diagnostics and price differences |
-| `GET analytics/reports/`, `reports/trades/`, `reports/export/` | Shared reports using `source=LIVE` |
-| `POST analytics/reports/research-context/` | Frozen execution evidence |
-| `GET/POST journal/entries/`; `GET/PATCH/DELETE journal/entries/{id}/` | Private journal reviews |
-| `GET audit/logs/` | Supported configuration/lifecycle history |
-
-See [Live routes](../backend/live_trading/urls.py) and [views](../backend/live_trading/views.py) for supported filters and payloads. Reading an owned historical record is distinct from permission to start new Live execution.
+Daily broker MTM, final settlement, assignment and physical delivery are not
+automatically posted from public settlement prices. Those require account-specific
+broker/clearing evidence. The
+[simulation settlement importer](paper-trading.md#derivative-settlement) deliberately
+rejects Live accounts instead of fabricating exchange cash movements.
 
 ## Operations and recovery
 
-From `backend/`, run the following as separate managed processes, alongside the API/database/Redis and configured Celery/Beat services:
+Required runtime commands from `backend`:
 
-```bash
+```powershell
 python -m quantnest_runtime market-data
-python -m execution
+python -m quantnest_runtime execution
 python -m quantnest_runtime broker-events
 ```
 
-The [infrastructure guides](../infra/README.md) own installation commands and service files. Enable Live only in an allowed deployment mode. Keep the scheduled active-account reconciliation/funds task enabled; the order socket and REST reconciliation serve complementary purposes.
+Also run API/ASGI, PostgreSQL, Redis and the configured Live/background Celery/Beat
+tasks. Service topology, environment and production cutover instructions are in
+[infrastructure](../infra/README.md). Do not launch a separate Terminal/orders
+daemon; execution already owns those account paths.
 
-`EXECUTION_WORKERS` controls persistent CPU workers. One launcher owns the group through a local OS lock. Market-data and workers share local mapped files; multi-server replication is not part of the current implementation. A second hidden execution group is not a capacity upgrade.
+At restart, the controller recovers committed account checkpoints/projections,
+restores pending financial state, prepares required markets and reconciles owned
+broker observations. It does not erase UNKNOWN work or recreate every order.
+One execution group and one relevant provider service must own their leases.
+If a numerical worker dies, the group stops for committed-state recovery instead
+of leaving a subset of financial owners silently absent.
 
-The controller handles ORM, command polling, warmup preparation and broker I/O outside numerical actors. Workers process bounded observation batches and share indicator features. More cores can support more partitions, but broker/API limits, persistence, data rates and strategy complexity also constrain capacity. There is no verified fixed number of users per VM.
-
-### Recovery sequence
-
-1. Start one configured market-data service and one execution group.
-2. Controller restores account/evaluation checkpoints and session configuration.
-3. Warm required data and reconnect observation generations.
-4. Restore unresolved Live orders and reconcile them; do not resubmit ambiguous placements.
-5. Start/inspect broker-events and REST reconciliation, then confirm broker funds and session state.
-
-If a worker child fails, the launcher stops the group for a coherent restart from committed state. A detected generation/revision change triggers preparation rather than inventing missing observations. Lost buffered ticks mark affected strategy sessions ERROR for review/resume. Provider reconnection, failed evaluation and broker submission ambiguity are different recovery cases.
-
-| Symptom | First investigation |
+| Failure | Correct operational interpretation |
 | --- | --- |
-| No signal | Enabled scope, session/rules, market demand, completed warmup and entry window |
-| Signal rejected locally | Version/position revision, pending intent, quantity/contract, allocation and broker funds |
-| UNKNOWN order | Correlation tag/order ID, broker order book, websocket/REST reconciliation |
-| Duplicate-looking report | Cumulative fill quantity and order identity; do not reapply manually |
-| Position differs from broker | Local session ownership versus broker net account exposure/manual activity |
-| STOPPING persists | Outstanding cancellation/fill, broker rejection and selected close option |
-| Displayed P&L differs | Before-fee basis, realized/open split, partial closes and selected source/filter |
+| Market feed unavailable | No invented execution observations; repair feed/history and readiness |
+| Broker stream lost | Keep unresolved orders; REST reconciliation can recover reports |
+| Placement HTTP timeout | Broker acceptance uncertain; match broker ID/local tag before any new action |
+| Broker auth definitely invalid before send | Local rejection; reauthorize and inspect remaining exposure |
+| Stale funds | Refresh account observation for new exposure; it is not a tick-age warning |
+| UI socket disconnected | Refresh/reconnect display; broker/runtime may still be running |
+| Version/capital pending | Inspect command/preparation state, do not assume browser values already govern trades |
+| External/manual broker activity | Review account funds and owned orders; aggregate broker positions cannot establish strategy ownership |
+| Final settlement/delivery occurred | Reconcile broker-specific evidence; simulation import cannot repair Live cash |
 
-## Source map and extension points
+Stop services for incompatible schema changes according to the migration/cutover
+instructions. Never clear checkpoints or remove unresolved orders as a substitute
+for reconciling actual broker exposure.
 
-| Source | Responsibility |
+## API contracts
+
+Authenticated prefix **`/api/v1/live/`**. Lists use shared server pagination
+(`page`, `page_size` 10/25/50/100, default 25) and owned server-side filters.
+
+| Method/path | Purpose |
 | --- | --- |
-| [Live UI](../frontend/src/features/live), [broker UI](../frontend/src/features/brokers) | Deployment/portfolio and account authorization |
-| [Live services](../backend/live_trading/services.py) | Deploy/resume/stop, allocation, funds and summaries |
-| [Controller](../backend/execution/controller.py) | `broker_call`, installation, commands and persistence boundary |
-| [Worker](../backend/execution/worker.py), [engine](../backend/execution/engine.py) | Independent numerical actors and rule decisions |
-| [Owner](../backend/execution/owner.py), [ledger](../backend/execution/ledger.py) | Capital ownership and incremental financial effects |
-| [Order reports](../backend/execution/order_reports.py) | Normalize cumulative status/fill progress |
-| [Order processor](../backend/live_trading/order_processor.py) | Match owned orders and enqueue normalized broker observations |
-| [Reconciliation task](../backend/live_trading/tasks.py) | Background order/funds reconciliation |
-| [Broker service](../backend/brokers/services.py), [FYERS adapter](../backend/brokers/fyers.py) | Common dispatch and provider-specific payload/response contracts |
-| [Repository](../backend/execution/repository.py) | Durable order/checkpoint and Live record projection |
+| `GET sessions/`, `sessions/summary/`, `sessions/{id}/` | Deployment list, state counts and detail |
+| `POST sessions/{id}/pause/`, `resume/` | Lifecycle commands |
+| `POST sessions/{id}/stop/` | Stop; explicit boolean `close_positions` controls requested liquidation |
+| `POST sessions/{id}/sync/` | Reconcile that credential's owned orders |
+| `GET allocations/`, `allocations/{id}/` | Owned budgets and deployed versions |
+| `POST allocations/{id}/update-allocation/` | Fixed amount change |
+| `POST allocations/{id}/deploy-version/` | Request validated saved-version change |
+| `GET orders/`, `orders/summary/` | Order state/history and full-filter counts |
+| `GET positions/`, `positions/summary/` | Owned exposure and full-filter realtime valuation inputs |
+| `GET trades/`, `trades/summary/` | Derived close records and aggregates |
+| `GET execution-logs/`, `slippage/` | Scoped execution and reference-versus-fill diagnostics |
 
-For a new broker, implement broker-specific authorization, placement, order normalization, funds and events behind its adapter. Keep common execution intents/accounting unchanged. Validate cumulative fill transitions and uncertain submission recovery before enabling real orders. Extending a provider is not just adding another credential form.
+Initial deployment uses the strategy deployment API. Broker configuration,
+authorization, connection status, API logs and charge profiles use
+`/api/v1/brokers/`, not the Live order list as writable broker CRUD.
+
+`/ws/live/` delivers user financial/session events. `/ws/marketdata/` delivers
+prices/charts. Broker order WebSockets are separate server-to-broker connections;
+closing a browser tab does not intentionally stop them.
+
+## Implementation ownership
+
+Backend paths below are relative to `backend/`. Start at
+[`live_trading/services.py`](../backend/live_trading/services.py), follow
+[`controller.broker_call`](../backend/execution/controller.py), then
+[`order_processor.py`](../backend/live_trading/order_processor.py) for broker reports.
+
+| File/symbol | Responsibility |
+| --- | --- |
+| `strategies/services.StrategyDeploymentService` | Mode validation and safe saved-version changes |
+| `live_trading/services.LiveExecutionService` | Deployment, lifecycle, allocation and fund synchronization |
+| `live_trading/views.py`, `serializers.py`, `models.py` | HTTP commands, scoped lists and financial projections |
+| `execution/preparation.py`, `compiler.py`, `engine.py`, `worker.py` | Shared prepared-market numerical decisions |
+| `execution/owner.py`, `ledger.py` | Account ordering, reservation and fill-delta accounting |
+| `execution/controller.broker_call` | Durable-before-send broker transport boundary |
+| `execution/repository.py`, `recovery.py` | Transactional projections, checkpoints and recovery |
+| `live_trading/order_processor.find_owned_order`, `apply_order_observation`, `reconcile_orders` | Common stream/REST matching and command ingestion |
+| `live_trading/websocket_manager.py`, `tasks.py` | Required broker streams and periodic recovery/funds tasks |
+| `brokers/base.py`, `services.py`, `fyers.py`, `websocket/` | Common normalized interfaces and provider-specific authentication/wire formats |
+| `common/valuation.py`, shared `useLivePositionsPnL.js` | Consistent full-scope display valuation |
+| `frontend/src/features/live/` | Portfolio, deployments, orders, positions, performance and logs |
+
+## Worked examples
+
+### Two strategies on one account
+
+Broker net equity is 100,000. Strategy A allocates 30,000 and B 40,000. A new
+40,000 allocation fails the total budget check. If A has pending orders, its
+reserved resources cannot also fund B. Distinct unit state does not imply
+distinct real broker cash.
+
+### Timeout followed by stream recovery
+
+An order is persisted locally as ID 321, tagged `QN321`, then placement times out.
+The broker stream later reports that tag with broker ID X and cumulative fill 20.
+The owned order is bound to X and filled once. It is not replaced with a second
+market order merely because the HTTP result was uncertain.
+
+### Flat route selects another ATM
+
+An index route buys an ATM call and holds it while the index rises. The held call
+stays the same. After its confirmed exit and no outstanding order, the next valid
+entry can select the new ATM. It still needs an observed quote, applicable history,
+whole-lot quantity and account/broker admission.
+
+## Release checks and unsupported behavior
+
+Before real use, verify the full path with the configured broker/account:
+saved version → exact prepared markets → signal → durable reservation/order →
+submission acknowledgement → partial/cumulative fills → protection/exit →
+REST/stream duplicate recovery → funds/report agreement. Test user pause/resume,
+stop with/without close, capital/version fences, reconnect and ambiguous placement.
+These checks require deliberate controlled broker access; code inspection alone
+does not establish real broker acceptance or exchange latency.
+
+Current boundaries include no atomic multi-leg execution, automatic rollover,
+broker portfolio-margin qualification, actual broker-fee accounting, general
+external-position attribution, or complete Live delivery/assignment settlement.
+Do not market these as implemented simply because their contracts can be selected
+or their numerical expressions can be compiled.

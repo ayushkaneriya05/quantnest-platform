@@ -27,3 +27,11 @@ class TicketSerializer(serializers.ModelSerializer):
 
 class ReplyInput(serializers.Serializer):
     body = serializers.CharField(min_length=2, max_length=10000, trim_whitespace=True)
+
+
+class TicketListSerializer(serializers.ModelSerializer):
+    request_type_label = serializers.CharField(source='get_request_type_display', read_only=True)
+
+    class Meta:
+        model = Ticket
+        fields = ('id', 'request_type', 'request_type_label', 'subject', 'status', 'created_at', 'updated_at')

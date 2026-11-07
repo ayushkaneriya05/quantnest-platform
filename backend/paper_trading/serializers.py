@@ -49,6 +49,7 @@ class PaperTradingSessionSerializer(serializers.ModelSerializer):
     allocated_capital = serializers.ReadOnlyField(source="allocation.allocated_amount")
     available_capital = serializers.ReadOnlyField(source="account.annotated_available_capital")
     used_capital = serializers.ReadOnlyField(source="account.annotated_used_capital")
+    reserved_capital = serializers.ReadOnlyField(source="account.annotated_reserved_capital")
     balance = serializers.ReadOnlyField(source="account.current_balance")
     realized_pnl = serializers.ReadOnlyField(source="account.annotated_realized_pnl")
     trades_count = serializers.IntegerField(source="account.annotated_trade_count", read_only=True)
@@ -60,7 +61,7 @@ class PaperTradingSessionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'strategy', 'strategy_name', 'strategy_status', 'paper_trading_enabled',
             'name', 'allocation', 'account', 'deployed_version', 'applied_version', 'applied_at', 'allocated_capital',
-            'available_capital', 'used_capital', 'balance', 'realized_pnl', 'open_positions',
+            'available_capital', 'used_capital', 'reserved_capital', 'balance', 'realized_pnl', 'open_positions',
             'slippage_pct', 'charge_profile', 'include_charges',
             'charge_profile_name',
             'status', 'started_at', 'ended_at', 'trades_count', 'error_message',
@@ -83,13 +84,14 @@ class PaperAccountSerializer(serializers.ModelSerializer):
     today_trades = serializers.ReadOnlyField(source="annotated_today_trades")
     margin_used = serializers.ReadOnlyField(source="annotated_used_capital")
     margin_available = serializers.ReadOnlyField(source="annotated_available_capital")
+    reserved_capital = serializers.ReadOnlyField(source="annotated_reserved_capital")
     session_status = serializers.SerializerMethodField()
     session_id = serializers.SerializerMethodField()
 
     class Meta:
         model = PaperAccount
         fields = ["id", "name", "current_balance", "realized_pnl", "today_trades",
-                  "margin_used", "margin_available", "session_status", "session_id"]
+                  "margin_used", "margin_available", "reserved_capital", "session_status", "session_id"]
         read_only_fields = fields
 
     def get_session_status(self, obj):
@@ -116,7 +118,7 @@ class PaperPositionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'account', 'strategy', 'strategy_name', 'instrument', 'instrument_symbol', 'instrument_sym_ticker',
             'side', 'quantity', 'qty_multiplier', 'avg_price', 'current_price', 'mark_at',
-            'unrealized_pnl',
+            'unrealized_pnl', 'settled_pnl', 'route_id', 'leg_id',
             'margin_blocked', 'current_value', 'invested_value', 'unrealized_pnl_pct', 'opened_at'
         ]
 
@@ -137,14 +139,14 @@ class PaperOrderSerializer(serializers.ModelSerializer):
         model = PaperOrder
         fields = [
             'id', 'account', 'strategy', 'strategy_name', 'instrument', 'instrument_symbol',
-            'order_type', 'product_type', 'side', 'quantity', 'price', 'trigger_price',
+            'order_type', 'product_type', 'side', 'quantity', 'price', 'trigger_price', 'route_id', 'leg_id',
             'filled_quantity', 'avg_fill_price',
             'slippage_pct_applied', 'slippage_amount',
             'status', 'rejection_reason', 'order_tag',
             'is_filled', 'is_pending', 'placed_at', 'executed_at'
         ]
         read_only_fields = [
-            'filled_quantity', 'avg_fill_price', 'slippage_pct_applied', 'slippage_amount',
+            'filled_quantity', 'avg_fill_price', 'slippage_pct_applied', 'slippage_amount', 'route_id', 'leg_id',
             'status', 'placed_at', 'executed_at', 'account', 'strategy', 'instrument',
             'order_type', 'product_type', 'side', 'quantity', 'price', 'trigger_price'
         ]
@@ -160,7 +162,7 @@ class PaperTradeSerializer(serializers.ModelSerializer):
         model = PaperTrade
         fields = [
             'id', 'account', 'strategy', 'strategy_name', 'instrument', 'instrument_symbol',
-            'side', 'quantity', 'entry_price', 'entry_time',
+            'side', 'quantity', 'entry_price', 'entry_time', 'route_id', 'leg_id', 'settled_pnl',
             'exit_price', 'exit_time', 'exit_reason',
             'gross_pnl', 'net_pnl', 'pnl_pct', 'brokerage', 'taxes', 'charges_json', 'charges_breakdown',
             'holding_duration_seconds', 'is_winner'

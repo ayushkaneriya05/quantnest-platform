@@ -19,7 +19,6 @@ urlpatterns = [
     path("api/v1/common/", include("common.urls")),
     path("api/v1/strategies/", include("strategies.urls")),
     path("api/v1/instruments/", include("instruments.urls")),
-    path("api/v1/rules/", include("rules_engine.urls")),
     path("api/v1/backtest/", include("backtesting.urls")),
     path("api/v1/paper/", include("paper_trading.urls")),
     path("api/v1/brokers/", include("brokers.urls")),

@@ -1,22 +1,17 @@
 """Backtest orchestration: prepare history, replay the shared kernel, save reports."""
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 from django.db import transaction
 from django.utils import timezone
 
-from common.enums import BacktestStatus
-from execution.compiler import strategy_requirements, source_windows
-from execution.preparation import PreparedMarket, candles_from_frame, contract_from_instrument
+from common.enums import BacktestStatus, SettlementKind
+from execution.preparation import PreparedMarket, candles_from_frame
 from execution.replay import Replay
-from instruments.models import Instrument
-from marketdata.calendar import MarketSessionCalendar
-from marketdata.candles import prepare_frames
 from .models import BacktestMetrics, BacktestRun, BacktestTrade, EquityCurvePoint
-from .services import backtest_configuration, publish_backtest_update
+from .services import backtest_configuration, backtest_window, publish_backtest_update
 
 logger = logging.getLogger(__name__)
 
@@ -37,44 +32,79 @@ class BacktestEngine:
         self._last_progress_update_time = 0
         self._last_progress_message = None
         self.replay = None
+        self.compiled = None
 
     def load_data(self) -> list[PreparedMarket]:
-        identities = {item['instrument_id'] for item in self.config['watchlist_instruments']}
-        instruments = Instrument.objects.in_bulk(identities)
-        if not identities or set(instruments) != identities:
-            raise ValueError('The saved watchlist must contain available instruments.')
+        start, end = backtest_window(self.config, self.run.start_date, self.run.end_date)
+        from .preparation import build_plan, restore_plan, prepare_history, acquire_plan
+        plan = self.run.data_quality.get('accepted_workload')
+        if plan is None:
+            plan = build_plan(self.config, start, end, on_progress=lambda _, message:
+                self._broadcast_progress_update(1, message))
+        if plan.get('schema_version') != 1:
+            raise ValueError('Review a fresh workload estimate and start a new backtest.')
+        compiled, contracts = restore_plan(self.config, self.run.strategy_version_id or 0, plan, start)
+        self.compiled = compiled
+        instruments = compiled.instruments
         markets = []
-        quality = {'complete': True, 'instruments': [], 'warnings': []}
+        planned = {row['instrument_id']: row for row in plan['rows']}
+        automatic_ids = {key for item in plan['selections'] for key in item['candidates']}
+        quality = {'complete': True, 'instruments': [], 'warnings': list(plan['warnings']),
+            'accepted_workload': plan, 'selection_universe': {'policy': plan['selection_policy']},
+            'expiry_policy': 'Use available sourced settlement; otherwise simulate liquidation at the last observed contract candle by expiry. Missing daily MTM is not fabricated.'}
+        acquire_plan(compiled, plan, report=self._broadcast_progress_update, check_cancelled=self._check_cancelled)
         for index, instrument in enumerate(instruments.values()):
             logger.info('Backtest %s: preparing history for %s', self.run.pk, instrument.sym_ticker)
 
             def progress(fraction, message):
                 # Also observe Cancel between bounded provider-history requests.
                 self._check_cancelled()
-                self._broadcast_progress_update(1 + int((index + fraction) / len(instruments) * 20), message)
+                self._broadcast_progress_update(15 + int((index + fraction) / len(instruments) * 6), message)
 
             progress(0, f'Preparing history for {instrument.sym_ticker}...')
-            calendar = MarketSessionCalendar.for_instrument(instrument)
-            start = datetime.combine(self.run.start_date, datetime.min.time(), tzinfo=calendar.zone)
-            end = datetime.combine(self.run.end_date, datetime.max.time(), tzinfo=calendar.zone)
-            _, requirements, depths = strategy_requirements(self.config, calendar)
-            frames, coverage = prepare_frames(instrument, frozenset(requirements),
-                source_windows(requirements, depths, calendar, start, end), calendar, on_progress=progress)
+            calendar = compiled.calendars[instrument.pk]
+            contract = contracts.get(instrument.pk)
+            row = planned[instrument.pk]
+            calendar.load_holidays(start.astimezone(calendar.zone).date() - timedelta(days=7),
+                                   end.astimezone(calendar.zone).date() + timedelta(days=7))
+            from execution.settlement_records import historical_prices
+            settlements = historical_prices(instrument, start, end, calendar, expiry=contract.expiry,
+                required=False) if contract is not None else ()
+            if (contract is not None and contract.expiry is not None
+                    and calendar.session_close(contract.expiry) <= end
+                    and not any(price.kind == SettlementKind.FINAL for price in settlements)
+                    and quality['expiry_policy'] not in quality['warnings']):
+                quality['warnings'].append(quality['expiry_policy'])
+            requirements = row['counts']
+            windows = {tf: tuple(datetime.fromisoformat(value) for value in bounds)
+                       for tf, bounds in row['windows'].items()}
+            frames, coverage = prepare_history(instrument, frozenset(requirements),
+                windows, calendar, on_progress=progress)
             quality['instruments'].append(coverage)
+            if contract is not None:
+                coverage['contract_specification_id'] = contract.specification_id
+            rejected = max((item.get('rejected_count', 0) for item in coverage['timeframes'].values()), default=0)
+            if rejected:
+                quality['warnings'].append(f'{instrument.sym_ticker}: {rejected} invalid provider candle(s) were excluded; no prices were invented to replace them.')
             quality['complete'] = quality['complete'] and coverage['complete']
             self.run.data_quality = quality
             self.run.save(update_fields=['data_quality'])
-            if not coverage['complete'] or any(frame.empty for frame in frames.values()):
+            automatic = instrument.pk in automatic_ids
+            if not coverage['complete'] or not automatic and any(frame.empty for frame in frames.values()):
                 errors = dict.fromkeys(item['error'] for item in coverage['timeframes'].values() if item.get('error'))
                 detail = ' '.join(errors)
                 raise ValueError(f'Confirmed historical data is unavailable for {instrument.sym_ticker}. {detail}'.strip())
-            earliest = min(frame.index[0].date() for frame in frames.values())
-            calendar.load_holidays(earliest - timedelta(days=7), self.run.end_date + timedelta(days=7))
+            earliest = min((frame.index[0].date() for frame in frames.values() if not frame.empty), default=start.date())
+            calendar.load_holidays(earliest - timedelta(days=7), end.astimezone(calendar.zone).date() + timedelta(days=7))
             candles = {tf: candles_from_frame(frame, tf, calendar) for tf, frame in frames.items()}
             for tf, count in requirements.items():
-                if sum(bar.closed_at <= start for bar in candles[tf]) < count:
-                    raise ValueError(f'Insufficient completed {tf} warmup for {instrument.sym_ticker}.')
-            markets.append(PreparedMarket(contract_from_instrument(instrument), calendar, candles))
+                if sum(bar.closed_at <= datetime.fromisoformat(row['active_from']) for bar in candles[tf]) < count:
+                    if contract is None or contract.expiry is None:
+                        raise ValueError(f'Insufficient completed {tf} warmup for {instrument.sym_ticker}.')
+                    quality['warnings'].append(f'{instrument.sym_ticker}: {tf} entry inputs wait until enough completed contract candles exist.')
+            if automatic and any(frame.empty for frame in frames.values()):
+                quality['warnings'].append(f'{instrument.sym_ticker}: FYERS returned no candles; this exact contract cannot produce fills.')
+            markets.append(PreparedMarket(instrument.pk, instrument.sym_ticker, calendar, candles, contract, settlements))
             logger.info('Backtest %s: history ready for %s', self.run.pk, instrument.sym_ticker)
         return markets
 
@@ -84,20 +114,25 @@ class BacktestEngine:
             if markets is None:
                 markets = self.load_data()
             self._check_cancelled()
-            zone = ZoneInfo(self.config['time_rule']['timezone'])
-            start = datetime.combine(self.run.start_date, datetime.min.time(), tzinfo=zone)
-            end = datetime.combine(self.run.end_date, datetime.max.time(), tzinfo=zone)
+            start, end = backtest_window(self.config, self.run.start_date, self.run.end_date)
             self.replay = Replay(identity=self.run.pk, version=self.run.strategy_version_id or 0,
                 config=self.config, markets=markets, start=start, end=end, capital=self.run.initial_capital,
                 profile=self.run.charge_profile_snapshot if self.run.include_charges else {},
-                slippage=self.run.slippage_pct)
+                slippage=self.run.slippage_pct, selections={route: (program.selection, program.candidates)
+                    for route, program in (self.compiled.programs if self.compiled else {}).items()
+                    if program.selection is not None})
             for at in self.replay.run():
                 self._check_cancelled()
                 progress = 22 + int(72 * (at - start).total_seconds() / (end - start).total_seconds())
                 self._broadcast_progress_update(progress, 'Replaying historical observations...')
             self.equity_curve = [EquityCurvePoint(run=self.run, timestamp=at, equity_value=value,
                 drawdown_pct=self._calculate_drawdown(float(value))) for at, value in self.replay.equity]
+            self.run.data_quality['fill_policy'] = 'signal_quote'
             self.run.data_quality['final_position_policy'] = 'Close residual positions at the last completed candle price, with slippage and charges.'
+            self.run.data_quality['settlements'] = [
+                {'source_id': row.price_id, 'effective_at': row.effective_at.isoformat(),
+                 'gross': str(row.gross), 'fees': str(row.fees), 'cash_change': str(row.cash_change)}
+                for row in self.replay.settlements]
             self.run.save(update_fields=['data_quality'])
             self._finalize_run()
         except BacktestCancelled:
@@ -121,6 +156,7 @@ class BacktestEngine:
             exit = trade.charges.get('exit_charges', {})
             turnover = trade.contract.value(trade.entry_price, trade.quantity)
             self.trades_to_create.append(BacktestTrade(run=self.run, instrument_id=trade.contract.instrument_id,
+                route_id=trade.unit[2], leg_id=trade.unit[3],
                 side=trade.side, entry_time=trade.entry_time, exit_time=trade.exit_time,
                 entry_price=trade.entry_price, exit_price=trade.exit_price, quantity=trade.quantity,
                 gross_pnl=trade.gross, net_pnl=trade.net, charges_json=trade.charges, exit_reason=trade.reason,
@@ -259,7 +295,8 @@ class BacktestEngine:
             equity_df = pd.DataFrame(
                 [{"timestamp": point.timestamp, "equity": float(point.equity_value)} for point in self.equity_curve]
             )
-            equity_df["timestamp"] = pd.to_datetime(equity_df["timestamp"])
+            equity_df["timestamp"] = pd.to_datetime(equity_df["timestamp"], utc=True).dt.tz_convert(
+                self.config['time_rule']['timezone'])
             equity_df = equity_df.set_index("timestamp").sort_index()
 
             # Calculate daily returns

@@ -1,11 +1,13 @@
-import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
+import { useQueryState } from "@/shared/hooks/usePagination";
+import RefreshButton from "@/shared/components/RefreshButton";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import PageTabs from "@/shared/components/PageTabs";
-import { useEffect, useState, useCallback } from "react";
-import { Activity, BarChart3, Briefcase, RefreshCw, TrendingUp, Receipt } from "lucide-react";
-import { Button } from "@/shared/components/ui/button";
+import { useEffect } from "react";
+import { Activity, BarChart3, Briefcase, TrendingUp, Receipt } from "lucide-react";
+
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { useNotifications } from "@/shared/hooks/useNotifications";
-import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { usePageActions } from "@/shared/context/pageActions";
 import { useLiveTradingData } from "@/features/live/hooks/useLiveTradingData.js";
 import LivePortfolioSummary from "@/features/live/components/LivePortfolioSummary.jsx";
@@ -26,45 +28,37 @@ const tabs = [
 export default function LivePortfolio() {
   const { notify } = useNotifications();
   const { setPageHeader, clearPageHeader } = usePageActions();
-  const [activeTab, setActiveTab] = useState("portfolio");
-  const data = useLiveTradingData({ includePortfolio: true, notify });
-  const { refresh } = data;
-
-  const handleRefresh = useCallback(async () => {
-    await refresh();
-    notify.success("Live trading data refreshed");
-  }, [refresh, notify]);
+  const [activeTab, setActiveTab] = useQueryState("section", "portfolio", { resetPage: false });
+  const data = useLiveTradingData({ includePortfolio: true, activeTab, notify });
+  const { refresh: handleRefresh } = data;
 
   useEffect(() => {
     const HeaderTabs = () => (
       <div className="flex min-w-0 w-full items-center gap-2">
         <PageTabs className="flex-1" label="Live portfolio sections" value={activeTab} onValueChange={setActiveTab} items={tabs.map(({ id, label, icon }) => ({ value: id, label, icon }))} />
         <div className="ml-auto hidden sm:block"><LiveSyncStatus isConnected={data.isConnected} /></div>
-        <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={data.refreshing} aria-label="Refresh live trading data">
-          {data.refreshing ? <LoaderMark className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
-        </Button>
+        <RefreshButton onClick={handleRefresh} label="Refresh live trading data" disabled={data.refreshing} loading={data.refreshing} />
       </div>
     );
     setPageHeader(<HeaderTabs />);
     return clearPageHeader;
-  }, [activeTab, clearPageHeader, data.isConnected, data.refreshing, handleRefresh, setPageHeader]);
+  }, [activeTab, setActiveTab, clearPageHeader, data.isConnected, data.refreshing, handleRefresh, setPageHeader]);
 
-  const content = data.loading ? (
+  const content = data.error ? <WorkspaceState error={data.error} onRetry={data.refresh} /> : data.loading ? (
     <Card className="border-border bg-card/60">
       <CardContent className="py-12 text-center text-muted-foreground"><GlobalLoader inline text="Loading live trading data…" /></CardContent>
     </Card>
   ) : (
     <>
-      {activeTab === "portfolio" && <LivePortfolioSummary summary={data.summary || {}} sessions={data.sessions} />}
+      {activeTab === "portfolio" && <LivePortfolioSummary summary={data.summary} />}
       {activeTab === "positions" && (
         <LivePositionsAnalysis
           positions={data.positions.results}
-          positionsForPnL={data.pnlPositions}
           summary={data.positionsSummary}
           allocationFilter={data.positionAllocation}
-          onAllocationChange={(value) => data.filterPositions(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter positions")))}
-          pagination={{ page: data.positionsPage, count: data.positions.count }}
-          onPageChange={data.changePositionsPage}
+          onAllocationChange={data.filterPositions}
+          pagination={data.positions} loading={data.listLoading} onPageSizeChange={data.positionPages.setPageSize}
+          onPageChange={data.positionPages.setPage}
         />
       )}
       {activeTab === "orders" && (
@@ -72,24 +66,24 @@ export default function LivePortfolio() {
           orders={data.orders.results}
           summary={data.ordersSummary}
           allocationFilter={data.orderAllocation}
-          onAllocationChange={(value) => data.filterOrderAllocation(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter orders")))}
+          onAllocationChange={data.filterOrderAllocation}
           statusFilter={data.orderStatus}
-          onStatusChange={(value) => data.filterOrders(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter orders")))}
-          pagination={{ page: data.ordersPage, count: data.orders.count }}
-          onPageChange={data.changeOrdersPage}
+          onStatusChange={data.filterOrders}
+          pagination={data.orders} loading={data.listLoading} onPageSizeChange={data.orderPages.setPageSize}
+          onPageChange={data.orderPages.setPage}
         />
       )}
-      {activeTab === "performance" && <LivePerformance summary={data.summary || {}} positions={data.pnlPositions} />}
+      {activeTab === "performance" && <LivePerformance summary={data.summary || {}} />}
       {activeTab === "trades" && <LiveTradesAnalysis
         trades={data.trades.results}
-        pagination={{ page: data.tradesPage, count: data.trades.count }}
+        pagination={data.trades} loading={data.listLoading} onPageSizeChange={data.tradePages.setPageSize}
         summary={data.tradesSummary}
         allocationFilter={data.tradeAllocation}
-        onAllocationChange={(value) => data.filterTrades(value).catch((error) => notify.error(getApiErrorMessage(error, "Could not filter trades")))}
-        onPageChange={data.changeTradesPage}
+        onAllocationChange={data.filterTrades}
+        onPageChange={data.tradePages.setPage}
       />}
     </>
   );
 
-  return <div className="container-padding space-y-6 py-6 lg:py-8">{content}</div>;
+  return <div className="page-content">{content}</div>;
 }

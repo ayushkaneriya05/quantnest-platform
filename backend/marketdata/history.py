@@ -89,33 +89,46 @@ def missing_history(request: HistoryRequest) -> list[tuple[datetime, datetime]]:
     return [window for left, right in gaps if (window := _trading_range(request, left, right))]
 
 
-def _prepare_rows(request: HistoryRequest, candles: list[dict]) -> list[dict]:
+def _prepare_rows(request: HistoryRequest, candles: list[dict]) -> tuple[list[dict], set[int]]:
     calendar = request.calendar
-    unique = {}
+    unique, rejected = {}, set()
     for candle in candles:
+        stamp = candle.get('time')
+        if not isinstance(stamp, datetime) or stamp.utcoffset() is None:
+            raise ProviderError(f'Historical candle has no usable timestamp for {request.instrument.sym_ticker}.')
+        if request.timeframe == '1D':
+            stamp = calendar.session_open(stamp.astimezone(calendar.zone).date())
+        if not request.start <= stamp < request.end or not calendar.is_open(stamp):
+            continue
         try:
-            stamp = candle["time"]
-            valid = isinstance(stamp, datetime) and stamp.utcoffset() is not None and valid_candle(candle)
+            valid = valid_candle(candle)
         except (KeyError, TypeError, ValueError, OverflowError):
             valid = False
         if not valid:
-            raise ProviderError(f"Invalid historical candle for {request.instrument.sym_ticker}.")
-        if request.timeframe == "1D":
-            stamp = calendar.session_open(stamp.astimezone(calendar.zone).date())
-        elif stamp.second or stamp.microsecond:
-            raise ProviderError(f"Unaligned historical minute for {request.instrument.sym_ticker}.")
-        if (request.start <= stamp < request.end and calendar.is_open(stamp)
-                and calendar.candle_close(stamp, request.timeframe) <= request.end):
-            unique[stamp] = {
+            rejected.add(int(stamp.timestamp()))
+            continue
+        if request.timeframe != '1D' and (stamp.second or stamp.microsecond):
+            rejected.add(int(stamp.timestamp()))
+            continue
+        if calendar.candle_close(stamp, request.timeframe) <= request.end:
+            normalized = {
                 "time": stamp.astimezone(timezone.utc),
                 **{key: Decimal(str(candle[key])).quantize(Decimal("0.000001")) for key in OHLCV[:4]},
                 "volume": int(candle["volume"]),
             }
-    return [unique[stamp] for stamp in sorted(unique)]
+            if stamp in unique and unique[stamp] != normalized:
+                rejected.add(int(stamp.timestamp()))
+            unique[stamp] = normalized
+    # A contradictory duplicate at the same timestamp is excluded as a whole.
+    rows = [unique[stamp] for stamp in sorted(unique) if int(stamp.timestamp()) not in rejected]
+    if rejected:
+        logger.warning('Excluded %s invalid provider candles symbol=%s source=%s',
+            len(rejected), request.instrument.sym_ticker, request.timeframe)
+    return rows, rejected
 
 
 @transaction.atomic
-def _save_history(request: HistoryRequest, candles: list[dict]) -> int:
+def _save_history(request: HistoryRequest, candles: list[dict], rejected: set[int]) -> int:
     """Publish a successful range only with its data; unchanged rows keep their revision."""
     Instrument.objects.select_for_update().only("pk").get(pk=request.instrument.pk)
     source = dict(symbol=request.instrument.sym_ticker, provider=settings.MARKET_DATA_PROVIDER,
@@ -129,11 +142,15 @@ def _save_history(request: HistoryRequest, candles: list[dict]) -> int:
         Candle(instrument=request.instrument, **source, provider_confirmed=True, **row)
         for row in candles if existing.get(row["time"]) != (*[row[key] for key in OHLCV], True)
     ]
+    invalidated = Candle.objects.filter(**source,
+        time__in=[datetime.fromtimestamp(stamp, timezone.utc) for stamp in rejected],
+        provider_confirmed=True).update(provider_confirmed=False) if rejected else 0
     if changed:
         Candle.objects.bulk_create(
             changed, update_conflicts=True, unique_fields=["symbol", "provider", "timeframe", "time"],
             update_fields=[*OHLCV, "instrument", "provider_confirmed", "updated_at"], batch_size=2000,
         )
+    if changed or invalidated:
         transaction.on_commit(lambda: publish_revision(request.instrument.sym_ticker))
 
     now = django_timezone.now()
@@ -152,16 +169,18 @@ def _save_history(request: HistoryRequest, candles: list[dict]) -> int:
         if start >= end:
             continue
         overlaps = coverage.filter(start__lte=end, end__gte=start, expires_at__isnull=expires is None)
-        for left, right, previous_expiry in overlaps.values_list("start", "end", "expires_at"):
+        notes = {stamp for stamp in rejected if start.timestamp() <= stamp < end.timestamp()}
+        for left, right, previous_expiry, previous_notes in overlaps.values_list("start", "end", "expires_at", "rejected_times"):
             start, end = min(start, left), max(end, right)
+            notes.update(stamp for stamp in previous_notes if not request.start.timestamp() <= stamp < request.end.timestamp())
             if expires is not None:
                 expires = min(expires, previous_expiry)
         overlaps.delete()
         HistoryCoverage.objects.create(
             instrument=request.instrument, provider=settings.MARKET_DATA_PROVIDER,
-            timeframe=request.timeframe, start=start, end=end, expires_at=expires,
+            timeframe=request.timeframe, start=start, end=end, expires_at=expires, rejected_times=sorted(notes),
         )
-    return len(changed)
+    return len(changed) + invalidated
 
 
 def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_requests: int = 0,
@@ -207,8 +226,8 @@ def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_reques
                 if gaps:
                     chunk = replace(chunk, start=gaps[0][0], end=gaps[-1][1])
                     candles = adapter.history(chunk)
-                    prepared = _prepare_rows(chunk, candles)
-                    result.changed += _save_history(chunk, prepared)
+                    prepared, rejected = _prepare_rows(chunk, candles)
+                    result.changed += _save_history(chunk, prepared, rejected)
                     result.fetched += len(prepared)
                     result.requests += 1
             if refresh:
@@ -222,6 +241,7 @@ def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_reques
                 pending = next_pending
     except (ProviderError, LockError, RedisError) as exc:
         result.error = str(exc) if isinstance(exc, ProviderError) else "History preparation is busy or unavailable; retry shortly."
+        result.retryable = exc.retryable if isinstance(exc, ProviderError) else True
         logger.warning("History preparation failed symbol=%s source=%s: %s",
                        request.instrument.sym_ticker, request.timeframe, result.error)
     result.missing = pending if refresh else missing_history(request)

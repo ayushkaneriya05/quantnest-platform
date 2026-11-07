@@ -32,9 +32,11 @@ export function usePaperTradingWebSocket({ enabled = true } = {}) {
       socketRef.current = socket;
 
       socket.onopen = () => {
+        const reconnected = attemptsRef.current > 0;
         attemptsRef.current = 0;
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
+        if (reconnected) dispatch(setPaperLastMessage({ event_type: "RECONNECTED" }));
       };
 
       socket.onmessage = (event) => {

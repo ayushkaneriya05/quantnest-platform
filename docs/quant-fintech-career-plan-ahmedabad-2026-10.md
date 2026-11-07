@@ -224,9 +224,9 @@ This mapping uses the existing repository and its technical documents, not a new
 
 Do not describe QuantNest as an exchange-colocated HFT system, a proven profitable trading business, or a platform serving thousands of real customers without supporting evidence. Broker API integration is not the same as exchange connectivity or FIX implementation. A backtest is not a live track record.
 
-Your [29 October latency report](reviews/complex-rule-latency-2026-10-29.md) is useful because it states its boundary. The isolated decoded-provider-callback to generated-signal path measured **10.09 ms median / 13.80 ms p95** for the ordinary warmed 20-rule case; the heavy multi-timeframe completion case measured **10.80 / 20.62 ms**. It used synthetic observations, one instrument/unit and a separate worker. It excluded provider/network delay before the callback, order persistence, broker submission and fills.
+Prepare a reproducible latency experiment using the [current execution measurement boundaries](strategy-configuration.md#16-data-preparation-and-low-latency-boundaries). Record hardware, worker count, strategy complexity, user/instrument load, warmup and p50/p95/p99. Keep provider receipt, rule decisions, persistence, broker submission and fills as separately measured intervals. Dated strategy-review files have been retired; their old numbers are not current capacity evidence.
 
-Present that as an engineering experiment, with hardware/workload and exclusions. Do not select a smaller inner-loop number and label it end-to-end trading latency. Do not extrapolate a one-unit test into a verified multi-user capacity claim.
+Present the result as an engineering experiment with its exclusions. Do not select a smaller inner-loop number and label it end-to-end trading latency, or extrapolate a one-unit test into verified multi-user capacity.
 
 ### The most useful improvement to your presentation
 

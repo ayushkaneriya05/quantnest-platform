@@ -11,7 +11,7 @@ from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
 from .models import ACTIVE_RUN_STATUSES, ResearchRun
-from .validation import json_data
+from .validation import MAX_SCREEN_CONDITIONS, json_data
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def registry():
         "properties": {
             "timeframe": {"type": "string", "enum": CandleTimeframe.values},
             "logical_operator": {"type": "string", "enum": LogicalOperator.values},
-            "conditions": {"type": "array", "items": rule, "minItems": 1, "maxItems": 12},
+            "conditions": {"type": "array", "items": rule, "minItems": 1, "maxItems": MAX_SCREEN_CONDITIONS},
         },
         "required": ["timeframe", "conditions"],
     }
@@ -161,7 +161,7 @@ def registry():
     add(
         "validate_strategy_draft",
         tools.handle_validate_strategy_draft,
-        "Validate a full draft using the existing strategy builder serializers. The draft fields are name, description, strategy_type, market_type, exchange, instrument_type, time_rule, entry_order_config, exit_order_config, position_sizing_rule, watchlist_instruments, rule_groups. Each group has name, rule_type, logical_operator, priority and rules; each rule uses the screening rule fields with operands from get_rule_schema, including live LTP and exit position state. Watchlist items contain instrument_id and execution_routes [{route_type: DIRECT}]. Omit all database IDs except instrument_id.",
+        "Validate a canonical Studio draft. First call get_rule_schema for StrategyStudio.defaults.document, defaults.templates.group and conditions.operands parameters. Add name, description, strategy_type, market_type, exchange and instrument_type. Groups use stable string id, name, rule_type, priority, is_active and condition expression trees (not flat screening rules). Use input nodes with type, params, timeframe and source signal or trade; compare nodes have left, comparison and right; all/any/not/at_least have args. Named formulas are in expressions; references use op expression and name. Optional initial_risk is a traded-price numeric expression. Watchlist items use instrument_id and optional signal_instrument_id from this run only. The backend validates and compiles the same document as Studio; creating it still requires customer confirmation.",
         {"type": "object", "properties": {"draft": {"type": "object"}}, "required": ["draft"]},
         context_field="instrument_ids",
     )
@@ -185,11 +185,15 @@ def _compact_data(data):
 
 def compact_evidence(evidence):
     """Use the common projection without altering its persisted evidence or provenance."""
-    data = _compact_data(evidence["data"])
+    from .evidence import hydrate_evidence
+    data = _compact_data(hydrate_evidence(evidence)["data"])
     return {key: value for key, value in {**evidence, "data": data}.items() if key not in {"cache_key", "arguments"}}
 
 
 def tool_available(tool, run):
+    if tool['definition']['name'] == 'validate_strategy_draft':
+        from .context import draft_instrument_ids
+        return bool(draft_instrument_ids(run))
     field = tool["context_field"]
     return not field or len(run.request.get(field) or ()) >= tool["minimum"]
 
@@ -238,6 +242,8 @@ def execute_tool(run, name, arguments):
             "source_run_id": calculated.get("source_run_id", run.pk),
             "source_as_of": calculated.get("source_as_of", run.as_of.isoformat()),
         }
+        from .evidence import store_evidence
+        evidence = store_evidence(current, evidence)
         current.evidence = [*current.evidence, evidence]
         current.progress_message = f"Completed {name.replace('_', ' ')}"
         current.revision += 1

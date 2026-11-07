@@ -37,7 +37,7 @@ export default function GoogleLoginButton({ onError, isLoading: parentLoading })
   return (
     <Button
       variant="outline"
-      className="h-11 w-full rounded-full bg-background text-foreground [&_svg]:size-5"
+      className="h-11 w-full rounded-full [&_svg]:size-5"
       onClick={googleLogin}
       type="button"
       disabled={disabled}

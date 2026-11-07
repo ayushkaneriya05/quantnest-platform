@@ -14,8 +14,17 @@ from execution.order_reports import ACTIVE as ACTIVE_STATUSES
 
 ZERO = Decimal('0')
 MONEY = Decimal('0.01')
-UnitKey = tuple[str, int, int]  # mode, session, instrument
+UnitKey = tuple[str, int, str, str]  # mode, session, stable route, stable leg
 AccountKey = tuple[str, int]  # mode, paper/terminal account or broker credential
+
+
+def route_key(mode: str, session: int, watch: dict) -> UnitKey:
+    return mode, session, watch['route_id'], watch['leg_id']
+
+
+def terminal_key(account: int, instrument: int) -> UnitKey:
+    """Manual trading deliberately has one net position per exact contract."""
+    return ExecutionMode.TERMINAL, account, f'direct-{instrument}', 'primary'
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,10 +40,13 @@ class Contract:
     multiplier: Decimal
     expiry: date | None = None
     quantity_freeze: int = 0
+    # Symbol-master reference values, not the exchange's current operating range.
     lower_band: Decimal | None = None
     upper_band: Decimal | None = None
     tradeable: bool = True
     strike_price: Decimal | None = None
+    specification_id: int | None = None
+    option_type: str = ''
 
     def __post_init__(self) -> None:
         if (self.lot_size < 1 or not self.tick_size.is_finite() or self.tick_size <= ZERO
@@ -69,10 +81,9 @@ class Contract:
                 continue
             if not value.is_finite() or value <= ZERO or self.price(value) != value:
                 raise ValueError(f'Price must be a positive multiple of {self.tick_size}.')
-            if self.lower_band is not None and value < self.lower_band:
-                raise ValueError('Price is below the contract lower band.')
-            if self.upper_band is not None and value > self.upper_band:
-                raise ValueError('Price is above the contract upper band.')
+        # Master bands can be from an earlier session or flex intraday. They
+        # cannot reject orders here; live submissions use the broker/exchange's
+        # current price controls, without adding provider I/O to this hot path.
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +95,13 @@ class Tick:
     volume: float = 0.0
     generation: int = 0
     closed_at: datetime | None = None
+
+    @property
+    def cursor(self) -> tuple[int, float]:
+        # Several timeframe boundaries can close between two provider ticks.
+        # Keep the provider sequence for fill eligibility, and order those
+        # separate clock events by their actual completed boundary.
+        return self.sequence, self.closed_at.timestamp() if self.closed_at else 0.0
 
     @property
     def evaluated_at(self) -> datetime:
@@ -110,6 +128,8 @@ class PositionView:
     opened_at: datetime | None = None
     stop_distance: float = 0.0
     pending: bool = False
+    setup_state: dict = field(default_factory=dict)
+    binding: tuple[int, int] | None = None
 
     @property
     def side(self) -> str:
@@ -138,6 +158,9 @@ class Intent:
     take_profit: Decimal | None = None
     manual: bool = False
     generation: int = 0
+    setup_state: dict = field(default_factory=dict)
+    binding: tuple[int, int] | None = None  # signal and traded instrument at admission
+    initial_risk_distance: float = 0.0  # Traded-price points, frozen at entry admission.
 
 
 @dataclass(slots=True)
@@ -175,6 +198,9 @@ class Order:
     generation: int = 0
     cancel_requested: bool = False
     reference_price: Decimal = ZERO
+    setup_state: dict = field(default_factory=dict)
+    binding: tuple[int, int] | None = None
+    initial_risk_distance: float = 0.0
 
     @property
     def remaining(self) -> int:
@@ -208,10 +234,24 @@ class Position:
     peak: float = 0.0
     mae: Decimal = ZERO
     mfe: Decimal = ZERO
+    setup_state: dict = field(default_factory=dict)
+    binding: tuple[int, int] | None = None
+    settled_pnl: Decimal = ZERO  # MTM already paid on the remaining open quantity.
+    settled_at: datetime | None = None
+    last_fill_at: datetime | None = None
+
+    def mark_excursion(self, price: Decimal) -> None:
+        """Lifetime price excursions use the entry basis, including settled MTM."""
+        pnl = self.contract.value(price - self.average, self.quantity)
+        self.mae, self.mfe = max(self.mae, -pnl), max(self.mfe, pnl)
+
+    def unsettled_pnl(self, price: Decimal) -> Decimal:
+        """Residual price P&L; original average remains the strategy's entry basis."""
+        return self.contract.value(price - self.average, self.quantity) - self.settled_pnl
 
     def view(self, *, pending: bool) -> PositionView:
         return PositionView(self.revision, self.quantity, self.average,
-                            self.opened_at, self.stop_distance, pending)
+                              self.opened_at, self.stop_distance, pending, self.setup_state, self.binding)
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +272,7 @@ class ClosedTrade:
     mae: Decimal = ZERO
     mfe: Decimal = ZERO
     slippage: Decimal = ZERO
+    settled_pnl: Decimal = ZERO  # Part of lifetime P&L paid before this exit.
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +329,7 @@ class Account:
     broker_available: Decimal = ZERO
     broker_observed_at: datetime | None = None
     broker_spending: dict[int, Decimal] = field(default_factory=dict)
+    settlements: dict[str, int] = field(default_factory=dict)  # source/unit identity -> committed revision
 
     def __post_init__(self):
         # Derived once at recovery, never serialized as another source of truth.

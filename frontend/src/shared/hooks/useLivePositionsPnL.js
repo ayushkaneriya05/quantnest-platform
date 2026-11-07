@@ -1,13 +1,15 @@
 import { useEffect, useMemo } from "react";
 import { useEnums } from "@/shared/context/EnumsContext";
 import { useWebSocket } from "./useWebSocket";
-import { isObservedQuote } from "../utils/marketData";
+import { valuePositions } from "../utils/positionValuation";
+
+const EMPTY_POSITIONS = [];
 
 /**
  * Calculate P&L from LivePosition serializer rows and the central quote store.
  * Paper and Terminal adapters below supply this same row format.
  */
-export function useLivePositionsPnL(positions = []) {
+export function useLivePositionsPnL(positions = EMPTY_POSITIONS) {
   const { values } = useEnums();
   const sell = values.Side?.SELL;
   const { subscribe, tickData, isConnected } = useWebSocket();
@@ -27,48 +29,23 @@ export function useLivePositionsPnL(positions = []) {
     return () => unsubscribe.forEach((cleanup) => cleanup());
   }, [subscribe, symbolsKey]);
 
-  // Calculate live data
   return useMemo(() => {
-    const livePnLByPositionId = {};
-    const resultTotals = {
-      totalInvested: 0,
-      totalUnrealizedPnL: 0,
-      totalCurrentValue: 0,
-    };
-
-    positions.forEach((pos) => {
-      const quantity = Number(pos.quantity) * Number(pos.qty_multiplier ?? 1);
-      const avgPrice = Number(pos.avg_price);
-      const tickPrice = Number(tickData[pos.instrument_symbol]?.price);
-      const quote = tickData[pos.instrument_symbol];
-      const hasLivePrice = isConnected && isObservedQuote(quote)
-        && (!pos.mark_at || Date.parse(quote.timestamp) >= Date.parse(pos.mark_at));
-      const storedPrice = Number(pos.current_price);
-      const livePrice = hasLivePrice ? tickPrice : storedPrice > 0 ? storedPrice : avgPrice;
-      const calculatedPnl = (livePrice - avgPrice) * quantity * (pos.side === sell ? -1 : 1);
-      const pnl = hasLivePrice ? calculatedPnl : Number(pos.unrealized_pnl ?? calculatedPnl);
-      const invested = avgPrice * quantity;
-      const pnlPercent = invested > 0
-        ? (pnl / invested) * 100
-        : 0;
-
-      livePnLByPositionId[pos.id] = {
-        pnl,
-        pnlPercent,
-        livePrice,
-        isLive: hasLivePrice,
-      };
-
-      resultTotals.totalInvested += invested;
-      resultTotals.totalUnrealizedPnL += pnl;
-      resultTotals.totalCurrentValue += livePrice * quantity;
-    });
-
-    return { livePnLByPositionId, totals: resultTotals };
+    const valuation = valuePositions(positions, tickData, sell, isConnected);
+    return { ...valuation, totals: {
+      totalInvested: valuation.summary.invested,
+      totalUnrealizedPnL: valuation.summary.unrealized_pnl,
+      totalCurrentValue: valuation.summary.current_value,
+    } };
   }, [positions, tickData, isConnected, sell]);
 }
 
-export function usePaperPositionsPnL(positions = []) {
+/** Summary inputs include all matching positions, even when the table is paged. */
+export function useLivePositionSummary(snapshot) {
+  const { summary } = useLivePositionsPnL(snapshot?.valuation_positions ?? EMPTY_POSITIONS);
+  return useMemo(() => snapshot?.valuation_positions ? { ...snapshot, ...summary } : snapshot ?? {}, [snapshot, summary]);
+}
+
+export function usePaperPositionsPnL(positions = EMPTY_POSITIONS) {
   const rows = useMemo(() => positions.map((position) => ({
     ...position,
     instrument_symbol: position.instrument_sym_ticker,
@@ -76,18 +53,19 @@ export function usePaperPositionsPnL(positions = []) {
   return useLivePositionsPnL(rows);
 }
 
-export function useTerminalPositionsPnL(positions = []) {
+export function useTerminalPositionsPnL(positions = EMPTY_POSITIONS) {
   const { values } = useEnums();
   const buy = values.Side?.BUY, sell = values.Side?.SELL;
   const rows = useMemo(() => positions.map((position) => ({
     id: position.id,
     instrument_symbol: position.instrument.sym_ticker,
-    quantity: Math.abs(position.quantity) * Number(position.instrument.qty_multiplier),
+    quantity: Math.abs(position.quantity),
+    qty_multiplier: position.instrument.qty_multiplier,
     side: position.quantity < 0 ? sell : buy,
     avg_price: position.average_price,
     current_price: position.current_price,
     mark_at: position.mark_at,
-    unrealized_pnl: position.unrealized_pnl,
+    settled_pnl: position.settled_pnl,
   })), [positions, buy, sell]);
   return useLivePositionsPnL(rows);
 }

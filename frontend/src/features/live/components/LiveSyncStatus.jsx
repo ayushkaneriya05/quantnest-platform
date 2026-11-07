@@ -9,9 +9,9 @@ export default function LiveSyncStatus({ isConnected }) {
       variant="outline"
       role="status"
       aria-label={isConnected ? "Live updates connected" : "Live updates reconnecting"}
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${isConnected ? "border-emerald-800/70 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300" : "border-amber-800/70 bg-amber-500/5 text-amber-700 dark:text-amber-200"}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${isConnected ? "border-success/70 bg-success/5 text-success" : "border-warning/70 bg-warning/5 text-warning"}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-400" : "animate-pulse bg-amber-400"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-success" : "animate-pulse bg-warning"}`} />
       {label}
     </Badge></span></TooltipHint>
   );

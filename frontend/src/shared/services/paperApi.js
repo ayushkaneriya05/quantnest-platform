@@ -6,11 +6,10 @@ import axiosInstance from "./api";
 const BASE_URL = "/paper";
 
 export const paperApi = {
-  // Read-only session ledgers
-  getAccounts: () => axiosInstance.get(`${BASE_URL}/accounts/`),
-
+  getAccount: (id) => axiosInstance.get(`${BASE_URL}/accounts/${id}/`),
+  getSessionSummary: () => axiosInstance.get(`${BASE_URL}/sessions/summary/`),
   // Deployment management
-  getSessions: () => axiosInstance.get(`${BASE_URL}/sessions/`),
+  getSessions: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/sessions/`, { params, signal }),
   deleteSession: (id) => axiosInstance.delete(`${BASE_URL}/sessions/${id}/`),
   resetSession: (id) => axiosInstance.post(`${BASE_URL}/sessions/${id}/reset/`),
   updateAllocation: (id, data) => axiosInstance.post(`${BASE_URL}/sessions/${id}/update-allocation/`, data),
@@ -21,14 +20,17 @@ export const paperApi = {
 
   deployVersion: (id, payload) => axiosInstance.post(`${BASE_URL}/sessions/${id}/deploy-version/`, payload),
 
+  getPositionsSummary: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/positions/summary/`, { params, signal }),
+  getOrdersSummary: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/orders/summary/`, { params, signal }),
+  getTradeAnalytics: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/trades/analytics/`, { params, signal }),
   // Positions
-  getPositions: () => axiosInstance.get(`${BASE_URL}/positions/`),
+  getPositions: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/positions/`, { params, signal }),
 
   // Orders
-  getOrders: () => axiosInstance.get(`${BASE_URL}/orders/`),
+  getOrders: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/orders/`, { params, signal }),
 
   // Trades
-  getTrades: () => axiosInstance.get(`${BASE_URL}/trades/`),
+  getTrades: (params = {}, signal) => axiosInstance.get(`${BASE_URL}/trades/`, { params, signal }),
 };
 
 export default paperApi;

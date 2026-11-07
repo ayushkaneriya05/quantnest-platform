@@ -40,8 +40,8 @@ export default function ChangeStrategyVersionDialog({
         <DialogTitle>Change strategy version</DialogTitle>
         <DialogDescription>Choose a saved version for {strategyName}.</DialogDescription>
       </DialogHeader>
-      <form onSubmit={applyVersion} className="space-y-4">
-        <Alert className="border-amber-800/50 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+      <form onSubmit={applyVersion} className="space-y-3">
+        <Alert className="border-warning/50 bg-warning/5 text-warning dark:bg-warning/20">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="ml-2 text-xs">
             Review the new rules before applying them to an active deployment. Existing positions remain open; changes must retain their instruments.
@@ -60,7 +60,7 @@ export default function ChangeStrategyVersionDialog({
         </div>
         <DialogFooter className="gap-2">
           <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={saving || !selectedVersion} className="bg-indigo-600 text-white hover:bg-indigo-700">
+          <Button variant="default" type="submit" disabled={saving || !selectedVersion} >
             {saving && <LoaderMark className="mr-2 h-4 w-4" />}Apply version
           </Button>
         </DialogFooter>

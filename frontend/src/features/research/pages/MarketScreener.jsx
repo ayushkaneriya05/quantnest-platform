@@ -5,19 +5,19 @@ import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
-import { useEnums } from "@/shared/context/EnumsContext";
+import { useStrategySpecification } from "@/shared/context/EnumsContext";
 import { researchApi } from "@/shared/services/researchApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import RuleConditionEditor from "@/features/strategies/components/RuleConditionEditor.jsx";
-import { getDefaultParams } from "@/features/strategies/components/operandUtils.js";
 import ResearchUniverse from "@/features/research/components/ResearchUniverse.jsx";
 import ResearchEvidence from "@/features/research/components/ResearchEvidence.jsx";
 import ResearchDrawer from "@/features/research/components/ResearchDrawer.jsx";
 import { useResearchData } from "@/features/research/hooks/useResearchData.js";
 import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
 import { useNotifications } from "@/shared/hooks/useNotifications";
+import WorkspaceState from "@/shared/components/WorkspaceState";
 
-const theme = { accentBar: "bg-emerald-500", badge: "text-emerald-700 dark:text-emerald-400", comparison: "text-emerald-700 dark:text-emerald-400", switch: "data-[state=checked]:bg-emerald-500" };
+const theme = { accentBar: "bg-success", badge: "text-success" };
 
 export default function MarketScreener() {
   const { notify } = useNotifications();
@@ -33,16 +33,18 @@ export default function MarketScreener() {
   const [error, setError] = useState("");
   const [selection, setSelection] = useState([]);
   const [details, setDetails] = useState(null);
-  const { enums } = useEnums();
+  const { enums, spec, defaultParams, screenCondition, operandOptions,
+    loading: metadataLoading, error: metadataError, refreshEnums } = useStrategySpecification();
+  const screenOperands = useMemo(() => operandOptions?.filter((item) => item.allowed_in.screen).map((item) => item.value) || [], [operandOptions]);
   const { runs, receive, reload, active, loading } = useResearchData(session);
   const run = session ? runs.filter((value) => value.mode === "SCREEN" && String(value.session) === session).at(-1) : null;
-  const ready = !busy && !active && Boolean(screen);
+  const ready = !busy && !active && !metadataLoading && !metadataError && Boolean(screen && spec && schema);
   useEffect(() => {
     let disposed = false;
     researchApi.schema().then((response) => {
       if (disposed) return;
       setSchema(response.data);
-      setScreen((previous) => previous || { timeframe: response.data.defaults.timeframe, logical_operator: "AND", conditions: [] });
+      setScreen((previous) => previous || { ...response.data.defaults, conditions: [] });
     }).catch((error) => { if (!disposed) setError(getApiErrorMessage(error, "Could not load screener settings")); });
     return () => { disposed = true; };
   }, []);
@@ -90,15 +92,11 @@ export default function MarketScreener() {
     setScreen((previous) => ({ ...previous, conditions: previous.conditions.map((item, position) => {
       if (position !== index) return item;
       return { ...item, [field]: value, ...(["operand_a_type", "operand_b_type"].includes(field) ?
-        { [field.replace("_type", "_params")]: getDefaultParams(value, enums.OperandParameterConfig) } : {}) };
+        { [field.replace("_type", "_params")]: defaultParams(value) } : {}) };
     }) }));
   }
   function addCondition() {
-    setScreen((previous) => ({ ...previous, conditions: [...previous.conditions, {
-      operand_a_type: "RSI", operand_a_params: getDefaultParams("RSI", enums.OperandParameterConfig),
-      comparison: "GT", operand_b_type: "CONSTANT",
-      operand_b_params: getDefaultParams("CONSTANT", enums.OperandParameterConfig), is_active: true,
-    }] }));
+    setScreen((previous) => ({ ...previous, conditions: [...previous.conditions, screenCondition()] }));
   }
   function researchSelected() {
     const query = new URLSearchParams({ source: String(run.id), stocks: selection.join(",") });
@@ -110,28 +108,30 @@ export default function MarketScreener() {
       if (id === "new") {
         setName("Market screen"); setSelection([]); setSavedTitle("");
         setUniverse({ strategy_id: null, watchlist_id: null, instruments: [] });
-        setScreen({ timeframe: schema.defaults.timeframe, logical_operator: "AND", conditions: [] });
+        setScreen({ ...schema.defaults, conditions: [] });
       }
       else setSavedTitle(option.title);
     }}>
-    <SelectTrigger aria-label="Saved screens" className="h-9 w-48 sm:w-64"><SelectValue placeholder="Saved screens" /></SelectTrigger>
+    <SelectTrigger aria-label="Saved screens" className="w-48 sm:w-64"><SelectValue placeholder="Saved screens" /></SelectTrigger>
     <SelectContent searchPlaceholder="Search saved screens…">
       <SelectItem persistent value="new">New screen</SelectItem>
       {session && savedTitle && <SelectItem value={session}>{savedTitle}</SelectItem>}
     </SelectContent>
   </Select>, [session, savedTitle, setParams, schema, busy, active]);
   useSetPageActions(pageActions);
-  return <div className="container-padding space-y-5 py-6 text-foreground">
-    <Card><CardContent className="space-y-5 p-5">
+  if (metadataLoading || metadataError) return <WorkspaceState loading={metadataLoading}
+    error={metadataError ? "Could not load the rule specification." : ""} onRetry={refreshEnums} />;
+  return <div className="page-content text-foreground">
+    <Card><CardContent className="space-y-3 p-3">
       <div className="flex flex-wrap gap-3"><Input aria-label="Screen name" className="max-w-sm" value={name} maxLength={160} onChange={(event) => setName(event.target.value)} /><Button variant="outline" disabled={!ready || !name.trim() || !screen.conditions.some((item) => item.is_active ?? true)} onClick={save}>Save named screen</Button></div>
-      <div className="grid gap-4 lg:grid-cols-2"><ResearchUniverse value={universe} onChange={(value) => setUniverse(value)} disabled={!ready} maxInstruments={schema?.limits.instruments} />{screen && <div className="flex items-start gap-3"><Select value={screen.timeframe} onValueChange={(value) => setScreen({ ...screen, timeframe: value })} disabled={!ready}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{enums?.CandleTimeframe?.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select><Select value={screen.logical_operator} onValueChange={(value) => setScreen({ ...screen, logical_operator: value })} disabled={!ready}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent>{enums?.LogicalOperator?.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>}</div>
-      <div className={!ready ? "pointer-events-none opacity-60" : ""}>{screen?.conditions.map((rule, index) => <RuleConditionEditor key={index} rule={rule} ruleType="ENTRY" allowedValues={schema?.screen_operand_types || []} logicalOperator={screen.logical_operator} showOperator={index > 0} theme={theme} deleteTitle="Remove condition" onDelete={() => setScreen({ ...screen, conditions: screen.conditions.filter((_, position) => position !== index) })} onChange={(field, value) => updateCondition(index, field, value)} />)}</div>
-      <div className="flex justify-between gap-3"><Button variant="outline" onClick={addCondition} disabled={!ready || !enums?.OperandParameterConfig || screen.conditions.length >= 12}>Add condition</Button><Button onClick={execute} disabled={!ready || !screen.conditions.some((item) => item.is_active ?? true) || (!universe.strategy_id && !universe.watchlist_id && !universe.instruments.length)}>Run screen with new observation</Button></div>
-      {error && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{error}</p>}
+      <div className="grid gap-3 lg:grid-cols-2"><ResearchUniverse value={universe} onChange={(value) => setUniverse(value)} disabled={!ready} maxInstruments={schema?.limits.instruments} />{screen && <div className="flex items-start gap-3"><Select value={screen.timeframe} onValueChange={(value) => setScreen({ ...screen, timeframe: value })} disabled={!ready}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{enums?.CandleTimeframe?.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select><Select value={screen.logical_operator} onValueChange={(value) => setScreen({ ...screen, logical_operator: value })} disabled={!ready}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent>{enums?.LogicalOperator?.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>}</div>
+      <div className={!ready ? "pointer-events-none opacity-60" : ""}>{screen?.conditions.map((rule, index) => <RuleConditionEditor key={index} rule={rule} ruleType="ENTRY" allowedValues={screenOperands} logicalOperator={screen.logical_operator} showOperator={index > 0} theme={theme} deleteTitle="Remove condition" onDelete={() => setScreen({ ...screen, conditions: screen.conditions.filter((_, position) => position !== index) })} onChange={(field, value) => updateCondition(index, field, value)} />)}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><Button variant="outline" onClick={addCondition} disabled={!ready || screen.conditions.length >= schema?.limits.screen_conditions}>Add condition</Button><Button onClick={execute} disabled={!ready || !screen.conditions.some((item) => item.is_active ?? true) || (!universe.strategy_id && !universe.watchlist_id && !universe.instruments.length)}>Run screen with new observation</Button></div>
+      {error && <p role="alert" className="text-sm text-loss">{error}</p>}
     </CardContent></Card>
     {loading && session && <p className="text-sm text-muted-foreground"><GlobalLoader inline text="Loading saved results…" /></p>}
-    {run && <Card><CardContent className="space-y-4 p-5"><div className="flex flex-wrap justify-between items-center gap-3"><p role="status" className="text-sm text-muted-foreground">{run.status} · {run.progress_message}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => reload()}>Reload saved result</Button>{["PENDING", "RUNNING"].includes(run.status) && <Button size="sm" variant="outline" onClick={async () => { try { await researchApi.cancel(run.id); notify.success("Screen cancellation requested."); await reload(); } catch (error) { notify.error(getApiErrorMessage(error)); } }}>Cancel</Button>}<Button size="sm" disabled={!selection.length || run.status !== "COMPLETED"} onClick={researchSelected}>Ask AI about selected results</Button></div></div>
-      {run.error_message && <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">{run.error_message}</p>}{run.evidence?.map((item) => <ResearchEvidence key={`${run.id}-${item.evidence_id}`} evidence={item} enums={enums} selected={selection} onSelect={(id) => setSelection((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])} onDetails={setDetails} />)}
+    {run && <Card><CardContent className="space-y-3 p-3"><div className="flex flex-wrap justify-between items-center gap-3"><p role="status" className="text-sm text-muted-foreground">{run.status} · {run.progress_message}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => reload()}>Reload saved result</Button>{["PENDING", "RUNNING"].includes(run.status) && <Button size="sm" variant="outline" onClick={async () => { try { await researchApi.cancel(run.id); notify.success("Screen cancellation requested."); await reload(); } catch (error) { notify.error(getApiErrorMessage(error)); } }}>Cancel</Button>}<Button size="sm" disabled={!selection.length || run.status !== "COMPLETED"} onClick={researchSelected}>Ask AI about selected results</Button></div></div>
+      {run.error_message && <p role="alert" className="text-sm text-loss">{run.error_message}</p>}{run.evidence?.map((item) => <ResearchEvidence key={`${run.id}-${item.evidence_id}`} evidence={item} enums={enums} selected={selection} onSelect={(id) => setSelection((previous) => previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id])} onDetails={setDetails} />)}
     </CardContent></Card>}
     <ResearchDrawer wide open={Boolean(details)} onOpenChange={(open) => { if (!open) setDetails(null); }} title="Screen conditions and evidence">{details && <ResearchEvidence evidence={details} detailed enums={enums} />}</ResearchDrawer>
   </div>;

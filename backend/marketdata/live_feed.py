@@ -51,8 +51,9 @@ class LiveMarketDataRegistry:
     @staticmethod
     def is_ready(symbol, required, state):
         prepared = state.get("prepared", {}).get(symbol, {})
-        return (state.get("connected", False) and symbol in state.get("subscribed", ()) and prepared.get("ready", False)
-                and all(prepared.get("depths", {}).get(source, 0) >= depth for source, depth in required.items()))
+        return (state.get("connected", False) and symbol in state.get("subscribed", ())
+                and (not required or prepared.get("ready", False)
+                     and all(prepared.get("depths", {}).get(source, 0) >= depth for source, depth in required.items())))
 
     @classmethod
     def resolve_demand(cls, subscribed, invalid):
@@ -234,6 +235,15 @@ class MarketObservationClient:
         with self._state_lock:
             return self._shm_locks.setdefault(symbol, threading.RLock())
 
+    def _discard_history(self, symbol):
+        """Caller holds the symbol lock; ticks-only demand needs no history state."""
+        daily = self.daily_managers.pop(symbol, None)
+        if daily is not None:
+            daily.close()
+        with self._state_lock:
+            for values in (self._prepared, self._markers, self._retry_history, self._calendars):
+                values.pop(symbol, None)
+
     def sync_subscriptions(self):
         from .shared_memory import SharedMemoryManager
         if not self._connected.is_set():
@@ -247,12 +257,7 @@ class MarketObservationClient:
         for symbol, depths in targets.items():
             with self._symbol_lock(symbol):
                 if not depths:
-                    old_daily = self.daily_managers.pop(symbol, None)
-                    if old_daily:
-                        old_daily.close()
-                    with self._state_lock:
-                        for values in (self._prepared, self._markers, self._retry_history, self._calendars):
-                            values.pop(symbol, None)
+                    self._discard_history(symbol)
                 if symbol not in self.shm_managers:
                     market = SharedMemoryManager(
                         symbol, "1m", max_size=max(10000, depths.get("1m", 0) + 500), create=True)
@@ -264,12 +269,7 @@ class MarketObservationClient:
         for symbol in set(self.shm_managers) - targets.keys():
             with self._symbol_lock(symbol):
                 self.shm_managers.pop(symbol).close()
-                daily = self.daily_managers.pop(symbol, None)
-                if daily:
-                    daily.close()
-                with self._state_lock:
-                    for values in (self._prepared, self._markers, self._retry_history, self._calendars):
-                        values.pop(symbol, None)
+                self._discard_history(symbol)
         with self._state_lock:
             pending = self._pending
         if pending and time.monotonic() >= pending[2]:
@@ -302,8 +302,8 @@ class MarketObservationClient:
     def prepare_history(self):
         import numpy as np
         from .calendar import MarketSessionCalendar
-        from .candles import read_source
-        from .history import ensure_history, revision_key
+        from .candles import read_source_data
+        from .history import completed_request, ensure_history, revision_key
         from .shared_memory import SharedMemoryManager
         if not self._connected.is_set():
             return
@@ -319,6 +319,8 @@ class MarketObservationClient:
             with self._state_lock:
                 if not self._connected.is_set() or self._generation != generation:
                     return  # Do not fetch the rest of a disconnected generation.
+                if self._targets.get(symbol) != required:
+                    continue  # Selection/demand changed during this preparation pass.
             if time.monotonic() < self._retry_history.get(symbol, 0):
                 continue
             acquire, retry_delay = True, 30
@@ -364,14 +366,14 @@ class MarketObservationClient:
                             retry_delay = 30 if result.error else 5
                             raise ValueError(result.error or "Required history is still being prepared.")
 
-                    batch = read_source(request)
-                    if batch.frame.empty:
+                    # Acquisition above proves coverage. Buffer publication only
+                    # needs confirmed rows, not analytical coverage/rejection stats.
+                    frame, _ = read_source_data(completed_request(request))
+                    if frame.empty:
                         raise ValueError(f"No completed {source} observations are available.")
-                    if len(batch.frame) < depth:
-                        raise ValueError(f"Insufficient completed {source} history: {len(batch.frame)} available; {depth} required.")
-                    if acquire and not batch.quality["complete"]:
-                        raise ValueError("Required history acquisition is incomplete.")
-                    frame = batch.frame.tail(depth)
+                    if len(frame) < depth:
+                        raise ValueError(f"Insufficient completed {source} history: {len(frame)} available; {depth} required.")
+                    frame = frame.tail(depth)
                     through[source] = frame.index[-1].timestamp()
                     prepared[source] = np.column_stack((
                         frame.loc[:, list(OHLCV)].to_numpy(dtype=float), frame.index.as_unit("s").asi8))
@@ -406,16 +408,18 @@ class MarketObservationClient:
                 with self._state_lock:
                     if not self._connected.is_set() or self._generation != generation:
                         return
-                    if symbol not in self._targets:
+                    if self._targets.get(symbol) != required:
                         continue
                     previous = self._prepared.get(symbol, {})
+                    changed_error = previous.get("error") != str(exc)
                     # Existing buffers remain useful after a correction-read
                     # failure. New requirements/gaps must be prepared again.
                     ready = not acquire
                     self._prepared[symbol] = {**previous, "ready": ready and previous.get("ready", False),
                                               "error": str(exc), "updated_at": time.time()}
                     self._retry_history[symbol] = time.monotonic() + retry_delay
-                logger.warning("History preparation pending symbol=%s: %s", symbol, exc)
+                if changed_error:
+                    logger.warning("History preparation pending symbol=%s: %s", symbol, exc)
 
     def shutdown(self):
         self._sync_stop.set()
@@ -433,9 +437,7 @@ class MarketObservationClient:
         for symbol in tuple(self.shm_managers):
             with self._symbol_lock(symbol):
                 self.shm_managers.pop(symbol).close()
-                daily = self.daily_managers.pop(symbol, None)
-                if daily:
-                    daily.close()
+                self._discard_history(symbol)
 
     def ingest_observation(self, symbol, quote, volume_delta, event_time, received_time):
         if self._sync_stop.is_set():

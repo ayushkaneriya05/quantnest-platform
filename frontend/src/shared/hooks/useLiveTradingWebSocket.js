@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { ensureFreshAccessToken, getWebSocketUrl } from "../services/api";
 
-export function useLiveTradingWebSocket(onMessageCallback) {
+export function useLiveTradingWebSocket(onMessageCallback, { enabled = true } = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const ws = useRef(null);
   const activeRef = useRef(false);
@@ -30,11 +30,13 @@ export function useLiveTradingWebSocket(onMessageCallback) {
 
       ws.current.onopen = () => {
         setIsConnected(true);
+        const reconnected = reconnectAttempts.current > 0;
         reconnectAttempts.current = 0;
         if (reconnectTimer.current) {
           clearTimeout(reconnectTimer.current);
           reconnectTimer.current = null;
         }
+        if (reconnected) callbackRef.current?.({ event_type: "RECONNECTED" });
       };
 
       ws.current.onmessage = (event) => {
@@ -61,10 +63,12 @@ export function useLiveTradingWebSocket(onMessageCallback) {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     activeRef.current = true;
     connect();
     return () => {
       activeRef.current = false;
+      setIsConnected(false);
       connectionRevision.current += 1;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       if (ws.current) {
@@ -75,7 +79,7 @@ export function useLiveTradingWebSocket(onMessageCallback) {
         ws.current = null;
       }
     };
-  }, [connect]);
+  }, [connect, enabled]);
 
   return { isConnected };
 }

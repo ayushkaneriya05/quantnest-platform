@@ -35,7 +35,7 @@ export function useResearchData(session) {
   const generation = useRef(0);
   const activeRevision = useRef(0);
   const latestRecords = useRef(new Map());
-  const loadedPage = useRef(1);
+  const oldestCursor = useRef(null);
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
@@ -52,12 +52,12 @@ export function useResearchData(session) {
       });
     }
   }, [refreshAllowance]);
-  const reload = useCallback(async (quiet = false, page = 1) => {
+  const reload = useCallback(async (quiet = false, before = null) => {
     const current = generation.current;
     const activeVersion = activeRevision.current;
     try {
       const [response, active] = await Promise.all([
-        session ? researchApi.runs(session, { page }) : { data: { results: [], next: null } },
+        session ? researchApi.runs(session, before ? { before } : {}) : { data: { results: [], next: null } },
         researchApi.runs(null, { active: true }),
       ]);
       if (current !== generation.current) return;
@@ -69,9 +69,10 @@ export function useResearchData(session) {
         const resolved = newest && newest.revision > record.revision ? newest : record;
         setActiveRun(isResearchActive(resolved) ? resolved : null);
       }
-      if (page >= loadedPage.current) {
-        loadedPage.current = page;
-        setNextPage(response.data.next ? page + 1 : null);
+      if (before || oldestCursor.current == null) {
+        const ids = response.data.results.map(run => run.id);
+        oldestCursor.current = ids.length ? Math.min(...ids) : before;
+        setNextPage(response.data.next ? oldestCursor.current : null);
       }
     } catch (error) {
       if (current === generation.current && !quiet) notify.error(getApiErrorMessage(error, "Could not load research"));
@@ -87,7 +88,7 @@ export function useResearchData(session) {
     setLoading(true);
     setRuns([]);
     setNextPage(null);
-    loadedPage.current = 1;
+    oldestCursor.current = null;
     reload();
     return () => { generation.current += 1; };
   }, [reload]);

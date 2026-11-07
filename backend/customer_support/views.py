@@ -7,7 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
-from rest_framework.pagination import PageNumberPagination
+from common.pagination import StandardPagination
 from commercial.usage import reject_request
 from .models import Ticket, Reply
 from .serializers import TicketSerializer, ReplyInput
@@ -29,18 +29,21 @@ class EnquiryView(APIView):
         return Response({"id": ticket.pk, "status": ticket.status, "message": "Your request has been received."}, status=201)
 
 
-class TicketPagination(PageNumberPagination):
-    page_size = 20
-    max_page_size = 20
-
-
 class TicketViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated]
     throttle_classes = [UserRateThrottle]
-    pagination_class = TicketPagination
+    pagination_class = StandardPagination
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            from .serializers import TicketListSerializer
+            return TicketListSerializer
+        return TicketSerializer
+
     def get_queryset(self):
-        return Ticket.objects.filter(user=self.request.user).prefetch_related("replies").order_by("-updated_at", "-pk")
+        qs = Ticket.objects.filter(user=self.request.user).order_by('-updated_at', '-pk')
+        return qs.defer('body') if self.action == 'list' else qs.prefetch_related('replies')
     def create(self, request):
         serializer = self.get_serializer(data={**request.data, "email": request.user.email})
         serializer.is_valid(raise_exception=True)

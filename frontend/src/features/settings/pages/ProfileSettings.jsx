@@ -17,7 +17,7 @@ export default function ProfileSettings() {
     return next;
   }, { replace: true }), [setParams]);
   const { setPageHeader, clearPageHeader } = usePageActions();
-  
+
   useEffect(() => {
     // Custom tab navigation to render inside MainContentHeader
     const HeaderTabs = () => <PageTabs label="Profile settings" value={activeTab} onValueChange={setActiveTab} items={[
@@ -35,7 +35,7 @@ export default function ProfileSettings() {
   }, [setPageHeader, clearPageHeader, activeTab, setActiveTab]);
 
   return (
-    <div className="container-padding py-5 w-full">
+    <div className="page-content">
       {/* We use standard divs here instead of UI Tabs since the triggers are in the header */}
       <div className="w-full">
         {activeTab === "profile" && (

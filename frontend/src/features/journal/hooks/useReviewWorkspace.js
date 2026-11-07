@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePagination } from "@/shared/hooks/usePagination";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { format, isValid, parseISO, subDays } from "date-fns";
 import { Terminal, FlaskConical, Radio } from "lucide-react";
@@ -7,9 +8,12 @@ import { journalApi } from "@/shared/services/journalApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
 import { usePlatform } from "@/shared/context/platform";
+import { usePaperTradingUpdate, usePaperTradingWebSocket } from "@/shared/hooks/usePaperTradingWebSocket";
+import { useLiveTradingWebSocket } from "@/shared/hooks/useLiveTradingWebSocket";
+import { subscribeTerminalUpdates } from "@/shared/hooks/useWebSocket";
 
 export const modes = [
-  { value: "TERMINAL", label: "Terminal", icon: Terminal, description: "Manual simulated execution · before fees" },
+  { value: "TERMINAL", label: "Terminal", icon: Terminal, description: "Manual simulated execution · net of recorded charges" },
   { value: "PAPER", label: "Paper", icon: FlaskConical, description: "Strategy simulation · net of recorded charges" },
   { value: "LIVE", label: "Live", icon: Radio, description: "Broker execution · before fees" },
 ];
@@ -41,37 +45,70 @@ export function useReviewWorkspace(kind) {
       if (values.search) result.search = values.search.slice(0, 100);
       if (kind === "journal") {
         if (["all", "reviewed", "unreviewed"].includes(values.reviewed)) result.reviewed = values.reviewed;
-        if (/^[1-9]\d*$/.test(values.page || "")) result.page = values.page;
       }
     }
     return result;
   }, [query, defaults, kind, sources]);
   const key = JSON.stringify(filters);
+  // Quotes update valuation locally. Only ledger changes reload report inputs
+  // so new positions subscribe and closed positions stop contributing to P&L.
+  const refreshTimer = useRef(null);
+  const onLedgerUpdate = useCallback((event) => {
+    if (!["POSITION_UPDATE", "ACCOUNT_UPDATE", "TRADE_UPDATE", "RECONNECTED"].includes(event?.event_type)) return;
+    clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => setRefreshKey(value => value + 1), 200);
+  }, []);
+  usePaperTradingWebSocket({ enabled: kind === "report" && filters.source === "PAPER" });
+  const paperUpdate = usePaperTradingUpdate();
+  const previousPaperUpdate = useRef(paperUpdate);
+  useEffect(() => {
+    if (paperUpdate !== previousPaperUpdate.current && kind === "report" && filters.source === "PAPER") onLedgerUpdate(paperUpdate);
+    previousPaperUpdate.current = paperUpdate;
+  }, [paperUpdate, kind, filters.source, onLedgerUpdate]);
+  useLiveTradingWebSocket(onLedgerUpdate, { enabled: kind === "report" && filters.source === "LIVE" });
+  useEffect(() => {
+    if (kind === "report" && filters.source === "TERMINAL") return subscribeTerminalUpdates(onLedgerUpdate);
+    return undefined;
+  }, [kind, filters.source, onLedgerUpdate]);
+  useEffect(() => () => clearTimeout(refreshTimer.current), [key]);
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination(key);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(kind === "journal");
   useEffect(() => {
     const controller = new AbortController();
-    setState({ loading: true, error: "", details: null, trades: null });
+    setSummaryLoading(true);
+    setState(previous => ({ ...previous, details: null, error: "" }));
     if (platformLoading) return () => controller.abort();
     const timer = setTimeout(async () => {
       try {
-        const [details, trades] = await Promise.all([
-          kind === "journal" ? journalApi.summary(JSON.parse(key), controller.signal) : executionReportsApi.report(JSON.parse(key), controller.signal),
-          ...(kind === "journal" ? [executionReportsApi.trades(JSON.parse(key), controller.signal)] : []),
-        ]);
-        if (!controller.signal.aborted) setState({ loading: false, error: "", details: details.data, trades: trades?.data ?? null });
-      } catch (error) {
-        if (!controller.signal.aborted) setState({ loading: false, error: getApiErrorMessage(error, "Could not load execution records"), details: null, trades: null });
-      }
+        const details = kind === "journal" ? await journalApi.summary(JSON.parse(key), controller.signal) : await executionReportsApi.report(JSON.parse(key), controller.signal);
+        if (!controller.signal.aborted) setState(previous => ({ ...previous, details: details.data }));
+      } catch (error) { if (!controller.signal.aborted) setState(previous => ({ ...previous, error: getApiErrorMessage(error) })); }
+      finally { if (!controller.signal.aborted) setSummaryLoading(false); }
     }, filters.search ? 250 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [key, kind, refreshKey, filters.search, platformLoading]);
+  useEffect(() => { setState(previous => ({ ...previous, trades: null })); }, [key]);
+  useEffect(() => {
+    if (kind !== "journal" || platformLoading) return undefined;
+    const controller = new AbortController(); setTableLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const response = await executionReportsApi.trades({ ...JSON.parse(key), page, page_size: pageSize }, controller.signal);
+        if (!controller.signal.aborted) { setState(previous => ({ ...previous, trades: response.data, error: "" })); accept(response.data); }
+      } catch (error) { if (!controller.signal.aborted) setState(previous => ({ ...previous, error: getApiErrorMessage(error) })); }
+      finally { if (!controller.signal.aborted) setTableLoading(false); }
+    }, filters.search ? 250 : 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [key, kind, page, pageSize, accept, refreshKey, filters.search, platformLoading]);
   const update = useCallback((changes) => {
-    const next = { ...filters, ...changes, page: 1 };
+    const next = { ...filters, ...changes, page: 1, page_size: pageSize };
     if (changes.source && changes.source !== filters.source) {
       delete next.account_id; delete next.strategy_id; delete next.instrument_id; delete next.search; delete next.reviewed;
     }
     setParams(Object.fromEntries(Object.entries(next).filter(([, value]) => value !== "" && value != null)));
-  }, [filters, setParams]);
-  const turnPage = (page) => setParams({ ...filters, page: String(page) });
+  }, [filters, pageSize, setParams]);
+  const turnPage = setPage;
   const reload = useCallback(() => setRefreshKey((value) => value + 1), []);
-  return { ...state, filters, update, turnPage, reload };
+  return { ...state, loading: summaryLoading || tableLoading, filters: { ...filters, page, page_size: pageSize }, update, turnPage, setPageSize, reload };
 }

@@ -7,19 +7,17 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .enums import (
-    StrategyType, MarketType, Exchange, InstrumentType, OptionType,
+    StrategyType, MarketType, Exchange, InstrumentType, OptionType, ExpirySelection, StrikeSelection,
     OrderType, OrderStatus, Side, ProductType, StrategyStatus, StrategyVisibility, ExecutionSessionStatus,
     CandleTimeframe, MarketSession,
     CandlePatternType,
     LogicalOperator, RuleType,
     OperandType,
     ComparisonOperator,
-    QuantityType,
+    QuantityType, QuantityUnit,
     TransactionType, Timezone, BacktestStatus,
     BrokerName,
-    get_operand_parameter_config, TradingDay,
-    DEFAULT_TRADING_DAYS, DEFAULT_TRADING_START_TIME, DEFAULT_TRADING_END_TIME,
-    OPERAND_GROUPS, get_math_expression_operand_types,
+    TradingDay,
     TerminalOrderType, TerminalOrderStatus, ChartTimeframe,
     PositionSide, TerminalPositionAction, TerminalExitReason,
     TERMINAL_USER_ORDER_TYPES, TERMINAL_PRICE_REQUIRED_TYPES, TERMINAL_TRIGGER_REQUIRED_TYPES,
@@ -28,12 +26,15 @@ from .enums import (
 
 # Map of enum name → source
 _ENUM_SOURCES = {
+    'QuantityUnit': QuantityUnit,
     # Strategy classification
     'StrategyType': StrategyType,
     'MarketType': MarketType,
     'Exchange': Exchange,
     'InstrumentType': InstrumentType,
     'OptionType': OptionType,
+    'ExpirySelection': ExpirySelection,
+    'StrikeSelection': StrikeSelection,
     'OrderType': OrderType,
     'OrderStatus': OrderStatus,
     'Side': Side,
@@ -81,7 +82,6 @@ def get_enum_metadata():
         name: [{'name': member.name, 'value': member.value, 'label': member.label} for member in source]
         for name, source in _ENUM_SOURCES.items()
     }
-
     for choice in data['TerminalOrderType']:
         choice.update(
             user_selectable=choice['value'] in TERMINAL_USER_ORDER_TYPES,
@@ -90,43 +90,14 @@ def get_enum_metadata():
         )
     for choice in data['TerminalPositionAction']:
         choice.update(
-            requires_quantity=choice['value'] not in (TerminalPositionAction.CLOSE, TerminalPositionAction.SETTLE),
-            requires_expiry=choice['value'] == TerminalPositionAction.SETTLE,
-            requires_settlement_price=choice['value'] == TerminalPositionAction.SETTLE,
+            requires_quantity=choice['value'] != TerminalPositionAction.CLOSE,
         )
 
-    data['OperandParameterConfig'] = {
-        operand.value: get_operand_parameter_config(operand)
-        for operand in OperandType
-    }
-    data['OperandGroups'] = {
-        name: [operand.value for operand in operands]
-        for name, operands in OPERAND_GROUPS.items()
-    }
-    data['MathExpressionOperandTypes'] = {
-        rule_type.value: get_math_expression_operand_types(rule_type)
-        for rule_type in RuleType
-    }
-    data['StrategyBuilderDefaults'] = {
-        'time_rule': {
-            'trading_days': list(DEFAULT_TRADING_DAYS),
-            'market_session': MarketSession.MARKET_OPEN,
-            'start_time': DEFAULT_TRADING_START_TIME.strftime('%H:%M'),
-            'end_time': DEFAULT_TRADING_END_TIME.strftime('%H:%M'),
-            'candle_timeframe': CandleTimeframe.M5,
-            'timezone': Timezone.ASIA_KOLKATA,
-            'no_trade_windows': [],
-        },
-        'entry_order_config': {
-            'entry_side': Side.BUY, 'entry_group_operator': LogicalOperator.OR,
-            'order_type': OrderType.MARKET,
-        },
-        'position_sizing_rule': {
-            'sizing_method': QuantityType.CAPITAL_BASED, 'fixed_quantity': 1,
-            'capital_percentage': 10,
-        },
-    }
-        
+    from strategies.specification import studio_specification
+    data['StrategyStudio'] = studio_specification()
+
+    from common.pagination import StandardPagination
+    data['PaginationDefaults'] = StandardPagination.defaults()
     return data
 
 

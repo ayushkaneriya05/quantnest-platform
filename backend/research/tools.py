@@ -11,7 +11,7 @@ from django.db.models.functions import TruncMonth
 from django.forms.models import model_to_dict
 from rest_framework.exceptions import ValidationError
 
-from .context import research_instrument_ids
+from .context import research_instrument_ids, draft_instrument_ids
 from .evaluation import market_rows
 from .models import ResearchRun
 from .validation import (
@@ -55,7 +55,7 @@ def handle_resolve_instruments(run, arguments):
 
 def handle_get_rule_schema(run, arguments):
     from common.enums import OperandType
-    from common.enums_view import get_enum_metadata
+    from strategies.specification import studio_specification, choice_metadata
 
     operands = arguments.get("operand_types", [])
     if (
@@ -65,25 +65,8 @@ def handle_get_rule_schema(run, arguments):
         or any(value not in OperandType.values for value in operands)
     ):
         raise ValidationError("Choose up to twelve supported operand types.")
-    metadata = get_enum_metadata()
-    keys = (
-        "StrategyType",
-        "MarketType",
-        "Exchange",
-        "InstrumentType",
-        "OrderType",
-        "Side",
-        "QuantityType",
-        "CandleTimeframe",
-        "RuleType",
-        "LogicalOperator",
-        "ComparisonOperator",
-        "OperandGroups",
-        "StrategyBuilderDefaults",
-        "MathExpressionOperandTypes",
-    )
-    data = {key: metadata[key] for key in keys}
-    data["OperandParameterConfig"] = {key: metadata["OperandParameterConfig"][key] for key in operands}
+    specification = studio_specification(operand_types=operands)
+    data = {'StrategyStudio': specification, **choice_metadata(specification)}
     return {"data": data}
 
 
@@ -266,6 +249,8 @@ def handle_get_conversation_evidence(run, arguments):
     source = next((item for item in previous.evidence if item["evidence_id"] == arguments["evidence_id"]), None)
     if not source:
         raise ValidationError("This evidence was not recorded for the selected turn.")
+    from .evidence import hydrate_evidence
+    source = hydrate_evidence(source)
     return {
         **source,
         "source_run_id": source.get("source_run_id", previous.pk),
@@ -276,7 +261,7 @@ def handle_get_conversation_evidence(run, arguments):
 def handle_validate_strategy_draft(run, arguments):
     if set(arguments) != {"draft"}:
         raise ValidationError("Provide a draft object.")
-    draft = validate_draft(arguments["draft"], research_instrument_ids(run))
+    draft = validate_draft(arguments["draft"], draft_instrument_ids(run))
     validate_customer_rules(run, arguments["draft"])
     data = {"valid": True, "draft": draft}
     return {"data": data}

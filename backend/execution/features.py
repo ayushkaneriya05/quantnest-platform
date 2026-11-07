@@ -7,7 +7,7 @@ future values from another session's faster evaluation.
 """
 from collections import deque
 from datetime import datetime, timedelta
-from math import exp, floor, isfinite, nan, sqrt
+from math import exp, floor, fsum, isfinite, nan, sqrt
 
 from common.enums import CandlePatternType, OperandType
 
@@ -65,14 +65,148 @@ def price_source(kind: str, candle: Candle) -> float:
     return getattr(candle, kind.lower())
 
 
-class Feature:
+class PublishedFeature:
+    """Timestamped outputs let every evaluator read only its causal history."""
+    def at(self, at: datetime, shift: int = 0) -> float:
+        for timestamp, value in reversed(self.history):
+            if timestamp <= at:
+                if shift == 0:
+                    return value
+                shift -= 1
+        return nan
+
+
+class RollingMoments:
+    """Shifted Welford updates avoid subtracting two large squared prices.
+
+    Removal/addition is constant work per candle. The owning window periodically
+    rebuilds from its bounded values to control accumulated floating-point drift.
+    """
+    def __init__(self):
+        self.count, self.origin, self.mean, self.m2 = 0, 0.0, 0.0, 0.0
+
+    def add(self, value):
+        if self.count == 0:
+            self.origin, self.mean, self.m2 = value, 0.0, 0.0
+        self.count += 1
+        delta = (value - self.origin) - self.mean
+        self.mean += delta / self.count
+        self.m2 += delta * ((value - self.origin) - self.mean)
+
+    def remove(self, value):
+        if self.count <= 1:
+            self.count, self.mean, self.m2 = 0, 0.0, 0.0
+            return
+        self.count -= 1
+        delta = (value - self.origin) - self.mean
+        self.mean -= delta / self.count
+        self.m2 -= delta * ((value - self.origin) - self.mean)
+
+    def rebuild(self, values):
+        self.count = len(values)
+        self.origin = values[0]
+        try:
+            self.mean = fsum(value - self.origin for value in values) / self.count
+            self.m2 = fsum(((value - self.origin) - self.mean) ** 2 for value in values)
+        except (OverflowError, ValueError):
+            self.mean, self.m2 = nan, nan
+
+
+class RollingFeature(PublishedFeature):
+    """One bounded window over a pure, single-clock candle formula.
+
+    Lag excludes the newest N observations. Other windows include the newest
+    completed candle; wrap them in lag(1) for a prior-window breakout. Missing
+    values occupy their native bar and cannot shorten a window silently.
+    """
+    def __init__(self, operation, bars, ddof=0, *, source, capacity):
+        self.operation, self.bars, self.ddof, self.source = operation, bars, ddof, source
+        self.history = deque(maxlen=capacity)
+        self.values, self.extrema = deque(), deque()
+        self.index, self.invalid = 0, 0
+        self.total, self.compensation = 0.0, 0.0
+        self.moments = RollingMoments() if operation in ('rolling_std', 'zscore') else None
+        self.value = nan
+
+    def _add(self, value):
+        # Compensated additions/removals keep small candle ranges accurate even
+        # when the input formula contains large absolute prices.
+        corrected = value - self.compensation
+        total = self.total + corrected
+        self.compensation = (total - self.total) - corrected
+        self.total = total
+
+    def update(self, candle: Candle) -> float:
+        value = self.source(candle.closed_at)
+        self.index += 1
+        self.values.append(value)
+        self.invalid += not isfinite(value)
+        width = self.bars + 1 if self.operation in ('lag', 'return_pct') else self.bars
+        if isfinite(value):
+            self._add(value)
+            if self.moments is not None:
+                self.moments.add(value)
+        if len(self.values) > width:
+            removed = self.values.popleft()
+            self.invalid -= not isfinite(removed)
+            if isfinite(removed):
+                self._add(-removed)
+                if self.moments is not None:
+                    self.moments.remove(removed)
+        if self.operation in ('highest', 'lowest'):
+            while self.extrema and self.extrema[0][0] <= self.index - width:
+                self.extrema.popleft()
+            if isfinite(value):
+                while self.extrema and (self.extrema[-1][1] <= value if self.operation == 'highest' else self.extrema[-1][1] >= value):
+                    self.extrema.pop()
+                self.extrema.append((self.index, value))
+        result = nan
+        if len(self.values) == width:
+            if self.operation == 'lag':
+                result = self.values[0]
+            elif self.operation == 'return_pct':
+                previous = self.values[0]
+                # This is an endpoint return, like x / lag(x, N) - 1. A missing
+                # intermediate bar does not replace either endpoint.
+                if isfinite(previous) and previous > 0 and isfinite(value):
+                    result = (value / previous - 1) * 100
+            elif not self.invalid:
+                if self.operation in ('highest', 'lowest'):
+                    result = self.extrema[0][1]
+                elif self.moments is not None:
+                    state = self.moments
+                    if self.index % width == 0 or not isfinite(state.m2) or state.m2 < 0:
+                        state.rebuild(self.values)
+                    deviation = sqrt(state.m2 / (width - self.ddof))
+                    result = (deviation if self.operation == 'rolling_std' else
+                              ((value - state.origin) - state.mean) / deviation if deviation > 0 else nan)
+                else:
+                    # Rebase at most once per window, amortized O(1), and recover
+                    # after an overflowing input formula leaves the window.
+                    if self.index % width == 0 or not isfinite(self.total):
+                        try:
+                            self.total = fsum(self.values)
+                        except OverflowError:
+                            self.total = nan
+                        self.compensation = 0.0
+                    result = self.total / width if self.operation == 'rolling_mean' else self.total
+        self.value = result if isfinite(result) else nan
+        self.history.append((candle.closed_at, self.value))
+        return self.value
+
+
+class Feature(PublishedFeature):
     """A resolved operand with fixed parameters and bounded published history."""
     def __init__(self, kind: str, parameters: dict, *, calendar, capacity: int, source=None):
         self.kind, self.parameters, self.calendar, self.source = kind, parameters, calendar, source
         p = parameters
         self.period = int(p.get('period', p.get('k_period', 14)))
         self.history = deque(maxlen=capacity)
-        self.bars = deque(maxlen=max(self.period + 1, int(p.get('tenkan', 9)), int(p.get('senkou', 52)), int(p.get('kijun', 26)) + 1, 64))
+        # Other features use scalar accumulators/windows, not whole OHLCV bars.
+        bar_capacity = (max(self.period + 1, int(p.get('tenkan', 9)), int(p.get('senkou', 52)),
+                            int(p.get('kijun', 26)) + 1, 64)
+                        if kind in (OperandType.ICHIMOKU_CLOUD, OperandType.CANDLE_PATTERN) else 0)
+        self.bars = deque(maxlen=bar_capacity)
         self.windows, self.averages = {}, {}
         self.previous, self.value = None, nan
         self.group = None
@@ -88,12 +222,13 @@ class Feature:
         if kind == OperandType.ALMA:
             n = self.period
             weights = [exp(-((i - floor(0.85 * (n - 1))) ** 2) / (2 * (n / 6) ** 2)) for i in range(n)]
-            self.alma_weights = tuple(weight / sum(weights) for weight in weights)
+            total = sum(weights)
+            self.alma_weights = tuple(weight / total for weight in weights)
         if kind == OperandType.CANDLE_PATTERN and p['pattern'] != CandlePatternType.DOJI:
             # Resolve the installed native pattern once, before the hot path.
             import talib
             names = {
-                CandlePatternType.DOJI: 'CDLDOJI', CandlePatternType.HAMMER: 'CDLHAMMER',
+                CandlePatternType.HAMMER: 'CDLHAMMER',
                 CandlePatternType.SHOOTING_STAR: 'CDLSHOOTINGSTAR',
                 CandlePatternType.ENGULFING_BULLISH: 'CDLENGULFING',
                 CandlePatternType.ENGULFING_BEARISH: 'CDLENGULFING',
@@ -102,6 +237,29 @@ class Feature:
                 CandlePatternType.MARUBOZU: 'CDLMARUBOZU', CandlePatternType.PIERCING_LINE: 'CDLPIERCING',
             }
             self.pattern = getattr(talib, names[p['pattern']])
+
+    def at(self, at: datetime, shift: int = 0) -> float:
+        anchored = self.kind in (OperandType.CURRENT_DAY_OPEN, OperandType.PREV_WEEK_HIGH,
+                                 OperandType.PREV_WEEK_LOW, OperandType.VWAP)
+        if shift or not anchored:
+            return super().at(at, shift)
+        for timestamp, value in reversed(self.history):
+            if timestamp > at:
+                continue
+            # These are completed-candle operands. Until this anchor publishes
+            # its first bar, yesterday's open/VWAP or an older week's level is
+            # unavailable, rather than silently labelled as today's value.
+            observed = self.calendar.session_bounds(timestamp - timedelta(microseconds=1))[0].date()
+            current = self.calendar.session_bounds(at)[0].date()
+            anchor = self.parameters.get('anchor', 'W' if self.kind in
+                (OperandType.PREV_WEEK_HIGH, OperandType.PREV_WEEK_LOW) else 'D')
+            if anchor == 'W':
+                observed -= timedelta(days=observed.weekday())
+                current -= timedelta(days=current.weekday())
+            elif anchor == 'M':
+                observed, current = observed.replace(day=1), current.replace(day=1)
+            return value if observed == current else nan
+        return nan
 
     def average(self, name: str, value: float, period: int, *, wilder: bool = False) -> float:
         if name not in self.averages:
@@ -114,14 +272,6 @@ class Feature:
         window = self.windows[name]
         window.update(value)
         return window
-
-    def at(self, at: datetime, shift: int = 0) -> float:
-        for timestamp, value in reversed(self.history):
-            if timestamp <= at:
-                if shift == 0:
-                    return value
-                shift -= 1
-        return nan
 
     def update(self, candle: Candle) -> float:
         if self.history and candle.closed_at <= self.history[-1][0]:
@@ -191,7 +341,11 @@ class Feature:
                 return float(result == -100)
             return float(result != 0)
 
-        values = self.window('source', source, n)
+        # Only finite-window indicators need a source deque. Recursive
+        # indicators already retain their own accumulator and warmup state.
+        if kind in (OperandType.SMA, OperandType.WMA, OperandType.HMA,
+                    OperandType.ALMA, OperandType.KAMA, OperandType.BOLLINGER_BANDS):
+            values = self.window('source', source, n)
         if kind == OperandType.SMA:
             return values.mean()
         if kind == OperandType.EMA:
@@ -284,9 +438,12 @@ class Feature:
                              else min(projected, previous.low, bar.low))
             return level
 
-        high = self.window('high', bar.high, n)
-        low = self.window('low', bar.low, n)
-        highest, lowest = (max(high.values), min(low.values)) if high.ready() and low.ready() else (nan, nan)
+        # ATR/trend/flow calculations below do not consume price extrema.
+        # Avoid scanning two period-sized windows for those unrelated features.
+        if kind in (OperandType.DONCHIAN_CHANNEL, OperandType.WILLIAMS_R, OperandType.STOCHASTIC):
+            high = self.window('high', bar.high, n)
+            low = self.window('low', bar.low, n)
+            highest, lowest = (max(high.values), min(low.values)) if high.ready() and low.ready() else (nan, nan)
         if kind == OperandType.DONCHIAN_CHANNEL:
             return {'UPPER': highest, 'MIDDLE': (highest + lowest) / 2, 'LOWER': lowest}[p['output_line']]
         if kind == OperandType.WILLIAMS_R:

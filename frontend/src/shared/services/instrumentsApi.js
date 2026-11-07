@@ -7,6 +7,10 @@ const INSTRUMENTS_URL = '/instruments/';
 
 // Instruments
 export const instrumentsApi = {
+  selectionPreview: async (underlyingId, policy) => {
+    const response = await api.post(`${INSTRUMENTS_URL}instruments/selection-preview/`, { underlying_id: underlyingId, policy });
+    return response.data;
+  },
   // Search instruments
   search: async (params = {}, config = {}) => {
     const response = await api.get(`${INSTRUMENTS_URL}instruments/search/`, { ...config, params });
@@ -22,55 +26,5 @@ export async function searchTerminalInstruments(params, config = {}) {
 }
 
 
-
-// Watchlist
-export const watchlistApi = {
-  getByStrategy: async (strategyId) => {
-    const response = await api.get(`${INSTRUMENTS_URL}watchlist/`, {
-      params: { strategy: strategyId }
-    });
-    return response.data;
-  },
-
-  add: async (strategyId, instrumentId) => {
-    const response = await api.post(`${INSTRUMENTS_URL}watchlist/`, {
-      strategy: strategyId,
-      instrument: instrumentId
-    });
-    return response.data;
-  },
-
-  remove: async (id) => {
-    await api.delete(`${INSTRUMENTS_URL}watchlist/${id}/`);
-  },
-};
-
-// Execution Routes
-export const executionRoutesApi = {
-  createOrUpdate: async (watchlistInstrumentId, routeId, data) => {
-    if (routeId) {
-      const response = await api.patch(`${INSTRUMENTS_URL}execution-routes/${routeId}/`, data);
-      return response.data;
-    } else {
-      const payload = {
-        watchlist_instrument: watchlistInstrumentId,
-        ...data
-      };
-      const response = await api.post(`${INSTRUMENTS_URL}execution-routes/`, payload);
-      return response.data;
-    }
-  },
-  
-  getByWatchlistInstrument: async (watchlistInstrumentId) => {
-    const response = await api.get(`${INSTRUMENTS_URL}execution-routes/`, {
-      params: { watchlist_instrument: watchlistInstrumentId }
-    });
-    return response.data;
-  },
-  
-  delete: async (id) => {
-    await api.delete(`${INSTRUMENTS_URL}execution-routes/${id}/`);
-  }
-};
 
 export default instrumentsApi;

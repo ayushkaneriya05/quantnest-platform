@@ -1,10 +1,15 @@
+import RefreshButton from "@/shared/components/RefreshButton";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import Pagination from "@/shared/components/Pagination";
+import { usePagination, useQueryState } from "@/shared/hooks/usePagination";
+import PageTabs from "@/shared/components/PageTabs";
 import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /**
  * Strategy List Page - displays all user strategies with CRUD actions
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle
@@ -44,9 +49,9 @@ import { usePlatform } from '@/shared/context/platform';
 
 const STATUS_CONFIG = {
   DRAFT: { label: 'Draft', className: 'bg-muted/15 text-muted-foreground border-border/30' },
-  ACTIVE: { label: 'Active', className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' },
-  PAUSED: { label: 'Paused', className: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' },
-  ARCHIVED: { label: 'Archived', className: 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30' },
+  ACTIVE: { label: 'Active', className: "bg-success/15 text-success border-success/30" },
+  PAUSED: { label: 'Paused', className: "bg-warning/15 text-warning border-warning/30" },
+  ARCHIVED: { label: 'Archived', className: "bg-loss/15 text-loss border-loss/30" },
 };
 
 const STRATEGY_TYPE_ICONS = {
@@ -57,10 +62,10 @@ const STRATEGY_TYPE_ICONS = {
 };
 
 const TYPE_COLORS = {
-  INTRADAY: 'text-blue-700 dark:text-blue-400 bg-blue-500/10',
-  POSITIONAL: 'text-emerald-700 dark:text-emerald-400 bg-emerald-500/10',
-  SWING: 'text-amber-700 dark:text-amber-400 bg-amber-500/10',
-  SCALPING: 'text-purple-700 dark:text-purple-400 bg-purple-500/10',
+  INTRADAY: "text-brand bg-brand/10",
+  POSITIONAL: "text-success bg-success/10",
+  SWING: "text-warning bg-warning/10",
+  SCALPING: "text-brand bg-brand/10",
 };
 
 export default function StrategyList() {
@@ -68,16 +73,22 @@ export default function StrategyList() {
     navigate("/strategies/create");
   });
 
-  const fetchStrategies = useStableCallback(async () => {
+  const fetchStrategies = useStableCallback(async (refreshSummary = true) => {
+    const generation = ++request.current;
+    setLoading(true);
+    setError("");
     try {
-      setLoading(true);
-      const data = await strategyApi.getAll();
-      setStrategies(data);
+      const data = await strategyApi.getAll({ page, page_size: pageSize, ...(filter !== 'all' ? { status: filter.toUpperCase() } : {}) });
+      if (generation !== request.current) return;
+      setStrategies(data.results); setMetadata(data); accept(data);
+      if (refreshSummary || !summaryLoaded.current) {
+        const counts = await strategyApi.summary();
+        if (generation === request.current) { setSummary(counts); summaryLoaded.current = true; }
+      }
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load strategies"));
-      console.error(error);
+      if (generation === request.current) setError(getApiErrorMessage(error, "Failed to load strategies"));
     } finally {
-      setLoading(false);
+      if (generation === request.current) setLoading(false);
     }
   });
 
@@ -86,7 +97,13 @@ export default function StrategyList() {
   const { notify } = useNotifications();
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useQueryState("status", 'all', { namespace: "", replace: false });
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination(filter);
+  const [metadata, setMetadata] = useState({ count: 0 });
+  const [summary, setSummary] = useState({ total: 0, statuses: {} });
+  const request = useRef(0);
+  const summaryLoaded = useRef(false);
   const [deployingId, setDeployingId] = useState(null);
   const [liveDeployOpen, setLiveDeployOpen] = useState(false);
   const [liveDeployStrategy, setLiveDeployStrategy] = useState(null);
@@ -109,18 +126,19 @@ export default function StrategyList() {
 
 
   useEffect(() => {
-    fetchStrategies();
-  }, [fetchStrategies]);
+    fetchStrategies(false);
+    const guard = request; return () => { guard.current++; };
+  }, [fetchStrategies, page, pageSize, filter]);
 
 
 
   // Set page actions in header
   const pageActions = useMemo(() => (
-    <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white" size="sm">
+    <div className="flex items-center gap-2"><RefreshButton onClick={() => fetchStrategies()} label="Refresh strategies" loading={loading} /><Button variant="default" onClick={handleCreate}  size="sm">
       <Plus className="h-4 w-4 mr-2" />
       New Strategy
-    </Button>
-  ), [handleCreate]);
+    </Button></div>
+  ), [handleCreate, fetchStrategies, loading]);
 
   useSetPageActions(pageActions);
 
@@ -148,7 +166,7 @@ export default function StrategyList() {
         strategyApi.getVersions(strategy.id),
         brokersApi.getChargeProfiles().catch(() => ({ data: [] })),
       ]);
-      const fetchedVersions = data;
+      const fetchedVersions = data.results;
       const profiles = profileResponse.data;
       setVersions(fetchedVersions);
       setSelectedVersion(fetchedVersions.length > 0 ? fetchedVersions[0].id.toString() : "");
@@ -202,7 +220,7 @@ export default function StrategyList() {
       setAllocationAmount("");
 
       const vData = await strategyApi.getVersions(strategy.id);
-      const fetchedVersions = vData;
+      const fetchedVersions = vData.results;
       setVersions(fetchedVersions);
       setSelectedVersion(fetchedVersions.length > 0 ? fetchedVersions[0].id.toString() : "");
 
@@ -334,54 +352,24 @@ export default function StrategyList() {
     }
   };
 
-  const filteredStrategies = strategies.filter(s => {
-    if (filter === 'all') return true;
-    return s.status.toLowerCase() === filter;
-  });
-
-  const filterCounts = {
-    all: strategies.length,
-    draft: strategies.filter(s => s.status === 'DRAFT').length,
-    active: strategies.filter(s => s.status === 'ACTIVE').length,
-    paused: strategies.filter(s => s.status === 'PAUSED').length,
-    archived: strategies.filter(s => s.status === 'ARCHIVED').length,
-  };
+  if (error) return <div className="page-content"><WorkspaceState error={error} onRetry={() => fetchStrategies()} /></div>;
+  const filterCounts = { all: summary.total, ...Object.fromEntries(Object.entries(summary.statuses).map(([key, value]) => [key.toLowerCase(), value])) };
 
   return (
-    <div className="container-padding py-6 lg:py-8 space-y-6">
+    <div className="page-content">
       {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
-        {['all', 'draft', 'active', 'paused', 'archived'].map((f) => (
-          <Button
-            key={f}
-            variant={filter === f ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter(f)}
-            className={filter === f
-              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-              : 'border-border text-muted-foreground hover:text-foreground hover:border-border bg-transparent'
-            }
-          >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-            {filterCounts[f] > 0 && (
-              <span className={`ml-1.5 text-xs ${filter === f ? 'text-indigo-700 dark:text-indigo-200' : 'text-muted-foreground'}`}>
-                {filterCounts[f]}
-              </span>
-            )}
-          </Button>
-        ))}
-      </div>
+      <PageTabs appearance="outline" label="Strategy status" value={filter} onValueChange={setFilter} items={['all', 'draft', 'active', 'paused', 'archived'].map(value => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1), count: filterCounts[value] || undefined }))} />
 
       {/* Strategy Grid */}
       {loading ? (
         <div className="flex flex-col justify-center items-center py-16 gap-3">
           <GlobalLoader text="Loading strategies..." />
         </div>
-      ) : filteredStrategies.length === 0 ? (
+      ) : strategies.length === 0 ? (
         <Card className="bg-card/40 border-border/80">
           <CardContent className="py-16 text-center">
-            <div className="p-4 rounded-2xl bg-indigo-500/10 w-fit mx-auto mb-4">
-              <Sparkles className="h-10 w-10 text-indigo-700 dark:text-indigo-400" />
+            <div className="p-3 rounded-2xl bg-brand/10 w-fit mx-auto mb-3">
+              <Sparkles className="h-10 w-10 text-brand" />
             </div>
             <h3 className="text-lg font-semibold text-foreground mb-1">
               {filter === 'all' ? 'No strategies yet' : `No ${filter} strategies`}
@@ -392,7 +380,7 @@ export default function StrategyList() {
                 : `You don't have any ${filter} strategies. Try changing the filter.`}
             </p>
             {filter === 'all' && (
-              <Button onClick={handleCreate} className="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white">
+              <Button variant="default" onClick={handleCreate} className="mt-4">
                 <Plus className="h-4 w-4 mr-2" />
                 Create Your First Strategy
               </Button>
@@ -400,8 +388,8 @@ export default function StrategyList() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredStrategies.map((strategy) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {strategies.map((strategy) => {
             const TypeIcon = STRATEGY_TYPE_ICONS[strategy.strategy_type] || TrendingUp;
             const typeColor = TYPE_COLORS[strategy.strategy_type] || 'text-muted-foreground bg-muted/10';
             const statusConfig = STATUS_CONFIG[strategy.status] || STATUS_CONFIG.DRAFT;
@@ -419,7 +407,7 @@ export default function StrategyList() {
                         <TypeIcon className="h-5 w-5" />
                       </div>
                       <div className="min-w-0">
-                        <CardTitle className="text-foreground text-base truncate group-hover:text-indigo-800 dark:group-hover:text-indigo-300 transition-colors">
+                        <CardTitle className="text-foreground text-base truncate group-hover:text-brand transition-colors">
                           {strategy.name}
                         </CardTitle>
                         <CardDescription className="text-xs text-muted-foreground">
@@ -433,13 +421,13 @@ export default function StrategyList() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <p className="text-sm text-muted-foreground line-clamp-2 mb-4 min-h-[2.5rem]">
+                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3 min-h-[2.5rem]">
                     {strategy.description || 'No description added'}
                   </p>
 
                   {/* Tags */}
                   {strategy.tags?.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-4">
+                    <div className="flex flex-wrap gap-1 mb-3">
                       {strategy.tags.slice(0, 3).map(tag => (
                         <Badge key={tag.id} variant="outline" className="text-xs border-border/80 text-muted-foreground bg-secondary/30">
                           {tag.name}
@@ -459,7 +447,7 @@ export default function StrategyList() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleEdit(strategy.id)}
-                      className="text-muted-foreground hover:text-foreground hover:bg-secondary/60 h-8 w-8 p-0"
+                      className="w-8 p-0"
                       title="Edit strategy"
                     >
                       <Edit className="h-3.5 w-3.5" />
@@ -468,7 +456,7 @@ export default function StrategyList() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleClone(strategy.id)}
-                      className="text-muted-foreground hover:text-foreground hover:bg-secondary/60 h-8 w-8 p-0"
+                      className="w-8 p-0"
                       title="Clone strategy"
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -477,7 +465,7 @@ export default function StrategyList() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleBacktest(strategy.id)}
-                      className="text-muted-foreground hover:text-indigo-800 dark:hover:text-indigo-400 hover:bg-indigo-500/10 h-8 w-8 p-0"
+                      className="w-8 p-0"
                       title="Backtest strategy"
                     >
                       <TestTube className="h-3.5 w-3.5" />
@@ -487,7 +475,7 @@ export default function StrategyList() {
                         variant="ghost"
                         size="sm"
                         onClick={() => openPaperDeploy(strategy)}
-                        className="text-muted-foreground hover:text-cyan-800 dark:hover:text-cyan-400 hover:bg-cyan-500/10 h-8 w-8 p-0"
+                        className="w-8 p-0"
                         title="Deploy to paper trading"
                         disabled={deployingId === strategy.id}
                       >
@@ -499,7 +487,7 @@ export default function StrategyList() {
                         variant="ghost"
                         size="sm"
                         onClick={() => openLiveDeploy(strategy)}
-                        className="text-muted-foreground hover:text-emerald-800 dark:hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
+                        className="w-8 p-0"
                         title="Deploy to connected broker"
                         disabled={deployingId === strategy.id}
                       >
@@ -511,7 +499,7 @@ export default function StrategyList() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleActivate(strategy.id)}
-                        className="text-muted-foreground hover:text-emerald-800 dark:hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
+                        className="w-8 p-0"
                         title="Activate strategy"
                       >
                         <Play className="h-3.5 w-3.5" />
@@ -523,7 +511,7 @@ export default function StrategyList() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handlePause(strategy.id)}
-                          className="text-muted-foreground hover:text-amber-800 dark:hover:text-amber-400 hover:bg-amber-500/10 h-8 w-8 p-0"
+                          className="w-8 p-0"
                           title="Pause strategy"
                         >
                           <Pause className="h-3.5 w-3.5" />
@@ -532,7 +520,7 @@ export default function StrategyList() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleArchive(strategy.id)}
-                          className="text-muted-foreground hover:text-muted-foreground hover:bg-secondary/60 h-8 w-8 p-0"
+                          className="w-8 p-0"
                           title="Archive strategy"
                         >
                           <Archive className="h-3.5 w-3.5" />
@@ -544,7 +532,7 @@ export default function StrategyList() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleActivate(strategy.id)}
-                        className="text-muted-foreground hover:text-emerald-800 dark:hover:text-emerald-400 hover:bg-emerald-500/10 h-8 w-8 p-0"
+                        className="w-8 p-0"
                         title="Resume strategy"
                       >
                         <Play className="h-3.5 w-3.5" />
@@ -555,7 +543,7 @@ export default function StrategyList() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleUnarchive(strategy.id)}
-                        className="text-muted-foreground hover:text-blue-800 dark:hover:text-blue-400 hover:bg-blue-500/10 h-8 w-8 p-0"
+                        className="w-8 p-0"
                         title="Unarchive strategy"
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
@@ -565,7 +553,7 @@ export default function StrategyList() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDelete(strategy)}
-                      className="text-muted-foreground hover:text-rose-800 dark:hover:text-rose-400 hover:bg-rose-500/10 h-8 w-8 p-0 ml-auto"
+                      className="w-8 p-0 ml-auto"
                       title="Delete strategy"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -578,12 +566,14 @@ export default function StrategyList() {
         </div>
       )}
 
+      <Pagination {...metadata} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={setPageSize} label="Strategy pages" />
+
       <Dialog open={liveDeployOpen} onOpenChange={setLiveDeployOpen}>
         <DialogContent className="max-h-[calc(100dvh_-_2rem)] overflow-y-auto bg-background border-border text-foreground sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Deploy Strategy Live</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="break-words text-sm text-muted-foreground">
               {liveDeployStrategy
                 ? `Choose the connected broker account for ${liveDeployStrategy.name}.`
@@ -598,7 +588,7 @@ export default function StrategyList() {
                 <SelectContent className="bg-card border-border text-foreground" />
               </Select>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label className="text-foreground">Allocated capital (₹)</Label>
                 <Input type="number" min="0.01" step="0.01"
@@ -632,13 +622,13 @@ export default function StrategyList() {
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-border text-foreground"
+              className=""
               onClick={() => setLiveDeployOpen(false)}
             >
               Cancel
             </Button>
-            <Button
-              className="text-white bg-emerald-700 hover:bg-emerald-800"
+            <Button variant="success"
+
               onClick={handleConfirmLiveDeploy}
               disabled={
                 !selectedBroker
@@ -663,13 +653,13 @@ export default function StrategyList() {
           <DialogHeader>
             <DialogTitle>Deploy Strategy to Paper Trading</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="break-words text-sm text-muted-foreground">
               {paperDeployStrategy
                 ? `Choose the version for ${paperDeployStrategy.name}.`
                 : "Choose version."}
             </div>
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="space-y-2">
                 <Label className="text-foreground">Allocated capital (₹)</Label>
                 <Input type="number" min="0.01" step="0.01"
@@ -741,7 +731,7 @@ export default function StrategyList() {
                   <Switch checked={paperIncludeCharges} onCheckedChange={setPaperIncludeCharges} />
                 </div>
                 {!chargeProfiles.length && (
-                  <p className="col-span-2 text-xs text-amber-700 dark:text-amber-400">
+                  <p className="col-span-2 text-xs text-warning">
                     No charge profiles are configured, so paper fees and taxes will be zero.
                   </p>
                 )}
@@ -751,13 +741,13 @@ export default function StrategyList() {
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-border text-foreground"
+              className=""
               onClick={() => setPaperDeployOpen(false)}
             >
               Cancel
             </Button>
-            <Button
-              className="text-white bg-cyan-700 hover:bg-cyan-800"
+            <Button variant="default"
+
               onClick={handleConfirmPaperDeploy}
               disabled={deployingId === paperDeployStrategy?.id || !selectedVersion || !(Number(newAllocationAmount) > 0)}
             >
@@ -778,7 +768,7 @@ export default function StrategyList() {
           <DialogHeader>
             <DialogTitle>Cannot Delete Strategy</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
               The strategy &quot;{conflictedStrategy?.name}&quot; has active deployment records or associated trade data. Deleting it would break historical consistency.
             </p>
@@ -789,20 +779,20 @@ export default function StrategyList() {
           <DialogFooter>
             <Button
               variant="outline"
-              className="border-border text-foreground"
+              className=""
               onClick={() => setDeleteConflictOpen(false)}
             >
               Cancel
             </Button>
             <Button
-              variant="outline"
-              className="border-rose-900/30 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/50"
+              variant="destructive-outline"
+
               onClick={handleHaltAndArchive}
             >
               Halt & Archive
             </Button>
             <Button
-              className="bg-muted hover:bg-muted text-foreground"
+              className=""
               onClick={handleArchiveInstead}
             >
               Archive Instead

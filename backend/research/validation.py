@@ -3,72 +3,37 @@
 import json
 import re
 
-from common.enums import (
-    CandleTimeframe,
-    InstrumentType,
-    LogicalOperator,
-    OperandType,
-    RuleType,
-    get_operand_parameter_config,
-)
+from common.enums import CandleTimeframe, InstrumentType, LogicalOperator, OperandType, RuleType
+from strategies.specification.operands import get_operand_parameter_config
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from django.forms.models import model_to_dict
 from instruments.models import Instrument
 from rest_framework.exceptions import ValidationError
-from rules_engine.serializers import (
-    PositionSizingRuleSerializer,
-    RuleGroupSerializer,
-    RuleSerializer,
-    TimeRuleSerializer,
-)
 from strategies.serializers import (
-    EntryOrderConfigSerializer,
-    ExitOrderConfigSerializer,
     StrategyCreateSerializer,
 )
 
 from .models import ResearchRun
+from .serializers import ScreenConditionSerializer
+
+SCREEN_DEFAULTS = {'timeframe': CandleTimeframe.D1, 'logical_operator': LogicalOperator.AND}
+MAX_SCREEN_CONDITIONS = 12
 
 
 def json_data(value):
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder, allow_nan=False))
 
 
-def validate_config(serializer_class, data):
-    if not isinstance(data, dict):
-        raise ValidationError("Configuration must be an object.")
-    model = serializer_class.Meta.model
-    instance = model()
-    serializer = serializer_class(instance)
-    allowed = {name for name, field in serializer.fields.items() if not field.read_only} - {"strategy", "rule_group"}
-    unknown = set(data) - allowed
-    if unknown:
-        raise ValidationError(f"Unsupported fields: {', '.join(sorted(unknown))}.")
-    # Read model defaults without serializing reverse relations on an unsaved draft.
-    defaults = model_to_dict(instance, fields=allowed)
-    serializer = serializer_class(instance, data={**defaults, **data}, partial=True)
-    for field in ("strategy", "rule_group"):
-        if field in serializer.fields:
-            serializer.fields[field].read_only = True
-    serializer.is_valid(raise_exception=True)
-    return serializer.validated_data
-
-
-def validate_rule(data, rule_type=RuleType.ENTRY):
+def validate_screen_condition(data):
     if not isinstance(data, dict):
         raise ValidationError("Each rule must be an object.")
-    serializer = RuleSerializer()
-    unknown = set(data) - (set(serializer.fields) - {"id", "rule_group"})
+    serializer = ScreenConditionSerializer(data=data)
+    unknown = set(data) - set(serializer.fields)
     if unknown:
         raise ValidationError(f"Unsupported rule fields: {', '.join(sorted(unknown))}.")
-    if not data.get("operand_a_type") or not data.get("operand_b_type") or not data.get("comparison"):
-        raise ValidationError("Specify both operands and their comparison.")
-    serializer = RuleSerializer(data=data, context={"rule_type": rule_type}, partial=True)
     serializer.is_valid(raise_exception=True)
     result = serializer.validated_data
-    result["is_active"] = result.get("is_active", True)
-    # RuleSerializer normalizes defaults once; research additionally rejects unknown keys.
+    # ScreenConditionSerializer normalizes defaults once; research additionally rejects unknown keys.
     for side in ("a", "b"):
         field = f"operand_{side}_params"
         operand = result[f"operand_{side}_type"]
@@ -97,84 +62,40 @@ def _validate_parameter_keys(operand, params, *, source=False):
             _validate_parameter_keys(variable["type"], variable.get("params") or {})
 
 
-CONFIG_SERIALIZERS = {
-    "entry_order_config": EntryOrderConfigSerializer,
-    "exit_order_config": ExitOrderConfigSerializer,
-    "position_sizing_rule": PositionSizingRuleSerializer,
-    "time_rule": TimeRuleSerializer,
-}
-
-
 def validate_draft(draft, instrument_ids):
+    """AI proposals use Studio's document and compiler, without a second builder."""
+    from strategies.definitions import CONFIG_FIELDS, document_from_snapshot, validate_definition, compile_preview
+    from strategies.models import Strategy
     if not isinstance(draft, dict):
-        raise ValidationError("Strategy draft must be an object.")
-    base_fields = {"name", "description", "strategy_type", "market_type", "exchange", "instrument_type"}
-    allowed = base_fields | set(CONFIG_SERIALIZERS) | {"rule_groups", "watchlist_instruments"}
+        raise ValidationError('Strategy draft must be an object.')
+    base_fields = {'name', 'description', 'strategy_type', 'market_type', 'exchange', 'instrument_type'}
+    allowed = base_fields | set(CONFIG_FIELDS) | {'schema_version', 'semantics_version', 'expressions', 'initial_risk'}
     if set(draft) - allowed:
-        raise ValidationError(f"Unsupported draft fields: {', '.join(sorted(set(draft) - allowed))}.")
+        raise ValidationError(f'Unsupported draft fields: {sorted(set(draft) - allowed)}.')
     serializer = StrategyCreateSerializer(data={key: draft[key] for key in base_fields if key in draft})
     serializer.is_valid(raise_exception=True)
-    result = dict(serializer.validated_data)
-    if (
-        result.get("exchange") != "NSE"
-        or result.get("instrument_type") != InstrumentType.STOCK
-        or result.get("market_type") != "EQUITY"
-    ):
-        raise ValidationError("Research drafts currently support NSE equities and direct execution routes.")
-    for name, config_serializer in CONFIG_SERIALIZERS.items():
-        result[name] = validate_config(config_serializer, draft.get(name, {}))
-    time_rule = result["time_rule"]
-    days = time_rule.get("trading_days")
-    if not days or not time_rule.get("start_time") or not time_rule.get("end_time"):
-        raise ValidationError("Choose trading days and start/end times.")
-    watchlist = draft.get("watchlist_instruments") or [{"instrument_id": value} for value in instrument_ids]
-    if not isinstance(watchlist, list):
-        raise ValidationError("Watchlist instruments must be a list.")
-    ids = [item.get("instrument_id") for item in watchlist if isinstance(item, dict)]
-    if (
-        not ids
-        or any(not isinstance(value, int) or isinstance(value, bool) for value in ids)
-        or len(ids) != len(watchlist)
-        or len(set(ids)) != len(ids)
-        or set(ids) - set(instrument_ids)
-    ):
-        raise ValidationError("Select unique instruments from this research universe.")
-    instruments = Instrument.objects.in_bulk(ids)
-    if len(instruments) != len(ids) or any(
-        item.exchange != "NSE" or item.instrument_type != InstrumentType.STOCK or not item.is_active
-        for item in instruments.values()
-    ):
-        raise ValidationError("The selected instruments must be active NSE equities.")
-    for item in watchlist:
-        if set(item) - {"instrument_id", "execution_routes"}:
-            raise ValidationError("Unsupported watchlist fields.")
-        routes = item.get("execution_routes", [{"route_type": "DIRECT"}])
-        if routes != [{"route_type": "DIRECT"}]:
-            raise ValidationError("Each instrument must have one DIRECT route.")
-    result["watchlist_instruments"] = [
-        {"instrument_id": value, "execution_routes": [{"route_type": "DIRECT"}]} for value in ids
-    ]
-    groups = draft.get("rule_groups", [])
-    if not isinstance(groups, list) or not 1 <= len(groups) <= 12:
-        raise ValidationError("Provide between 1 and 12 rule groups.")
-    result["rule_groups"] = []
-    for group in groups:
-        if not isinstance(group, dict) or set(group) - {"name", "rule_type", "logical_operator", "priority", "rules"}:
-            raise ValidationError("Unsupported rule group fields.")
-        config = validate_config(RuleGroupSerializer, {key: value for key, value in group.items() if key != "rules"})
-        # Groups are always active on a reviewed draft; retain only its editable fields.
-        config.pop("is_active", None)
-        rules = group.get("rules", [])
-        if not isinstance(rules, list) or not 1 <= len(rules) <= 12:
-            raise ValidationError("Each group needs between 1 and 12 rules.")
-        config["rules"] = [validate_rule(rule, config["rule_type"]) for rule in rules]
-        if any(not rule.get("is_active", True) for rule in config["rules"]):
-            raise ValidationError("Draft rules must be active; disable them later in the builder.")
-        result["rule_groups"].append(config)
-    if not any(group["rule_type"] == RuleType.ENTRY for group in result["rule_groups"]):
-        raise ValidationError("A strategy needs an entry group.")
-    if not any(group["rule_type"] != RuleType.ENTRY for group in result["rule_groups"]):
-        raise ValidationError("Add an exit, stop-loss, or target group.")
+    try:
+        document = validate_definition(document_from_snapshot(draft))
+    except (ValueError, KeyError) as exc:
+        raise ValidationError(f'Invalid Studio draft: {exc}') from None
+    watches = document['watchlist_instruments']
+    ids = {item['instrument_id'] for item in watches} | {item['signal_instrument_id'] for item in watches}
+    if not ids or ids - set(instrument_ids):
+        raise ValidationError('Choose signal and traded instruments from this research context.')
+    if Instrument.objects.filter(pk__in=ids, is_active=True).count() != len(ids):
+        raise ValidationError('Choose active instruments for a new draft.')
+    groups = [group for group in document['rule_groups'] if group.get('is_active', True)]
+    if not any(group['rule_type'] == RuleType.ENTRY for group in groups):
+        raise ValidationError('A strategy needs an entry condition.')
+    if not any(group['rule_type'] != RuleType.ENTRY for group in groups):
+        raise ValidationError('Add an exit, stop-loss or target condition.')
+    strategy = Strategy(**serializer.validated_data, definition=document)
+    result = {**{key: getattr(strategy, key) for key in base_fields}, **document}
+    # Compilation validates source clocks, formula dependencies and risk units.
+    try:
+        compile_preview(strategy, document)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from None
     return json_data(result)
 
 
@@ -227,24 +148,23 @@ def validate_customer_rules(run, draft):
     numeric_choices = {float(value) for value in re.findall(r"(?<![a-z])\d+(?:\.\d+)?", text)}
     if baseline and not run.prompt.strip():
         raise ValidationError("Describe the requested rule change.")
-    previous_groups = baseline.get("rule_groups", [])
-    for group_index, group in enumerate(groups):
-        previous_rules = previous_groups[group_index].get("rules", []) if group_index < len(previous_groups) else []
-        for rule_index, rule in enumerate(group.get("rules", [])):
-            previous = previous_rules[rule_index] if rule_index < len(previous_rules) else {}
-            for field in ("operand_a_params", "operand_b_params"):
-                for key, value in (rule.get(field) or {}).items():
-                    if key in {"value", "period", "length", "fast", "slow", "signal"}:
-                        try:
-                            number = float(value)
-                        except (TypeError, ValueError):
-                            continue
-                        if (previous.get(field) or {}).get(key) == value:
-                            continue
-                        if number not in numeric_choices:
-                            raise ValidationError(
-                                "A trading threshold or indicator period was not supplied by the customer. Ask for that choice before generating rules."
-                            )
+    def numeric_parameters(value, path=()):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                yield from numeric_parameters(child, (*path, key))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                yield from numeric_parameters(child, (*path, index))
+        elif path and path[-1] in {'value', 'period', 'length', 'fast', 'slow', 'signal', 'bars', 'count',
+                                    'expires_after_bars', 'fixed_quantity', 'capital_percentage'}:
+            try:
+                yield path, float(value)
+            except (ValueError, TypeError):
+                pass
+    previous = dict(numeric_parameters(baseline))
+    for path, number in numeric_parameters(draft):
+        if previous.get(path) != number and number not in numeric_choices:
+            raise ValidationError('A trading threshold, period or sizing value was not supplied by the customer. Ask for that choice before generating rules.')
 
 
 def normalize_citations(text, evidence, references):
@@ -328,14 +248,14 @@ def screen_configuration(arguments):
         raise ValidationError("Screening conditions must be an object.")
     if set(arguments) - {"timeframe", "conditions", "logical_operator"}:
         raise ValidationError("Unsupported screening fields.")
-    timeframe = arguments.get("timeframe", "1D")
-    operator = arguments.get("logical_operator", "AND")
+    timeframe = arguments.get("timeframe", SCREEN_DEFAULTS['timeframe'])
+    operator = arguments.get("logical_operator", SCREEN_DEFAULTS['logical_operator'])
     conditions = arguments.get("conditions", [])
     if timeframe not in CandleTimeframe.values or operator not in LogicalOperator.values:
         raise ValidationError("Choose a supported timeframe and group operator.")
-    if not isinstance(conditions, list) or not 1 <= len(conditions) <= 12:
-        raise ValidationError("Provide between 1 and 12 screening conditions.")
-    rules = [validate_rule(value) for value in conditions]
+    if not isinstance(conditions, list) or not 1 <= len(conditions) <= MAX_SCREEN_CONDITIONS:
+        raise ValidationError(f"Provide between 1 and {MAX_SCREEN_CONDITIONS} screening conditions.")
+    rules = [validate_screen_condition(value) for value in conditions]
     if any(not rule["is_active"] for rule in rules):
         raise ValidationError("Screening conditions must be active.")
     return {

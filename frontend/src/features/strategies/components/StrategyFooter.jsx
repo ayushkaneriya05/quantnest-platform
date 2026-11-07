@@ -15,27 +15,25 @@ export default function StrategyFooter({
   disabled = false,
 }) {
   return (
-    <div className="border-t border-border/80 bg-background/80 backdrop-blur-sm px-4 lg:px-6 py-3 shrink-0">
+    <div className="border-t border-border/80 bg-background/80 backdrop-blur-sm px-4 lg:px-3 py-3 shrink-0">
       <div className="flex items-center justify-end gap-3">
         <Button
           variant="outline"
           size="sm"
           onClick={onCancel}
-          className="border-border text-muted-foreground hover:text-foreground text-xs h-8 px-4"
         >
-          <X className="h-3.5 w-3.5 mr-1.5" />
+          <X />
           Cancel
         </Button>
         <Button
           size="sm"
           onClick={onSave}
           disabled={saving || disabled}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 px-4"
         >
           {saving ? (
-            <LoaderMark className="h-3.5 w-3.5 mr-1.5" />
+            <LoaderMark className="h-4 w-4" />
           ) : (
-            <Save className="h-3.5 w-3.5 mr-1.5" />
+            <Save />
           )}
           {saving ? savingLabel : saveLabel}
         </Button>

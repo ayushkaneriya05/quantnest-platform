@@ -1,11 +1,9 @@
 import logging
 from django.db import transaction
-from django.db.models.signals import post_save, post_delete, m2m_changed
+from django.db.models.signals import post_save, m2m_changed
 from django.dispatch import receiver
-from .models import Strategy, EntryOrderConfig, ExitOrderConfig
+from .models import Strategy
 from .services import StrategySnapshotService
-from rules_engine.models import PositionSizingRule, RuleGroup, Rule, TimeRule
-from instruments.models import WatchlistInstrument, ExecutionRoute
 
 logger = logging.getLogger(__name__)
 
@@ -28,46 +26,9 @@ def save_checkpoint(strategy_id, initial=False):
 
 
 @receiver(post_save, sender=Strategy)
-def create_strategy_configs(sender, instance, created, **kwargs):
-    if not created:
-        return
-    with transaction.atomic():
-        enabled = instance.auto_version_enabled
-        instance.auto_version_enabled = False
-        Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=False)
-        for model in (EntryOrderConfig, ExitOrderConfig, PositionSizingRule, TimeRule):
-            model.objects.get_or_create(strategy=instance)
-        instance.auto_version_enabled = enabled
-        Strategy.objects.filter(pk=instance.pk).update(auto_version_enabled=enabled)
-        transaction.on_commit(lambda: save_checkpoint(instance.pk, initial=True))
-
-
-@receiver(post_save, sender=Strategy)
-@receiver(post_save, sender=EntryOrderConfig)
-@receiver(post_save, sender=ExitOrderConfig)
-@receiver(post_save, sender=TimeRule)
-@receiver(post_save, sender=RuleGroup)
-@receiver(post_save, sender=Rule)
-@receiver(post_save, sender=PositionSizingRule)
-@receiver(post_save, sender=WatchlistInstrument)
-@receiver(post_save, sender=ExecutionRoute)
-@receiver(post_delete, sender=RuleGroup)
-@receiver(post_delete, sender=Rule)
-@receiver(post_delete, sender=WatchlistInstrument)
-@receiver(post_delete, sender=ExecutionRoute)
-def auto_create_version(sender, instance, **kwargs):
-    if sender is Strategy and kwargs.get("created"):
-        return
-    if isinstance(instance, Strategy):
-        strategy = instance
-    elif isinstance(instance, ExecutionRoute):
-        strategy = instance.watchlist_instrument.strategy
-    elif isinstance(instance, Rule):
-        strategy = instance.rule_group.strategy
-    else:
-        strategy = instance.strategy
-    if strategy.auto_version_enabled:
-        transaction.on_commit(lambda: save_checkpoint(strategy.pk))
+def version_strategy_change(sender, instance, created, **kwargs):
+    if created or instance.auto_version_enabled:
+        transaction.on_commit(lambda: save_checkpoint(instance.pk, initial=created))
 
 
 @receiver(m2m_changed, sender=Strategy.tags.through)

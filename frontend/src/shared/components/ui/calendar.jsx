@@ -13,13 +13,9 @@ function Calendar({
   ...props
 }) {
   const components = {
-    Chevron: (props) => {
-      if (props.orientation === "left") {
-        return <ChevronLeft className="h-4 w-4" />
-      }
-      return <ChevronRight className="h-4 w-4" />
-    },
-    ...(hideHeader ? { MonthCaption: () => null } : {}),
+    IconLeft: () => <ChevronLeft className="h-4 w-4" />,
+    IconRight: () => <ChevronRight className="h-4 w-4" />,
+    ...(hideHeader ? { Caption: () => null } : {}),
     ...props.components,
   }
 
@@ -27,11 +23,10 @@ function Calendar({
     <DayPicker
       showOutsideDays={showOutsideDays}
       className={cn("p-3", className)}
-      hideNavigation={hideHeader}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
         month: "space-y-4",
-        month_caption: hideHeader ? "hidden" : "flex justify-center pt-1 relative items-center",
+        caption: hideHeader ? "hidden" : "flex justify-center pt-1 relative items-center",
         caption_label: hideHeader ? "hidden" : "text-sm font-medium text-foreground",
         nav: hideHeader ? "hidden" : "space-x-1 flex items-center",
         nav_button: cn(
@@ -40,26 +35,27 @@ function Calendar({
         ),
         nav_button_previous: "absolute left-1",
         nav_button_next: "absolute right-1",
-        month_grid: "w-full border-collapse space-y-1",
-        weekdays: "flex w-full justify-between",
-        weekday: "text-muted-foreground rounded-md w-9 font-medium text-[0.75rem] text-center",
-        week: "flex w-full mt-2 justify-between",
-        day: cn(
+        table: "w-full border-collapse space-y-1",
+        head_row: "flex w-full justify-between",
+        head_cell: "text-muted-foreground rounded-md w-9 font-medium text-[0.75rem] text-center",
+        row: "flex w-full mt-2 justify-between",
+        cell: cn(
           "relative h-9 w-9 text-center text-sm p-0",
           "focus-within:relative focus-within:z-20",
-          "[&:has([aria-selected])]:bg-indigo-600/10 [&:has([aria-selected])]:rounded-md"
+          "[&:has([aria-selected])]:bg-brand/10 [&:has([aria-selected])]:rounded-md"
         ),
-        day_button: cn(
+        day: cn(
           buttonVariants({ variant: "ghost" }),
-          "h-9 w-9 p-0 font-normal text-foreground hover:bg-muted/70 hover:text-foreground aria-selected:opacity-100 transition-colors"
+          "h-9 w-9 p-0 font-normal hover:bg-muted/70 aria-selected:bg-brand aria-selected:text-brand-foreground aria-selected:opacity-100"
         ),
-        range_end: "day-range-end",
-        selected: "bg-indigo-600 text-white hover:bg-indigo-700 hover:text-white focus:bg-indigo-600 focus:text-white rounded-md",
-        today: "bg-secondary text-foreground font-semibold ring-1 ring-indigo-500/40 rounded-md",
-        outside: "day-outside text-muted-foreground opacity-40 aria-selected:bg-indigo-600/5 aria-selected:text-muted-foreground aria-selected:opacity-30",
-        disabled: "text-muted-foreground opacity-30",
-        range_middle: "aria-selected:bg-indigo-600/10 aria-selected:text-foreground",
-        hidden: "invisible",
+        day_range_end: "day-range-end",
+        day_selected: "rounded-md hover:bg-brand/90 hover:text-brand-foreground focus:bg-brand focus:text-brand-foreground",
+        day_today: "rounded-md bg-secondary font-semibold ring-1 ring-brand/40",
+        day_outside: "day-outside text-muted-foreground opacity-40 aria-selected:opacity-50",
+        day_disabled: "text-muted-foreground opacity-30",
+        day_range_middle: "aria-selected:bg-brand/10 aria-selected:text-foreground",
+        day_hidden: "invisible",
+        vhidden: "sr-only",
         ...classNames,
       }}
       components={components}
@@ -75,7 +71,7 @@ Calendar.propTypes = {
   ...Calendar.propTypes,
   className: PropTypes.string,
   classNames: PropTypes.object,
-  components: PropTypes.array,
+  components: PropTypes.object,
   hideHeader: PropTypes.bool,
   orientation: PropTypes.string,
   showOutsideDays: PropTypes.bool,

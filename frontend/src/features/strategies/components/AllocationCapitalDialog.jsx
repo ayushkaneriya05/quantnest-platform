@@ -32,7 +32,7 @@ export default function AllocationCapitalDialog({ strategyName, currentAmount, o
         <DialogTitle>Update allocated capital</DialogTitle>
         <DialogDescription>Change the capital assigned to {strategyName}.</DialogDescription>
       </DialogHeader>
-      <form onSubmit={save} className="space-y-5">
+      <form onSubmit={save} className="space-y-3">
         <div className="space-y-2">
           <Label htmlFor="allocation-capital">Capital (₹)</Label>
           <Input id="allocation-capital" type="number" min="0.01" step="0.01" required

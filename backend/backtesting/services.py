@@ -1,6 +1,7 @@
 """Backtest creation, queue submission and user updates."""
 from copy import deepcopy
 from datetime import datetime, time
+from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -71,6 +72,16 @@ def backtest_configuration(run):
     return config
 
 
+def backtest_window(config, start_date, end_date):
+    """One absolute date window for estimates, history and replay.
+
+    The schedule timezone defines the requested dates. Exchange calendars still
+    define sessions, holidays and candle boundaries inside that same window.
+    """
+    zone = ZoneInfo(config['time_rule']['timezone'])
+    return datetime.combine(start_date, time.min, zone), datetime.combine(end_date, time.max, zone)
+
+
 @transaction.atomic
 def create_backtest(serializer, user, *, approved_snapshot=None, charge_profile_snapshot=None):
     from django.contrib.auth import get_user_model
@@ -117,28 +128,16 @@ def start_backtest(run):
     return run
 
 
-def estimate_source_workload(config, start_date, end_date):
+def estimate_source_workload(config, start_date, end_date, *, maximum=None):
     """Bound source-candle work using each market's calendar and strategy warmup."""
-    from instruments.services import InstrumentResolver
-    from marketdata.calendar import MarketSessionCalendar
-    from execution.compiler import strategy_requirements, source_windows
     if end_date < start_date or (end_date - start_date).days > 3660:
         raise ValidationError("Choose a valid test range of up to ten years.")
+    from .preparation import build_plan
+    from marketdata.contracts import ProviderError
+    start, end = backtest_window(config, start_date, end_date)
     try:
-        instruments = InstrumentResolver.validate_execution_snapshot(config)
-    except ValueError as exc:
-        raise ValidationError(str(exc))
-    total, rows = 0, []
-    for instrument in instruments.values():
-        calendar = MarketSessionCalendar.for_instrument(instrument)
-        start = datetime.combine(start_date, time.min, tzinfo=calendar.zone)
-        end = datetime.combine(end_date, time.max, tzinfo=calendar.zone)
-        _, requirements, depths = strategy_requirements(config, calendar)
-        timeframes = frozenset(requirements)
-        windows = source_windows(timeframes, depths, calendar, start, end)
-        warmup = min(left for left, _ in windows.values())
-        calendar.load_holidays(warmup.date(), end_date)
-        count = sum(calendar.source_count(source, left, right) for source, (left, right) in windows.items())
-        total += count
-        rows.append({"instrument_id": instrument.pk, "source_candles": count, "warmup_start": warmup.isoformat()})
-    return {"instrument_candles": total, "start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "rows": rows}
+        plan = build_plan(config, start, end, maximum=maximum)
+    except (ValueError, ProviderError) as exc:
+        raise ValidationError(str(exc)) from None
+    return {"instrument_candles": plan['instrument_candles'], "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(), "warnings": plan['warnings'], "plan": plan}

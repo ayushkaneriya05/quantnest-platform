@@ -32,10 +32,24 @@ class AccountOwner:
         if not calendar.is_open(intent.at):
             raise ValueError('This exchange segment is closed.')
         program = self.programs.get(intent.unit)
+        if not intent.manual and program is not None and not program.permits_binding(intent.binding):
+            raise ValueError('The selected contract is not admitted for this route.')
         if intent.intent == OrderIntent.ENTRY and program is not None and not program.allows_entry(intent.at):
             raise ValueError('This strategy entry window is closed.')
         result = accept_intent(self.account, intent, contract)
         self.index(self.account.orders[intent.identity])
+        return result
+
+    def cancel(self, identity: str, *, reason: str = '') -> Transition | None:
+        """Simulations cancel locally; live orders wait for broker confirmation."""
+        order = self.account.orders[identity]
+        if self.account.live and order.status in ACTIVE_STATUSES:
+            order.cancel_requested = True
+            result = order_transition(self.account, order)
+        else:
+            result = cancel_order(self.account, identity, reason=reason)
+        if result is not None:
+            self.index(order)
         return result
 
     def protective_exit(self, intent: Intent, contract: Contract) -> Transition | None:
@@ -55,18 +69,18 @@ class AccountOwner:
                 abs(self.account.positions[intent.unit].quantity), intent.at, intent.reason,
                 intent=OrderIntent.EXIT, reduce_only=True, version=intent.version,
                 manual=intent.manual, status=OrderStatus.REJECTED, error=str(exc),
-                reference_price=intent.reference_price)
+                reference_price=intent.reference_price, binding=intent.binding)
             self.account.orders[order.identity] = order
             return order_transition(self.account, order)
 
     def observe(self, tick: Tick) -> tuple[list[Transition], bool]:
         """Matching consumes observed ticks; broker accounts consume reports instead."""
         results = []
+        price = Decimal(str(tick.price))
         for position in self.account.positions.values():
             if position.contract.symbol != tick.symbol:
                 continue
-            value = position.contract.value(Decimal(str(tick.price)) - position.average, position.quantity)
-            position.mae, position.mfe = max(position.mae, -value), max(position.mfe, value)
+            position.mark_excursion(price)
             position.peak = (max(position.peak, tick.price) if position.quantity > 0
                              else min(position.peak or tick.price, tick.price))
         if not self.calendars[tick.symbol].is_open(tick.event_time):
@@ -78,7 +92,8 @@ class AccountOwner:
             identity = str(uuid5(NAMESPACE_URL, f'quantnest:stop:{key}:{position.revision}:{tick.generation}:{tick.sequence}'))
             intent = Intent(identity, self.account.key, key, self.account.versions[key[1]], position.revision,
                 tick.sequence, tick.event_time, Side.SELL if position.quantity > 0 else Side.BUY,
-                'SESSION_STOP', Decimal(str(tick.price)), intent=OrderIntent.EXIT, generation=tick.generation)
+                'SESSION_STOP', price, intent=OrderIntent.EXIT, generation=tick.generation,
+                binding=position.binding)
             result = self.protective_exit(intent, position.contract)
             if result is not None:
                 results.append(result)
@@ -90,7 +105,7 @@ class AccountOwner:
             for key, position in tuple(self.account.positions.items()):
                 if position.contract.symbol != tick.symbol:
                     continue
-                price, long = Decimal(str(tick.price)), position.quantity > 0
+                long = position.quantity > 0
                 stop = position.stop_loss is not None and (price <= position.stop_loss if long else price >= position.stop_loss)
                 target = position.take_profit is not None and (price >= position.take_profit if long else price <= position.take_profit)
                 if not (stop or target):
@@ -101,13 +116,12 @@ class AccountOwner:
                 # Protection replaces working manual orders before matching this
                 # observation. A pending add or limit exit cannot block a stop.
                 for order in working:
-                    results.append(cancel_order(self.account, order.identity, reason='Position protection triggered.'))
-                    self.index(order)
+                    results.append(self.cancel(order.identity, reason='Position protection triggered.'))
                 identity = str(uuid5(NAMESPACE_URL, f'quantnest:protection:{key}:{position.revision}:{tick.generation}:{tick.sequence}'))
                 intent = Intent(identity, self.account.key, key, 0, position.revision,
                     tick.sequence, tick.event_time, Side.SELL if long else Side.BUY,
                     'STOP_LOSS' if stop else 'TARGET', price, intent=OrderIntent.EXIT,
-                    quantity=abs(position.quantity), manual=True, generation=tick.generation)
+                    quantity=abs(position.quantity), manual=True, generation=tick.generation, binding=position.binding)
                 result = self.protective_exit(intent, position.contract)
                 if result is not None:
                     results.append(result)
@@ -121,7 +135,7 @@ class AccountOwner:
             order = self.account.orders[fill.order_id]
             program = self.programs.get(order.unit)
             if order.intent == OrderIntent.ENTRY and program is not None and not program.allows_entry(tick.event_time):
-                results.append(cancel_order(self.account, order.identity, reason='Entry window closed.'))
+                results.append(self.cancel(order.identity, reason='Entry window closed.'))
                 continue
             try:
                 order.contract.validate(fill.quantity, (), tick.event_time.astimezone(self.calendars[tick.symbol].zone))

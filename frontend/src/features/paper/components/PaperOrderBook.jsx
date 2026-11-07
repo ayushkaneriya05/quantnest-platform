@@ -1,12 +1,13 @@
+import Pagination from "@/shared/components/Pagination";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import { usePagination } from "@/shared/hooks/usePagination";
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
 import {useStableCallback} from "@/shared/hooks/useStableCallback";
 import PropTypes from "prop-types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "@/shared/components/ui/card";
 import { Badge } from "@/shared/components/ui/badge";
 import { OverflowTooltip } from "@/shared/components/ui/tooltip";
@@ -14,43 +15,55 @@ import { paperApi } from "@/shared/services/paperApi";
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 import { useNotifications } from "@/shared/hooks/useNotifications";
 import { usePaperTradingUpdate } from "@/shared/hooks/usePaperTradingWebSocket";
-import { formatCurrency, formatDateTime } from "@/shared/utils/formatters";
-import TablePagination from "@/shared/components/TablePagination";
+import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 
 const ORDER_STATUS_STYLES = {
-  PENDING: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30",
-  PLACED: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/30",
-  PARTIAL_FILL: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30",
-  FILLED: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+  PENDING: "bg-warning/10 text-warning border-warning/30",
+  PLACED: "bg-brand/10 text-brand border-brand/30",
+  PARTIAL_FILL: "bg-brand/10 text-brand border-brand/30",
+  FILLED: "bg-success/10 text-success border-success/30",
   CANCELLED: "bg-muted/10 text-muted-foreground border-border/30",
-  REJECTED: "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30",
+  REJECTED: "bg-loss/10 text-loss border-loss/30",
   EXPIRED: "bg-muted/10 text-muted-foreground border-border/30",
 };
-const PAGE_SIZE = 10;
 
-export default function PaperOrderBook({ selectedAccountId }) {
+export default function PaperOrderBook({ selectedAccountId, refreshKey = 0 }) {
   const fetchData = useStableCallback(async () => {
+    const generation = ++request.current;
+    setLoading(true);
+    setError("");
     try {
-      const ordersData = await paperApi.getOrders();
-      setOrders(ordersData.data || []);
+      const response = await paperApi.getOrders({ page, page_size: pageSize, account_id: selectedAccountId || undefined });
+      if (generation !== request.current) return;
+      setOrders(response.data.results);
+      setMetadata(response.data);
+      accept(response.data);
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load order history"));
-    } finally {
-      setLoading(false);
-    }
+      if (generation === request.current) setError(getApiErrorMessage(error, "Could not load orders."));
+    } finally { if (generation === request.current) setLoading(false); }
   });
 
   const { notify } = useNotifications();
   const lastMessage = usePaperTradingUpdate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [error, setError] = useState("");
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination(String(selectedAccountId), 'orders');
+  const [metadata, setMetadata] = useState({ count: 0 });
+  const [summary, setSummary] = useState({});
+  const request = useRef(0);
+  useEffect(() => {
+    setOrders([]); setSummary({});
+    const guard = request; return () => { guard.current++; };
+  }, [selectedAccountId]);
 
 
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    const timer = setTimeout(fetchData, 0);
+    const guard = request;
+    return () => { clearTimeout(timer); guard.current++; };
+  }, [fetchData, page, pageSize, selectedAccountId, refreshKey]);
 
   useEffect(() => {
     if (lastMessage?.event_type === "ORDER_UPDATE") {
@@ -58,41 +71,27 @@ export default function PaperOrderBook({ selectedAccountId }) {
     }
   }, [lastMessage, fetchData]);
 
-  const filteredOrders = useMemo(
-    () =>
-      orders.filter(
-        (order) => String(order.account) === String(selectedAccountId),
-      ),
-    [orders, selectedAccountId],
-  );
-
-  useEffect(() => setPage(1), [selectedAccountId]);
-
-  const orderStats = useMemo(() => ({
-    total: filteredOrders.length,
-    filled: filteredOrders.filter((order) => order.status === "FILLED").length,
-    active: filteredOrders.filter((order) => ["PENDING", "PLACED", "PARTIAL_FILL"].includes(order.status)).length,
-    rejected: filteredOrders.filter((order) => order.status === "REJECTED").length,
-  }), [filteredOrders]);
-  const pageCount = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
-  const pageOrders = filteredOrders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-
-  if (loading) return <GlobalLoader fullHeight={false} />;
+    const controller = new AbortController();
+    paperApi.getOrdersSummary({ account_id: selectedAccountId || undefined }, controller.signal)
+      .then(response => { if (!controller.signal.aborted) setSummary(response.data); })
+      .catch(error => { if (!controller.signal.aborted) notify.error(getApiErrorMessage(error, "Could not load summary.")); });
+    return () => controller.abort();
+  }, [selectedAccountId, refreshKey, lastMessage, notify]);
+  if (error) return <WorkspaceState error={error} onRetry={fetchData} />;
+  if (loading && !metadata.page) return <GlobalLoader fullHeight={false} />;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="space-y-3 animate-in fade-in duration-300">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "Total orders", value: orderStats.total, color: "text-foreground" },
-          { label: "Filled", value: orderStats.filled, color: "text-emerald-700 dark:text-emerald-400" },
-          { label: "Active", value: orderStats.active, color: "text-amber-700 dark:text-amber-400" },
-          { label: "Rejected", value: orderStats.rejected, color: "text-rose-700 dark:text-rose-400" },
+          { label: "Total orders", value: summary.total, color: "text-foreground" },
+          { label: "Filled", value: summary.filled, color: "text-success" },
+          { label: "Active", value: summary.active, color: "text-warning" },
+          { label: "Rejected", value: summary.rejected, color: "text-loss" },
         ].map((item) => (
           <Card key={item.label} className="bg-card/50 border-border">
-            <CardContent className="py-4">
+            <CardContent className="py-3">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">{item.label}</p>
               <p className={`mt-2 text-2xl font-bold ${item.color}`}>{item.value}</p>
             </CardContent>
@@ -100,18 +99,15 @@ export default function PaperOrderBook({ selectedAccountId }) {
         ))}
       </div>
       <Card className="bg-card/50 border-border">
-        <CardHeader className="flex flex-row items-center justify-between py-2">
-          <CardTitle className="text-foreground text-base">Order Book</CardTitle>
-        </CardHeader>
         <CardContent className="p-0">
-          {filteredOrders.length === 0 ? (
+          {metadata.count === 0 ? (
             <div className="p-12 text-center text-muted-foreground italic text-sm">
               No orders found.
             </div>
           ) : (
             <div className="overflow-x-auto scrollbar-thin-theme">
               <table className="w-full text-sm">
-                <thead className="bg-secondary/20 border-y border-border">
+                <thead className="bg-secondary/20 border-b border-border">
                   <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                     <th className="px-4 py-3 font-medium">Placed / Filled</th>
                     <th className="px-4 py-3 font-medium">Symbol</th>
@@ -122,7 +118,7 @@ export default function PaperOrderBook({ selectedAccountId }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {pageOrders.map((order) => (
+                  {orders.map((order) => (
                     <tr key={order.id} className="hover:bg-secondary/10 transition-colors">
                       <td className="px-4 py-3 text-muted-foreground font-mono text-[12px] whitespace-nowrap">
                         <span className="block">{formatDateTime(order.placed_at)}</span>
@@ -142,21 +138,21 @@ export default function PaperOrderBook({ selectedAccountId }) {
                         <Badge
                           className={`text-[10px] h-5 px-1.5 ${
                             order.side === "BUY"
-                              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
-                              : "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
+                              ? "bg-success/10 text-success border-success/20"
+                              : "bg-loss/10 text-loss border-loss/20"
                           }`}
                         >
                           {order.side}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-foreground font-medium">
-                        {order.quantity} <span className="text-muted-foreground">/ {order.filled_quantity}</span>
+                        {formatNumber(order.quantity, { maximumFractionDigits: 0 })} <span className="text-muted-foreground">/ {formatNumber(order.filled_quantity, { maximumFractionDigits: 0 })}</span>
                       </td>
                       <td className="px-4 py-3 text-foreground font-mono text-[12px]">
                         {order.avg_fill_price ? formatCurrency(order.avg_fill_price) : "-"}
                         {order.status === "FILLED" && Number(order.slippage_amount || 0) > 0 && (
                           <span className="block text-[10px] text-muted-foreground">
-                            Slippage {formatCurrency(order.slippage_amount)} ({Number(order.slippage_pct_applied || 0).toFixed(4)}%)
+                            Slippage {formatCurrency(order.slippage_amount)} ({formatNumber(Number(order.slippage_pct_applied || 0))}%)
                           </span>
                         )}
                       </td>
@@ -166,7 +162,7 @@ export default function PaperOrderBook({ selectedAccountId }) {
                             {order.status}
                           </Badge>
                           {order.status === "REJECTED" && order.rejection_reason && (
-                            <OverflowTooltip className="text-[10px] text-red-700 dark:text-red-400 mt-1 max-w-[150px]">
+                            <OverflowTooltip className="text-[10px] text-loss mt-1 max-w-[150px]">
                               {order.rejection_reason}
                             </OverflowTooltip>
                           )}
@@ -179,8 +175,8 @@ export default function PaperOrderBook({ selectedAccountId }) {
             </div>
           )}
         </CardContent>
-        {filteredOrders.length > 0 && (
-          <TablePagination page={page} count={filteredOrders.length} pageSize={PAGE_SIZE} onPageChange={(nextPage) => setPage(Math.min(nextPage, pageCount))} />
+        {(
+          <Pagination page={page} count={metadata.count} pageSize={pageSize} loading={loading} onPageSizeChange={setPageSize} label="Paper orders pages" onPageChange={setPage} />
         )}
       </Card>
     </div>
@@ -190,4 +186,5 @@ export default function PaperOrderBook({ selectedAccountId }) {
 PaperOrderBook.propTypes = {
   ...PaperOrderBook.propTypes,
   selectedAccountId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  refreshKey: PropTypes.number,
 };

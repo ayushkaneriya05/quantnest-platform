@@ -61,11 +61,13 @@ def aggregate_candles(data: pd.DataFrame, timeframe: str, calendar, as_of: datet
                                    values <= as_of.timestamp() if include_open else values + 60 <= as_of.timestamp())
     if not visible.any():
         return pd.DataFrame(columns=columns, index=pd.DatetimeIndex([], tz="UTC"))
-    frame = data.loc[visible, list(OHLCV)].assign(bucket=buckets[visible], source_end=seconds[visible]).groupby("bucket").agg(
+    # Group by the bucket array itself: a previously aggregated source may have
+    # an index named "bucket", which would clash with a temporary column.
+    frame = data.loc[visible, list(OHLCV)].assign(source_end=seconds[visible]).groupby(buckets[visible]).agg(
         open=("open", "first"), high=("high", "max"), low=("low", "min"),
         close=("close", "last"), volume=("volume", "sum"), source_end=("source_end", "max"),
     )
-    frame.index = pd.to_datetime(frame.index, unit="s", utc=True)
+    frame.index = pd.to_datetime(frame.index, unit="s", utc=True).rename("time")
     frame["available_at"] = [int(calendar.candle_close(stamp.to_pydatetime(), timeframe).timestamp())
                              for stamp in frame.index]
     frame["is_final"] = frame["available_at"] <= as_of.timestamp()
@@ -87,11 +89,11 @@ class CandleBatch:
 
     def records(self) -> list[dict]:
         return [
-            {"time": int(stamp.timestamp()), **{key: float(row[key]) for key in OHLCV[:4]},
-             "volume": int(row["volume"]), "source_end": int(row["source_end"]),
-             "available_at": int(row["available_at"]), "is_final": bool(row["is_final"]),
+            {"time": int(row.Index.timestamp()), **{key: float(getattr(row, key)) for key in OHLCV[:4]},
+             "volume": int(row.volume), "source_end": int(row.source_end),
+             "available_at": int(row.available_at), "is_final": bool(row.is_final),
              "source": "provider", "revision": self.quality["updated_at"]}
-            for stamp, row in self.frame.iterrows()
+            for row in self.frame.itertuples()
         ]
 
 
@@ -110,7 +112,8 @@ def read_source_data(request: HistoryRequest) -> tuple[pd.DataFrame, float]:
         time__gte=request.start, time__lt=request.end,
     ).order_by("time").values_list("time", *OHLCV, "updated_at")
     frame = pd.DataFrame.from_records(queryset.iterator(chunk_size=10000), columns=["time", *OHLCV, "updated_at"])
-    updated_at = max((stamp.timestamp() for stamp in frame.pop("updated_at")), default=0)
+    updates = frame.pop("updated_at")
+    updated_at = updates.max().timestamp() if not frame.empty else 0
     frame.index = pd.DatetimeIndex(pd.to_datetime(frame.pop("time"), utc=True), name="time")
     frame = frame.astype({key: "float64" for key in OHLCV[:4]} | {"volume": "int64"})
     return frame, updated_at
@@ -119,17 +122,24 @@ def read_source_data(request: HistoryRequest) -> tuple[pd.DataFrame, float]:
 def read_source(request: HistoryRequest) -> CandleBatch:
     """Read source rows with acquisition coverage for historical/analytical callers."""
     from .history import completed_request, missing_history, data_revision
+    from .models import HistoryCoverage
+    from django.conf import settings
 
     request = completed_request(request)
     frame, updated_at = read_source_data(request)
     gaps = missing_history(request)
     expected = request.calendar.source_count(request.timeframe, request.start, request.end)
+    rejected = {stamp for notes in HistoryCoverage.objects.filter(instrument=request.instrument,
+        provider=settings.MARKET_DATA_PROVIDER, timeframe=request.timeframe,
+        start__lt=request.end, end__gt=request.start).exclude(rejected_times=[]).values_list('rejected_times', flat=True)
+        for stamp in notes if request.start.timestamp() <= stamp < request.end.timestamp()}
     quality = {
         "source_timeframe": request.timeframe, "complete": not gaps,
         "available_count": len(frame), "expected_count": expected,
         "missing_count": max(0, expected - len(frame)), "sparse": len(frame) < expected,
         "pending_ranges": [[left.isoformat(), right.isoformat()] for left, right in gaps],
         "revision": data_revision(request.instrument.sym_ticker), "updated_at": updated_at, "empty": frame.empty,
+        'rejected_count': len(rejected), 'rejected_times': sorted(rejected),
     }
     return CandleBatch(frame, quality)
 
@@ -181,7 +191,7 @@ def prepare_frames(instrument, timeframes: frozenset[str], windows: dict, calend
         report(1, f'Reading confirmed {source} candles for {instrument.sym_ticker}...')
         batch = read_source(request)
         sources[source] = batch.frame
-        quality[source] = {**batch.quality, "fetched": result.fetched, "error": result.error,
+        quality[source] = {**batch.quality, "fetched": result.fetched, "error": result.error, "retryable": result.retryable,
                            "complete": result.complete and batch.quality["complete"]}
     as_of = max(end for _, end in windows.values())
     if on_progress:

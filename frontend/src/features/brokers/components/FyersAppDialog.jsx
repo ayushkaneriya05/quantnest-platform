@@ -51,7 +51,7 @@ export default function FyersAppDialog({ provider, onClose, onConnect }) {
           <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5 text-primary" />Your {provider.display_name} app</DialogTitle>
           <DialogDescription>Connect your own account using the individual app you created in FYERS.</DialogDescription>
         </DialogHeader>
-        <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+        <div className="rounded-xl border bg-muted/30 p-3 text-sm">
           <ol className="list-decimal space-y-2 pl-4 text-muted-foreground">
             <li>Create an individual app in the FYERS API dashboard.</li>
             <li>Register this exact callback URL and your execution server’s approved static IP.</li>
@@ -66,7 +66,7 @@ export default function FyersAppDialog({ provider, onClose, onConnect }) {
             <Button type="button" variant="outline" size="icon" aria-label="Copy callback URL" onClick={copyCallback}><Copy className="h-4 w-4" /></Button>
           </div>
         </div>
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit} className="space-y-3">
           <div className="space-y-2">
             <Label htmlFor="broker-app-id">App ID</Label>
             <Input id="broker-app-id" value={clientId} onChange={(event) => setClientId(event.target.value)} required maxLength={120} autoComplete="off" spellCheck={false} disabled={saving} />

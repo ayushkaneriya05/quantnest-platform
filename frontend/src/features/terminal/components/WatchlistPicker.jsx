@@ -24,10 +24,10 @@ export default function WatchlistPicker({ lists, activeId, onChange, onRefresh }
     finally { setBusy(false); }
   };
   return <><div className="flex items-center gap-1">
-    <Select value={String(activeId)} onValueChange={(value) => onChange(Number(value))}><SelectTrigger aria-label="Active watchlist" className="h-9 min-w-0 flex-1"><SelectValue placeholder="Watchlist" /></SelectTrigger>
+    <Select value={String(activeId)} onValueChange={(value) => onChange(Number(value))}><SelectTrigger aria-label="Active watchlist" className="min-w-0 flex-1"><SelectValue placeholder="Watchlist" /></SelectTrigger>
       <SelectContent>{lists.map((row) => <SelectItem value={String(row.id)} key={row.id}>{row.name}</SelectItem>)}</SelectContent></Select>
-    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Create watchlist" onClick={() => open('create')}><Plus className="h-3.5 w-3.5" /></Button><Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" disabled={!activeId} onClick={() => open('rename')} aria-label="Rename watchlist"><Pencil className="h-3.5 w-3.5" /></Button>
-    <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label="Remove watchlist" disabled={lists.length < 2} onClick={() => open('delete')}><Trash2 className="h-3.5 w-3.5" /></Button>
+    <Button size="icon" variant="ghost" className="w-8 shrink-0" aria-label="Create watchlist" onClick={() => open('create')}><Plus className="h-3.5 w-3.5" /></Button><Button size="icon" variant="ghost" className="w-8 shrink-0" disabled={!activeId} onClick={() => open('rename')} aria-label="Rename watchlist"><Pencil className="h-3.5 w-3.5" /></Button>
+    <Button size="icon" variant="ghost" className="w-8 shrink-0" aria-label="Remove watchlist" disabled={lists.length < 2} onClick={() => open('delete')}><Trash2 className="h-3.5 w-3.5" /></Button>
   </div><Dialog open={!!action} onOpenChange={(value) => { if (!value && !busy) setAction(''); }}><DialogContent aria-describedby={undefined}>
     <DialogTitle>{action === 'create' ? 'New watchlist' : action === 'rename' ? 'Rename watchlist' : 'Remove watchlist'}</DialogTitle>
     <form onSubmit={save} className="space-y-3">{action === 'delete' ? <p className="text-sm">Remove “{name}”? Instruments, positions and orders are retained.</p> : <Input aria-label="Watchlist name" required maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />}

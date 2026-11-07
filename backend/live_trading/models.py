@@ -12,10 +12,10 @@ from common.enums import (
 from common.models import BaseTimestampModel
 from django.conf import settings
 from django.db import models
+from execution.models import RouteOwnership
 from django.db.models import (
     Count,
     DecimalField,
-    ExpressionWrapper,
     F,
     IntegerField,
     OuterRef,
@@ -63,7 +63,7 @@ class LiveStrategyAllocationQuerySet(models.QuerySet):
 
         open_positions = LivePosition.objects.filter(allocation_id=OuterRef("pk"), quantity__gt=0)
         used_capital = open_positions.order_by().values("allocation_id").annotate(
-            total=Sum(ExpressionWrapper(F("quantity") * F("avg_price") * F("instrument__qty_multiplier"), output_field=decimal_field))
+            total=Sum("margin_blocked")
         ).values("total")[:1]
         unrealized_pnl = open_positions.order_by().values("allocation_id").annotate(
             total=Sum("unrealized_pnl")
@@ -71,20 +71,15 @@ class LiveStrategyAllocationQuerySet(models.QuerySet):
         realized_pnl = LiveTrade.objects.filter(allocation_id=OuterRef("pk")).order_by().values(
             "allocation_id"
         ).annotate(total=Sum("realized_pnl")).values("total")[:1]
-        reserved_value = ExpressionWrapper(
-            Greatest(F("pending_quantity"), F("quantity") - F("filled_quantity"))
-            * Coalesce(F("price"), zero_money) * F('instrument__qty_multiplier'),
-            output_field=decimal_field,
-        )
         reserved_capital = LiveOrder.objects.filter(
             allocation_id=OuterRef("pk"), intent=OrderIntent.ENTRY, status__in=ACTIVE
-        ).order_by().values("allocation_id").annotate(total=Sum(reserved_value)).values("total")[:1]
+        ).order_by().values("allocation_id").annotate(total=Sum("reserved_capital")).values("total")[:1]
         allocation_trades = LiveTrade.objects.filter(allocation_id=OuterRef("pk")).order_by().values(
             "allocation_id"
         ).annotate(total=Count("id")).values("total")[:1]
 
         allocation_queryset = self.select_related(
-            "strategy", "broker_credential", "deployed_version"
+            "strategy", "broker_credential", "deployed_version__created_by"
         ).annotate(
             annotated_used_capital=Coalesce(Subquery(used_capital, output_field=decimal_field), zero_money),
             annotated_reserved_capital=Coalesce(Subquery(reserved_capital, output_field=decimal_field), zero_money),
@@ -133,13 +128,9 @@ class LiveStrategyAllocation(BaseTimestampModel):
         return f"{self.strategy.name} allocation on {self.broker_credential}"
 
     @property
-    def invested_value(self):
-        """Total capital invested in open positions."""
-        from django.db.models import Sum
-        result = self.positions.filter(quantity__gt=0).aggregate(
-            total=Sum(models.F('quantity') * models.F('avg_price') * models.F('instrument__qty_multiplier'))
-        )['total']
-        return result or Decimal("0")
+    def margin_used(self):
+        """Committed platform collateral, not derivative contract notional."""
+        return self.positions.filter(quantity__gt=0).aggregate(total=Sum("margin_blocked"))['total'] or Decimal("0")
 
     @property
     def unrealized_pnl(self):
@@ -167,14 +158,7 @@ class LiveStrategyAllocation(BaseTimestampModel):
             allocation=self,
             intent=OrderIntent.ENTRY,
             status__in=ACTIVE
-        ).aggregate(
-            total=Sum(
-                Greatest(
-                    models.F('pending_quantity'),
-                    models.F('quantity') - models.F('filled_quantity'),
-                ) * models.F('price') * models.F('instrument__qty_multiplier')
-            )
-        )['total']
+        ).aggregate(total=Sum("reserved_capital"))['total']
         return result or Decimal("0")
 
     @property
@@ -182,7 +166,7 @@ class LiveStrategyAllocation(BaseTimestampModel):
         """Available capital for new orders."""
         return max(
             Decimal("0"),
-            self.allocated_capital - self.invested_value - self.reserved_capital + self.realized_pnl
+            self.allocated_capital - self.margin_used - self.reserved_capital + self.realized_pnl
         )
 
     @property
@@ -191,7 +175,7 @@ class LiveStrategyAllocation(BaseTimestampModel):
         return self.realized_pnl + self.unrealized_pnl
 
 
-class LiveOrder(BaseTimestampModel):
+class LiveOrder(BaseTimestampModel, RouteOwnership):
     STATUS_CHOICES = list(OrderStatus.choices) + [("UNKNOWN", "Unknown")]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_orders")
@@ -213,6 +197,7 @@ class LiveOrder(BaseTimestampModel):
     pending_quantity = models.PositiveIntegerField(default=0)
     avg_fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     filled_value = models.DecimalField(max_digits=24, decimal_places=8, default=0)
+    reserved_capital = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     strategy_version = models.ForeignKey("strategies.StrategyVersion", on_delete=models.PROTECT, null=True, related_name="live_orders")
     intent = models.CharField(max_length=10, choices=OrderIntent.choices, default=OrderIntent.ENTRY)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=OrderStatus.PENDING)
@@ -245,7 +230,8 @@ class LiveOrder(BaseTimestampModel):
         ]
 
 
-class LivePosition(BaseTimestampModel):
+class LivePosition(BaseTimestampModel, RouteOwnership):
+    margin_blocked = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_positions")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_positions")
     allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="positions")
@@ -255,6 +241,7 @@ class LivePosition(BaseTimestampModel):
     side = models.CharField(max_length=10, choices=Side.choices)
     quantity = models.PositiveIntegerField()
     avg_price = models.DecimalField(max_digits=12, decimal_places=4)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
     current_price = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     opened_at = models.DateTimeField(default=timezone.now)
@@ -262,10 +249,10 @@ class LivePosition(BaseTimestampModel):
     
     class Meta:
         db_table = "live_position"
-        unique_together = ["user", "strategy", "broker_credential", "instrument", "side"]
+        unique_together = ["allocation", "route_id", "leg_id"]
 
 
-class LiveTrade(BaseTimestampModel):
+class LiveTrade(BaseTimestampModel, RouteOwnership):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_trades")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_trades")
     allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="trades")

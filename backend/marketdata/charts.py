@@ -11,7 +11,7 @@ from common.redis import runtime_redis
 from instruments.models import Instrument
 from .calendar import MarketSessionCalendar
 from .candles import read_candles, read_source_data, candle_frame, aggregate_candles
-from .contracts import CandleRequest, HistoryRequest, OHLCV, interval_minutes, source_timeframe
+from .contracts import CandleRequest, HistoryRequest, OHLCV, interval_minutes, normalize_symbol, source_timeframe
 from .history import completed_request, ensure_history, missing_history, data_revision
 
 INTERVALS = ChartTimeframe.values
@@ -20,6 +20,7 @@ INTERVALS = ChartTimeframe.values
 class ChartDataService:
     @classmethod
     def chart_window(cls, symbol, resolution=ChartTimeframe.M1, limit=300, before=None, *, fetch_missing=False):
+        symbol = normalize_symbol(symbol)
         instrument = Instrument.objects.get(sym_ticker=symbol)
         calendar = MarketSessionCalendar.for_instrument(instrument)
         minutes = interval_minutes(resolution)

@@ -10,7 +10,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Switch } from "@/shared/components/ui/switch";
 import { Trash2 } from "lucide-react";
-import { useEnums } from "@/shared/context/EnumsContext";
+import { useStrategySpecification } from "@/shared/context/EnumsContext";
 import OperandSelector from "@/features/strategies/components/OperandSelector.jsx";
 
 export default function RuleConditionEditor({
@@ -24,7 +24,7 @@ export default function RuleConditionEditor({
   onChange,
   onDelete,
 }) {
-  const { enums } = useEnums();
+  const { enums, spec } = useStrategySpecification();
 
   const updateOperand = (side, field, value) => {
     onChange(`operand_${side}_${field}`, value);
@@ -41,7 +41,7 @@ export default function RuleConditionEditor({
       )}
 
       <div
-        className={`group relative rounded-xl bg-muted/50 border border-border hover:border-border hover:bg-muted/50 transition-all duration-300 shadow-sm overflow-hidden ${
+        className={`group relative rounded-lg bg-card border border-border overflow-hidden ${
           (rule.is_active ?? true) ? "" : "opacity-60"
         }`}
       >
@@ -69,13 +69,13 @@ export default function RuleConditionEditor({
             allowedValues={allowedValues}
           />
 
-          <div className="flex w-fit items-center bg-muted/40 rounded-lg p-0.5 border border-border">
+          <div className="min-w-0">
             <Select
-              value={rule.comparison || "GT"}
+              value={rule.comparison || spec.defaults.templates.comparison.comparison}
               onValueChange={(value) => onChange("comparison", value)}
             >
               <SelectTrigger
-                className={`w-auto bg-transparent border-none hover:bg-muted/50 text-xs h-7 px-2.5 shadow-none focus:ring-0 ${theme.comparison} font-semibold`}
+                className="w-auto text-xs"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -100,23 +100,21 @@ export default function RuleConditionEditor({
             ruleType={ruleType}
             allowedValues={allowedValues}
           />
-        </div>
-
-        <div className="flex items-center justify-end gap-4 px-4 pb-2 pt-1 opacity-100">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <Switch
             checked={rule.is_active ?? true}
             onCheckedChange={(value) => onChange("is_active", value)}
-            className={`${theme.switch} data-[state=unchecked]:bg-muted`}
+            aria-label="Enable condition"
           />
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={onDelete}
-            className="text-muted-foreground hover:text-rose-800 dark:hover:text-rose-400 hover:bg-rose-500/10 h-10 w-10 p-0 rounded-md"
             title={deleteTitle}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
+        </div>
         </div>
       </div>
     </div>

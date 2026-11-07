@@ -1,7 +1,9 @@
 from django.urls import path
 from . import views
+from execution.views import SettlementHistoryView
 
 urlpatterns = [
+    path('settlements/', SettlementHistoryView.as_view(), name='terminal-settlements'),
     # Instrument and Watchlist URLs
     path('instruments/search/', views.InstrumentSearchView.as_view(), name='instrument-search'),
     path('watchlist/', views.WatchlistView.as_view(), name='watchlist'),

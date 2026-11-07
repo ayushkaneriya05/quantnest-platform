@@ -1,3 +1,8 @@
+import RefreshButton from "@/shared/components/RefreshButton";
+import WorkspaceState from "@/shared/components/WorkspaceState";
+import Pagination from "@/shared/components/Pagination";
+import { usePagination, useQueryState } from "@/shared/hooks/usePagination";
+import PageTabs from "@/shared/components/PageTabs";
 import { GlobalLoader, LoaderMark } from '@/shared/components/ui/global-loader';
 import { getApiErrorMessage } from "@/shared/utils/apiErrors";
 /**
@@ -24,7 +29,6 @@ import {
   Clock,
   Trash2,
   ChevronRight,
-  ChevronLeft,
   BarChart2,
   Play,
   XCircle,
@@ -39,11 +43,11 @@ import { formatCurrency, formatDateTime, formatNumber } from "@/shared/utils/for
 
 /* ─── Status Badge Config ─── */
 const STATUS_CONFIG = {
-  QUEUED:     { label: "Queued", color: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30", icon: Clock },
-  PENDING:    { label: "Pending",    color: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30", icon: Clock },
-  RUNNING:    { label: "Running",    color: "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30",     icon: RefreshCw },
-  COMPLETED:  { label: "Completed",  color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30", icon: CheckCircle2 },
-  FAILED:     { label: "Failed",     color: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30",        icon: AlertCircle },
+  QUEUED:     { label: "Queued", color: "bg-warning/15 text-warning border-warning/30", icon: Clock },
+  PENDING:    { label: "Pending",    color: "bg-warning/15 text-warning border-warning/30", icon: Clock },
+  RUNNING:    { label: "Running",    color: "bg-brand/15 text-brand border-brand/30",     icon: RefreshCw },
+  COMPLETED:  { label: "Completed",  color: "bg-success/15 text-success border-success/30", icon: CheckCircle2 },
+  FAILED:     { label: "Failed",     color: "bg-loss/15 text-loss border-loss/30",        icon: AlertCircle },
   CANCELLED:  { label: "Cancelled",  color: "bg-muted/15 text-muted-foreground border-border/30",     icon: XCircle },
 };
 
@@ -57,32 +61,44 @@ export default function BacktestList() {
 
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [error, setError] = useState("");
+  const [search, setSearch] = useQueryState("search", "", { namespace: "", replace: true });
+  const [statusFilter, setStatusFilter] = useQueryState("status", "all", { namespace: "", replace: false });
   const [deletingId, setDeletingId] = useState(null);
   const [rerunningId, setRerunningId] = useState(null);
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
-
-  // Reset page when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [search, statusFilter]);
+  const { page, pageSize, setPage, setPageSize, accept } = usePagination(JSON.stringify([search, statusFilter]));
+  const [metadata, setMetadata] = useState({ count: 0 });
+  const [summary, setSummary] = useState({ total: 0, statuses: {} });
+  const generation = useRef(0);
+  const summaryKey = useRef(null);
 
   const fetchRuns = useCallback(async () => {
+    const request = ++generation.current;
+    setLoading(true);
+    setError("");
     try {
-      const response = await backtestApi.getRuns();
-      setRuns(response.data);
+      const params = { page, page_size: pageSize, search, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) };
+      const response = await backtestApi.getRuns(params);
+      if (request !== generation.current) return;
+      setRuns(response.data.results); setMetadata(response.data); accept(response.data);
+      if (summaryKey.current !== search) {
+        const snapshot = await backtestApi.getSummary({ search });
+        if (request !== generation.current) return;
+        setSummary(snapshot.data); summaryKey.current = search;
+      }
     } catch (error) {
-      notifyRef.current.error(getApiErrorMessage(error, "Failed to load backtests"));
+      if (request === generation.current) setError(getApiErrorMessage(error, "Failed to load backtests"));
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
-  }, []);
+  }, [page, pageSize, search, statusFilter, accept]);
 
   useEffect(() => {
-    fetchRuns();
-  }, [fetchRuns]);
+    const timer = setTimeout(fetchRuns, search ? 250 : 0);
+    const guard = generation;
+    return () => { clearTimeout(timer); guard.current++; };
+  }, [fetchRuns, search]);
+
 
   // Handle WebSocket Progress
   const handleProgress = useCallback((data) => {
@@ -104,6 +120,7 @@ export default function BacktestList() {
       )
     );
     // Fetch runs to get the updated metrics (profit, trades, etc.)
+    summaryKey.current = null;
     fetchRuns();
   }, [fetchRuns]);
 
@@ -124,15 +141,15 @@ export default function BacktestList() {
         variant="outline"
         size="sm"
         onClick={() => navigate("/backtests/montecarlo")}
-        className="bg-card border-border hover:bg-secondary text-amber-700 dark:text-amber-400 h-9"
+        className=""
       >
         <Dices className="h-4 w-4 mr-2" />
         Monte Carlo
       </Button>
-      <div className="h-6 w-px bg-secondary mx-1" />
-    <Button
+      <RefreshButton onClick={() => { summaryKey.current = null; return fetchRuns(); }} label="Refresh backtests" loading={loading} />
+    <Button variant="default"
       onClick={() => navigate("/backtests/setup")}
-      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold h-9 px-4 shadow-lg shadow-indigo-500/20"
+      className="font-semibold px-4"
     >
       <Plus className="h-4 w-4 mr-2" />
       New Backtest
@@ -148,7 +165,8 @@ export default function BacktestList() {
       setDeletingId(id);
       await backtestApi.deleteRun(id);
       notify.success("Backtest deleted");
-      setRuns((prev) => prev.filter((r) => r.id !== id));
+      summaryKey.current = null;
+      await fetchRuns();
     } catch (error) {
       notify.error(getApiErrorMessage(error, "Failed to delete backtest"));
     } finally {
@@ -158,7 +176,7 @@ export default function BacktestList() {
 
   const handleRerun = async (e, id) => {
     e.stopPropagation();
-    
+
     setRerunningId(id);
     try {
       const {data: estimate} = await backtestApi.estimateRerun(id);
@@ -167,7 +185,6 @@ export default function BacktestList() {
       const response = await backtestApi.rerunRun(id, estimate.token);
       notify.success("Backtest cloned and started successfully!");
       if (response.data?.run) {
-        setRuns((prev) => [response.data.run, ...prev]);
         navigate(`/backtests/results/${response.data.run.id}`);
       }
     } catch (err) {
@@ -183,31 +200,19 @@ export default function BacktestList() {
   };
 
   /* ─── Derived Data ─── */
-  const filtered = runs.filter((r) => {
-    if (statusFilter !== "all" && r.status !== statusFilter) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (
-        (r.name || "").toLowerCase().includes(q) ||
-        (r.strategy_name || "").toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
-
   const kpis = {
-    total: runs.length,
-    completed: runs.filter((r) => r.status === "COMPLETED").length,
-    running: runs.filter((r) => ["QUEUED", "RUNNING"].includes(r.status)).length,
-    failed: runs.filter((r) => r.status === "FAILED").length,
+    total: summary.total,
+    completed: summary.statuses.COMPLETED || 0,
+    running: (summary.statuses.QUEUED || 0) + (summary.statuses.RUNNING || 0),
+    failed: summary.statuses.FAILED || 0,
   };
 
   /* ─── Pagination ─── */
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginatedRuns = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginatedRuns = runs;
 
   /* ─── Render ─── */
-  if (loading) {
+  if (error) return <div className="page-content"><WorkspaceState error={error} onRetry={fetchRuns} /></div>;
+  if (loading && !metadata.page) {
     return (
       <div className="flex justify-center items-center h-96">
         <div className="flex flex-col items-center gap-3">
@@ -218,17 +223,17 @@ export default function BacktestList() {
   }
 
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 space-y-6">
+    <div className="page-content">
       {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { label: "Total Runs",  value: kpis.total,     icon: BarChart2,    accent: "text-foreground",       bg: "bg-muted/10" },
-          { label: "Completed",   value: kpis.completed,  icon: CheckCircle2, accent: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-500/10" },
-          { label: "Running",     value: kpis.running,    icon: Activity,     accent: "text-blue-700 dark:text-blue-400",    bg: "bg-blue-500/10" },
-          { label: "Failed",      value: kpis.failed,     icon: AlertCircle,  accent: "text-red-700 dark:text-red-400",     bg: "bg-red-500/10" },
+          { label: "Completed",   value: kpis.completed,  icon: CheckCircle2, accent: "text-success", bg: "bg-success/10" },
+          { label: "Running",     value: kpis.running,    icon: Activity,     accent: "text-brand",    bg: "bg-brand/10" },
+          { label: "Failed",      value: kpis.failed,     icon: AlertCircle,  accent: "text-loss",     bg: "bg-loss/10" },
         ].map((kpi) => (
           <Card key={kpi.label} className="bg-card/60 border-border hover:border-border transition-colors">
-            <CardContent className="p-4 flex items-center gap-4">
+            <CardContent className="p-3 flex items-center gap-3">
               <div className={`p-2.5 rounded-xl ${kpi.bg}`}>
                 <kpi.icon className={`h-5 w-5 ${kpi.accent}`} />
               </div>
@@ -249,38 +254,18 @@ export default function BacktestList() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name or strategy…"
-            className="pl-9 bg-card/60 border-border text-foreground h-10 focus:ring-indigo-500 focus:border-indigo-500"
+            className="pl-9 bg-card/60 border-border text-foreground focus:ring-brand focus:border-brand"
           />
         </div>
-        <div className="flex bg-card/60 border border-border p-1 rounded-lg">
-          {[
-            { key: "all",       label: "All" },
-            { key: "QUEUED", label: "Queued" },
-            { key: "RUNNING",   label: "Running" },
-            { key: "COMPLETED", label: "Completed" },
-            { key: "FAILED",    label: "Failed" },
-          ].map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                statusFilter === f.key
-                  ? "bg-indigo-600 text-white shadow-lg"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <PageTabs appearance="outline" label="Backtest status" value={statusFilter} onValueChange={setStatusFilter} items={[{ value: "all", label: "All" }, { value: "QUEUED", label: "Queued" }, { value: "RUNNING", label: "Running" }, { value: "COMPLETED", label: "Completed" }, { value: "FAILED", label: "Failed" }]} />
       </div>
 
       {/* ── Table ── */}
-      {filtered.length === 0 ? (
+      {runs.length === 0 ? (
         <Card className="bg-card/40 border-border border-dashed">
-          <CardContent className="py-16 flex flex-col items-center gap-4">
-            <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10">
-              <TestTube className="h-10 w-10 text-indigo-700 dark:text-indigo-400" />
+          <CardContent className="py-16 flex flex-col items-center gap-3">
+            <div className="p-3 rounded-2xl bg-brand/5 border border-brand/10">
+              <TestTube className="h-10 w-10 text-brand" />
             </div>
             <div className="text-center">
               <h3 className="text-lg font-semibold text-foreground">
@@ -293,9 +278,9 @@ export default function BacktestList() {
               </p>
             </div>
             {!search && statusFilter === "all" && (
-              <Button
+              <Button variant="default"
                 onClick={() => navigate("/backtests/setup")}
-                className="text-white bg-indigo-600 hover:bg-indigo-700 mt-2"
+                className="mt-2"
               >
                 <Play className="h-4 w-4 mr-2" />
                 Run First Backtest
@@ -330,33 +315,33 @@ export default function BacktestList() {
                         className="group hover:bg-secondary/30 cursor-pointer transition-colors"
                       >
                         {/* Name */}
-                        <td className="px-5 py-4">
-                          <span className="text-sm font-semibold text-foreground group-hover:text-indigo-800 dark:group-hover:text-indigo-300 transition-colors">
+                        <td className="px-5 py-3">
+                          <span className="text-sm font-semibold text-foreground group-hover:text-brand transition-colors">
                             {run.name || `Backtest #${run.id}`}
                           </span>
                         </td>
 
                         {/* Strategy */}
-                        <td className="px-5 py-4">
+                        <td className="px-5 py-3">
                           <span className="text-sm text-muted-foreground">{run.strategy_name || "—"}</span>
                         </td>
 
                         {/* Period */}
-                        <td className="px-5 py-4">
+                        <td className="px-5 py-3">
                           <span className="text-xs text-muted-foreground font-mono">
                             {run.start_date} → {run.end_date}
                           </span>
                         </td>
 
                         {/* Capital */}
-                        <td className="px-5 py-4">
+                        <td className="px-5 py-3">
                           <span className="text-sm text-foreground font-mono">
                             {formatCurrency(run.initial_capital)}
                           </span>
                         </td>
 
                         {/* Status + Progress */}
-                        <td className="px-5 py-4">
+                        <td className="px-5 py-3">
                           <div className="flex flex-col gap-1.5">
                             <Badge
                               variant="outline"
@@ -369,11 +354,11 @@ export default function BacktestList() {
                               <div className="flex items-center gap-2 w-28">
                                 <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
                                   <div
-                                    className="h-full bg-blue-500 rounded-full transition-all duration-700 shadow-[0_0_8px_rgba(59,130,246,0.5)]"
+                                    className="h-full bg-brand rounded-full transition-all duration-700"
                                     style={{ width: `${run.progress_pct || 0}%` }}
                                   />
                                 </div>
-                                <span className="text-[10px] text-blue-700 dark:text-blue-400 font-bold tabular-nums">
+                                <span className="text-[10px] text-brand font-bold tabular-nums">
                                   {run.progress_pct || 0}%
                                 </span>
                               </div>
@@ -382,29 +367,29 @@ export default function BacktestList() {
                         </td>
 
                         {/* Created */}
-                        <td className="px-5 py-4 text-right">
+                        <td className="px-5 py-3 text-right">
                           <span className="text-xs text-muted-foreground">{formatDateTime(run.created_at)}</span>
                         </td>
 
                         {/* Actions */}
-                        <td className="px-3 py-4">
+                        <td className="px-3 py-3">
                           <div className="flex items-center gap-1 opacity-100 transition-opacity">
-                            <button
+                            <Button variant="ghost" type="button"
                               onClick={(e) => handleRerun(e, run.id)}
                               disabled={rerunningId === run.id}
-                              className="p-1.5 rounded-md hover:bg-blue-500/10 text-muted-foreground hover:text-blue-800 dark:hover:text-blue-400 transition-colors"
+                              className="p-1.5 rounded-md transition-colors"
                               title="Rerun Backtest"
                             >
                               {rerunningId === run.id ? <LoaderMark className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                            </button>
-                            <button
+                            </Button>
+                            <Button variant="ghost" type="button"
                               onClick={(e) => handleDelete(e, run.id)}
                               disabled={deletingId === run.id}
-                              className="p-1.5 rounded-md hover:bg-red-500/10 text-muted-foreground hover:text-red-800 dark:hover:text-red-400 transition-colors"
+                              className="p-1.5 rounded-md transition-colors"
                               title="Delete"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            </Button>
                             <ChevronRight className="h-4 w-4 text-foreground" />
                           </div>
                         </td>
@@ -415,42 +400,10 @@ export default function BacktestList() {
               </table>
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-6 py-4 border-t border-border">
-                <span className="text-xs text-muted-foreground">
-                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} runs
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                    className="border-border bg-card hover:bg-secondary h-8 px-3"
-                  >
-                    <ChevronLeft className="h-3.5 w-3.5 mr-1" />
-                    Prev
-                  </Button>
-                  <span className="text-xs text-muted-foreground font-medium tabular-nums">
-                    {page} / {totalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                    className="border-border bg-card hover:bg-secondary h-8 px-3"
-                  >
-                    Next
-                    <ChevronRight className="h-3.5 w-3.5 ml-1" />
-                  </Button>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
       )}
+      <Pagination {...metadata} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={setPageSize} label="Backtest pages" />
     </div>
   );
 }

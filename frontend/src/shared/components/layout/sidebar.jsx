@@ -178,7 +178,7 @@ export default function Sidebar() {
     <div className="flex h-full min-h-0 flex-col bg-card text-foreground">
       {!isDesktop && <Button variant="ghost" size="icon" className="absolute right-2 top-2 touch-target" onClick={close} aria-label="Close navigation"><X className="h-5 w-5" /></Button>}
       {/* Header */}
-      <div className="flex items-center justify-center h-16 px-4 sm:px-6 border-b border-border/50 shrink-0">
+      <div className="workspace-sidebar-brand flex items-center justify-center px-4 sm:px-6 border-b border-border/50 shrink-0">
         <Link
           to="/overview"
           className="flex min-w-0 items-center justify-center transition-opacity hover:opacity-80"
@@ -202,7 +202,7 @@ export default function Sidebar() {
                   variant="ghost"
                   aria-expanded={expanded}
                   aria-controls={`workspace-navigation-${id}`}
-                  className="w-full justify-between rounded-lg px-3 text-foreground hover:bg-secondary/70"
+                  className="w-full justify-between rounded-lg px-3"
                   onClick={() => toggleSection(id)}
                 >
                   <span className="flex min-w-0 items-center gap-2">
@@ -228,7 +228,7 @@ export default function Sidebar() {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="w-full justify-start text-foreground hover:bg-secondary/70 hover:text-foreground transition-all duration-200 rounded-lg p-2 sm:p-3"
+              className="w-full justify-start duration-200 rounded-lg p-2 sm:p-3"
             >
               <UserAvatar className="h-8 w-8 shrink-0 text-xs" />
               <div className="ml-2 sm:ml-3 flex flex-col items-start min-w-0 flex-1">

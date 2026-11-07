@@ -17,7 +17,7 @@ import { getApiErrorMessage } from '@/shared/utils/apiErrors';
 import api from '@/shared/services/api';
 import terminalApi from '../services/tradingTerminalApi';
 
-const price = (value) => value == null ? '—' : formatNumber(value, { maximumFractionDigits: 8 });
+const price = (value) => value == null ? '—' : formatNumber(value);
 
 export default function TerminalBlotter({ positions, orders, onSelect, expanded, onToggleExpand, onCollapse }) {
   const { enums, values } = useEnums();
@@ -35,7 +35,7 @@ export default function TerminalBlotter({ positions, orders, onSelect, expanded,
     setEditing({ kind, row });
     setFields({ action, lots: kind === 'order' ? String(row.quantity / row.instrument.lot_size) : '1', order_type: row.order_type,
       price: row.price || '', trigger_price: row.trigger_price || '',
-      stop_loss: row.stop_loss || '', take_profit: row.take_profit || '', settlement_price: '' });
+      stop_loss: row.stop_loss || '', take_profit: row.take_profit || '' });
   };
   const act = async (operation) => {
     if (busy) return;
@@ -62,22 +62,21 @@ export default function TerminalBlotter({ positions, orders, onSelect, expanded,
       return act(() => api.patch('/trading/orders/' + row.id + '/', data));
     }
     return act(() => terminalApi.positionAction(row.id, { action: fields.action,
-      quantity: Number(fields.lots) * row.instrument.lot_size,
-      ...(fields.action === values.TerminalPositionAction.SETTLE ? { settlement_price: fields.settlement_price } : {}) }));
+      quantity: Number(fields.lots) * row.instrument.lot_size }));
   };
   const field = (key, label) => <label className="block space-y-1 text-sm">{label}<Input type="number" min="0" step={editing.row.instrument.tick_size}
     value={fields[key]} onChange={(e) => setFields((current) => ({ ...current, [key]: e.target.value }))} /></label>;
   return <Tabs value={tab} onValueChange={setTab} asChild><section aria-label="Positions and orders" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
     <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1.5">
-      <TabsList aria-label="Trading activity" className="h-8 gap-1 bg-transparent p-0">{['positions', 'orders'].map((value) => <TabsTrigger key={value} value={value}
-        className="h-8 gap-2 px-2.5 text-xs data-[state=active]:bg-secondary data-[state=active]:shadow-none">
-        {value === 'positions' ? 'Positions' : 'Orders'}<span className="rounded bg-background/80 px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">{value === 'positions' ? positions.length : orders.length}</span></TabsTrigger>)}</TabsList>
+      <TabsList aria-label="Trading activity" >{['positions', 'orders'].map((value) => <TabsTrigger key={value} value={value}
+        >
+        {value === 'positions' ? 'Positions' : 'Orders'}<span className="text-xs tabular-nums">{value === 'positions' ? positions.length : orders.length}</span></TabsTrigger>)}</TabsList>
       <div className="ml-auto flex items-center gap-1">
-        {tab === 'orders' && selected.length > 0 && <Button className="h-8 px-2 text-xs" size="sm" variant="outline" disabled={busy}
+        {tab === 'orders' && selected.length > 0 && <Button className="px-2 text-xs" size="sm" variant="outline" disabled={busy}
           onClick={() => act(() => terminalApi.cancelOrders(selected))}>Cancel ({selected.length})</Button>}
-        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={expanded ? 'Restore trading panel' : 'Expand trading panel'} title={expanded ? 'Restore panel' : 'Expand panel'} onClick={onToggleExpand}>
+        <Button size="icon" variant="ghost" className="w-7" aria-label={expanded ? 'Restore trading panel' : 'Expand trading panel'} title={expanded ? 'Restore panel' : 'Expand panel'} onClick={onToggleExpand}>
           {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</Button>
-        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Collapse trading panel" title="Collapse panel" onClick={onCollapse}><ChevronDown className="h-4 w-4" /></Button>
+        <Button size="icon" variant="ghost" className="w-7" aria-label="Collapse trading panel" title="Collapse panel" onClick={onCollapse}><ChevronDown className="h-4 w-4" /></Button>
       </div>
     </div>
     <TabsContent value={tab} className="m-0 flex min-h-0 flex-1 flex-col">
@@ -94,24 +93,24 @@ export default function TerminalBlotter({ positions, orders, onSelect, expanded,
         {tab === 'positions' ? positions.map((row) => {
           const live = livePnLByPositionId[row.id];
           return <TableRow key={row.id} className="border-border">
-            <TableCell><button className="max-w-72 whitespace-normal text-left font-medium leading-5 hover:underline" onClick={() => onSelect(row.instrument.sym_ticker)}>
-              {row.instrument.name}</button><div className="text-xs text-muted-foreground">{row.instrument.exchange}</div></TableCell>
+            <TableCell><Button variant="ghost" type="button" className="block h-auto justify-start whitespace-normal p-0 max-w-72 text-left font-medium leading-5" onClick={() => onSelect(row.instrument.sym_ticker)}>
+              {row.instrument.name}</Button><div className="text-xs text-muted-foreground">{row.instrument.exchange}</div></TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(row.quantity, { maximumFractionDigits: 0 })}
               {[values.InstrumentType.FUTURE, values.InstrumentType.OPTION].includes(row.instrument.instrument_type) && <div className="text-xs text-muted-foreground">{formatNumber(Math.abs(row.quantity) / row.instrument.lot_size, { maximumFractionDigits: 0 })} lots</div>}</TableCell>
             <TableCell className="text-right tabular-nums">{price(row.average_price)}</TableCell>
             <TableCell className="text-right tabular-nums" title={live?.isLive ? 'Latest observed price' : 'Stored valuation'}>{price(live?.livePrice)}{!live?.isLive ? '*' : ''}</TableCell>
-            <TableCell className={'text-right tabular-nums ' + (live?.pnl >= 0 ? 'text-emerald-500' : 'text-rose-500')}>{formatCurrency(live?.pnl)}</TableCell>
-            <TableCell><div className="flex gap-1"><Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => open('action', row)}>Manage</Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => open('protection', row)}>Protect</Button>
-              <Button size="sm" variant="outline" className="h-7 px-2" disabled={busy} onClick={() => open('action', row, values.TerminalPositionAction.CLOSE)}>Close</Button></div></TableCell>
+            <TableCell className={'text-right tabular-nums ' + (live?.pnl >= 0 ? "text-success" : "text-loss")}>{formatCurrency(live?.pnl)}</TableCell>
+            <TableCell><div className="flex gap-1"><Button size="sm" variant="ghost" className="px-2" onClick={() => open('action', row)}>Manage</Button>
+              <Button size="sm" variant="ghost" className="px-2" onClick={() => open('protection', row)}>Protect</Button>
+              <Button size="sm" variant="outline" className="px-2" disabled={busy} onClick={() => open('action', row, values.TerminalPositionAction.CLOSE)}>Close</Button></div></TableCell>
           </TableRow>;
         }) : orders.map((row) => <TableRow key={row.id} className="border-border">
           <TableCell><Checkbox aria-label={'Select order ' + row.id} checked={selected.includes(row.id)}
             onCheckedChange={(checked) => setSelected((current) => checked ? [...current, row.id] : current.filter((id) => id !== row.id))} /></TableCell>
-          <TableCell><button className="max-w-72 whitespace-normal text-left font-medium leading-5 hover:underline" onClick={() => onSelect(row.instrument.sym_ticker)}>
-            {row.instrument.name}</button><div className="text-xs text-muted-foreground">{row.instrument.exchange}</div></TableCell>
+          <TableCell><Button variant="ghost" type="button" className="block h-auto justify-start whitespace-normal p-0 max-w-72 text-left font-medium leading-5" onClick={() => onSelect(row.instrument.sym_ticker)}>
+            {row.instrument.name}</Button><div className="text-xs text-muted-foreground">{row.instrument.exchange}</div></TableCell>
           <TableCell><div className="flex items-center gap-2">
-            <Badge variant="outline" className={row.transaction_type === values.Side.BUY ? 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' : 'border-rose-500/30 text-rose-700 dark:text-rose-300'}>{enums.Side.find((choice) => choice.value === row.transaction_type)?.label}</Badge>
+            <Badge variant="outline" className={row.transaction_type === values.Side.BUY ? "border-success/30 text-success" : "border-loss/30 text-loss"}>{enums.Side.find((choice) => choice.value === row.transaction_type)?.label}</Badge>
             {enums.TerminalOrderType.find((choice) => choice.value === row.order_type)?.label}</div>
             <div className="mt-1 text-xs text-muted-foreground">{row.activated_at ? 'Activated' : orderTypes.find((choice) => choice.value === row.order_type)?.requires_trigger ? 'Waiting for trigger' : 'Working'}</div></TableCell>
           <TableCell className="text-right tabular-nums">{formatNumber(row.quantity, { maximumFractionDigits: 0 })}</TableCell>
@@ -127,7 +126,7 @@ export default function TerminalBlotter({ positions, orders, onSelect, expanded,
     </TabsContent>
     <Dialog open={!!editing} onOpenChange={(value) => { if (!value) setEditing(null); }}><DialogContent aria-describedby={undefined} className="max-w-md">
       <DialogTitle>{editing?.row.instrument.name} · {editing?.kind === 'protection' ? 'Protection' : editing?.kind === 'order' ? 'Modify order' : 'Position action'}</DialogTitle>
-      {editing && <form onSubmit={save} className="space-y-4">
+      {editing && <form onSubmit={save} className="space-y-3">
         {editing.kind === 'protection' ? <>{field('stop_loss', 'Stop loss')}{field('take_profit', 'Take profit')}<p className="text-xs text-muted-foreground">Leave a field empty to remove that protection. Existing profitable stops can move beyond entry.</p></> : editing.kind === 'order' ? <>
           <label className="block text-sm">Type<Select value={fields.order_type} onValueChange={(value) => setFields((current) => ({ ...current, order_type: value }))}><SelectTrigger aria-label="Order type" className="mt-1"><SelectValue /></SelectTrigger>
             <SelectContent>{orderTypes.map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent></Select></label>
@@ -135,11 +134,9 @@ export default function TerminalBlotter({ positions, orders, onSelect, expanded,
           {orderConfig?.requires_price && field('price', 'Limit price')}{orderConfig?.requires_trigger && field('trigger_price', 'Trigger price')}
           {editing.row.activated_at && <p className="text-xs text-muted-foreground">Changing the trigger rearms this stop-limit order.</p>}</> : <>
           <label className="block text-sm">Action<Select value={fields.action} onValueChange={(value) => setFields((current) => ({ ...current, action: value }))}><SelectTrigger aria-label="Position action" className="mt-1"><SelectValue /></SelectTrigger><SelectContent>
-            {enums.TerminalPositionAction.filter((choice) => !choice.requires_expiry || editing.row.instrument.expiry_date)
-              .map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent></Select></label>
+            {enums.TerminalPositionAction.map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}</SelectContent></Select></label>
           {actionConfig?.requires_quantity && <label className="block text-sm">{![values.InstrumentType.FUTURE, values.InstrumentType.OPTION].includes(editing.row.instrument.instrument_type) ? 'Units' : 'Lots'}{fields.action === values.TerminalPositionAction.REVERSE ? ' in the new direction' : ''}<Input type="number" step="1" min="1" value={fields.lots} onChange={(e) => setFields((current) => ({ ...current, lots: e.target.value }))} required /></label>}
-          {fields.action === values.TerminalPositionAction.SETTLE && <label className="block text-sm">Official settlement price<Input required type="number" min="0" step="any" value={fields.settlement_price} onChange={(e) => setFields((current) => ({ ...current, settlement_price: e.target.value }))} /></label>}
-          <p className="text-sm text-muted-foreground">{fields.action === values.TerminalPositionAction.SETTLE ? 'After expiry only: enter the official settlement price yourself (0 for a worthless option). This records a manual simulation settlement, not a broker fill or physical delivery.' : fields.action === values.TerminalPositionAction.REVERSE ? 'This closes the existing exposure and opens the specified amount in the opposite direction.' : 'A simulated market order will use the next eligible observed price.'}</p></>}
+          <p className="text-sm text-muted-foreground">{fields.action === values.TerminalPositionAction.REVERSE ? 'This closes the existing exposure and opens the specified amount in the opposite direction.' : 'A simulated market order will use the next eligible observed price.'}</p></>}
         <Button type="submit" disabled={busy} className="w-full">{busy ? 'Applying…' : 'Confirm'}</Button>
       </form>}
     </DialogContent></Dialog>

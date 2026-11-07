@@ -64,6 +64,11 @@ class BrokerAPILogSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class BrokerAPILogListSerializer(BrokerAPILogSerializer):
+    class Meta(BrokerAPILogSerializer.Meta):
+        fields = ('id', 'broker_name', 'endpoint', 'status_code', 'latency_ms', 'error_message', 'created_at')
+
+
 class BrokerFundsSnapshotSerializer(serializers.ModelSerializer):
     broker_name = serializers.CharField(source="credential.broker_name", read_only=True)
     broker_label = serializers.CharField(source="credential.label", read_only=True)
