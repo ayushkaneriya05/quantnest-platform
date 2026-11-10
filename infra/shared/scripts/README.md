@@ -36,9 +36,12 @@ containers at startup.
 Deployment performs these actions in order:
 
 1. Resolve the effective Compose model without printing secrets. Reject a Live
-   scope without broker-events, or broker-events without Live scope.
-2. If research is enabled, verify that its key is configured and its token matches
-   Django's token. This is a configuration check, not a provider API request.
+   scope without broker-events, or broker-events without Live scope. Reject inherited
+   `COMPOSE_PROFILES` so only explicitly selected profiles can run.
+2. Reject copied production credential placeholders, invalid Fernet keys, shared
+   database administrator/application credentials and inconsistent HTTPS browser
+   origins. If research is enabled, verify that its key is configured and its token
+   matches Django's token. These are local checks, not provider API requests.
 3. Build requested images. A build failure happens before stopping the old app.
 4. Run Django checks. Production uses `check --deploy --fail-level WARNING`.
 5. Start/wait for PostgreSQL, Redis and research-cache Redis.
@@ -162,7 +165,8 @@ Restore refuses running applications. It decrypts in a private temporary directo
 checks allowed archive members, mode, manifest and hashes, then starts data services.
 It refuses any existing public-schema tables rather than replacing a working DB.
 The Timescale pre/post restore hooks preserve extension metadata; application table
-ownership is reassigned to `DB_USER`. Media paths are checked before extraction.
+ownership is reassigned to `DB_USER`. Both archives and media paths are validated
+before changing the database; duplicate or unexpected outer archive members fail.
 Failures exit nonzero and leave applications stopped for inspection. A partially
 restored database is not retried over itself; use a new empty recovery deployment.
 
@@ -183,6 +187,7 @@ matching older release's tools, then upgrade. This tool does not guess formats.
 | `compose_configuration()` | Reads Compose JSON privately so consumers see the same effective topology. |
 | `running_application_services()` | Prevents backup/restore while API, workers or provider services can change state. |
 | `deploy()` | Owns the stopped-service upgrade sequence. It does not start hidden native processes. |
+| `validate_configuration()` | Checks required operator inputs before building/stopping services; never prints their values. |
 | `service_status()` | Compares configured services against Docker's running/health state. |
 | `backup.create()` | Owns the consistent database/media snapshot and encrypted archive. |
 | `backup.file_hash()` | Streamed SHA-256 for archive/manifest integrity checks. |

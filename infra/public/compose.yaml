@@ -108,6 +108,7 @@ services:
     healthcheck: {test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3).close()"], interval: 30s, timeout: 5s, retries: 3, start_period: 30s}
     init: true
     logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
+    stop_grace_period: 90s
   ingress:
     image: caddy:2.10.2
     environment:

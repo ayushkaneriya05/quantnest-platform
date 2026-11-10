@@ -361,7 +361,7 @@ After first deployment and Admin OTP enrolment:
 5. Register a normal user. In Charge Profiles, review the generated QuantNest
    default and set your simulation assumptions. Choose the profile where the
    backtest, Paper deployment or Terminal account offers it.
-6. Save a small, explicit strategy/version with a tradable stock, Direct routing,
+6. Save a small, explicit strategy/version with a fixed tradable stock,
    entry rules, full-position exit/stop/target, position sizing and trading times.
    End time stops new entries; it is not an automatic intraday square-off setting.
 7. Preview/run a bounded backtest, review trades/costs/diagnostics, and try research
@@ -386,3 +386,54 @@ soon. No setup step in this guide enables an unfinished market/broker adapter.
 The detailed user/execution procedures are in [Backtesting](../../docs/backtesting.md),
 [Paper](../../docs/paper-trading.md), [Live](../../docs/live-trading.md) and
 [Terminal](../../docs/trading-terminal.md).
+
+## 12. Derivative data and settlement operations
+
+These steps support intentional Development/Private experiments. Public marketing
+availability remains controlled by the catalog; importing contracts does not change
+that publication policy. Begin with the ordinary stock acceptance above.
+
+1. Run `sync_instruments --archive-stale` in the selected mode's API container. For
+   a smaller refresh use `--source NSE_FO` (or another configured master source).
+   Keep expired instruments: they identify historical trades. The nightly Beat task
+   already runs the full archival sync; do not add another scheduler.
+2. In Admin, review underlying links, segment calendars, lot sizes, tick sizes,
+   expiry and sourced margin inputs. Select one fixed derivative in Studio first;
+   then try automatic expiry and ATM/ITM/OTM selection against its underlying.
+   An index may supply signals but cannot be ordered. An open position keeps its
+   traded contract; a changing ATM selection does not silently migrate it.
+3. For older backtests, authorize provider history and sync the calendar years
+   being tested. Actual expired-contract candles come from the shared history
+   loader. Review the backtest's recorded assumptions where current contract terms
+   substitute for unavailable historical terms. Current lot size is not proof of
+   a historical lot size.
+4. When dated exchange terms are available, follow the reviewed JSON format in
+   [Backtesting](../../docs/backtesting.md) and import them. Validate a mounted file
+   first, then repeat without `--dry-run` to write it:
+
+   ```sh
+   docker compose --env-file infra/private/backend.env -f infra/private/compose.yaml run --rm --no-deps -v /absolute/path/terms.json:/tmp/terms.json:ro api python manage.py import_contract_specifications /tmp/terms.json --dry-run
+   ```
+
+   Replace `private` with your mode in both paths. Use a reviewed absolute host
+   path; `docker compose exec` cannot access a host file that was never mounted.
+   `discover_expired_contracts SYMBOL --from-date YYYY-MM-DD --to-date YYYY-MM-DD`
+   is an optional read-only inspection command, not a required bootstrap task.
+5. Official settlement prices require a reviewed source; they are not inferred
+   from the last chart candle. Follow [Derivative settlement](../../docs/paper-trading.md#derivative-settlement)
+   and validate a mounted price file:
+
+   ```sh
+   docker compose --env-file infra/private/backend.env -f infra/private/compose.yaml run --rm --no-deps -v /absolute/path/settlements.json:/tmp/settlements.json:ro api python manage.py import_settlement_prices /tmp/settlements.json --dry-run
+   ```
+
+   Repeat without `--dry-run` only after reviewing that source and result. The
+   running execution controller applies eligible Paper/Terminal settlement commands;
+   no settlement daemon or extra Celery queue is required. Daily MTM currently
+   concerns futures; final cash settlement is restricted to qualified equity-index
+   contracts. This is not physical delivery, a general rollover mechanism or a
+   permission to invent Live broker fills.
+6. Check full-lot sizing, signal/traded-instrument inputs, contract selection,
+   entry/full exit, charges and settlement in simulation before personal Live use.
+   Broker-reported fills and broker-specific margin/settlement remain authoritative
+   for a real account. Do not treat a health check as derivative execution acceptance.

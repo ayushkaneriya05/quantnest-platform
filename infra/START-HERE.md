@@ -1,6 +1,8 @@
 # Your deployment checklist: start here
 
-**Repository and provider documentation reviewed: 24 October 2026.**
+**Repository architecture checked: 10 November 2026.** Provider-dashboard
+instructions were last reviewed on 24 October 2026; confirm labels and permissions
+in your provider account.
 
 These guides explain the actions you, the operator, need to take. They start from
 the current repository and finish with a configured platform. You do not need to

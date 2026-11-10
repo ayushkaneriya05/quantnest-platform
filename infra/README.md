@@ -83,9 +83,9 @@ service, network, mount, memory limit and command option.
 - A domain and ports 80/443 for production Caddy. Databases, Redis and research
   are not published to the Internet.
 
-Use your OS/Docker installation procedure. On Ubuntu 24.04, the distribution
-packages `docker.io`, `docker-compose-v2`, `python3` and `age` provide the host
-tools. Check `docker version`, `docker compose version` and `python3 --version`.
+Follow the [server setup](shared/SERVER-SETUP.md) for one consistent Docker package
+source and the required host tools. Check `docker version`, `docker compose version`
+and `python3 --version`.
 Run Docker as an operator allowed to use its daemon; this access controls the host.
 
 Commands in production guides use a POSIX shell from the repository root. The
@@ -157,6 +157,12 @@ mode guides show the command. Save that key with the protected environment files
 5. Stop applications and make a backup before each upgrade. Keep an off-host copy.
 6. Recover into an empty deployment only. Restore does not start trading workers.
 
+Deployment rejects copied production credentials, invalid Fernet keys, inconsistent
+browser origins, mismatched research tokens and a Live scope/profile mismatch before
+stopping the application. Unset `COMPOSE_PROFILES`; choose optional Development
+services with the helper's `--profile` arguments. These checks validate local
+configuration, not provider authorization.
+
 All command arguments and recovery steps are explained in
 [the script runbook](shared/scripts/README.md). The mode READMEs explain their
 specific configuration and first-start sequence.
@@ -190,6 +196,11 @@ Changing plan quotas does not add CPU capacity. Measure rule workload, instrumen
 count, process memory, database writes, queue delay and broker latency before
 raising concurrency. Research/provider access, email delivery, HTTPS and actual
 broker authorization must be checked on the deployed host with its own credentials.
+
+For derivative experiments, follow the [derivative data procedure](shared/INTEGRATIONS.md#12-derivative-data-and-settlement-operations).
+Instrument-master synchronization alone does not establish historical contract terms,
+margin assumptions or official settlement prices. The [current Studio guide](../docs/strategy-configuration.md)
+owns authoring; the [mode guides](../docs/README.md) explain execution and its limits.
 
 Docker readiness waits for configured health checks, not just container creation;
 see [Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/).

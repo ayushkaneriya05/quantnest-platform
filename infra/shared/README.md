@@ -54,7 +54,7 @@ mode README lists its additions and exact commands.
 | `profiles` | Development only: opt-in feed, research or broker events. Default API/Paper/Terminal can start without those provider credentials. |
 | `restart: unless-stopped` | Docker restarts an exited service, except after an explicit operator stop. It does not restart a merely unhealthy container. |
 | `init: true` | Small PID 1 forwards signals and reaps child processes; needed for execution/Celery groups. |
-| `stop_grace_period: 90s` | Allows workers/controllers time to stop and commit before Docker forces termination. |
+| `stop_grace_period: 90s` | Allows backend workers/controllers and the research service time to stop before Docker forces termination. Finish active backtests/research before upgrades; this grace period is not their full execution deadline. |
 | `logging.driver: json-file` | Docker captures console output. |
 | `logging.options.max-size: 10m`, `max-file: "3"` | Bounds each container's logs instead of growing indefinitely. |
 | `mem_limit` | Maximum container memory, not reserved idle usage. Leave host/build headroom. |
@@ -151,6 +151,12 @@ after migrations to convert candle storage and set its compression policy.
 | `research` | Internal FastAPI service on 8001. A single Uvicorn worker owns the provider client; Django tools require the shared token. |
 | `frontend` | Development Node container runs `npm ci` then Vite with `--host 0.0.0.0`; the port is exposed only on host loopback. |
 | `ingress` | Production Caddy. Public proxies to API behind Cloudflare. Private serves built React and proxies API/WebSockets. |
+
+Execution handles Ctrl+C/SIGTERM by requesting shutdown in the parent, then stops
+its workers through the normal controller loop. Signal handlers do not acquire
+multiprocessing event locks. This allows `docker compose stop` to finish cleanly
+instead of depending on Docker's forced-kill timeout. Stopping services does not
+close positions at the broker; settle/review trading before maintenance.
 
 The API healthcheck uses Python's standard HTTP client to call `/health/` on the
 already running server. `ProxyHandler({})` bypasses inherited host HTTP proxy

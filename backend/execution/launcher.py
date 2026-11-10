@@ -67,8 +67,16 @@ def main():
     from .controller import Controller
     context = multiprocessing.get_context('spawn')
     stop = context.Event()
-    signal.signal(signal.SIGINT, lambda *_: stop.set())
-    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    shutdown_requested = False
+
+    def request_shutdown(*_):
+        nonlocal shutdown_requested
+        # A signal can interrupt Event.wait() while its process lock is held.
+        # Only assign a flag here; the controller sets the shared event normally.
+        shutdown_requested = True
+
+    signal.signal(signal.SIGINT, request_shutdown)
+    signal.signal(signal.SIGTERM, request_shutdown)
     count = settings.EXECUTION_WORKERS
     inboxes = [context.Queue(maxsize=4096) for _ in range(count)]
     output = context.Queue(maxsize=4096)
@@ -79,7 +87,7 @@ def main():
                 process = context.Process(target=child, args=(index, inboxes, output, stop), name=f'execution-{index}')
                 process.start()
                 processes.append(process)
-            Controller(inboxes, output).run(stop, processes)
+            Controller(inboxes, output).run(stop, processes, lambda: shutdown_requested)
         finally:
             stop.set()
             for process in processes:

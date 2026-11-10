@@ -15,6 +15,8 @@ def compose_command(root, mode, *arguments, profiles=()):
     project = os.environ.get("COMPOSE_PROJECT_NAME", "")
     if project and project != f"quantnest-{mode}":
         raise ValueError(f"Unset COMPOSE_PROJECT_NAME or use quantnest-{mode}; never reuse another mode's volumes")
+    if os.environ.get("COMPOSE_PROFILES"):
+        raise ValueError("Unset COMPOSE_PROFILES; select development services explicitly with --profile")
     if profiles and (mode != "development" or not set(profiles) <= set(DEVELOPMENT_PROFILES)):
         raise ValueError("Only development supports the market-data, research and live profiles")
     directory = Path(root).resolve() / "infra" / mode

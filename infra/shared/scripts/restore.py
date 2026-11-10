@@ -14,8 +14,11 @@ from compose_config import DATA_SERVICES, DEPLOYMENT_MODES, compose_command, run
 
 def safe_extract(archive, folder):
     with tarfile.open(archive) as stream:
-        for member in stream.getmembers():
-            if not (folder / member.name).resolve().is_relative_to(folder.resolve()) or not member.isfile():
+        members = stream.getmembers()
+        if len(members) != 3 or {member.name for member in members} != {'database.dump', 'media.tar', 'manifest.json'}:
+            raise ValueError('Backup must contain one database dump, media archive and manifest.')
+        for member in members:
+            if not member.isfile():
                 raise ValueError('Unexpected backup member or unsafe archive path.')
         stream.extractall(folder, filter='data')
 
@@ -43,6 +46,11 @@ def restore(root, mode, backup, identity):
         for name, checksum in manifest['files'].items():
             if file_hash(folder / name) != checksum:
                 raise ValueError('Backup integrity verification failed.')
+        # Validate both archives before changing the recovery database.
+        with tarfile.open(folder / 'media.tar') as stream:
+            for member in stream.getmembers():
+                if not (folder / member.name).resolve().is_relative_to(folder.resolve()) or not (member.isfile() or member.isdir()):
+                    raise ValueError('Unsafe media archive member.')
         # Even a valid backup must never overwrite an existing application database.
         compose('up', '-d', '--wait', *DATA_SERVICES)
         result = compose('exec', '-T', 'postgres', 'sh', '-c',
@@ -70,10 +78,6 @@ ORDER BY CASE WHEN c.relkind = 'S' THEN 1 ELSE 0 END
 """
         compose('exec', '-T', 'postgres', 'sh', '-c',
             'exec psql -v ON_ERROR_STOP=1 --set=app_user="$DB_USER" -U "$POSTGRES_USER" -d "$POSTGRES_DB"', input=ownership_sql.encode())
-        with tarfile.open(folder / 'media.tar') as stream:
-            for member in stream.getmembers():
-                if not (folder / member.name).resolve().is_relative_to(folder.resolve()) or not (member.isfile() or member.isdir()):
-                    raise ValueError('Unsafe media archive member.')
         # New recovery volumes inherit the application UID from the image.
         with (folder / 'media.tar').open('rb') as stream:
             compose('run', '--rm', '--no-deps', '-T', 'api', 'tar', '-C', '/opt/quantnest/backend/media', '-xf', '-', stdin=stream)

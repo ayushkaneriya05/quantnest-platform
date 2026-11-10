@@ -440,12 +440,12 @@ class Controller:
                 del self.retry[key]
                 self.prepare(key)
 
-    def run(self, stop, children):
+    def run(self, stop, children, shutdown_requested):
         from common.redis import runtime_redis
         try:
             self.bootstrap()
             deadline = heartbeat = 0
-            while not stop.is_set():
+            while not shutdown_requested() and not stop.is_set():
                 if any(not child.is_alive() for child in children):
                     raise RuntimeError('An execution worker stopped. Stop the group and recover committed accounts.')
                 self.step()
