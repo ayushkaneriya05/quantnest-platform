@@ -1,17 +1,26 @@
 ---
 title: Private Availability
-description: QuantNest Private is not currently available to customers.
-order: 11
+description: What is currently offered publicly and how future availability will be communicated.
+order: 13
 ---
+
 ## Current availability
 
-QuantNest Private is not available for purchase. Customer Live trading is not
-currently offered. Any future customer deployment will be announced separately.
+QuantNest Private is not available for customer purchase. Customer Live trading
+and managed private deployments are not currently offered. Any future offer will
+be announced separately with its supported scope and requirements.
 
-## Available today
+Public subscriptions provide the published research, strategy-building,
+backtesting, simulated Terminal and automated Paper workflow. Public payment does
+not activate broker trading, a customer licence or a private installation.
 
-- Public subscriptions support research, strategy building, historical tests,
-  simulated Terminal trading and automated Paper practice.
-- [Custom Development](/custom-development/) is a separate project service for
-  agreed software requirements. It does not require a QuantNest subscription.
+## Choose an available workflow
+
+- Start with [Getting started](/docs/getting-started/) for public use.
+- Read [Billing and Usage](/docs/billing/) before upgrading for a feature.
+- Use [Custom Development](/custom-development/) for a separate software enquiry.
+  Scope, agreements, payments and delivery stay outside QuantNest.
 - [Contact us](/contact/?type=general) with availability questions.
+
+Some internal deployments can enable additional execution scopes. Their presence
+in shared software/documentation does not make them delivered public-plan features.

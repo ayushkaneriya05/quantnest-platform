@@ -1,101 +1,146 @@
 ---
 title: Manual Simulated Terminal
-description: Charts, manual practice orders, history and account settings.
-order: 6
+description: Organize watchlists, read charts and practise manual orders, protection and position management.
+order: 7
 ---
 
-## Choose a workspace
+## Your Terminal workspace
 
-The Terminal's main page header has three tabs:
+Terminal is manual simulation and does not send real broker orders. Its account
+is separate from Paper Wallet and automated Paper sessions. Public instrument
+availability follows the published plan; contract controls below apply where
+those instruments are enabled.
 
-- **Trade**: watchlist, chart, order ticket, positions and working orders.
-- **History**: recorded orders, fills and closed positions.
-- **Account**: balances, fees and simulation settings.
-
-Your first account and watchlist are created automatically. Create or select
-watchlists using the searchable dropdown. Add instruments by symbol, underlying,
-contract, exchange or expiry.
-
-Watchlists, charts and tables show instrument names with exchange/contract details,
-so options sharing a symbol remain distinguishable.
-Selection and subscriptions use the full exchange-qualified ticker internally.
-Indices are available for analysis and cannot be traded.
-
-## Charts
-
-Choose a timeframe and Candlesticks or Line. The chart uses segment sessions and
-IST dates. Scroll left to load older history. Available candles appear first;
-missing ranges are fetched from the configured data provider and stored.
-
-History fetching needs an authorized market-data connection. It works independently
-of the live feed process. Provider entitlement determines available historical depth.
-Use the chart reload button after correcting an authentication or provider error.
-
-Live prices and matching need the market-data process. A displayed historical
-candle is not a provider observation.
-
-## Resize panels
-
-Drag the grip above Positions/Orders up or down to change the panel height.
-On desktop, drag the grip beside the watchlist left or right to change its width.
-Both sizes are saved in this browser. Use the panel button to hide Positions/Orders.
-Small screens use dialogs for the watchlist and
-order ticket; tables scroll horizontally.
-
-## Place an order
-
-Choose Buy/Sell, order type and size. Cash quantities use units; derivatives use
-lots, with actual order units shown. All prices follow the instrument tick size.
-
-Orders remain pending until filled or cancelled. Execution requires an open
-segment session, and expired contracts cannot fill normal orders.
-
-| Type | Behaviour |
+| Tab | Use |
 | --- | --- |
-| Market | Fills from a fresh observed trade during the segment session. |
-| Limit | Buy at/below limit; sell at/above limit. |
-| Stop market | Buy triggers at/above stop; sell at/below stop. |
-| Stop limit | Activates at the trigger, then respects its limit. |
+| Trade | Watchlist, chart, ticket, open positions and working orders |
+| History | Settlements, recorded orders, fills and closed positions |
+| Account | Balances, modeled charges and simulation configuration |
 
-For example, Buy stop-limit trigger 1240 and limit 1242 activates at 1240 or above.
-If the triggering tick is 1245, it waits for a qualifying limit price. Activation
-does not guarantee execution. Changing the trigger rearms it.
+Your first account/watchlist is created automatically. Use Account to inspect
+available funds and the selected Charge Profile. Do not look for a separate
+Paper-wallet transfer or a real-money top-up in Terminal.
 
-The ticket shows estimated funds. Optional stop loss/take profit
-creates linked reduce-only exits after a fill. Pending orders remain open until
-filled or cancelled. Cancellation remains available outside the session.
+## Named watchlists and prices
 
-## Manage positions and orders
+Create, rename and select watchlists from the list control. Add instruments by
+name, ticker, underlying or contract text, and use the offered exchange/type/expiry
+filters. Read full option names and contract details rather than only the shared
+underlying symbol. Indices can be charted but cannot receive orders.
 
-Use Manage, Protect or Close on a position. Increase, reduce and reversal actions
-use the relevant position quantity and contract lot size. Reverse closes existing
-exposure and opens the requested new-direction amount.
+Watchlist prices update for the subscribed visible list without opening each
+chart. Selecting a row changes the chart and ticket. All named lists remain
+separately available for [AI context](/docs/research/) and [screening](/docs/screener/),
+subject to those tools' stock restrictions.
 
-Modify or cancel working orders in the Orders panel. Cancelling selected orders
-releases their reservations.
+## Read charts and resize the workspace
 
-Reviewed settlement records apply futures MTM and qualified index expiry payments.
-View their source, charges and cash changes in History → Settlements. These are
-accounting events, not market fills. Physical delivery is not supported.
+Choose a chart timeframe and Candlesticks or Line. Available stored candles load
+first; missing requested history is fetched when the source permits it. Scroll
+left for older data and use chart reload after resolving a reported history error.
+Provider access and historical depth affect what can be retrieved.
 
-## Account and history
+Received market prices update the current chart candle and displayed price.
+Completed-candle Close used by Studio is a different input from that forming
+chart candle. A historical close or cached display price does not prove that a
+new price is available to fill an order.
 
-Account contains equity, available capital, cash, collateral, reservations, P&L
-and recorded charges. Select an owned Charge Profile or no modeled fees. Configure
-futures and short-option margin percentages there. These estimates are not broker
-margin quotations.
+Dates display in IST, with candle intervals aligned to segment sessions/holidays.
+A connected page outside market hours does not imply an open trading session.
 
-Working orders retain their fee snapshot. Changed margin settings recalculate
-collateral and reservations. Closed net P&L includes recorded charges; open P&L is
-gross. Charges for both entry and exit are deducted only when you close a
-position, following the same calculator as Paper and backtesting. Closing on
-the same local date uses intraday treatment; holding across dates uses delivery
-treatment. Saved profile rates stay attached to each accepted order. For a partial
-close, only the closed quantity incurs charges; the remainder is charged at its
-own exit. The ticket does not estimate charges before submission.
+On desktop drag the divider beside the watchlist to resize it and the grip above
+Positions/Orders to resize the bottom panel. Use the panel controls to hide or
+expand it. Browser preferences retain these sizes. Small screens use compact
+watchlist/ticket dialogs; wide tables can scroll horizontally.
 
-History filters use the platform's date pickers and searchable dropdowns. Order
-intent, trigger activation, actual fills and gross/fees/net closes remain distinct.
+## Submit a simulated order
 
-Terminal is a simulator. It does not model exchange depth, liquidity-bounded partial
-fills, portfolio margin offsets, physical delivery or all auction phases.
+Select Buy or Sell, order type and size. Cash quantities use Units. Derivative
+tickets use Lots and show the resulting order units; one lot uses that contract's
+lot size. Enter prices on its allowed tick increment.
+
+The ticket shows estimated funds, not an advance charge estimate. Check the
+instrument, side, units and all required price fields before submission. A
+successful request can appear as a working order before an eligible observation
+fills it. Do not submit a duplicate simply because no fill has appeared yet.
+
+Orders can be submitted for the segment's supported open session. Normal fills
+also require an open session, an eligible received price and a non-expired
+tradeable contract. Cancellation remains available outside the session.
+
+## The four order types
+
+| Type | Buy | Sell |
+| --- | --- | --- |
+| Market | Fill on a later eligible received price | Fill on a later eligible received price |
+| Limit | Fill at or below the limit | Fill at or above the limit |
+| Stop market | Activate at or above trigger, then market matching | Activate at or below trigger, then market matching |
+| Stop limit | Activate at or above trigger, then require the buy limit | Activate at or below trigger, then require the sell limit |
+
+For a Buy limit of 1240.00, a later eligible price of 1238.00 qualifies; a Buy
+limit of 1237.00 does not qualify at that same price.
+
+For a Buy stop-limit with trigger 1240.00 and limit 1242.00, price must first
+activate the trigger. If it gaps to 1245.00, the activated limit waits for
+1242.00 or lower. Falling below the trigger afterward does not undo activation.
+Changing the trigger rearms the order. Activation is not a guaranteed fill.
+
+Pending orders remain until filled or cancelled; there is no customer-selectable
+Validity control. This simulation does not reproduce exchange depth, queue
+position, liquidity-bounded partial fills or every auction phase.
+
+## Manage positions and protection
+
+Use **Manage**, **Protect** or **Close** on a position. Increase/reduce quantities
+must respect its lot size and available funds. Reverse closes existing exposure
+and requests the chosen amount in the opposite direction; it is not merely a
+relabel of the original trade.
+
+Optional Stop loss/Take profit on a ticket creates linked reduce-only protection
+after the fill. Position protection and close actions still depend on execution
+and eligible observations. Removing or changing a protection level changes its
+future behavior; inspect the resulting working orders.
+
+Modify or cancel eligible working orders from Orders. A completed or already
+cancelled order is not editable. Cancellation requests must finish applying;
+check final status and released reservation before assuming funds are available.
+
+## Balances, charges and P&L
+
+Account separates equity, cash, collateral, reservations and available capital.
+Open positions and working orders can reduce spendable funds. Unrealized profit
+is a current valuation, not a cash deposit.
+
+Choose an owned Charge Profile or no modeled fees. Futures and short-option
+margin percentages, where offered, are estimates; they are not broker portfolio
+margin quotations. Changing those settings recalculates commitments rather than
+rewriting closed trades.
+
+Charges for entry and exit are applied when quantity closes. Open P&L is gross;
+closed gross P&L, Charges and Net P&L are separate. Same-local-date equity closes
+use the modeled intraday treatment even with CNC product mapping. Partial closes
+charge their closed quantity; the remainder is charged at its own exit. Accepted
+orders keep their profile snapshot. See [charges](/docs/charges/).
+
+## History and settlement
+
+Use History's tabs, search, date filters and page controls. Order placement time,
+trigger activation, fill time and closing time describe different events.
+Closed positions show gross P&L, charges and net P&L separately.
+
+Reviewed futures MTM and qualified index expiry postings, where enabled, appear
+in Settlements with their source, charges and cash changes. They are accounting
+events rather than invented market fills. Physical delivery is not supported.
+
+Use [Journal/Reports](/docs/journal/) for notes and source-specific summaries.
+Refreshing a table reloads recorded state; it does not create a new trade or
+change the market's trading hours.
+
+## If an order does not fill
+
+Check whether it is still pending, the side/limit/trigger, activation state,
+whole-lot size, available funds, segment session and received prices. The last
+visible chart price may be historical. A market order waiting for a later
+observation is different from a limit that never qualified.
+Report the order ID, instrument, type, prices and approximate time through
+[Support](/docs/support/) if the recorded behavior still disagrees.

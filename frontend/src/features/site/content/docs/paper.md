@@ -1,92 +1,166 @@
 ---
 title: Automated Paper Execution
-description: Deploy saved strategy versions, fund sessions and manage simulated execution.
-order: 7
+description: Fund virtual sessions, deploy saved versions and manage orders, capital and running changes.
+order: 8
 ---
-## 1. Fund your Paper wallet
 
-Open **Paper Trading → Wallet**, enter a positive amount and add virtual funds.
-These are simulated funds, separate from broker balances and the manual Terminal.
-The Transactions tab records deposits, withdrawals, deployment funding and capital returns.
+## Paper wallet and session balances
 
-## 2. Prepare and deploy a strategy
+Open **Paper Trading → Wallet** and add virtual funds. The Transactions tab records
+wallet activity, deployment funding and capital returns. These are simulated
+funds, separate from Terminal's account and any real broker balance.
 
-1. Open **My Strategies** and activate your strategy with Paper trading enabled.
-2. Choose **Deploy Paper** on that strategy.
-3. Select a saved version. That version supplies the instruments, routes, rules, entry times and risk settings.
-4. Enter the capital amount in rupees. There is no percentage allocation or automatic rebalancing.
-5. Review slippage and the charge profile. Enable transaction charges if desired.
-6. Confirm deployment. The system creates the session, its allocation and its internal ledger together.
+A deployment receives a fixed rupee allocation from the wallet and keeps its own
+balance, orders, positions and history. Unrealized profit is not a wallet deposit.
 
-There is no separate account or allocation creation step. The deployment page's
-**Deploy strategy** button takes you to My Strategies.
+## Deploy from My Strategies
 
-Each strategy version can have one Paper deployment. Deploy another version of
-the same strategy to compare versions in separate sessions. To run an existing
-deployment again, use **Start** or **Resume** instead of creating a duplicate.
+1. Save a validated version and make the strategy Active with Paper enabled.
+2. In **My Strategies**, choose **Deploy Paper**.
+3. Select the saved version. Review its instruments, signal bindings, conditions,
+   sizing, entry schedule and exit rules.
+4. Enter the fixed rupee capital amount. Percentage allocation and automatic
+   rebalancing are not part of this deployment flow.
+5. Review slippage, charge inclusion and the chosen Charge Profile.
+6. Confirm, then open **Paper Trading → Deployments** to inspect the session.
 
-The ledger is named **Strategy name · S123**, where S123 identifies that session.
-It keeps a separate cash balance, positions, orders and trade history.
+There is no separate manual Paper account/allocation creation step. Deployments'
+**Deploy strategy** button returns to My Strategies. One Paper deployment is allowed
+per strategy/version; deploy a different saved version to compare it separately.
+Start or Resume an existing deployment rather than creating a duplicate.
 
-## 3. Use the Deployments page
+Each session has a readable **Strategy name · S123** identity. Always check that
+identity and selected version before changing capital or inspecting results.
 
-Open **Paper Trading → Deployments**. Sessions appear as list rows, with:
+## Read status and pending actions
 
-- Strategy, pinned version, session ID and status.
-- Allocated capital, margin used, available capital and lifetime P&L.
-- Trade/open-position counts, execution costs and the last session error.
+| Status | Meaning |
+| --- | --- |
+| Running | New entries can be evaluated when data, schedule, rules and funds permit |
+| Paused | No new entries; existing positions still receive exit management |
+| Stopping | Stop/close work is not yet complete; inspect pending orders/exposure |
+| Stopped | The requested stop has completed |
+| Error | Read the error and review the session before an explicit recovery action |
 
-Filter by Running, Paused, Stopping, Stopped or Error. **All statuses** shows every
-deployment. Use **Portfolio** on a row to open that session's positions, orders and
-trades. Live quotes update open-position P&L; recorded Paper fills are simulated.
+Filter the list by status. Rows show allocation, used/reserved and available
+capital, lifetime P&L, costs and any current error. **Version pending** means the
+requested version is not yet the version applied by execution.
 
-## 4. Change capital or version while running
+An accepted action is a request, not proof that execution already applied it.
+If the service is unavailable, a pending request waits. Inspect the final status,
+applied version and resulting orders rather than sending the same action repeatedly.
 
-**Capital** updates the rupee amount assigned to that session. Increasing capital
-transfers the difference from the wallet; reducing it returns the difference.
-A reduction cannot withdraw margin already committed to positions. Realized gains
-and losses remain in the session balance. No stop/restart is needed: a funds
-publication updates the running worker's background inputs.
+## How rules become simulated trades
 
-**Version** applies a saved version of the same strategy. The new version must
-retain instruments with open positions, and pending orders must settle first.
-It cannot duplicate another Paper deployment of that strategy/version.
-The running worker receives the version change automatically; existing positions
-remain open. Saving a version in the builder alone does not deploy it.
+The session prepares each required signal/traded market and indicator history,
+then evaluates eligible observations. Close/indicator rules use completed candles;
+LTP uses received prices. A chart showing history does not by itself prove the
+execution observation stream is ready.
 
-## 5. Pause, stop and restart
+A signal requests an order. A Paper market order fills on a later eligible
+received observation of the traded instrument, with modeled slippage. It can
+differ from the signal price and may wait when that instrument receives no new
+prices. A backtest's signal-time fill and a Paper fill are different models.
 
-- **Pause** prevents new entries while exit management remains active.
-- **Stop & close** stops new entries and requests closure of open positions.
-  Stopping completes after positions and orders settle. Inspect errors or use
-  Retry close if settlement remains incomplete.
-- **Start / Resume** explicitly restarts the same session and balance. Current
-  capacity, strategy enablement, enabled execution scope still apply.
-- Strategy end time is an entry cutoff. It does not square off Intraday positions;
-  stop-loss, target and exit rules continue to manage them.
+Funds, whole-lot sizing, orderability, expiry and the segment's open session still
+apply. Multiple instruments own separate positions/setup state but use their
+session's available capital. A session with no valid entry should take no trade.
 
-Missing history or incomplete market readiness can block entries. Every tick does
-not necessarily produce a signal or order.
+## Entry, exits and re-entry
 
-## 6. Manage a stopped session
+Stop loss, Target and Exit request full closure of the owned position. Stop loss
+wins when multiple exit stages match on the same evaluation. These are monitored
+engine conditions; they depend on running execution and observations.
 
-- **Costs** changes slippage and charge settings only while stopped and without
-  open positions. Existing trades retain their recorded charges.
-- **Reset balance** restores the currently allocated capital using a wallet transfer.
-  It preserves trade history and fails if the wallet cannot cover the difference.
-- **Remove** deletes the stopped deployment and its Paper execution history, and
-  returns its remaining cash to the wallet. Close all positions/orders first.
+- A simple level Entry may re-enter on another eligible observation while true
+  after the previous position is fully closed.
+- A crossover requires a new known cross.
+- A captured setup requires a new Arm occurrence and later confirmation; an Arm
+  that stayed true throughout the trade does not automatically re-arm.
 
-Use Journal and Reports before removing a deployment if you need its records.
+**Entry end is a cutoff for new entries, not a square-off time.** Paper also
+checks a pending strategy entry when matching outside the allowed window; it is
+not a general instant cancellation timer. Existing exposure follows exit rules.
+See the examples in [Strategy Studio](/docs/builder/).
 
-## Capacity and renewal
+## Change capital while running
 
-Running, Paused, Stopping and Error sessions count towards public deployment and
-instrument capacity; stopped sessions release it. A new deployment, restart or
-active version change checks the applicable plan allowance. Development records
-usage without enforcing plan quotas. Private installations have no numeric plan
-quota. Customer Private deployments are not currently available.
+Choose **Capital** on the session row and enter the new total allocation.
+Increasing it reserves the difference from free wallet funds; an approved decrease
+returns the difference. Existing realized gains/losses remain in the session.
+You cannot withdraw funds already committed to positions or orders.
 
-Running execution has no background subscription-expiry gate. Session state,
-market readiness and trading risk controls still apply. Renewal never silently
-restarts a stopped deployment.
+No manual restart is normally needed. The execution owner applies the change
+against its current commitments. Only one balance change can be pending; wait
+for completion and inspect any rejection before submitting another.
+
+Example: a session allocated 5,000.00 has lost 100.00 and is flat. Its remaining
+balance is 4,900.00. Increasing allocation by 1,000.00 adds that amount; it does
+not erase the 100.00 loss.
+
+## Change the running version
+
+Choose **Version**, select a saved version of the same strategy and review the
+change. It must not duplicate another deployment of that strategy/version.
+
+Working orders must settle before a conflicting change. A new version cannot
+remove or rebind an owned open contract. Incompatible setup/capture changes can
+require the session to be flat. Existing exposure keeps its entry risk basis;
+new settings do not rewrite how the original trade entered.
+
+The version is applied asynchronously without a manual stop/restart for a valid
+change. Wait until requested and applied versions agree. Saving Studio alone
+does not change the session.
+
+## Pause, close and restart
+
+- **Pause:** prevents new entries and resets unfilled setup state as the action
+  applies; exit management for open positions remains active.
+- **Stop & close:** cancels relevant work and requests closure. Stopping becomes
+  Stopped only after positions/orders settle. Use Retry close when shown and
+  inspect the error; a button click cannot manufacture a price observation.
+- **Start / Resume:** explicitly revalidates the saved version, strategy enablement,
+  current capacity and runtime inputs. Renewal does not restart it automatically.
+
+Stopping or closing the browser does not stop server-side execution. Use the
+session controls, then verify the resulting state.
+
+## Stopped-session maintenance
+
+| Action | Conditions and effect |
+| --- | --- |
+| Costs | Stopped and flat; change slippage/profile for later work, retaining recorded trade costs |
+| Reset balance | Stopped and flat; restore the target allocation through a wallet transfer without erasing history |
+| Remove | Stopped, flat, no working orders/pending commands; return remaining cash and delete deployment history |
+
+Export or retain the records you need before Remove. Reset balance fails if the
+wallet cannot fund the difference; it does not create free virtual performance.
+
+## Positions, P&L and review
+
+Open a row's Portfolio and choose Overview, Positions, Orders, History or
+Settlements. The session selector identifies the account currently displayed.
+Open P&L and summary values update from received marks, including positions on
+other pages. Realized results change on financial events, not each price update.
+If pricing is unavailable, treat the valuation as incomplete rather than zero risk.
+
+Open P&L is before closing costs. Closed gross P&L, charges and net P&L describe
+different amounts. Reviewed futures MTM/cash-settlement events, where enabled,
+are separate from order fills and are shown with their source. No physical
+delivery or general automatic rollover is supported.
+
+Use Paper Analytics and [Journal/Reports](/docs/journal/) for realized history,
+current exposure and your private notes. See [charges](/docs/charges/) for frozen
+profiles and same-day versus across-date treatment.
+
+## Capacity and troubleshooting
+
+Public Running, Paused, Stopping and Error sessions count towards deployment and
+instrument capacity. Stopped sessions release that active capacity. Creation,
+restart and applicable version changes check the current allowance. Expiry of a
+subscription does not automatically liquidate a running position.
+
+For no-entry issues, check status, applied version, exact signal/traded sources,
+entry time, history/observations, available capital and whether the setup can
+re-arm. An order waiting for a later quote is different from a rule never matching.
+Use [Support](/docs/support/) with the session/order ID and approximate time.

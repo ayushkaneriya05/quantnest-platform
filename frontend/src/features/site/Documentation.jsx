@@ -36,7 +36,7 @@ const documents = Object.entries(
   .sort((a, b) => Number(a.order) - Number(b.order));
 
 function BuilderReference() {
-  const { spec, choicesFor, operandOptions, loading, error, refreshEnums } = useStrategySpecification();
+  const { spec, choicesFor, operands, operators, loading, error, refreshEnums } = useStrategySpecification();
   if (loading || error)
     return (
       <WorkspaceState
@@ -68,19 +68,54 @@ function BuilderReference() {
       </div>
       <h2 className="text-2xl font-semibold">Available rule inputs</h2>
       <p className="my-4 text-sm leading-7 text-muted-foreground">
-        Use these supported inputs when defining a condition. Open the parameter
-        settings in the builder to choose the period or other required values.
+        This reference uses the same current specification as Studio. Open an
+        input&apos;s parameter settings for the fields listed below. Each market
+        input chooses its own signal or traded source. Position state describes
+        the owned traded position and is available only in exit stages.
       </p>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {operandOptions.map((item) => (
-          <li className="rounded-xl border p-4 text-sm" key={item.value}>
-            {item.label}
-          </li>
+      <div className="space-y-6">
+        {spec.conditions.groups.map((group) => (
+          <section key={group.value}>
+            <h3 className="mb-3 font-semibold">{group.label}</h3>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {group.operands.map((value) => {
+                const item = operands[value];
+                const parameters = item.parameters.filter((field) => field.editable !== false);
+                return (
+                  <li className="rounded-lg border p-3 text-sm" key={value}>
+                    <p className="font-medium">{item.label}</p>
+                    {parameters.length > 0 && <p className="mt-1 text-xs leading-5 text-muted-foreground">Parameters: {parameters.map((field) => field.label).join(" · ")}</p>}
+                    {item.context === "position" && <p className="mt-1 text-xs leading-5 text-muted-foreground">Exit stages · owned traded position</p>}
+                    {item.observation === "tick" && <p className="mt-1 text-xs leading-5 text-muted-foreground">Received live prices in running execution; modeled observations in candle backtests.</p>}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
+      <h2 className="mb-3 mt-8 text-2xl font-semibold">Comparisons and calculations</h2>
+      <p className="text-sm leading-7 text-muted-foreground">Comparisons return a condition. Arithmetic returns a number for another calculation or comparison.</p>
+      <dl className="mt-3 space-y-3 text-sm leading-6">
+        {[
+          ["Comparisons", choicesFor(spec.fields.comparison)],
+          ["Arithmetic", operators.numeric],
+          ["Within-group logic", operators.logic],
+        ].map(([label, choices]) => <div key={label}><dt className="font-medium">{label}</dt><dd className="text-muted-foreground">{choices.map((item) => item.label).join(" · ")}</dd></div>)}
+      </dl>
+      <h2 className="mb-3 mt-8 text-2xl font-semibold">Rolling calculations</h2>
+      <p className="text-sm leading-7 text-muted-foreground">
+        N is the configured number of completed bars. A window uses one market
+        and timeframe, and includes the newest completed candle unless lagged.
+        Live prices, position state and captured values cannot be used inside it.
+      </p>
+      <dl className="mt-3 space-y-3 text-sm leading-6">
+        {operators.windows.map((item) => <div key={item.value}><dt className="font-medium">{item.label}</dt><dd className="text-muted-foreground">{item.description.replaceAll("{bars}", "N")}</dd></div>)}
+      </dl>
       <p className="mt-6 text-sm leading-7 text-muted-foreground">
-        Available markets and contracts depend on the instrument catalog and
-        the data available for your selected execution mode.{" "}
+        The input reference is not an instrument entitlement. Public market
+        availability follows the published catalog; data and execution restrictions
+        still apply. Screener inputs are a restricted subset of Studio inputs.{" "}
         <Link className="text-brand underline" to="/docs/builder/">
           Read the strategy-building guide
         </Link>{" "}
