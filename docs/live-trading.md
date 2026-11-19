@@ -359,6 +359,9 @@ daemon; execution already owns those account paths.
 At restart, the controller recovers committed account checkpoints/projections,
 restores pending financial state, prepares required markets and reconciles owned
 broker observations. It does not erase UNKNOWN work or recreate every order.
+Active checkpoints contain working orders; separate `OrderCheckpoint` rows retain
+completed cumulative order states. Recovery loads both, including cancelled orders
+that can receive late fills. Configuration refreshes need only active state.
 One execution group and one relevant provider service must own their leases.
 If a numerical worker dies, the group stops for committed-state recovery instead
 of leaving a subset of financial owners silently absent.

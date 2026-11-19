@@ -1,5 +1,5 @@
 """Explicit JSON encoding of an account checkpoint; no executable serialized objects."""
-from dataclasses import fields
+from dataclasses import fields, replace
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -8,6 +8,15 @@ from .types import Account, Contract, EntryLot, Order, Position
 # Only these local value types can be restored. Provider payloads never enter a
 # checkpoint until their broker adapter has validated and normalized them.
 RECORDS = {record.__name__: record for record in (Account, Contract, EntryLot, Order, Position)}
+
+
+def active_account(account: Account) -> Account:
+    """A shallow financial snapshot; order history is stored separately.
+
+    Callers that queue it across threads/processes must still take a deepcopy.
+    The account owner retains completed orders for idempotency and broker reports.
+    """
+    return replace(account, orders=dict(account.working))
 
 
 def encode(value):

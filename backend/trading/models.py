@@ -50,7 +50,7 @@ class Position(models.Model):
     settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
     stop_loss = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     take_profit = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         unique_together = ('account', 'instrument')
@@ -102,7 +102,7 @@ class TradeHistory(models.Model):
     quantity = models.PositiveIntegerField()
     charges = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     charges_breakdown = models.JSONField(default=dict)
-    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    timestamp = models.DateTimeField(default=timezone.now, db_index=True)
 
     def __str__(self):
         return f"Trade for Order {self.order.id} at {self.executed_price}"
@@ -122,7 +122,7 @@ class ClosedPositionLog(models.Model):
     recorded_charges = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     exit_reason = models.CharField(max_length=100, choices=TerminalExitReason.choices, default=TerminalExitReason.MANUAL)
     entry_time = models.DateTimeField()
-    exit_time = models.DateTimeField(auto_now_add=True)
+    exit_time = models.DateTimeField(default=timezone.now)
 
     class Meta:
         indexes = [models.Index(fields=['account', '-exit_time'], name='terminal_close_time_idx')]

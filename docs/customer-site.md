@@ -87,11 +87,12 @@ without creating another frontend application.
 | `/trust`, `/security`, `/methodology` | Controls and data/simulation explanations |
 | `/privacy-policy`, `/terms-of-service`, `/refunds` | Published policy text and customer responsibilities |
 
-Public catalogue defaults advertise **NSE-stock research/testing/simulation**.
-Explore lists stocks; Build/Pro also list futures/options as **Coming soon**, with
-no release date. The current catalogue validator prevents publishing those F&O
-market flags as available. Internal contract/execution capabilities are described
-in technical guides; they are not a reason to promise public access early.
+Public catalogue defaults include **NSE stocks, futures and options simulation**
+on Explore, Build and Pro. Strategy building, historical tests, manual Terminal
+and automated Paper share the supported instrument/contract validation and plan
+allowances. Direct AI analysis and screening still focus on active NSE stocks.
+Customer copy must distinguish simulated execution from broker trading and note
+that eligible contracts and provider history determine historical availability.
 
 Public plans do not offer customer Live trading or customer Private deployments.
 Personal/operator Private retains separate Live code/use. The archived earlier

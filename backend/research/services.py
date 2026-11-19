@@ -2,8 +2,7 @@
 
 import logging
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
+from common.channels import publish_channel_message
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
@@ -165,15 +164,8 @@ def publish_run(run):
     data["session"] = data.pop("session_id")
     user_id = run.user_id
 
-    def send():
-        try:
-            async_to_sync(get_channel_layer().group_send)(
-                f"research_{user_id}", {"type": "research.update", "data": {"type": "research.update", "run": data}}
-            )
-        except Exception:
-            logger.exception("Could not broadcast research run %s", run.pk)
-
-    transaction.on_commit(send)
+    publish_channel_message(f"research_{user_id}", {
+        "type": "research.update", "data": {"type": "research.update", "run": data}})
 
 
 def research_allowance(user):

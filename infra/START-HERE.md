@@ -1,8 +1,8 @@
 # Your deployment checklist: start here
 
-**Repository architecture checked: 10 November 2026.** Provider-dashboard
-instructions were last reviewed on 24 October 2026; confirm labels and permissions
-in your provider account.
+**Repository flow and Oracle server setup checked: 18 November 2026.** Other
+provider-dashboard instructions retain their individual review dates; confirm
+labels, permissions and entitlements in your own accounts.
 
 These guides explain the actions you, the operator, need to take. They start from
 the current repository and finish with a configured platform. You do not need to
@@ -21,6 +21,11 @@ Do Development first. Then choose Public, Private, or both on separate servers.
 Public and Private use different databases, credentials and users. Logging into
 one does not create an account or copy strategies in the other. Both use the same
 site, registration and workspace interface; execution scopes control access.
+
+For Oracle, start with the shared [server guide](shared/SERVER-SETUP.md), which
+now covers Console provisioning, current A1 allowance, reserved IPs, NSG/security
+lists, the Oracle Ubuntu firewall and native ARM builds. One tenancy's free
+allocation is shared: it does not automatically cover two full production hosts.
 
 The walkthroughs refer to three shared procedures:
 
@@ -93,6 +98,8 @@ Write these in a private deployment record/password manager:
 | Personal browser domain | `personal.example.com` |
 | Public server address | Your server's reserved public IP |
 | Private server address | Your separate personal server's reserved public IP |
+| Oracle region/compartment/shape | Record the actual tenancy allocation and host architecture |
+| OCI storage/recovery | Boot volume identity, remaining shared allowance and off-host backup location |
 | Reviewed source release | Your pushed commit/tag |
 | Support mailbox | An address you can receive and reply to |
 | Verified sending address | `no-reply@example.com` |

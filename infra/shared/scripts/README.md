@@ -4,6 +4,12 @@ Run these Python 3.12 scripts from the repository root. They are one-shot operat
 tools, not extra servers. Docker runs application processes. All helpers select
 one of `development`, `public` or `private`, and preserve its project/volume name.
 
+On Oracle, first complete [Server setup](../SERVER-SETUP.md). These scripts manage
+the application after SSH/Docker/storage are ready; they do not create OCI VMs,
+NSGs, reserved IPs or volume backups, and need no OCI API key. Keep application
+backups off the VM and use [Oracle recovery notes](../RECOVERY-SETUP.md#6-oracle-recovery-and-host-replacement)
+when replacing a host or changing CPU architecture.
+
 ## 1. Common arguments and files
 
 | Argument/file | Meaning |

@@ -15,6 +15,7 @@ class MonteCarloSimulator:
     """
 
     CHUNK_SIZE = 128
+    MAX_CHUNK_VALUES = 1_000_000  # Several NumPy matrices coexist for each chunk.
 
     def __init__(self, mc_run_id):
         self.run = MonteCarloRun.objects.select_related("backtest_run").get(id=mc_run_id)
@@ -54,14 +55,15 @@ class MonteCarloSimulator:
         upper_pct = 100 - lower_pct
 
         n_trades = len(pnl_array)
+        chunk_size = min(self.CHUNK_SIZE, max(1, self.MAX_CHUNK_VALUES // n_trades))
         rng = np.random.default_rng(int(self.run.pk))
         metric_chunks = {name: [] for name in (
             "Terminal Capital", "Total Return", "Max Drawdown", "Win Rate",
             "Per-Trade Sharpe Ratio", "Profit Factor", "Expectancy",
         )}
         final_equities = []
-        for offset in range(0, iterations, self.CHUNK_SIZE):
-            size = min(self.CHUNK_SIZE, iterations - offset)
+        for offset in range(0, iterations, chunk_size):
+            size = min(chunk_size, iterations - offset)
             samples = rng.choice(pnl_array, size=(size, n_trades), replace=True)
             equities = initial_capital + np.cumsum(samples, axis=1)
             terminal = equities[:, -1]

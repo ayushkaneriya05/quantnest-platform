@@ -4,6 +4,9 @@ Do this after the chosen mode works, before you rely on its stored data. This
 walkthrough uses your Windows computer as the recovery-key/off-host backup
 location and the Ubuntu host for creating encrypted backups. The exact script
 arguments and archive format are described in [the runbook](scripts/README.md).
+Oracle replacement-host steps were reviewed on **18 November 2026**. Use
+[Server setup](SERVER-SETUP.md) for cloud/network preparation and the final section
+below for the OCI-specific failover order.
 
 ## 1. Understand the three things you must retain
 
@@ -125,3 +128,52 @@ that created them; the current format is 3.
 After recovery, retain the private identity in your protected operator storage
 and remove any temporary recovery-host copy using your normal secret-handling
 procedure. Record the date, source backup and result of the recovery exercise.
+
+## 6. Oracle recovery and host replacement
+
+Keep this private deployment record alongside the protected recovery material:
+
+| Record | Why it matters |
+| --- | --- |
+| Region, compartment, instance and boot-volume identifiers | Locate the original resources and distinguish Public from Private |
+| Reserved public IP and VNIC association | Preserve the endpoint deliberately, rather than relying on an ephemeral address |
+| DNS records and broker-approved outbound IP | Reconnect browsers/provider callbacks and the personal trading app |
+| Ubuntu version, ARM64/AMD64, release tag and source commit | Rebuild matching native images; do not load an AMD64 laptop image onto A1 |
+| Original environment/encryption keys and age identity | Decrypt the archive and its stored credentials; these are separate keys |
+| Latest tested application archive/checksum | Recover PostgreSQL/media using the selected mode's restore helper |
+
+If an Oracle instance is lost, reclaimed or being replaced:
+
+1. **Keep the old execution host stopped or isolated.** Confirm it cannot resume
+   automatically while the recovery host is enabled. The local execution lock
+   does not coordinate owners on two servers; neither a restored DB nor DNS
+   prevents the old host from sending broker orders.
+2. **Preserve its storage until recovery is proved.** When using the OCI
+   termination workflow, inspect the boot-volume deletion options instead of
+   accepting deletion of the only remaining data copy. A retained volume is
+   not an independent off-host backup.
+3. **Provision the clean replacement** using [Server setup](SERVER-SETUP.md).
+   Check tenancy capacity/cost, region, architecture, disk, route and NSG/guest
+   firewall. Build the reviewed images natively and restore into the empty
+   application database as described above; do not run deploy first.
+4. **Plan the public address.** A reserved public IP can be reassociated within
+   its region, after the old writer is isolated. If moving is not possible,
+   update DNS and the broker-approved source IP explicitly. Recheck the actual
+   outbound address before any real trading. See [OCI public-IP management](https://docs.oracle.com/en-us/iaas/Content/Network/Tasks/managingpublicIPs.htm).
+5. **Restore browser/gateway configuration.** Public Pages still targets the
+   configured origin hostname/token; Private still uses its personal hostname.
+   Use the correct Site/callback configuration. Caddy needs working DNS and
+   challenge access to obtain certificates on its new volume.
+6. **Review recovered state before startup.** Inspect saved session statuses,
+   unapplied execution commands and actual broker orders. Complete any required
+   source/broker sign-in again. A restored token may be expired, and the broker
+   may have processed orders after the backup boundary.
+7. **Start only the intended owner** through the selected mode's normal deploy
+   procedure, then verify diagnostics and deliberate user/provider acceptance.
+   Keep the old instance isolated until the replacement is accepted.
+
+Console boot/block-volume snapshots can supplement this workflow. They are not
+created by `backup.py`; they do not supply your age identity, protected env files
+or a broker-state snapshot. Additional volumes and snapshots count against the
+tenancy's actual allowances/costs. Keep at least one verified encrypted archive
+outside this VM, and use a separate empty recovery host for drills.

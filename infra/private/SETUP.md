@@ -6,7 +6,9 @@ Live scopes enabled. There is no customer licence, renewal service, commercial
 quota or Private checkout to activate.
 
 Customer Private hosting/Live sales are not part of this setup. This document
-describes the current personal instance, reviewed on 24 October 2026.
+describes the current personal instance, with Oracle server steps reviewed on
+18 November 2026. Use [Private readiness](../../docs/private-deployment-readiness.md)
+for the current functional acceptance boundaries.
 
 ## Step 1. Complete local simulation and prepare this separate instance
 
@@ -44,6 +46,10 @@ python3 --version
 These and subsequent shell commands run **on the Ubuntu server**. Public and
 Private production defaults both publish 80/443, so do not start both on the same
 host using these files unchanged.
+On Oracle, follow that guide's public-subnet/Internet-Gateway, reserved-IP, NSG
+and guest-firewall steps. A separate personal host has its own resource needs;
+the tenancy's free A1 CPU/RAM is shared with any Public host. On A1, build the
+Private backend, research and frontend images natively for ARM64.
 
 Create a DNS A record for `personal.example.com` pointing at this server's
 reserved IP. If using Cloudflare DNS, use **DNS-only** for this direct-ingress
@@ -153,6 +159,10 @@ Diagnostics also checks execution worker readiness.
 The stack includes feed, unified execution and `broker-events`; it does not start
 a second Terminal/orders engine. A running broker-events container without a
 saved active broker connection does not mean a trading account is authorized.
+Before initial data consent, the feed stays running in a waiting state. It checks
+the saved source authorization every five seconds without calling FYERS. Saving
+a valid token starts its socket; daily reauthorization replaces that socket
+automatically. A healthy API/container is not proof that live data is connected.
 
 If TLS fails, inspect DNS, inbound 80/443, server clock and Caddy logs:
 
@@ -195,6 +205,11 @@ Follow [FYERS data setup](../shared/INTEGRATIONS.md#6-fyers-shared-market-data-c
 3. Open `https://personal.example.com/api/v1/market/fyers/login/` in the same browser.
 4. Complete FYERS consent and inspect its staff token status/feed logs.
 5. Request a stock chart and deeper history; check live updates during its session.
+
+Keep `feed` running during consent. After the token is saved, allow up to five
+seconds for the local authorization check, then wait for the FYERS authentication
+acknowledgement and the required subscriptions/history. This interval is unrelated
+to per-tick rule evaluation. Daily source sign-in is still your responsibility.
 
 Then confirm account/password/support email, Turnstile anonymous enquiries and
 Gemini research. If desired, add [Google login](../shared/INTEGRATIONS.md#8-google-sign-in-optional-backend-client)

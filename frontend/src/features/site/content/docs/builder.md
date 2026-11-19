@@ -9,10 +9,11 @@ order: 4
 A strategy says what to trade, when to enter, how much to use and what closes its
 position. It does not start running when you save it.
 
-Public subscriptions currently cover the published NSE-stock workflow. The
-contract-selection sections below explain controls available where derivative
-functionality is enabled; they are not a promise that futures/options or customer
-Live trading are included in a public plan. Check [current availability](/docs/billing/).
+All public plans include NSE stocks, futures and options for backtesting and
+simulation, within the plan allowances. Use a fixed instrument or an automatic
+contract-selection policy. Contracts still need eligible instrument details and
+available data; public plans do not include customer Live trading. See
+[Billing and Usage](/docs/billing/).
 
 ## Create and navigate a strategy
 
@@ -62,7 +63,7 @@ An indicator's **Source** parameter is a different choice: Close, Volume or a
 supported indicator series. Its outer market selector chooses which instrument
 provides that series.
 
-## Automatic futures and options, where enabled
+## Automatic futures and options
 
 Choose **Add instrument → Automatic F&O selection**, select the underlying and
 expand the row. Choose Future or Option; for options choose Call/Put, expiry and

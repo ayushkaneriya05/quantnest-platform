@@ -52,6 +52,8 @@ current behavior and operational limits are retained in these guides.
 | Build a separate research product | [AI research assistant transformation](ai-financial-research-transformation.md) | Separate repository, datasets, experiments, portfolio/ML methods and career evidence |
 | Find a local quant/fintech role | [Ahmedabad, Gandhinagar and GIFT City career plan](quant-fintech-career-plan-ahmedabad-2026-10.md) | Dated employer research, eligibility, project evidence and interview/application preparation |
 | Review delivery scope | [Implementation plan](implementation-plan.md) | Implementation map and remaining release work |
+| Assess launch readiness | [Release readiness](release-readiness.md) | Current architecture, verified fixes, deployment-mode checks, measured costs, migrations and remaining acceptance gates |
+| Assess personal Private readiness | [Private readiness](private-deployment-readiness.md) | Functionality matrix, source-token lifecycle fix, Live product/commodity gaps and account/provider acceptance |
 | First deployment as a beginner | [Start here](../infra/START-HERE.md) | Development/Public/Private walkthroughs, tools, first user and operations |
 | Install or upgrade | [Infrastructure](../infra/README.md) | Service commands, environment, migrations and backups |
 | Configure integrations | [Integration setup](../infra/shared/INTEGRATIONS.md) | Provider dashboards, keys, callbacks and acceptance |

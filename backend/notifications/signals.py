@@ -1,9 +1,8 @@
-import json
 from decimal import Decimal
 
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
-from rest_framework.renderers import JSONRenderer
+from common.channels import publish_channel_message
 
 from common.enums import NotificationType, OrderStatus
 
@@ -13,21 +12,8 @@ from .services import NotificationService
 
 
 def broadcast_notification(notification):
-    from asgiref.sync import async_to_sync
-    from channels.layers import get_channel_layer
-
-    channel_layer = get_channel_layer()
-    if channel_layer is None:
-        return
-    try:
-        notification_data = json.loads(JSONRenderer().render(NotificationSerializer(notification).data))
-        async_to_sync(channel_layer.group_send)(
-            f"user_notifications_{notification.user_id}",
-            {"type": "send_notification", "notification": notification_data},
-        )
-    except Exception:
-        import logging
-        logging.getLogger(__name__).exception("Could not broadcast notification %s", notification.pk)
+    publish_channel_message(f"user_notifications_{notification.user_id}", {
+        "type": "send_notification", "notification": NotificationSerializer(notification).data})
 
 
 @receiver(post_save, sender=Notification)

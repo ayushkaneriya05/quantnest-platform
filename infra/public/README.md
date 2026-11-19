@@ -19,7 +19,9 @@ host. Use [shared configuration](../shared/README.md) for every service option a
 Install Docker Engine, Compose v2, Python 3.12 and age. Keep the database on reliable
 persistent disk with enough free space for database growth, image builds and backup
 temporary files. Begin with the conservative concurrency values in the example;
-the supplied production caps assume approximately 12 GiB RAM.
+the supplied production caps assume a host with approximately 12 GB RAM or more.
+Follow [Oracle server setup](../shared/SERVER-SETUP.md) for the current tenancy
+allowance, public subnet/route, reserved IP, guest firewall and native ARM build.
 
 Give the host a stable address and restrict SSH to your administration access.
 Expose HTTP/HTTPS (80/443) for Caddy's certificate issuance and the origin connection.
@@ -34,8 +36,7 @@ metric alarms and systemd jobs are not required by these application files.
 ```sh
 cp infra/public/backend.env.example infra/public/backend.env
 cp infra/public/research.env.example infra/public/research.env
-cp infra/public/frontend.env.example frontend/.env
-chmod 600 infra/public/backend.env infra/public/research.env frontend/.env
+chmod 600 infra/public/backend.env infra/public/research.env
 ```
 
 Each copy creates the real local configuration from its tracked example. `chmod`
@@ -111,8 +112,10 @@ Use the repository root as the Pages root so `functions/[[path]].js` is included
 | `BACKEND_ORIGIN` | HTTPS origin hostname, no credentials/path/query. Read by the Function only. |
 | `QUANTNEST_PROXY_TOKEN` | Same strong value as backend.env, stored as a server-side Function secret. |
 
-For a local build, the copied `frontend/.env` supplies the public values; run
-`npm ci --prefix frontend` and then `npm run build --prefix frontend`. Never put
+For an optional local frontend build on your operator computer, copy
+`infra/public/frontend.env.example` to `frontend/.env`, set its public values, then
+run `npm ci --prefix frontend` and `npm run build --prefix frontend`. The Oracle
+backend host does not need this file or Node. Never put
 database, Django, broker, AI or merchant secrets in VITE variables.
 
 ## 5. Start and initialize the backend

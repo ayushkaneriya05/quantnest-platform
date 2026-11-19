@@ -130,7 +130,10 @@ def normalize_parameters(kind: str, values: dict) -> dict:
         if spec['type'] == 'number':
             if isinstance(value, bool):
                 raise ValueError(f'{kind}.{key} must be numeric.')
-            number = float(value)
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f'{kind}.{key} must be a finite number.') from exc
             integral = float(spec.get('step', 1)).is_integer()
             if (not isfinite(number) or integral and not number.is_integer() or
                 spec.get('min') is not None and number < spec['min'] or

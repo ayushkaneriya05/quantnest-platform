@@ -88,6 +88,12 @@ source and the required host tools. Check `docker version`, `docker compose vers
 and `python3 --version`.
 Run Docker as an operator allowed to use its daemon; this access controls the host.
 
+That guide is the Oracle Cloud provisioning reference: use Ubuntu 24.04, a public
+subnet/Internet Gateway, a reserved address and only required ingress ports. It
+documents current shared free-resource limits, guest firewall handling and ARM64
+build acceptance. These are operator steps; no OCI API keys are needed by the app.
+An A1 host must build native ARM64 images; do not copy AMD64 laptop images into it.
+
 Commands in production guides use a POSIX shell from the repository root. The
 Development guide also explains PowerShell. Paths such as `infra/public/backend.env`
 are relative to that root. Public and Private run on separate hosts/data volumes.
@@ -187,7 +193,7 @@ on that older release before upgrading a database that still has licensing table
 ## Capacity and acceptance
 
 The production defaults are a conservative starting configuration for a host with
-roughly 12 GiB RAM: one API process, one execution worker, one compute slot and two
+roughly 12 GB RAM or more: one API process, one execution worker, one compute slot and two
 background slots. Memory limits are ceilings, not reservations or user-count promises.
 Leave additional memory for Docker, image builds and database/Redis maintenance.
 The compute CPU cap leaves time for execution; it does not reserve dedicated cores.

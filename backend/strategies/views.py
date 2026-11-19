@@ -3,7 +3,7 @@ from django.db.models import Count, Q
 """
 Views for the strategies app.
 """
-from rest_framework import viewsets, status, permissions
+from rest_framework import mixins, viewsets, status, permissions
 from django.db import transaction
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,8 +17,8 @@ from .serializers import (
 from .services import StrategySnapshotService, StrategyDeploymentService
 
 
-class StrategyTagViewSet(viewsets.ModelViewSet):
-    """ViewSet for strategy tags."""
+class StrategyTagViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
+    """Users may add shared labels, but cannot rename/delete other users' tags."""
     queryset = StrategyTag.objects.all()
     serializer_class = StrategyTagSerializer
     permission_classes = [permissions.IsAuthenticated]

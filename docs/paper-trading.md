@@ -229,6 +229,13 @@ services also use renewable singleton leases to prevent accidental duplicate fee
 
 ### Cold path versus hot path
 
+The durable account checkpoint contains active financial state and working
+orders. Completed orders are stored separately in `OrderCheckpoint`, updated
+atomically with their financial effects. Configuration refreshes omit that history;
+cold recovery restores it for duplicate protection and late broker observations.
+Workers still retain completed-order ownership in memory. Routine checkpoint
+writes no longer grow with the entire completed-order history.
+
 | Boundary | Operations |
 | --- | --- |
 | API/controller preparation | ORM ownership/configuration, contract/calendar reads, commands, graph preparation |
@@ -241,6 +248,11 @@ idle scheduling and CPU contention add normal scheduling time. These are not
 per-tick database polls. Background configuration preparation is asynchronous; a
 slow history provider can delay applying a version without making its graph a
 valid ready program prematurely.
+
+Committed browser updates use a bounded local display queue, so Channels/Redis
+delivery does not block the financial acknowledgement. Missed display hints
+recover through REST snapshots/reconnect. This does not make browser delivery
+exactly once or remove the durable SQL cost of a fill.
 
 `EXECUTION_WORKERS` controls worker processes (default 1). Units/account ownership
 are assigned deterministically. Work is scheduled in bounded turns so a backlog

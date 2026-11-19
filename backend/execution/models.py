@@ -22,6 +22,21 @@ class AccountCheckpoint(models.Model):
         constraints = [models.UniqueConstraint(fields=['mode', 'account_id'], name='execution_account_checkpoint')]
 
 
+class OrderCheckpoint(models.Model):
+    """Completed order state for cold recovery and late broker observations.
+
+    Working orders stay in the account checkpoint. Keeping completed orders in
+    separate rows prevents each new fill from rewriting the full trading history.
+    """
+    account = models.ForeignKey(AccountCheckpoint, on_delete=models.CASCADE,
+        related_name='completed_orders', db_index=False)  # The composite unique index starts with account.
+    identity = models.CharField(max_length=160)
+    state = models.JSONField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['account', 'identity'], name='execution_order_checkpoint')]
+
+
 class Command(models.Model):
     id = models.BigAutoField(primary_key=True)
     request_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)

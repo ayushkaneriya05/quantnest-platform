@@ -4,6 +4,11 @@ For hands-on preparation, use [Server setup](SERVER-SETUP.md) and
 [Integration setup](INTEGRATIONS.md) alongside your mode's `SETUP.md`.
 [Recovery setup](RECOVERY-SETUP.md) covers the first operator key and off-host copy.
 
+Oracle provisioning, NSG/security-list rules and the Ubuntu guest firewall belong
+to [Server setup](SERVER-SETUP.md). A1 is ARM64; current base-image manifests include
+that architecture, but locked application builds and acceptance must run on the
+target host. Compose uses the native platform without an AMD64 emulation override.
+
 These definitions are used by [Development](../development/README.md),
 [Public](../public/README.md) and [Private](../private/README.md). The
 [script runbook](scripts/README.md) explains deployment, diagnostics and recovery.
@@ -157,6 +162,12 @@ its workers through the normal controller loop. Signal handlers do not acquire
 multiprocessing event locks. This allows `docker compose stop` to finish cleanly
 instead of depending on Docker's forced-kill timeout. Stopping services does not
 close positions at the broker; settle/review trading before maintenance.
+
+Public and Private cap the execution container at `1536m`. Increasing
+`EXECUTION_WORKERS` does not raise that cap: revisit the Compose resource budgets
+and host headroom together after measuring. More workers also do not multiply the
+controller's serial database-writer throughput. See the current
+[release verification and capacity evidence](../../docs/release-readiness.md).
 
 The API healthcheck uses Python's standard HTTP client to call `/health/` on the
 already running server. `ProxyHandler({})` bypasses inherited host HTTP proxy

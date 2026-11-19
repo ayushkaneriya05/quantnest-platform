@@ -10,10 +10,11 @@ Open **Settings → Account → Billing and Usage**, or Pricing for the currentl
 published plans. Explore is free. Build and Pro add the amounts shown in the
 current catalog; this guide does not fix future plan prices or quota numbers.
 
-Public plans currently cover the supported NSE-stock workflow through simulation
-and Paper. NSE futures/options remain listed as Coming soon where shown, without
-an announced release date. A paid plan does not activate them early or enable
-customer Live trading. QuantNest Private is not currently for sale.
+Explore, Build and Pro include NSE stocks, futures and options for backtesting,
+Terminal simulation and automated Paper trading. Plans differ in usage capacity;
+available contracts and provider history determine what you can test. Direct AI
+stock analysis and screening focus on active NSE stocks. Public plans do not
+enable customer Live trading. QuantNest Private is not currently for sale.
 
 ## Three kinds of allowance
 

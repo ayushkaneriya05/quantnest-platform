@@ -11,8 +11,10 @@ strategy's current saved configuration; it does not use unsaved editor changes
 or change the version already running in Paper. Existing results retain their
 original rules, dates and cost assumptions after later edits.
 
-Public availability follows the published NSE-stock workflow. Derivative sections
-below apply only where that functionality is enabled, not to a new public offer.
+All public plans support historical tests of NSE stocks, futures and options,
+within their workload and credit allowances. Derivative tests require the selected
+contracts' own prices and usable contract details; selecting a date does not
+guarantee that the provider has that history.
 
 ## Configure and start
 
@@ -114,7 +116,7 @@ Costs are frozen with the run. Same-day versus across-date equity treatment uses
 the relevant holding dates, rather than assuming a CNC product always means
 delivery charges. See [charge profiles](/docs/charges/).
 
-## Futures/options history, where enabled
+## Futures/options history
 
 Fixed contracts keep their exact identity. Automatic expiry and ATM/ITM/OTM
 policies use historical underlying observations to select a contract, then use

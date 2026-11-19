@@ -17,7 +17,7 @@ from instruments.models import Instrument
 from marketdata.calendar import MarketSessionCalendar
 from .models import AccountCheckpoint, Command, SettlementPosting, SettlementPrice
 from .settlements import SettlementPrice as Price
-from .snapshots import decode, encode
+from .snapshots import active_account, decode, encode
 from .types import ZERO
 
 
@@ -227,7 +227,7 @@ def persist_settlement(message):
         state.committed_revision = state.revision
         state.pending_funds.clear()
         state.uncommitted_funds = ZERO
-        checkpoint.state, checkpoint.revision = encode(state), state.revision
+        checkpoint.state, checkpoint.revision = encode(active_account(state)), state.revision
         checkpoint.save(update_fields=['state', 'revision', 'updated_at'])
     command.applied_at = timezone.now()
     command.save(update_fields=['applied_at'])
@@ -276,12 +276,11 @@ def project_settlement(state, result):
             owned.update(settled_pnl=position.settled_pnl)
         else:
             owned.delete()
-            closed = ClosedPositionLog.objects.create(account_id=account_id, instrument_id=instrument_id,
+            ClosedPositionLog.objects.create(account_id=account_id, instrument_id=instrument_id,
                 side='LONG' if trade.side == Side.BUY else 'SHORT', quantity=trade.quantity,
                 entry_price=trade.entry_price, exit_price=trade.exit_price, gross_pnl=trade.gross,
                 realized_pnl=trade.net, recorded_charges=result.fees, exit_reason=TerminalExitReason.OFFICIAL_SETTLEMENT,
                 entry_time=trade.entry_time, exit_time=trade.exit_time)
-            ClosedPositionLog.objects.filter(pk=closed.pk).update(exit_time=trade.exit_time)
         Account.objects.filter(pk=account_id).update(**terminal_account_values(state))
         from common.channels import publish_trading_update
         from trading.serializers import AccountSerializer, PositionSerializer

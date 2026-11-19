@@ -570,6 +570,14 @@ smoothing. Only parameters actually published in Studio are configurable.
 
 ### 7.5 Indicator source versus nested calculations
 
+Bar-count parameters and Shift have a technical maximum of **10,000**, defined
+in the backend operand specification and published to Studio. This protects
+preparation memory in every deployment mode; it is not a commercial allowance.
+The history plan can require more source bars than the parameter itself because
+of recursive convergence, timeframe expansion, Shift and nested-source warmup.
+An existing shared buffer must have enough capacity for that full plan. See
+[preparation and maintenance limits](release-readiness.md#maintenance-cases-that-still-require-care).
+
 Period/source indicators can consume a permitted price series or a listed source
 indicator. For example, select RSI as EMA's Source, configure RSI's source-parameter
 period, then smooth that RSI with the outside EMA period.

@@ -13,8 +13,8 @@ from django.utils import timezone
 
 from common.enums import ExecutionMode, InstrumentType, OrderStatus, Side, TerminalOrderStatus, TerminalOrderType
 
-from .models import AccountCheckpoint, Command
-from .snapshots import decode, encode
+from .models import AccountCheckpoint, Command, OrderCheckpoint
+from .snapshots import active_account, decode, encode
 from .types import Account, Transition, ZERO
 
 TERMINAL_STATUS = {OrderStatus.PENDING: TerminalOrderStatus.OPEN, OrderStatus.PLACED: TerminalOrderStatus.OPEN,
@@ -99,13 +99,25 @@ def reject_command(command, error):
 def initialize_account(account: Account) -> Account:
     account.__post_init__()
     row, created = AccountCheckpoint.objects.get_or_create(mode=account.key[0], account_id=account.key[1],
-        defaults={'revision': account.revision, 'state': encode(account)})
-    return account if created else decode(row.state)
+        defaults={'revision': account.revision, 'state': encode(active_account(account))})
+    if not created:
+        return restore_account(account.key)
+    OrderCheckpoint.objects.bulk_create([OrderCheckpoint(account=row, identity=order.identity, state=encode(order))
+        for order in account.orders.values() if order.identity not in account.working], batch_size=500)
+    return account
 
 
-def restore_account(key) -> Account | None:
+def restore_account(key, *, include_history=True) -> Account | None:
+    """Read full order ownership only on recovery, never for configuration refresh."""
     row = AccountCheckpoint.objects.filter(mode=key[0], account_id=key[1]).first()
-    return decode(row.state) if row else None
+    if row is None:
+        return None
+    state = decode(row.state)
+    if include_history:
+        for value in row.completed_orders.values_list('state', flat=True).iterator(chunk_size=500):
+            order = decode(value)
+            state.orders[order.identity] = order
+    return state
 
 
 def persist_evaluations(messages):
@@ -141,14 +153,12 @@ def _paper(result: Transition, state: Account):
         if position is None:
             owned.delete()
         else:
-            record_position, _ = PaperPosition.objects.update_or_create(**owner_key,
+            PaperPosition.objects.update_or_create(**owner_key,
                 defaults={'instrument_id': order.contract.instrument_id, 'strategy_id': session.strategy_id,
                 'side': Side.BUY if position.quantity > 0 else Side.SELL, 'quantity': abs(position.quantity),
                 'avg_price': position.average, 'current_price': result.fill.price,
                 'margin_blocked': position.margin, 'settled_pnl': position.settled_pnl,
-                'unrealized_pnl': position.unsettled_pnl(result.fill.price)})
-            # auto_now_add must not replace the actual execution timestamp.
-            owned.filter(pk=record_position.pk).update(opened_at=position.opened_at)
+                'unrealized_pnl': position.unsettled_pnl(result.fill.price), 'opened_at': position.opened_at})
     if trade is not None:
         fees = Decimal(str(trade.charges.get('total_charges', 0)))
         brokerage = sum((Decimal(str(trade.charges.get(leg, {}).get('brokerage', 0)))
@@ -206,13 +216,12 @@ def _live(result: Transition, state: Account):
         if position is None:
             owned.delete()
         else:
-            row, _ = LivePosition.objects.update_or_create(**owner_key,
+            LivePosition.objects.update_or_create(**owner_key,
                 defaults={**ownership, 'instrument_id': order.contract.instrument_id, 'product_type': order.contract.product,
                 'side': Side.BUY if position.quantity > 0 else Side.SELL, 'quantity': abs(position.quantity),
                 'avg_price': position.average, 'current_price': result.fill.price,
                 'margin_blocked': position.margin, 'settled_pnl': position.settled_pnl,
-                'unrealized_pnl': position.unsettled_pnl(result.fill.price)})
-            owned.filter(pk=row.pk).update(opened_at=position.opened_at)
+                'unrealized_pnl': position.unsettled_pnl(result.fill.price), 'opened_at': position.opened_at})
     if trade is not None:
         LiveTrade.objects.create(**ownership, instrument_id=trade.contract.instrument_id, exit_order=record,
             route_id=trade.unit[2], leg_id=trade.unit[3],
@@ -245,22 +254,19 @@ def _terminal(result: Transition, state: Account):
         if position is None:
             owned.delete()
         else:
-            row, _ = Position.objects.update_or_create(account_id=state.key[1], instrument_id=order.contract.instrument_id,
+            Position.objects.update_or_create(account_id=state.key[1], instrument_id=order.contract.instrument_id,
                 defaults={'quantity': position.quantity, 'average_price': position.average, 'settled_pnl': position.settled_pnl,
-                'stop_loss': position.stop_loss, 'take_profit': position.take_profit})
-            owned.filter(pk=row.pk).update(created_at=position.opened_at)
+                'stop_loss': position.stop_loss, 'take_profit': position.take_profit, 'created_at': position.opened_at})
         fees = Decimal(str(trade.charges.get('total_charges', 0))) if trade else ZERO
-        history = TradeHistory.objects.create(order=record, executed_price=result.fill.price,
-            quantity=result.fill.quantity, charges=fees, charges_breakdown=trade.charges if trade else {})
-        TradeHistory.objects.filter(pk=history.pk).update(timestamp=result.fill.at)
+        TradeHistory.objects.create(order=record, executed_price=result.fill.price,
+            quantity=result.fill.quantity, charges=fees, charges_breakdown=trade.charges if trade else {},
+            timestamp=result.fill.at)
     if trade is not None:
-        closed = ClosedPositionLog.objects.create(account_id=state.key[1], instrument_id=order.contract.instrument_id,
+        ClosedPositionLog.objects.create(account_id=state.key[1], instrument_id=order.contract.instrument_id,
             side='LONG' if trade.side == Side.BUY else 'SHORT', quantity=trade.quantity,
             entry_price=trade.entry_price, exit_price=trade.exit_price, realized_pnl=trade.net,
             gross_pnl=trade.gross, recorded_charges=Decimal(str(trade.charges.get('total_charges', 0))),
             exit_reason=trade.reason[:100], entry_time=trade.entry_time, exit_time=trade.exit_time)
-        # auto_now_add is the insertion clock; reports need the execution clock.
-        ClosedPositionLog.objects.filter(pk=closed.pk).update(exit_time=trade.exit_time)
     AccountRecord.objects.filter(pk=state.key[1]).update(**terminal_account_values(state))
     from trading.signals import order_status_changed, position_changed
     order_status_changed.send(sender=Order, order=record)
@@ -290,7 +296,7 @@ def persist_control(result):
         state.committed_revision = state.revision
         state.pending_funds.clear()
         state.uncommitted_funds = ZERO
-        row.state, row.revision = encode(state), state.revision
+        row.state, row.revision = encode(active_account(state)), state.revision
         row.save(update_fields=['state', 'revision', 'updated_at'])
         from common.enums import ExecutionCommandType
         if command.kind == ExecutionCommandType.REFRESH:
@@ -373,7 +379,12 @@ def persist_transition(result: Transition, *, command_id: int | None = None):
     if result.broker_debit:
         state.broker_spending[result.revision] = result.broker_debit
     record = WRITERS[result.account[0]](result, state)
-    checkpoint.revision, checkpoint.state = result.revision, encode(state)
+    if result.order.identity not in state.working:
+        # A cancelled order can still receive a late broker fill. Upsert its
+        # cumulative state in the same transaction as the balance and read models.
+        OrderCheckpoint.objects.update_or_create(account=checkpoint, identity=result.order.identity,
+            defaults={'state': encode(result.order)})
+    checkpoint.revision, checkpoint.state = result.revision, encode(active_account(state))
     checkpoint.save(update_fields=['revision', 'state', 'updated_at'])
     if command_id is not None:
         Command.objects.filter(pk=command_id, applied_at__isnull=True).update(applied_at=timezone.now())

@@ -34,10 +34,18 @@ Public plans are Explore, Build and Pro, currently monthly INR offerings. Explor
 is free. Paid checkout uses Razorpay and is off until explicitly configured/enabled.
 Pricing/market descriptions come from a published database catalogue.
 
-The current public catalogue advertises NSE stocks, with F&O marked Coming soon;
-customer Live/Private is not offered. This commercial boundary is separate from
-internal runtime contract capabilities. Do not change marketing availability by
-editing a frontend badge alone.
+The public catalogue includes NSE stocks, futures and options for backtesting,
+Terminal simulation and automated Paper on Explore, Build and Pro. Plans differ
+in numeric allowances, not per-market gates. Direct AI stock analysis and
+screening remain focused on active NSE stocks. Customer Live/Private is not
+offered; execution scopes enforce the Paper/Live boundary separately.
+
+Migration `0017_derivatives_simulation` publishes this scope in a new catalogue
+revision. It clones the active revision's prices, allowances and provider price
+mappings, changing market availability only. Existing subscriptions, invoices,
+usage periods and their purchased catalogue snapshots remain untouched. Pricing
+and upgrade screens read the current active catalogue; purchased allowance terms
+continue to come from the user's accepted revision.
 
 | Model | Why it exists |
 | --- | --- |

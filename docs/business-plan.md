@@ -22,9 +22,11 @@ Private is an operator-managed personal production instance. It is not offered t
 customers and has no sales, contract activation or licence renewal workflow.
 Personal Live code remains available separately from Public simulation.
 
-The public strategy workflow focuses on NSE stocks with explicit instrument bindings. NSE futures and options
-appear as **Coming soon** in Build and Pro; they are not enabled products.
-Additional markets and global distribution remain future work.
+The public strategy workflow includes NSE stocks, futures and options for
+backtesting, Terminal simulation and automated Paper on all plans. Direct AI
+analysis and screening focus on active NSE stocks. Plans add usage capacity;
+they do not grant customer broker execution. Additional markets and global
+distribution remain future work. This market scope was updated on 18 November 2026.
 
 ## 2. Customers and an initial focus
 
@@ -211,10 +213,12 @@ when a paid customer need justifies the maintenance burden.
 
 ### Later: market and instrument expansion
 
-Treat derivatives and another market as complete product additions: contracts,
-calendars, data coverage, lot/tick/multiplier rules, margin, settlement, expiry,
-reports, execution/reconciliation and permissions. International expansion also
-needs local business, payment, privacy and support decisions.
+Treat any expansion beyond the current stock/derivative simulation scope as a
+complete product addition: contracts, calendars, data coverage, lot/tick/multiplier
+rules, margin, settlement, expiry, reports, execution/reconciliation and permissions.
+Simulation does not provide exchange clearing, physical delivery or coordinated
+multi-leg fills. International expansion also needs local business, payment,
+privacy and support decisions.
 
 ### Defer until justified
 

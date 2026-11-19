@@ -1,6 +1,7 @@
 """FYERS V3 authentication and trading adapter. Vendor keys stay in this module."""
 import re
 import time
+from hashlib import sha256
 from datetime import datetime, timedelta, timezone as datetime_timezone
 from decimal import Decimal
 from urllib.parse import urlsplit
@@ -16,6 +17,8 @@ from rest_framework import serializers
 from common.enums import BrokerName, OrderStatus, Side
 from .base import BROKER_SESSION_EXPIRED_CACHE_KEY, BaseBrokerAdapter
 from .models import BrokerSession
+
+FYERS_API_URL = "https://api-t1.fyers.in/api/v3"
 
 
 class FyersConfigurationSerializer(serializers.Serializer):
@@ -45,17 +48,29 @@ class FyersAuth:
         return self._session_model(state).generate_authcode()
 
     def exchange_code(self, auth_code: str) -> dict:
-        session = self._session_model("")
-        session.set_token(auth_code)
-        response = session.generate_token()
-        if response["s"] != "ok":
-            raise ValueError(response["message"])
+        # The SDK's token exchange has no network timeout. Use its exact V3
+        # request contract with bounded transport for both source and broker OAuth.
+        try:
+            reply = requests.post(FYERS_API_URL + "/validate-authcode", json={
+                "grant_type": "authorization_code",
+                "appIdHash": sha256(f"{self.client_id}:{self.secret}".encode()).hexdigest(),
+                "code": auth_code,
+            }, timeout=(5, 10), allow_redirects=False)
+            reply.raise_for_status()
+            response = reply.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise ValueError("FYERS authorization is temporarily unavailable. Start a new sign-in and retry.") from exc
+        if not isinstance(response, dict) or response.get("s") != "ok":
+            raise ValueError("FYERS did not accept the authorization code. Start a new sign-in.")
+        token = response.get("access_token")
+        if not isinstance(token, str) or not token:
+            raise ValueError("FYERS did not return an access token. Start a new sign-in.")
         # FYERS documents a daily 06:30 IST boundary, not an expires_in field.
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
         expiry = now.replace(hour=6, minute=30, second=0, microsecond=0)
         if expiry <= now:
             expiry += timedelta(days=1)
-        return {"access_token": response["access_token"], "expires_at": expiry}
+        return {"access_token": token, "expires_at": expiry}
 
 
 class FyersAdapter(BaseBrokerAdapter):
@@ -67,7 +82,7 @@ class FyersAdapter(BaseBrokerAdapter):
         1: OrderStatus.CANCELLED, 2: OrderStatus.FILLED, 4: OrderStatus.PLACED,
         5: OrderStatus.REJECTED, 6: OrderStatus.PENDING, 7: OrderStatus.EXPIRED,
     }
-    API_URL = "https://api-t1.fyers.in/api/v3"
+    API_URL = FYERS_API_URL
 
     @staticmethod
     def connection_details() -> dict:

@@ -4,6 +4,12 @@ Use this alongside your [Development](../development/SETUP.md),
 [Public](../public/SETUP.md) or [Private](../private/SETUP.md) walkthrough.
 Steps are based on the current source and official provider documentation checked
 on 24 October 2026. Dashboard wording and account entitlements may differ.
+Oracle host/network/IP instructions were separately refreshed on 18 November
+2026 in [Server setup](SERVER-SETUP.md). Configure DNS and the reserved server
+address before entering production callback URLs. For personal broker IP access,
+verify the host's outbound public address; Pages, Docker and VCN private addresses
+are not the trading server's public source IP. Provider secrets do not go in OCI
+ingress rules, DNS records or browser build variables.
 
 ## 1. What to configure, and when
 
@@ -171,6 +177,9 @@ It is separate from the personal trading connection used to submit orders.
    within the ten-minute flow window, using the same browser and hostname.
 7. Inspect `/api/v1/market/fyers/token/status/` as staff and the feed logs. The
    status reports active/expiry metadata; do not copy tokens into the frontend.
+   Keep the feed running: it waits before first consent and notices a replacement
+   source token within its five-second control scan. Authentication acknowledgement,
+   subscription confirmation and history readiness follow; this is not a tick delay.
 8. Search an instrument, open its chart and request history. During its market
    session, observe live updates. Subscriptions follow actual chart/watchlist/
    strategy demand, so a quiet feed with no requested instrument is not a failure.

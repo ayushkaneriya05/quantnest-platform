@@ -338,7 +338,7 @@ another order is sent for that request.
   and Loss. Exact title lookup preserves zeros and negatives.
 - `net_equity` is the existing schema's name for Total Balance in the capital
   ledger. It is not demat asset valuation. Commodity balances are not added to
-  equity balances; current execution is NSE stock execution.
+  equity balances; this equity ledger is not a commodity-margin balance.
 - FYERS Funds does not report withdrawable cash or unrealized P&L. Both are null
   in new snapshots; the migration clears the old guessed FYERS values.
 - Place-order response `201` remains UNKNOWN pending reconciliation, including
@@ -424,14 +424,15 @@ To integrate another broker:
    callback, defaulting to `BACKEND_URL` plus the broker callback path.
 4. Start the API. Complete source authorization using the staff flow above and
    broker setup through **Broker Integration â†’ Connect â†’ Save and connect** for each user.
-5. Start/restart the `market-data` runtime after source authorization, then the
-   remaining services for your mode. An existing market socket does not acquire a
-   newly stored source token automatically. Broker-events supervision notices a
-   new broker session and recreates that account's order stream.
+5. Start the `market-data` runtime and remaining services for your mode. The feed
+   waits before first consent and checks saved source authorization every five
+   seconds on its control thread. A changed token replaces the socket; callbacks
+   from the previous connection are ignored. Broker-events supervision independently
+   notices a new broker session and recreates that account's order stream.
 6. FYERS documents daily expiry at 06:30 IST. `FyersAuth` stores the next such
    boundary; there are no guessed `expires_in`, `expiresIn` or alternate token
-   keys. Authorize again after the daily boundary and restart the market-data
-   runtime after the new source token is stored. Broker token expiry follows the
+   keys. Authorize again after the daily boundary; the running feed reloads the
+   new source token without a manual restart. Broker token expiry follows the
    same provider schedule. Existing expiry records change on fresh authorization.
 
 An individual FYERS app serves its creator. QuantNest now implements that ownerâ€™s

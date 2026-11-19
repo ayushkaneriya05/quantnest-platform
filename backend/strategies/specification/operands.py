@@ -3,6 +3,12 @@ from copy import deepcopy
 
 from common.enums import CandlePatternType, OperandType, RuleType
 
+# Technical limits protect shared preparation memory, independently of a plan's
+# allowance. The same bounds are published to Studio and enforced by validation.
+MAX_LOOKBACK_BARS = 10000
+_BAR_PARAMETERS = frozenset(('period', 'fast_period', 'slow_period', 'signal_period',
+                            'k_period', 'd_period', 'smooth', 'tenkan', 'kijun', 'senkou'))
+
 # The parameter contract for strategy-builder operands. This is the source of
 # truth for frontend defaults/options and backend validation/evaluation. Keep
 # entries JSON-serializable because the common enum endpoint exposes them.
@@ -30,6 +36,8 @@ INDICATOR_SOURCE_CHOICES = [
 ]
 
 def _number(key, label, default, minimum=1, maximum=None, step=1):
+    if maximum is None and key in _BAR_PARAMETERS:
+        maximum = MAX_LOOKBACK_BARS
     return {
         'key': key, 'label': label, 'type': 'number', 'default': default,
         'min': minimum, 'max': maximum, 'step': step,
@@ -97,7 +105,7 @@ PARAMETERS = {
     OperandType.MATH_EXPRESSION: [{'key': 'expression', 'label': 'Math Formula', 'type': 'math', 'default': {'expression': '', 'variables': {}}}],
 }
 
-SHIFT_FIELD = {'key': 'shift', 'label': 'Shift (Candles)', 'type': 'number', 'default': 0, 'min': 0, 'step': 1}
+SHIFT_FIELD = {'key': 'shift', 'label': 'Shift (Candles)', 'type': 'number', 'default': 0, 'min': 0, 'max': MAX_LOOKBACK_BARS, 'step': 1}
 
 POSITION_TYPES = (
     OperandType.POSITION_PNL_PERCENTAGE, OperandType.POSITION_PNL_POINTS,

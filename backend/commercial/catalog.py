@@ -5,17 +5,12 @@ the active database revision; published and purchased snapshots are immutable.
 """
 from copy import deepcopy
 
-REVISION = "2026-10-research-credits-1"
+REVISION = "2026-11-derivatives-simulation-1"
 TOKENS_PER_CREDIT = 1000
 MARKETS = {
     "nse_stocks": {"code": "nse_stocks", "name": "NSE stocks", "status": "available"},
-    "nse_futures": {"code": "nse_futures", "name": "NSE futures", "status": "coming_soon"},
-    "nse_options": {"code": "nse_options", "name": "NSE options", "status": "coming_soon"},
-}
-PLAN_MARKETS = {
-    "explore": ("nse_stocks",),
-    "build": ("nse_stocks", "nse_futures", "nse_options"),
-    "pro": ("nse_stocks", "nse_futures", "nse_options"),
+    "nse_futures": {"code": "nse_futures", "name": "NSE futures", "status": "available"},
+    "nse_options": {"code": "nse_options", "name": "NSE options", "status": "available"},
 }
 # One definition per allowance. Defaults are Explore, Build and Pro respectively;
 # Published database catalogs supply public values; Private has no quotas.
@@ -45,7 +40,7 @@ LIMIT_DIVISORS = {key: definition.get("display_divisor", 1) for key, definition 
 PLANS = {
     code: {"code": code, "name": name, "price_minor": price, "currency": "INR",
            "interval": "month", "limits": {key: definition["defaults"][i] for key, definition in ALLOWANCES.items()},
-           "markets": [deepcopy(MARKETS[market]) for market in PLAN_MARKETS[code]]}
+           "markets": deepcopy(list(MARKETS.values()))}
     for i, (code, name, price) in enumerate((("explore", "Explore", 0), ("build", "Build", 49900), ("pro", "Pro", 149900)))
 }
 FEATURES = [
@@ -94,8 +89,6 @@ def validate_catalog_specification(data, revision):
         markets = plan.get("markets")
         if not isinstance(markets, list) or any(not isinstance(market, dict) or market.get("code") not in MARKETS or market.get("status") not in {"available", "coming_soon"} for market in markets):
             raise ValidationError(f"Provide valid markets for {code}.")
-        if any(market["code"] != "nse_stocks" and market["status"] == "available" for market in markets):
-            raise ValidationError("Futures/options execution is not implemented; retain Coming soon.")
     features = data.get("features")
     expected = {row["code"] for row in FEATURES}
     if not isinstance(features, list) or any(not isinstance(row, dict) for row in features) or {row.get("code") for row in features} != expected or len(features) != len(expected):

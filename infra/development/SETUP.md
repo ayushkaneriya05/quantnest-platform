@@ -5,6 +5,11 @@ This walkthrough is for **Windows + PowerShell**, using your current
 local Docker database. It does not import or overwrite your existing native
 PostgreSQL database or `backend/.env`.
 
+No Oracle VM, VCN or public cloud firewall is needed for this local setup. When
+moving to Oracle, switch to the [Public](../public/SETUP.md) or
+[Private](../private/SETUP.md) production guide and its own environment/database;
+do not expose the Development stack's local ports as a production deployment.
+
 Read [Start here](../START-HERE.md) first. Commands below run from the repository
 root unless a step explicitly says otherwise.
 

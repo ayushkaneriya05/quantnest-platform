@@ -52,7 +52,7 @@ export default function PricingCards() {
             </p>
             <section className="my-5 border-y py-4">
               <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Markets
+                Simulation markets
               </h4>
               <PlanMarkets markets={plan.markets} />
             </section>
@@ -95,10 +95,10 @@ export default function PricingCards() {
         ))}
       </div>
       <p className="mt-4 text-sm leading-7 text-muted-foreground">
-        All public plans support NSE-stock workflows through Paper simulation.
-        Futures and options are coming soon in Build and Pro; they are not
-        available today and have no announced release date. Upgrading today adds
-        capacity for current features. Review your workspace allowances
+        All public plans include NSE stocks, futures and options for backtesting,
+        manual Terminal simulation and automated Paper trading. AI stock analysis
+        and screening focus on active NSE stocks. Upgrading adds usage capacity.
+        Review your workspace allowances and available contract history
         before upgrading for a specific task. No rollover or automatic
         paid overages. One AI credit equals 1,000 reported tokens. Successful answers use actual tokens; failed or cancelled requests use no credits.
       </p>

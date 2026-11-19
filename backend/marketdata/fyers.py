@@ -278,13 +278,26 @@ class FyersLiveFeedClient(MarketObservationClient):
         super().__init__()
         self._volume_lock = threading.Lock()
         self._last_cumulative_volume = {}
+        self._access_token = None
+        self._next_authorization_check = 0.0
 
     def connect(self):
-        access_token = MarketDataToken.active_access_token()
-        if not settings.FYERS_CLIENT_ID or not access_token:
-            raise RuntimeError("Authorize the FYERS market-data connection before starting the feed.")
+        return self._connect_authorized(MarketDataToken.active_access_token())
 
+    def _connect_authorized(self, access_token):
+        """Replace the source socket only at startup, renewal or reconnect."""
+        # Invalidate callbacks before closing the old SDK transport. A delayed
+        # authentication/tick callback must not revive a replaced connection.
+        self.disconnect()
         epoch = self._transport_epoch = object()
+        self._access_token = access_token
+        self._next_authorization_check = time.monotonic() + 5
+        if not settings.FYERS_CLIENT_ID or not access_token:
+            self._subscription_error = "Authorize the FYERS market-data connection."
+            logger.info("FYERS feed is waiting for market-data authorization")
+            return None
+
+        self._subscription_error = ""
         self.socket = data_ws.FyersDataSocket(
             access_token=f"{settings.FYERS_CLIENT_ID}:{access_token}",
             log_path=str(settings.BASE_DIR / "logs"),
@@ -295,8 +308,23 @@ class FyersLiveFeedClient(MarketObservationClient):
             on_error=lambda message: self._on_error(message) if self._transport_epoch is epoch else None,
             on_message=lambda message: self._on_message(message) if self._transport_epoch is epoch else None,
         )
-        self.socket.connect()
+        try:
+            self.socket.connect()
+        except Exception:
+            self.disconnect()
+            raise
         return self.socket
+
+    def sync_subscriptions(self):
+        # This runs on the control thread, never on the tick/evaluation path.
+        # One local lookup every five seconds covers initial consent, expiry
+        # and a newly saved daily token without polling any provider endpoint.
+        if time.monotonic() >= self._next_authorization_check:
+            self._next_authorization_check = time.monotonic() + 5
+            token = MarketDataToken.active_access_token()
+            if token != self._access_token or token and self.socket is None:
+                self._connect_authorized(token)
+        super().sync_subscriptions()
 
     def subscribe_symbols(self, symbols: list[str]) -> None:
         from .providers import acquire_data_request
@@ -309,8 +337,11 @@ class FyersLiveFeedClient(MarketObservationClient):
         self.socket.unsubscribe(symbols=symbols, data_type="SymbolUpdate", channel=self.subscription_channel)
 
     def disconnect(self) -> None:
-        if self.socket is not None:
-            self.socket.close_connection()
+        self._transport_epoch = object()
+        self.mark_disconnected()
+        socket, self.socket = self.socket, None
+        if socket is not None:
+            socket.close_connection()
 
     def _on_close(self, message: dict):
         logger.warning("FYERS market socket closed code=%s", message["code"])

@@ -416,6 +416,12 @@ fictional immediate fill. After restart, committed checkpoints reconstruct accou
 orders, entry lots, positions and reservations. Normal refresh/reconnect must not
 place the same order again.
 
+Completed orders live in separate recovery rows rather than being rewritten in
+every active account checkpoint. Position/fill/exit timestamps are saved with the
+execution time before any browser payload is produced. Committed browser hints
+are sent through a bounded local queue; slow display transport does not delay
+financial acknowledgement. REST snapshots remain the recovery authority.
+
 ## API contracts
 
 Authenticated prefix: **`/api/v1/trading/`**.

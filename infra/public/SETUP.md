@@ -2,7 +2,8 @@
 
 This installs the customer research/backtest/Paper/simulated-Terminal platform.
 Live execution is disabled in Public. Begin with free Explore and checkout off.
-The source and external setup references were reviewed on 24 October 2026.
+The deployment flow and Oracle server setup were reviewed on 18 November 2026.
+Other provider setup references retain their own review dates.
 
 There are two places to configure: **one Ubuntu Docker server** for the backend
 and **Cloudflare Pages** for the browser application/gateway. You do not build
@@ -27,9 +28,13 @@ credentials now; leaving its example Gemini key unchanged makes preflight fail.
 
 ## Step 2. Prepare the server
 
-Complete [Server setup](../shared/SERVER-SETUP.md): Ubuntu 24.04, SSH, cloud
-network rules, Docker/Compose, Python 3.12, age and the reviewed repository.
+Complete [Oracle server setup](../shared/SERVER-SETUP.md): Ubuntu 24.04, the actual
+tenancy CPU/RAM/storage allocation, public subnet and route, reserved IP, NSG and
+guest firewall, Docker/Compose, Python 3.12, age and the reviewed repository.
 Keep the database/Redis/research ports private. Inbound 80/443 must reach Caddy.
+Use the native architecture on A1; complete the locked ARM64 image build on that
+server before starting the stack. Keep the initial API/execution worker counts at
+one and measure resource use before admitting more work.
 
 Open SSH and enter the repository:
 
@@ -57,6 +62,9 @@ Replace every example with your own names. In Cloudflare DNS create a
 **DNS-only** A record for the origin pointing at the server. Do not enable the
 orange proxy cloud on this origin record. Do not point the browser-domain A
 record directly at the server; Pages will provide its browser-domain setup.
+On OCI this address should be the reserved public IPv4 associated with the
+instance's VNIC, not its `10.x` VCN address. Record the region and reserved-IP
+identity so an eventual recovery can preserve or deliberately update the origin.
 
 Check from the server:
 

@@ -309,7 +309,7 @@ class PaperPosition(BaseTimestampModel, RouteOwnership):
     margin_blocked = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
     # Timestamps
-    opened_at = models.DateTimeField(auto_now_add=True)
+    opened_at = models.DateTimeField(default=timezone.now)
     last_updated = models.DateTimeField(auto_now=True)
     
     class Meta:

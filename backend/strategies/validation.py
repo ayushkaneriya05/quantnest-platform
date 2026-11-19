@@ -42,7 +42,7 @@ def validate_operand_parameters(operand_type: OperandType, raw_params: dict, fie
                     raise serializers.ValidationError({field_name: f'{error_key} must be a number.'})
                 try:
                     number = float(value)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     raise serializers.ValidationError({field_name: f'{error_key} must be a number.'})
                 if not (-float('inf') < number < float('inf')):
                     raise serializers.ValidationError({field_name: f'{error_key} must be finite.'})

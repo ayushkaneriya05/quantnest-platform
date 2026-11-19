@@ -43,7 +43,7 @@ export default function QuantNestLanding() {
             <p className="mt-6 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">Research your questions. Build your own rules. Test them on history and practise with simulated capital—all in one connected workspace.</p>
             <div className="mt-8 flex flex-wrap gap-3"><Button asChild size="lg" className="rounded-full"><Link to="/register">Start free with Explore<ArrowRight className="h-4 w-4" /></Link></Button><Button asChild variant="outline" size="lg" className="rounded-full"><Link to="/product/">See how QuantNest works</Link></Button></div>
             <div className="mt-7 flex flex-wrap gap-x-5 gap-y-3 text-xs text-muted-foreground">{['Your own strategy logic', 'Historical testing', 'Automated Paper practice'].map(text => <span className="flex items-center gap-2" key={text}><Check className="h-3.5 w-3.5 text-brand" />{text}</span>)}</div>
-            <p className="mt-6 max-w-lg text-xs leading-6 text-muted-foreground">For supported NSE cash-stock workflows. Public plans cover simulation through Paper; customer Live trading is not currently available.</p>
+            <p className="mt-6 max-w-lg text-xs leading-6 text-muted-foreground">Research NSE stocks; build, backtest and simulate stocks, futures and options. Public plans cover simulation through Paper; customer Live trading is not currently available.</p>
           </div>
           <div className="site-hero-visual relative min-w-0"><SiteIllustration name="home" /><div className="site-visual-caption mt-4 flex justify-between gap-3 px-2 text-xs text-muted-foreground"><span>From the first question to the next iteration</span><span className="shrink-0 text-brand">Built around your logic</span></div></div>
         </div>

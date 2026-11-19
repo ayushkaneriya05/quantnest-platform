@@ -7,6 +7,11 @@ This mode runs the same API, data layer and execution engine locally. It records
 usage without enforcing Public plan quotas. It defaults to Paper/simulated Terminal.
 Provider feed, AI research and real broker events are optional profiles.
 
+This is a local environment. Oracle-hosted production uses
+[Public](../public/SETUP.md) or [Private](../private/SETUP.md) after
+[Oracle server preparation](../shared/SERVER-SETUP.md), with separate data and
+native images for that server's architecture.
+
 Read [shared components](../shared/README.md) for the meaning of every Compose field,
 service command, Redis database, volume and memory policy. Read
 [the script runbook](../shared/scripts/README.md) for deploy/backup/restore flags.

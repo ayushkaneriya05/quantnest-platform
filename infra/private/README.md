@@ -20,6 +20,11 @@ Install Docker/Compose v2, Python 3.12 and age. Use your own domain, stable host
 address, persistent storage and independently generated secrets. Configure the
 broker account's applicable app/static-IP access for this host. Keep SSH restricted
 and allow 80/443 for HTTPS. Database, Redis and research ports stay private.
+For OCI, follow [Oracle server setup](../shared/SERVER-SETUP.md) before these
+commands. It covers the reserved address, both firewall layers, native A1 builds
+and the shared resource budget for separate Public/Private hosts. Review
+[Private functionality readiness](../../docs/private-deployment-readiness.md)
+before intentional Live use.
 
 ```sh
 cp infra/private/backend.env.example infra/private/backend.env
@@ -129,6 +134,12 @@ separate callback is
 Broker credentials are encrypted in this instance's database. Broker-events ingests
 order updates; the unified execution controller performs broker I/O and financial
 persistence outside tick evaluation.
+
+The feed can start before initial source consent and waits without restarting.
+It detects a newly saved or expired data token on its five-second control scan,
+replacing the previous socket and rebuilding subscriptions/history as needed.
+The broker stream independently detects renewed trading sessions. Completing
+daily FYERS sign-in remains an operator action; no automated OTP/login is used.
 
 Configure charge assumptions, create/save a strategy version, check backtests and
 Paper before intentional Live use. Deployment and diagnostics do not place real

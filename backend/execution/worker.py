@@ -23,6 +23,7 @@ from .market import PreparedSymbol, complete, observe
 from .messages import (Committed, Control, InstallAccount, InstallUnit, Persist, PositionUpdate,
     EvaluationSaved, PrepareMarket, RejectedIntent, RemoveAccount, RemoveUnit, SaveControl, SaveSettlement, SessionSettled, UnitFailure)
 from .owner import AccountOwner
+from .snapshots import active_account
 from .types import Intent, Tick, ZERO
 
 ACTOR_BATCH = 8
@@ -291,7 +292,7 @@ class Worker:
             if kind == ExecutionCommandType.SETTLEMENT:
                 from .settlements import apply_settlement
                 result = apply_settlement(state, **payload)
-                self.output.put(SaveSettlement(command.identity, deepcopy(state), result), timeout=1)
+                self.output.put(SaveSettlement(command.identity, deepcopy(active_account(state)), result), timeout=1)
                 unit = payload['unit']
                 self.send(unit, PositionUpdate(unit, position_view(state, unit)))
                 self.finish_stops(state)
@@ -406,7 +407,7 @@ class Worker:
                         if delta < 0 and -delta > available(state, session):
                             raise ValueError('Capital is committed to positions or working orders.')
                 if 'terminal' in payload:
-                    candidate = deepcopy(state)
+                    candidate = deepcopy(active_account(state))
                     config = payload['terminal']
                     candidate.profiles[state.key[1]] = config['profile']
                     candidate.futures_margin_pct = config['futures_margin_pct']
@@ -448,7 +449,7 @@ class Worker:
             else:
                 raise ValueError(f'Unsupported control action {kind}.')
             state.revision += 1
-            self.output.put(SaveControl(command.identity, deepcopy(state)), timeout=1)
+            self.output.put(SaveControl(command.identity, deepcopy(active_account(state))), timeout=1)
             self.finish_stops(state)
         except (ValueError, KeyError) as exc:
             if kind == ExecutionCommandType.BROKER and payload.get('quantity', 0) > 0:
@@ -456,7 +457,7 @@ class Worker:
                 if order is not None:
                     state.statuses[order.unit[1]] = ExecutionSessionStatus.ERROR
                     self.output.put(UnitFailure(order.unit, str(exc), state.versions.get(order.unit[1], order.version)), timeout=1)
-            self.output.put(SaveControl(command.identity, deepcopy(state), str(exc)), timeout=1)
+            self.output.put(SaveControl(command.identity, deepcopy(active_account(state)), str(exc)), timeout=1)
 
     def read_market(self, symbol):
         buffer = self.buffers[symbol]

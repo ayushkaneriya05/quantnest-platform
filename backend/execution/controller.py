@@ -387,10 +387,16 @@ class Controller:
             raise TypeError(f'Unknown execution output {type(message).__name__}')
 
     def step(self):
+        turn_end = time.monotonic() + .02
         for _ in range(256):
             try:
                 self.receive(self.output.get_nowait())
             except Empty:
+                break
+            if time.monotonic() >= turn_end:
+                # A burst of committed orders must not starve control polling,
+                # readiness heartbeats or completed market preparation. Individual
+                # transactions remain ordered and are never interrupted midway.
                 break
         now = time.monotonic()
         for identity, (future, started) in tuple(self.cancelling.items()):

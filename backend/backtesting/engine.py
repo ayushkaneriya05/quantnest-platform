@@ -163,8 +163,8 @@ class BacktestEngine:
                 brokerage=entry.get('brokerage', 0) + exit.get('brokerage', 0), slippage=trade.slippage,
                 pnl_pct=trade.net / turnover * 100 if turnover else 0, mae=trade.mae, mfe=trade.mfe,
                 holding_duration_minutes=int((trade.exit_time - trade.entry_time).total_seconds() / 60)))
-        BacktestTrade.objects.bulk_create(self.trades_to_create)
-        EquityCurvePoint.objects.bulk_create(self.equity_curve, ignore_conflicts=True)
+        BacktestTrade.objects.bulk_create(self.trades_to_create, batch_size=1000)
+        EquityCurvePoint.objects.bulk_create(self.equity_curve, ignore_conflicts=True, batch_size=1000)
 
     def _broadcast_progress_update(self, progress_pct, message="Processing candles..."):
         """

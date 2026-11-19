@@ -200,7 +200,7 @@ def load_configuration(key, *, instrument_ids=(), committed=False):
     from instruments.models import Instrument
     from marketdata.calendar import MarketSessionCalendar
 
-    state = restore_account(key)
+    state = restore_account(key, include_history=False)
     ids = set(instrument_ids)
     if state:
         ids.update(position.contract.instrument_id for position in state.positions.values())

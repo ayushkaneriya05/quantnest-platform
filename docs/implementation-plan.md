@@ -17,7 +17,9 @@ old local checks as proof of a production rollout.
 - Existing data integration and Brevo remain. Public hosting uses Oracle; frontend
   uses Cloudflare. Personal Private uses a separate operator-controlled Linux host.
 - No public demo, Astro site, marketplace, strategy invitations or customer API keys.
-- NSE stocks execute now. Build/Pro list futures/options as Coming soon.
+- All public plans include NSE stocks, futures and options simulation; usage
+  allowances differ by plan. Direct AI analysis/screening remain active-NSE-stock
+  workflows. Market scope updated on 18 November 2026.
 
 The deployed environment is selected by QUANTNEST_DEPLOYMENT_MODE. Feature/execution
 scope uses EXECUTION_ENABLED_SCOPES. Neither DEBUG nor a plan label substitutes
@@ -205,12 +207,14 @@ positions, stable identity/tag mapping, cumulative fill observations, reconnect,
 REST recovery, account limits and source-specific acceptance. An unfinished broker
 choice must remain unavailable.
 
-### Derivatives or another market
+### Further instrument and market capabilities
 
-Add contract identity, provider mappings, session/calendar rules, quantity/price
-increments, lot/multiplier economics, selection/expiry/roll, margin and settlement.
-Exercise backtest, Paper, Live, Terminal, charts and reports deliberately; a model
-enum or market label does not enable execution.
+Stock, futures and options simulation already uses contract identity, provider
+mappings, calendars, lot/tick/multiplier economics and fixed/automatic selection.
+Further capabilities such as coordinated legs, automatic rollover, clearing or
+physical delivery require their own implementation and acceptance. Exercise
+backtest, Paper, Live, Terminal, charts and reports deliberately for each addition;
+a model enum or market label does not enable execution.
 
 ### More users
 
