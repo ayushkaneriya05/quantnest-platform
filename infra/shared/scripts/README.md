@@ -28,6 +28,18 @@ use `quantnest-<mode>`; a conflicting `COMPOSE_PROJECT_NAME` is rejected.
 
 ## 2. Initialize or upgrade
 
+For local development, use the [Development launcher](../../development/README.md)
+instead of repeating mode/profile arguments:
+
+```sh
+python3 infra/development/dev.py
+```
+
+It prepares missing local files, selects configured integrations and calls the
+same deployment/readiness functions below. It does not copy your native database.
+Use `--no-build` for a restart without dependency rebuilds; `stop`, `status` and
+`logs` are supported. Production continues to use explicit modes as shown below.
+
 ```sh
 python3 infra/shared/scripts/deploy.py --root . --mode development --build
 python3 infra/shared/scripts/deploy.py --root . --mode public --build
@@ -90,7 +102,8 @@ Replace both `public` path segments and the mode value for another mode. Pass yo
 Development profiles to diagnostics so it knows which optional services to expect.
 
 Diagnostics reports free disk bytes, configuration validity, missing/unhealthy
-containers, Django checks and execution-worker readiness. Nonzero exit means a
+containers, Django checks, execution-worker readiness and whether both Celery
+workers respond and consume their configured queues. Nonzero exit means a
 required check failed. It does not publish metrics to an external service.
 The plain `ps` and bounded `logs` commands help identify which process failed.
 The management command checks database/runtime Redis and the reported worker count.

@@ -85,7 +85,7 @@ services:
     mem_limit: 1536m
   background:
     <<: *backend
-    command: [celery, -A, backend, worker, --queues=default,marketdata, --concurrency=2, --max-tasks-per-child=100, --hostname=background@%h]
+    command: [celery, -A, backend, worker, "--queues=default,marketdata", --concurrency=2, --max-tasks-per-child=100, --hostname=background@%h]
     mem_limit: 768m
   compute:
     <<: *backend

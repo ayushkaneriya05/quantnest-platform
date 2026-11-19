@@ -44,7 +44,7 @@ jobs:
         run: python backend/manage.py check --deploy --fail-level WARNING
       - run: python backend/manage.py makemigrations --check --dry-run
       - run: python backend/manage.py setup_timescale
-      - run: python -m compileall -q backend research_service
+      - run: python -m compileall -q backend research_service infra
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -64,9 +64,7 @@ jobs:
       - run: docker build --platform linux/arm64 -f infra/shared/docker/research.Dockerfile -t quantnest-research:ci .
       - run: docker build --platform linux/arm64 -f infra/shared/docker/frontend.Dockerfile --build-arg VITE_SITE_URL=https://private.example.com -t quantnest-frontend:ci .
       - run: |
-          cp infra/development/backend.env.example infra/development/backend.env
-          cp infra/development/research.env.example infra/development/research.env
-          cp infra/development/frontend.env.example infra/development/frontend.env
+          python3 infra/development/dev.py --prepare-only
           cp infra/public/backend.env.example infra/public/backend.env
           cp infra/public/research.env.example infra/public/research.env
           cp infra/private/backend.env.example infra/private/backend.env

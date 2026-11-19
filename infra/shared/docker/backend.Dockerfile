@@ -9,6 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_
 WORKDIR /opt/quantnest
 RUN apt-get update && apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /install /usr/local
+# Fail the build if Uvicorn would silently serve WebSocket upgrades as HTTP.
+RUN python -c "from uvicorn.protocols.websockets.auto import AutoWebSocketsProtocol; assert AutoWebSocketsProtocol is not None"
 COPY backend/ /opt/quantnest/backend/
 RUN useradd --system --uid 10001 quantnest && mkdir -p /var/lib/quantnest/runtime /var/lib/quantnest/scheduler /opt/quantnest/backend/media /opt/quantnest/backend/staticfiles /opt/quantnest/backend/logs && chown -R quantnest:quantnest /var/lib/quantnest /opt/quantnest/backend/media /opt/quantnest/backend/staticfiles /opt/quantnest/backend/logs
 USER quantnest

@@ -17,7 +17,14 @@ x-backend: &backend
     RUNTIME_REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379/3
     RESEARCH_SERVICE_URL: http://research:8001
     QUANTNEST_RUNTIME_DIR: /var/lib/quantnest/runtime
-  volumes: [runtime:/var/lib/quantnest/runtime, media:/opt/quantnest/backend/media, staticfiles:/opt/quantnest/backend/staticfiles]
+  volumes:
+    - ../../backend:/opt/quantnest/backend
+    # Compose passes real settings as environment variables; hide the native file.
+    - ./container.env.example:/opt/quantnest/backend/.env:ro
+    - logs:/opt/quantnest/backend/logs
+    - runtime:/var/lib/quantnest/runtime
+    - media:/opt/quantnest/backend/media
+    - staticfiles:/opt/quantnest/backend/staticfiles
   networks: [private, outbound]
   depends_on:
     postgres: {condition: service_healthy}
@@ -31,11 +38,14 @@ x-backend: &backend
 services:
   postgres:
     image: timescale/timescaledb:2.30.2-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
-    environment: {POSTGRES_DB: "${DB_NAME:?Set DB_NAME}", POSTGRES_USER: quantnest_admin, POSTGRES_PASSWORD: "${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}", DB_USER: "${DB_USER:?Set DB_USER}", DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD}", TIMESCALEDB_TELEMETRY: "off"}
+    environment: {POSTGRES_DB: "${DB_NAME:?Set DB_NAME}", POSTGRES_USER: quantnest_admin, POSTGRES_PASSWORD: "${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}", DB_USER: "${DB_USER:?Set DB_USER}", DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD}", TIMESCALEDB_TELEMETRY: "off", TS_TUNE_MEMORY: "1536MB", TS_TUNE_NUM_CPUS: "2"}
     ports: ["127.0.0.1:54329:5432"]
     volumes: [postgres:/var/lib/postgresql/data, ../shared/postgres/010-initialize.sh:/docker-entrypoint-initdb.d/010-initialize.sh:ro]
-    networks: [private]
+    # This Development-only bridge enables loopback DB tools on Docker Desktop;
+    # the internal-only network did not expose the configured host port.
+    networks: [private, database-tools]
     healthcheck: {test: [CMD-SHELL, "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"], interval: 10s, timeout: 5s, retries: 10}
+    mem_limit: 1536m
     restart: unless-stopped
     logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
   redis:
@@ -59,7 +69,7 @@ services:
     logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
   api:
     <<: *backend
-    command: [uvicorn, backend.asgi:application, --host, 0.0.0.0, --port, "8000", --no-proxy-headers]
+    command: [uvicorn, backend.asgi:application, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --reload, --reload-dir, /opt/quantnest/backend]
     ports: ["127.0.0.1:8000:8000"]
     healthcheck:
       test:
@@ -87,19 +97,25 @@ services:
     profiles: [live]
   background:
     <<: *backend
-    command: [celery, -A, backend, worker, --queues=default,live,marketdata, --concurrency=2, --max-tasks-per-child=100, --hostname=background@%h]
+    command: [celery, -A, backend, worker, "--queues=default,live,marketdata", --concurrency=2, --max-tasks-per-child=100, --hostname=background@%h]
   compute:
     <<: *backend
     command: [celery, -A, backend, worker, --queues=compute, --concurrency=1, --max-tasks-per-child=25, --max-memory-per-child=1000000, --hostname=compute@%h]
   beat:
     <<: *backend
     command: [celery, -A, backend, beat, --schedule=/var/lib/quantnest/scheduler/celerybeat]
-    volumes: [scheduler:/var/lib/quantnest/scheduler]
+    volumes:
+      - ../../backend:/opt/quantnest/backend
+      - ./container.env.example:/opt/quantnest/backend/.env:ro
+      - logs:/opt/quantnest/backend/logs
+      - scheduler:/var/lib/quantnest/scheduler
   research:
     build: {context: ../.., dockerfile: infra/shared/docker/research.Dockerfile}
     image: quantnest-research:development
     env_file: [research.env]
     environment: {RESEARCH_INTERNAL_API_URL: "http://api:8000/api/v1/research/tools/"}
+    command: [uvicorn, research_service.main:app, --host, 0.0.0.0, --port, "8001", --no-access-log, --reload, --reload-dir, /opt/quantnest/research_service]
+    volumes: [../../research_service:/opt/quantnest/research_service:ro]
     networks: [private, outbound]
     profiles: [research]
     restart: unless-stopped
@@ -114,12 +130,23 @@ services:
     env_file: [frontend.env]
     environment:
       QUANTNEST_API_PROXY_TARGET: http://api:8000
+      QUANTNEST_PROXY_TOKEN: "${QUANTNEST_PROXY_TOKEN:-}"
+      # File notifications from Windows bind mounts are not reliable inside WSL.
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "300"
     volumes:
       - ../../frontend:/workspace
       - frontend-node-modules:/workspace/node_modules
     ports: ["127.0.0.1:5173:5173"]
     networks: [outbound]
-    depends_on: [api]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:5173').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
     init: true
     restart: unless-stopped
     logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
@@ -127,6 +154,7 @@ services:
 networks:
   private: {internal: true}
   outbound: {}
+  database-tools: {}
 
 volumes:
   postgres: {}
@@ -136,3 +164,4 @@ volumes:
   staticfiles: {}
   scheduler: {}
   frontend-node-modules: {}
+  logs: {}

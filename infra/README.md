@@ -19,6 +19,12 @@ Public uses Cloudflare Pages for React and a Pages Function for API/WebSocket
 proxying. Private builds React inside Docker and serves it through Caddy.
 Private is currently personal use; no customer licence/installer service is included.
 
+For local Docker development, start/unpause Docker Desktop and run
+`.\.venv\Scripts\python.exe infra/development/dev.py` from the repository root.
+It prepares missing local env files and selects configured data/AI integrations.
+API/research source reloads and React hot updates are enabled only in Development.
+See its [setup guide](development/SETUP.md) for accounts, data and authorization.
+
 ## What runs, and why
 
 ```mermaid

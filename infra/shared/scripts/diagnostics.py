@@ -7,6 +7,8 @@ import subprocess
 
 from compose_config import DEPLOYMENT_MODES, DEVELOPMENT_PROFILES, compose_command, compose_configuration
 
+READINESS_CHECKS = ("compose_valid", "services_ready", "application_checks", "worker_checks", "task_workers")
+
 
 def service_status(root, mode, profiles=()):
     command = compose_command(root, mode, profiles=profiles)
@@ -27,16 +29,27 @@ def service_status(root, mode, profiles=()):
     return {"services": services, "missing_services": missing, "services_ready": ready}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--mode", choices=DEPLOYMENT_MODES, required=True)
-    parser.add_argument("--profile", choices=DEVELOPMENT_PROFILES, action="append", default=[])
-    args = parser.parse_args()
-    if args.profile and args.mode != "development":
-        parser.error("--profile belongs only to development")
-    root = args.root.resolve()
-    command = compose_command(root, args.mode, profiles=args.profile)
+def diagnose(root, mode, *, profiles=()):
+    """Share the same read-only checks with the one-command Development launcher."""
+    root = Path(root).resolve()
+    command = compose_command(root, mode, profiles=profiles)
+    services = compose_configuration(root, mode, profiles=profiles)["services"]
+    expected_queues = {
+        name: next(value.removeprefix("--queues=") for value in services[name]["command"]
+                   if value.startswith("--queues=")).split(",")
+        for name in ("background", "compute")
+    }
+    # A running container can still contain a Celery process that is failing to
+    # initialize. This is an operator check, not a periodic hot-path probe.
+    task_probe = f"""
+from backend.celery import app
+workers = app.control.inspect(timeout=5).active_queues() or {{}}
+expected = {expected_queues!r}
+for service, required in expected.items():
+    observed = [{{queue['name'] for queue in queues}}
+                for name, queues in workers.items() if name.startswith(service + '@')]
+    assert any(set(required) <= queues for queues in observed), service + ' is not consuming its configured queues'
+"""
 
     def check(*arguments):
         return subprocess.run(
@@ -47,18 +60,31 @@ def main():
     report = {
         "disk_free_bytes": shutil.disk_usage(root).free,
         "compose_valid": check("config", "--quiet"),
-        **service_status(root, args.mode, args.profile),
+        **service_status(root, mode, profiles),
         "application_checks": check(
             "exec", "-T", "api", "python", "manage.py", "check",
-            *(["--deploy", "--fail-level", "WARNING"] if args.mode != "development" else []),
+            *(["--deploy", "--fail-level", "WARNING"] if mode != "development" else []),
         ),
         "worker_checks": check(
             "exec", "-T", "api", "python", "manage.py", "deployment_health",
-            "--require-mode", args.mode, "--workers",
+            "--require-mode", mode, "--workers",
         ),
+        "task_workers": check("exec", "-T", "api", "python", "-c", task_probe),
     }
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--mode", choices=DEPLOYMENT_MODES, required=True)
+    parser.add_argument("--profile", choices=DEVELOPMENT_PROFILES, action="append", default=[])
+    args = parser.parse_args()
+    if args.profile and args.mode != "development":
+        parser.error("--profile belongs only to development")
+    report = diagnose(args.root, args.mode, profiles=args.profile)
     print(json.dumps(report, indent=2))
-    if not all(report[key] for key in ("compose_valid", "services_ready", "application_checks", "worker_checks")):
+    if not all(report[key] for key in READINESS_CHECKS):
         raise SystemExit(1)
 
 

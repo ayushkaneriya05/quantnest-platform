@@ -23,6 +23,8 @@ pillow
 # Deployment
 gunicorn
 uvicorn
+# Uvicorn needs a protocol implementation for every Channels WebSocket route.
+websockets
 whitenoise
 
 django-otp

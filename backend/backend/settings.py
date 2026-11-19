@@ -14,8 +14,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config("SECRET_KEY")
 DEBUG = config("DEBUG", default=False, cast=bool)
-FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:5173")
-BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
+FRONTEND_URL = str(config("FRONTEND_URL", default="http://localhost:5173"))
+BACKEND_URL = str(config("BACKEND_URL", default="http://localhost:8000"))
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="127.0.0.1,localhost", cast=Csv())
 REDIS_URL = config("REDIS_URL", default="redis://127.0.0.1:6379/0")
 CELERY_BROKER_URL = REDIS_URL
@@ -25,7 +25,7 @@ EXECUTION_WORKERS = config("EXECUTION_WORKERS", default=1, cast=int)
 if EXECUTION_WORKERS < 1:
     raise ValueError("EXECUTION_WORKERS must be positive.")
 
-EXECUTION_ENABLED_SCOPES = set(config("EXECUTION_ENABLED_SCOPES", default=ExecutionScope.PAPER, cast=Csv()))
+EXECUTION_ENABLED_SCOPES = set(Csv()(config("EXECUTION_ENABLED_SCOPES", default=ExecutionScope.PAPER)))
 if not EXECUTION_ENABLED_SCOPES or not EXECUTION_ENABLED_SCOPES <= set(ExecutionScope.values):
     raise ValueError("EXECUTION_ENABLED_SCOPES must contain paper, live or both")
 

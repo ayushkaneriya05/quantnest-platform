@@ -361,6 +361,12 @@ After first deployment and Admin OTP enrolment:
    regular hours, weekdays and breaks. Inspect holidays and any special-session
    override. Current-year NSE API holidays are mirrored by segment to BSE/MCX;
    historical years use the installed NSE library for all active segments.
+   If both commodity session flags are null (for example, the Muhurat holiday),
+   the importer records the regular-session closure and warns instead of aborting
+   the sync. In Admin -> Market Holidays, use `is_partial`, `partial_open` and
+   `partial_close` for verified special hours from the relevant exchange/segment
+   circular. Never assume null means a normal open day. Existing special-session
+   overrides are preserved by later syncs.
 3. Before historical experiments, sync the years being tested using
    `sync_market_holidays --start-year 2024 --end-year 2026`, adjusting years to
    your history and the current year. The command rejects years outside supported

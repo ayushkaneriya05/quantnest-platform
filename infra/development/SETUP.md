@@ -5,6 +5,18 @@ This walkthrough is for **Windows + PowerShell**, using your current
 local Docker database. It does not import or overwrite your existing native
 PostgreSQL database or `backend/.env`.
 
+**One-command startup (updated 19 November 2026):**
+
+```powershell
+Set-Location E:\QuantNest
+.\.venv\Scripts\python.exe infra/development/dev.py
+```
+
+Start/unpause Docker Desktop first. The launcher prepares missing real env files,
+builds images, initializes the database and checks the selected stack. It enables
+market data/AI when local credentials are configured. Open `http://localhost:5173`
+afterward. It preserves existing env files and does not import the native DB.
+
 No Oracle VM, VCN or public cloud firewall is needed for this local setup. When
 moving to Oracle, switch to the [Public](../public/SETUP.md) or
 [Private](../private/SETUP.md) production guide and its own environment/database;
@@ -75,23 +87,22 @@ not start this second local stack at the same time.
 
 ## Step 3. Create the three local configuration files
 
-For the first setup only:
+The launcher prepares the files automatically. To prepare without starting Docker:
 
 ```powershell
-Copy-Item .\infra\development\backend.env.example .\infra\development\backend.env
-Copy-Item .\infra\development\frontend.env.example .\infra\development\frontend.env
-Copy-Item .\infra\development\research.env.example .\infra\development\research.env
+.\.venv\Scripts\python.exe infra/development/dev.py --prepare-only
 ```
 
-If these destination files already exist, **edit them instead of copying over
-them**. The examples are tracked; the real files stay local.
+It imports configured local FYERS/Gemini/SMTP inputs, generates separate
+DB/Redis/internal credentials and retains the native encryption identity. It
+keeps Paper and console email as defaults. Existing files are preserved: edit
+them rather than copying examples over them. Real files are Git-ignored.
 
 For the first local start:
 
 - Keep `EXECUTION_ENABLED_SCOPES=paper`.
 - Keep console email so you do not need Brevo yet.
-- Keep the local DB/Redis/encryption examples only on your private development
-  machine. Do not reuse them for Public or Private production.
+- Use the launcher's generated local secrets. Do not reuse them for production.
 - Leave FYERS/Gemini keys blank while those profiles are disabled.
 - Ensure `RESEARCH_SERVICE_TOKEN` is the same in backend and research files.
 - The frontend example's `VITE_SITE_URL` is static build metadata; it does not
@@ -103,7 +114,7 @@ to resolve their file paths. You do not need to copy settings into `backend/.env
 ## Step 4. Build and start the basic platform
 
 ```powershell
-.\.venv\Scripts\python.exe infra/shared/scripts/deploy.py --root . --mode development --build
+.\.venv\Scripts\python.exe infra/development/dev.py
 ```
 
 The first build downloads images and installs the locked dependencies inside
@@ -118,14 +129,14 @@ Check it:
 
 ```powershell
 docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml ps
-.\.venv\Scripts\python.exe infra/shared/scripts/diagnostics.py --root . --mode development
+.\.venv\Scripts\python.exe infra/development/dev.py status
 Invoke-RestMethod http://localhost:8000/health/
 ```
 
-The base stack has PostgreSQL, two Redis services, API, unified execution,
-background, compute, Beat and frontend. It does not start the FYERS feed or
-Gemini service yet. Diagnostics should report ready services/application/worker
-checks. A passing check does not mean external data is already authorized.
+The base stack has PostgreSQL, two Redis services, API, execution, background,
+compute, Beat and frontend. The launcher also starts the feed when both FYERS
+settings exist, and research when its Gemini key exists. Readiness checks do not
+mean provider consent is complete or an external AI key has been accepted.
 
 Open:
 
@@ -178,10 +189,10 @@ installed NSE calendar library. See [initial data setup](../shared/INTEGRATIONS.
 2. Put the data App ID/Secret in Development's `backend.env`.
 3. Register `http://localhost:8000/api/v1/market/fyers/callback/` where FYERS
    accepts local callbacks; use an approved reachable HTTPS origin otherwise.
-4. Start the profile:
+4. Rerun the launcher; it selects the market-data profile automatically:
 
    ```powershell
-   .\.venv\Scripts\python.exe infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data
+   .\.venv\Scripts\python.exe infra/development/dev.py
    ```
 
 5. Sign into Admin at localhost:8000 and open
@@ -201,13 +212,13 @@ Follow [Gemini setup](../shared/INTEGRATIONS.md#5-gemini-ai-research): set the k
 an available supported model and matching internal tokens. Then:
 
 ```powershell
-.\.venv\Scripts\python.exe infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data --profile research
-.\.venv\Scripts\python.exe infra/shared/scripts/diagnostics.py --root . --mode development --profile market-data --profile research
+.\.venv\Scripts\python.exe infra/development/dev.py
+.\.venv\Scripts\python.exe infra/development/dev.py status
 ```
 
-Pass every profile you want each time. Omitting a previous profile from the deploy
-command disables that optional service. The supported research jobs use the
-`compute` worker already in Compose; do not start a separate research Celery queue.
+The launcher derives profiles from mode-local settings and stops integrations
+whose configuration has been removed. The lower-level `deploy.py` still accepts
+explicit profiles. Research jobs use the existing `compute` worker, not a new queue.
 
 When upgrading an existing research installation, follow the
 [AI Research rollout steps](../../docs/ai-research.md#deployment-and-verification).
@@ -245,18 +256,30 @@ When you deliberately want your own broker integration:
 
 1. Set `EXECUTION_ENABLED_SCOPES=paper,live` in Development's backend file.
 2. Follow [personal broker setup](../shared/INTEGRATIONS.md#9-personal-fyers-trading-private-or-intentional-live-development).
-3. Include both the scope change and `live` profile:
+3. Rerun the launcher; your explicit scope setting enables the `live` profile:
 
    ```powershell
-   .\.venv\Scripts\python.exe infra/shared/scripts/deploy.py --root . --mode development --build --profile market-data --profile research --profile live
+   .\.venv\Scripts\python.exe infra/development/dev.py --no-build
    ```
 
 The deploy script rejects a scope/profile mismatch. The data app is still needed;
 the trading app entered in Broker Integration does not replace it. For leaving
 Live development, first settle/review active work, return scopes to `paper`, and
-deploy without `--profile live`.
+rerun the launcher. Do not enable Live merely to test Docker startup.
 
 ## Step 11. Daily use and troubleshooting
+
+React edits update through Vite; API/research Python edits reload their HTTP
+processes. After feed, execution, Celery or Beat code changes, restart with:
+
+```powershell
+.\.venv\Scripts\python.exe infra/development/dev.py --no-build
+```
+
+Run without `--no-build` after dependency-lockfile/Dockerfile changes. Backend
+source is mounted, and an empty readable file hides the native `.env` inside
+containers. Compose passes the real settings as process variables. DB, media,
+logs and runtime use separate persistent volumes.
 
 ```powershell
 docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml logs --tail=100 api
@@ -268,22 +291,24 @@ docker compose --env-file infra/development/backend.env -f infra/development/com
 | --- | --- |
 | Docker engine unavailable | Open Docker Desktop and check Linux containers/WSL |
 | Port 8000/5173 already used | Stop the old API/Vite terminal before retrying |
-| Missing env file | Create all three mode-local files from examples |
-| Research key/token error | Configure it, or omit `research` for now |
+| DB tool cannot connect | Use `127.0.0.1:54329` and the credentials in Docker's backend.env; rerun the launcher after network changes |
+| Missing env file | Run `dev.py --prepare-only`; existing files are preserved |
+| Research key/token error | Configure it, or clear the Gemini key to disable that profile |
 | Empty instrument search | Check metadata sync and selected filters |
 | No historical candles | Check data login, symbol and provider error in logs |
 | No live fills | Check market session, feed observations, saved rules, capital and execution logs |
 | Email absent from inbox | Console email is intentional; inspect logs |
-| Backend edit has no effect | Rebuild/recreate via deploy; backend source is baked into the image |
+| API/research edit has no effect | Inspect reload logs; Python source is mounted |
+| Feed/execution/Celery edit has no effect | Rerun `dev.py --no-build`; these processes need a restart |
 | React edit has no effect | Check Vite/frontend logs; React source is mounted for development |
 
 To stop the entire local stack while retaining data:
 
 ```powershell
-docker compose --env-file infra/development/backend.env -f infra/development/compose.yaml --profile "*" stop
+.\.venv\Scripts\python.exe infra/development/dev.py stop
 ```
 
-Use the same reviewed deploy command/profiles to start it again. Do not add `-v`
+Use `dev.py --no-build` to start it again. Do not add `-v`
 to a `down` command unless deliberately destroying this local database.
 For backups and upgrades, follow [the operations runbook](../shared/scripts/README.md).
 For first-time backup key/copy setup, use [Recovery setup](../shared/RECOVERY-SETUP.md).

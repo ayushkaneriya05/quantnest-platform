@@ -209,6 +209,7 @@ inherit these permissions; root-owned host directory mounts may not.
 | `WORKDIR /opt/quantnest` | Stable application root. |
 | Runtime `RUN apt-get ... libpq5` | Runtime PostgreSQL client library. |
 | `COPY --from=builder /install /usr/local` | Copies installed Python packages/executables. |
+| WebSocket protocol import check | Stops the image build if Uvicorn cannot handle WebSocket upgrades. The backend lock includes `websockets`; plain Uvicorn alone only installs HTTP support. |
 | `COPY backend/ ...` | Copies application source; `.dockerignore` excludes environments, private keys, logs and local data. |
 | `RUN useradd ... mkdir ... chown ...` | Creates fixed UID 10001 and application-owned runtime/media/static/log paths. |
 | `USER quantnest` | Application processes run without root privileges. |

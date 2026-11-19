@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
+import { ServerResponse } from 'node:http'
 import process from 'node:process'
 
 
@@ -28,13 +29,22 @@ export default defineConfig(({ command, mode }) => {
         upstream.setHeader('X-QuantNest-Client-IP', request.socket.remoteAddress || '')
       }
       proxy.on('proxyReq', prepareRequest)
-      proxy.on('proxyReqWs', prepareRequest)
+      proxy.on('proxyReqWs', (upstream, request, socket) => {
+        prepareRequest(upstream, request)
+        // Vite's upgrade proxy forwards 101 responses but leaves HTTP rejections hanging.
+        upstream.on('response', response => {
+          const reply = new ServerResponse(request)
+          reply.assignSocket(socket)
+          reply.writeHead(response.statusCode ?? 502, { ...response.headers, connection: 'close' })
+          response.pipe(reply)
+        })
+      })
     },
   }
   return {
     plugins: [react()],
     server: {
-      proxy: Object.fromEntries(['/api/', '/ws/', '/admin', '/health', '/static/'].map(path => [path, backendProxy])),
+      proxy: Object.fromEntries(['/api/', '/ws/', '/admin', '/health', '/static/', '/media/'].map(path => [path, backendProxy])),
     },
     resolve: {
       alias: {

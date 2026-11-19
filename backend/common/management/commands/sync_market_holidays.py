@@ -1,5 +1,6 @@
 """Sync NSE segment holidays, mirrored to BSE and MCX calendars."""
 from datetime import date, datetime, time
+import logging
 
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -10,6 +11,8 @@ from django.utils import timezone
 
 from common.enums import Exchange, FyersSegment
 from common.models import ExchangeConfig, MarketHoliday
+
+logger = logging.getLogger(__name__)
 
 
 NSE_SEGMENTS = {
@@ -90,7 +93,7 @@ class Command(BaseCommand):
                     update_fields=[*HOLIDAY_FIELDS, "updated_at"], batch_size=1000,
                 )
                 changed += len(updates)
-                self.stdout.write(f"{config.exchange}:{config.get_segment_display()}: {len(expected)} NSE source dates.")
+                self.stdout.write(f"{config.exchange}:{FyersSegment(config.segment).label}: {len(expected)} NSE source dates.")
         self.stdout.write(self.style.SUCCESS(
             f"{changed} holiday records added or updated; {removed} obsolete full closures removed; "
             f"{preserved} existing special sessions preserved."
@@ -120,12 +123,24 @@ class Command(BaseCommand):
                 opening = closing = None
                 if segment == FyersSegment.COMMODITY_DERIVATIVES:
                     morning, evening = entry["morning_session"], entry["evening_session"]
-                    if morning == "Closed" and evening == "Open":
+                    if morning is None and evening is None:
+                        # The holiday master omits regular-session flags for
+                        # special dates such as Muhurat. Keep regular hours
+                        # closed; handle() preserves reviewed dated overrides.
+                        logger.warning(
+                            "NSE %s holiday %s has unspecified session hours. Regular sessions remain closed; "
+                            "configure any special opening/closing times from the exchange circular in Admin. "
+                            "Existing special-session overrides are preserved.", key, day,
+                        )
+                    elif morning == "Closed" and evening == "Open":
                         opening = COMMODITY_SESSION_SPLIT
                     elif morning == "Open" and evening == "Closed":
                         closing = COMMODITY_SESSION_SPLIT
                     elif morning != "Closed" or evening != "Closed":
-                        raise ValueError("Unrecognised NSE commodity holiday session status.")
+                        raise ValueError(
+                            f"NSE {key} holiday {day} has unsupported session statuses: "
+                            f"morning={morning!r}, evening={evening!r}."
+                        )
                 holidays[segment][day] = {
                     "description": entry["description"], "is_partial": opening is not None or closing is not None,
                     "partial_open": opening, "partial_close": closing,

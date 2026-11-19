@@ -18,6 +18,11 @@ following the Docker procedure.
 | Run your own personal Paper/Live instance | [Private setup](private/SETUP.md) | A separate Ubuntu server and your browser |
 
 Do Development first. Then choose Public, Private, or both on separate servers.
+For local development, start/unpause Docker Desktop, then run
+`.\.venv\Scripts\python.exe infra/development/dev.py` from the repository root.
+It prepares missing env files and starts the configured stack; native data is not
+imported automatically. See the Development guide for account/data authorization.
+
 Public and Private use different databases, credentials and users. Logging into
 one does not create an account or copy strategies in the other. Both use the same
 site, registration and workspace interface; execution scopes control access.
