@@ -7,6 +7,8 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 import re
+from typing import cast
+from rest_framework.serializers import Serializer
 
 from common.enums import CandleTimeframe, OperandType, RuleType
 from strategies.specification.operands import POSITION_OPERANDS
@@ -62,7 +64,7 @@ def validate_definition(document):
         if not isinstance(result[key], dict):
             raise ValueError(f'{key} must be an object.')
         values = dict(result[key])
-        serializer = cls(data=values)
+        serializer = cast(Serializer, cls(data=values))
         extra = set(values) - {name for name, field in serializer.fields.items() if not field.read_only}
         if extra:
             raise ValueError(f'{key}: unsupported fields {sorted(extra)}.')

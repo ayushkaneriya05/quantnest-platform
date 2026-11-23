@@ -1,3 +1,6 @@
+from typing import cast
+from rest_framework.request import Request
+from common.validation import validate_value, validate_data
 from common.enums import (
     Exchange, InstrumentType, TerminalOrderType, TerminalOrderStatus,
     TerminalPositionAction, Side, Timezone,
@@ -48,6 +51,7 @@ def filter_history_dates(queryset, request, field):
 # --- Instrument and Watchlist Views ---
 
 class InstrumentSearchView(generics.ListAPIView):
+    request: Request
     serializer_class = InstrumentSerializer
     permission_classes = [IsAuthenticated]
 
@@ -60,8 +64,7 @@ class InstrumentSearchView(generics.ListAPIView):
             expiry_date = serializers.DateField(required=False)
             include_archived = serializers.BooleanField(default=False)
         data = SearchInput(data=self.request.query_params)
-        data.is_valid(raise_exception=True)
-        fields = dict(data.validated_data)
+        fields = dict(validate_data(data))
         return TradingInstrumentService.search(fields.pop('q'), **fields)
 
 class WatchlistView(views.APIView):
@@ -69,21 +72,21 @@ class WatchlistView(views.APIView):
 
     def get(self, request):
         from rest_framework import serializers
-        identity = serializers.IntegerField(min_value=0).run_validation(request.query_params.get('watchlist_id', 0))
+        identity = cast(int, validate_value(serializers.IntegerField(min_value=0), request.query_params.get('watchlist_id', 0)))
         watchlist = TradingWatchlistService.get_watchlist(request.user, identity)
         return Response(WatchlistSerializer(watchlist).data)
 
     def post(self, request):
         from rest_framework import serializers
-        sym_ticker = serializers.CharField(max_length=100).run_validation(request.data.get('sym_ticker'))
-        identity = serializers.IntegerField(min_value=0).run_validation(request.query_params.get('watchlist_id', 0))
+        sym_ticker = cast(str, validate_value(serializers.CharField(max_length=100), request.data.get('sym_ticker')))
+        identity = cast(int, validate_value(serializers.IntegerField(min_value=0), request.query_params.get('watchlist_id', 0)))
         watchlist = TradingWatchlistService.add_instrument(request.user, sym_ticker, identity)
         return Response(WatchlistSerializer(watchlist).data, status=status.HTTP_200_OK)
 
     def delete(self, request):
         from rest_framework import serializers
-        sym_ticker = serializers.CharField(max_length=100).run_validation(request.data.get('sym_ticker'))
-        identity = serializers.IntegerField(min_value=0).run_validation(request.query_params.get('watchlist_id', 0))
+        sym_ticker = cast(str, validate_value(serializers.CharField(max_length=100), request.data.get('sym_ticker')))
+        identity = cast(int, validate_value(serializers.IntegerField(min_value=0), request.query_params.get('watchlist_id', 0)))
         watchlist = TradingWatchlistService.remove_instrument(request.user, sym_ticker, identity)
         return Response(WatchlistSerializer(watchlist).data, status=status.HTTP_200_OK)
 
@@ -155,13 +158,13 @@ class PositionActionView(views.APIView):
             quantity = serializers.IntegerField(min_value=1, required=False)
 
         data = ActionInput(data=request.data)
-        data.is_valid(raise_exception=True)
-        action = data.validated_data['action']
+        values = validate_data(data)
+        action = values['action']
         with transaction.atomic():
             account = TradingAccountService.get_or_create_account(request.user)
             Account.objects.select_for_update().get(pk=account.pk)
             position = get_object_or_404(Position.objects.select_for_update().select_related('instrument'), pk=id, account=account)
-            quantity = abs(position.quantity) if action == TerminalPositionAction.CLOSE else data.validated_data.get('quantity')
+            quantity = abs(position.quantity) if action == TerminalPositionAction.CLOSE else values.get('quantity')
             if not quantity:
                 raise serializers.ValidationError('Quantity is required.')
             if action == TerminalPositionAction.REDUCE and quantity > abs(position.quantity):
@@ -186,8 +189,8 @@ class CancelOrdersView(views.APIView):
             ids = serializers.ListField(child=serializers.IntegerField(min_value=1), max_length=1000)
 
         data = CancelInput(data=request.data)
-        data.is_valid(raise_exception=True)
-        orders = Order.objects.filter(account__user=request.user, pk__in=data.validated_data['ids'], status=TerminalOrderStatus.OPEN)
+        values = validate_data(data)
+        orders = Order.objects.filter(account__user=request.user, pk__in=values['ids'], status=TerminalOrderStatus.OPEN)
         count = 0
         for order in orders:
             TradingOrderService.cancel_order(order)
@@ -203,8 +206,7 @@ class OrderPreviewView(views.APIView):
         from marketdata.quotes import read_quote
         from execution.preparation import contract_from_instrument
         serializer = OrderSerializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        data = dict(serializer.validated_data)
+        data = dict(validate_data(serializer))
         instrument = data.pop('instrument')
         account = TradingAccountService.get_or_create_account(request.user)
         quote = read_quote(instrument.sym_ticker)
@@ -227,6 +229,7 @@ class OrderPreviewView(views.APIView):
                          'margin_basis': 'Configured simulation margin; not a broker margin quotation.'})
 
 class OrderView(generics.ListCreateAPIView):
+    request: Request
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = StandardPagination
@@ -261,6 +264,7 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
         TradingOrderService.cancel_order(instance)
 
 class TradeHistoryView(generics.ListAPIView):
+    request: Request
     serializer_class = TradeHistorySerializer
     permission_classes = [IsAuthenticated]
     pagination_class = StandardPagination
@@ -281,6 +285,7 @@ class TradeHistoryView(generics.ListAPIView):
         return filter_history_dates(queryset, self.request, 'timestamp')
 
 class ClosedPositionLogView(generics.ListAPIView):
+    request: Request
     serializer_class = ClosedPositionLogSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = StandardPagination
@@ -300,7 +305,7 @@ class TerminalSnapshotView(views.APIView):
 
     def get(self, request):
         from rest_framework import serializers
-        identity = serializers.IntegerField(min_value=0).run_validation(request.query_params.get('watchlist_id', 0))
+        identity = cast(int, validate_value(serializers.IntegerField(min_value=0), request.query_params.get('watchlist_id', 0)))
         return Response(TradingTerminalService.build_snapshot(request.user, identity))
 
 
@@ -311,5 +316,5 @@ class TerminalStatusView(views.APIView):
         from django.conf import settings
         from common.redis import runtime_redis
         redis = runtime_redis()
-        return Response({'execution_running': int(redis.get('quantnest:execution:workers') or 0) == settings.EXECUTION_WORKERS,
+        return Response({'execution_running': int(cast(str | None, redis.get('quantnest:execution:workers')) or 0) == settings.EXECUTION_WORKERS,
             'market_data': bool(redis.exists('quantnest:lease:market-data'))})

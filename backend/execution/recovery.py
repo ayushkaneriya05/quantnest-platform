@@ -28,11 +28,20 @@ def sessions_for_account(key):
     return list(query.select_related('allocation__deployed_version', 'strategy').order_by('pk'))
 
 
+def deployed_version(session):
+    """Recovery requires the saved deployment, never an unsaved strategy draft."""
+    allocation = session.allocation
+    if allocation is None or allocation.deployed_version is None:
+        raise ValueError(f'Session {session.pk} has no deployed strategy version.')
+    return allocation.deployed_version
+
+
 def configure_sessions(account: Account, sessions) -> None:
     """Initial preparation only; running owners apply ordered configuration commands."""
     for session in sessions:
-        config = session.allocation.deployed_version.config_snapshot
-        account.versions[session.pk] = session.allocation.deployed_version_id
+        version = deployed_version(session)
+        config = version.config_snapshot
+        account.versions[session.pk] = version.pk
         account.statuses[session.pk] = session.status
         for watch in config['watchlist_instruments']:
             sizing = InstrumentResolver.sizing_for(watch, config['position_sizing_rule'])
@@ -67,10 +76,10 @@ def _strategy_account(key) -> Account:
         session_by_allocation = {session.allocation_id: session for session in sessions}
     configure_sessions(account, sessions)
     for record in positions.select_related('instrument').filter(quantity__gt=0):
-        session = sessions[0] if mode == ExecutionMode.PAPER else session_by_allocation[record.allocation_id]
+        session = sessions[0] if isinstance(record, PaperPosition) else session_by_allocation[record.allocation_id]
         contract = contract_from_instrument(record.instrument)
         unit = mode, session.pk, record.route_id, record.leg_id
-        watch = next(item for item in session.allocation.deployed_version.config_snapshot['watchlist_instruments']
+        watch = next(item for item in deployed_version(session).config_snapshot['watchlist_instruments']
                      if (item['route_id'], item['leg_id']) == unit[2:])
         binding = InstrumentResolver.input_bindings(watch)
         quantity = record.quantity if record.side == Side.BUY else -record.quantity
@@ -79,7 +88,7 @@ def _strategy_account(key) -> Account:
         position = Position(unit, contract, quantity, record.avg_price, record.opened_at,
             revision=1, margin=record.margin_blocked, lots=[lot], peak=float(record.avg_price),
             settled_pnl=record.settled_pnl, binding=(binding['signal'], contract.instrument_id))
-        owner_filter = {'account_id': identity} if mode == ExecutionMode.PAPER else {'allocation_id': record.allocation_id}
+        owner_filter = {'account_id': identity} if isinstance(record, PaperPosition) else {'allocation_id': record.allocation_id}
         last_fill = (PaperOrder if mode == ExecutionMode.PAPER else LiveOrder).objects.filter(
             **owner_filter, route_id=record.route_id, leg_id=record.leg_id,
             instrument_id=record.instrument_id, executed_at__gte=record.opened_at
@@ -87,10 +96,10 @@ def _strategy_account(key) -> Account:
         position.last_fill_at = last_fill or position.opened_at
         account.positions[unit], account.position_revisions[unit] = position, 1
     for record in orders.select_related('instrument'):
-        session = sessions[0] if mode == ExecutionMode.PAPER else session_by_allocation[record.allocation_id]
+        session = sessions[0] if isinstance(record, PaperOrder) else session_by_allocation[record.allocation_id]
         contract = contract_from_instrument(record.instrument)
         unit = mode, session.pk, record.route_id, record.leg_id
-        watch = next(item for item in session.allocation.deployed_version.config_snapshot['watchlist_instruments']
+        watch = next(item for item in deployed_version(session).config_snapshot['watchlist_instruments']
                      if (item['route_id'], item['leg_id']) == unit[2:])
         binding = InstrumentResolver.input_bindings(watch)
         filled_value = record.filled_quantity * (record.avg_fill_price or ZERO)
@@ -99,9 +108,9 @@ def _strategy_account(key) -> Account:
             filled=record.filled_quantity, filled_value=filled_value, status=record.status,
             version=account.versions[session.pk], charge_profile=account.profiles.get(session.pk, {}),
             binding=(binding['signal'], contract.instrument_id))
-        if mode == ExecutionMode.LIVE:
+        if isinstance(record, LiveOrder):
             order.intent, order.broker_id = record.intent, record.broker_order_id
-            order.version = record.strategy_version_id
+            order.version = record.strategy_version_id or account.versions[session.pk]
             order.broker_ordered_at, order.broker_updated_at = record.broker_ordered_at, record.broker_updated_at
             order.exchange_order_id = record.exchange_order_id
         else:
@@ -137,13 +146,13 @@ def _terminal_account(identity: int) -> Account:
             same = (fill.order.transaction_type == Side.BUY) == (row.quantity > 0)
             if same:
                 quantity = abs(row.quantity-later) if index == 0 else fill.quantity
-                position.lots.append(EntryLot(quantity, fill.executed_price, fill.order.executed_at,
+                position.lots.append(EntryLot(quantity, fill.executed_price, fill.timestamp,
                     str(fill.order.pk), fill.order.charge_profile_snapshot, fill.quantity))
             else:
                 from dataclasses import replace
                 remaining, kept = fill.quantity, []
                 for lot in sorted(position.lots, key=lambda item: (
-                    item.at.astimezone().date() != fill.order.executed_at.astimezone().date(), item.at)):
+                    item.at.astimezone().date() != fill.timestamp.astimezone().date(), item.at)):
                     used = min(remaining, lot.quantity)
                     remaining -= used
                     if lot.quantity > used:
@@ -209,8 +218,9 @@ def load_configuration(key, *, instrument_ids=(), committed=False):
     prepared_calendars = {}
     today = timezone.localdate()
     from .preparation import compile_markets
+    from paper_trading.models import PaperTradingSession
     for session in sessions_for_account(key):
-        version = session.allocation.deployed_version
+        version = deployed_version(session)
         status = session.status
         if committed and state is not None:
             # Startup restores the version actually owned by this checkpoint.
@@ -247,6 +257,7 @@ def load_configuration(key, *, instrument_ids=(), committed=False):
                     working = next((order for order in state.working.values() if order.unit == unit), None) if state else None
                     pinned = owned or working
                     if pinned is not None:
+                        assert program.binding is not None
                         program = replace(program, binding=(program.binding[0], pinned.contract.instrument_id))
                     ids.update(program.candidates)
                     sources.update({str(identity): symbol for identity, symbol in program.candidates.items()})
@@ -260,12 +271,14 @@ def load_configuration(key, *, instrument_ids=(), committed=False):
                         projection = projection.for_source('signal' if role == 'signal' else 'trade')
                     input_programs.setdefault(symbol, {})[unit] = projection
             sizing[unit] = rule
-        paper = key[0] == ExecutionMode.PAPER
+        paper = isinstance(session, PaperTradingSession)
+        allocation = session.allocation
+        assert allocation is not None
         sessions[session.pk] = dict(version=version.pk,
             status=status, sizing=sizing,
-            profile=session.charge_profile_snapshot if paper and session.include_charges else {},
-            slippage=session.slippage_pct if paper else ZERO,
-            capital=None if paper else session.allocation.allocated_capital,
+            profile=session.charge_profile_snapshot if isinstance(session, PaperTradingSession) and session.include_charges else {},
+            slippage=session.slippage_pct if isinstance(session, PaperTradingSession) else ZERO,
+            capital=None if paper else allocation.allocated_capital,
             close_on_stop=bool(state and session.status == ExecutionSessionStatus.STOPPING
                               and state.close_on_stop.get(session.pk, False)))
     contracts, calendars = {}, {}

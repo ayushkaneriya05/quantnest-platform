@@ -5,6 +5,7 @@ keeps crosses correct even when another condition is false or a group short-circ
 The account owner alone accepts an intent and changes financial state.
 """
 import operator
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
@@ -17,7 +18,7 @@ from .compiler import FeatureGraph, Operand, Program, Rule
 from .expressions import boolean_result
 from .types import AccountKey, Intent, PositionView, Tick, UnitKey
 
-COMPARISONS = {ComparisonOperator.GREATER: operator.gt, ComparisonOperator.LESS: operator.lt,
+COMPARISONS: dict[str, Callable[[float, float], bool]] = {ComparisonOperator.GREATER: operator.gt, ComparisonOperator.LESS: operator.lt,
     ComparisonOperator.GREATER_EQUAL: operator.ge, ComparisonOperator.LESS_EQUAL: operator.le,
     ComparisonOperator.EQUAL: operator.eq, ComparisonOperator.NOT_EQUAL: operator.ne}
 
@@ -89,8 +90,8 @@ class EvaluationUnit:
                 # Never restore its uncommitted occurrence as an owned trade.
                 state.update(phase='idle', captures={}, arm_seen=True)
         self._restore_owned_setup()
-        self.previous = {int(key): tuple(nan if item is None else item for item in values)
-                         for key, values in saved['previous'].items()}
+        self.previous = {int(key): (nan if left is None else left, nan if right is None else right)
+                         for key, (left, right) in saved['previous'].items()}
         # Source stamps contain datetimes and nested tuples and use the same
         # explicit JSON codec as financial snapshots.
         self.samples = {int(key): value for key, value in saved['samples'].items()}
@@ -150,6 +151,7 @@ class EvaluationUnit:
             observed = self.source_quotes.get(operand.source) if self.source_cursors else tick
             return observed.price if observed is not None and observed.event_time <= tick.evaluated_at else nan
         if kind == OperandType.MATH_EXPRESSION:
+            assert operand.calculation is not None, 'Arithmetic operands must be compiled before evaluation.'
             name = operand.expression_name
             if name and name in self.expression_values:
                 return self.expression_values[name]
@@ -357,6 +359,7 @@ class EvaluationUnit:
             if signal is None or signal.event_time > event.evaluated_at:
                 return None
             try:
+                assert self.program.selection is not None and self.program.binding is not None
                 selected = self.program.selection.select(Decimal(str(signal.price)),
                     event.evaluated_at.astimezone(self.program.calendar.zone).date())
             except ValueError:
@@ -414,7 +417,7 @@ class EvaluationUnit:
             if not self.source_cursors and (graph is None or not graph.ready(self.program, tick.evaluated_at)):
                 return None
         applicable = (RuleType.STOP_LOSS, RuleType.TARGET, RuleType.EXIT) if position.quantity else (RuleType.ENTRY,)
-        results = {kind: [] for kind in applicable}
+        results: dict[str, list[tuple[bool, bool, str]]] = {kind: [] for kind in applicable}
         for group in self.program.groups:
             if group.kind not in applicable:
                 continue

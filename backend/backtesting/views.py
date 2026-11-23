@@ -1,6 +1,9 @@
 """
 Views for the backtesting app.
 """
+from typing import cast
+from rest_framework.request import Request
+from common.validation import validate_value, validate_data
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -22,6 +25,7 @@ from .services import create_backtest, start_backtest, publish_backtest_update, 
 
 class BacktestRunViewSet(viewsets.ModelViewSet):
     """ViewSet for backtest runs."""
+    request: Request
     pagination_class = StandardPagination
     permission_classes = [permissions.IsAuthenticated]
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
@@ -68,8 +72,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         from commercial.usage import estimate_backtest_workload
         from strategies.services import StrategySnapshotService
         serializer = BacktestRunSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        data = validate_data(serializer)
         if data["strategy"].user_id != request.user.pk:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Select your own strategy.")
@@ -191,6 +194,7 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
 
 class MonteCarloRunViewSet(viewsets.ModelViewSet):
     """ViewSet for Monte Carlo runs."""
+    request: Request
     serializer_class = MonteCarloRunSerializer
     pagination_class = StandardPagination
     permission_classes = [permissions.IsAuthenticated]
@@ -206,11 +210,11 @@ class MonteCarloRunViewSet(viewsets.ModelViewSet):
         qs = MonteCarloRun.objects.filter(backtest_run__user=self.request.user).select_related('backtest_run')
         if self.request.query_params.get('backtest_run'):
             from rest_framework.fields import IntegerField
-            identity = IntegerField(min_value=1).run_validation(self.request.query_params['backtest_run'])
+            identity = cast(int, validate_value(IntegerField(min_value=1), self.request.query_params['backtest_run']))
             qs = qs.filter(backtest_run_id=identity)
         ordering = self.request.query_params.get('ordering', '-created_at')
         from rest_framework.fields import ChoiceField
-        ordering = ChoiceField(choices=['created_at', '-created_at', 'status', '-status', 'num_simulations', '-num_simulations']).run_validation(ordering)
+        ordering = cast(str, validate_value(ChoiceField(choices=['created_at', '-created_at', 'status', '-status', 'num_simulations', '-num_simulations']), ordering))
         if self.action == 'list':
             qs = qs.only('id', 'backtest_run', 'backtest_run__name', 'num_simulations', 'confidence_level',
                 'status', 'error_message', 'completed_at', 'created_at')

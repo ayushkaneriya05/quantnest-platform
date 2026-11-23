@@ -1,3 +1,6 @@
+from common.validation import validate_value
+from typing import cast
+from rest_framework.request import Request
 from common.pagination import StandardPagination
 from django.db.models import Count, Q
 """
@@ -5,6 +8,7 @@ Views for the strategies app.
 """
 from rest_framework import mixins, viewsets, status, permissions
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from brokers.models import BrokerCredential
@@ -25,6 +29,7 @@ class StrategyTagViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet)
 
 
 class StrategyViewSet(viewsets.ModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     """ViewSet for CRUD operations on strategies."""
     permission_classes = [permissions.IsAuthenticated]
@@ -83,7 +88,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search))
             if self.action == 'list' and self.request.query_params.get('status'):
                 from rest_framework.fields import ChoiceField
-                value = ChoiceField(choices=Strategy._meta.get_field('status').choices).run_validation(self.request.query_params['status'])
+                value = cast(str, validate_value(ChoiceField(choices=Strategy._meta.get_field('status').choices), self.request.query_params['status']))
                 qs = qs.filter(status=value)
         return qs.order_by('-created_at', '-id')
 
@@ -170,7 +175,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def activate(self, request, pk=None):
         """Activate a draft or paused strategy."""
-        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
+        strategy = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
         if strategy.status == 'ARCHIVED':
             return Response({'error': 'Unarchive this strategy before activating it.'}, status=status.HTTP_400_BAD_REQUEST)
         if strategy.status != 'ACTIVE':
@@ -191,10 +196,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
         from paper_trading.services import PaperExecutionService
         from paper_trading.serializers import PaperTradingSessionSerializer
         from paper_trading.models import PaperAccount
-        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
-            request.data.get("allocation_amount")
-        )
-        version_id = IntegerField(min_value=1).run_validation(request.data.get("version_id"))
+        amount = cast(Decimal, validate_value(DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")), request.data.get("allocation_amount")))
+        version_id = cast(int, validate_value(IntegerField(min_value=1), request.data.get("version_id")))
         try:
             version = StrategyVersion.objects.get(pk=version_id, strategy=strategy)
             session = PaperExecutionService.deploy_session(
@@ -215,11 +218,9 @@ class StrategyViewSet(viewsets.ModelViewSet):
         from rest_framework.fields import DecimalField, IntegerField
         from decimal import Decimal
         strategy = self.get_object()
-        broker_id = IntegerField(min_value=1).run_validation(request.data.get("broker_credential"))
-        version_id = IntegerField(min_value=1).run_validation(request.data.get("version_id"))
-        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
-            request.data.get("allocation_amount")
-        )
+        broker_id = cast(int, validate_value(IntegerField(min_value=1), request.data.get("broker_credential")))
+        version_id = cast(int, validate_value(IntegerField(min_value=1), request.data.get("version_id")))
+        amount = cast(Decimal, validate_value(DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")), request.data.get("allocation_amount")))
         try:
             credential = BrokerCredential.objects.get(pk=broker_id, user=request.user, is_verified=True)
             version = StrategyVersion.objects.get(pk=version_id, strategy=strategy)
@@ -243,7 +244,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def pause(self, request, pk=None):
         """Pause strategy-level activation only when no execution session exists."""
-        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
+        strategy = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
         if strategy.status != 'ACTIVE':
             return Response({'error': 'Only active strategies can be paused.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -298,7 +299,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path=r'versions/(?P<version_id>[0-9]+)')
     def version(self, request, pk=None, version_id=None):
-        from django.shortcuts import get_object_or_404
         version = get_object_or_404(self.get_object().versions.select_related('created_by', 'strategy'), pk=version_id)
         return Response(StrategyVersionSerializer(version).data)
 
@@ -306,7 +306,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def archive(self, request, pk=None):
         """Archive a strategy."""
-        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
+        strategy = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
         try:
             StrategyDeploymentService.validate_strategy_lifecycle(strategy)
         except ValueError as exc:
@@ -320,7 +320,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def unarchive(self, request, pk=None):
         """Unarchive a strategy back to draft."""
-        strategy = Strategy.objects.select_for_update().get(pk=pk, user=request.user)
+        strategy = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
         if strategy.status == 'ARCHIVED':
             try:
                 StrategyDeploymentService.validate_strategy_lifecycle(strategy)

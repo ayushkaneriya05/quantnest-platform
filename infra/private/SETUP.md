@@ -1,14 +1,35 @@
-# Personal Private: beginner deployment walkthrough
+# QuantNest Private: managed deployment walkthrough
 
-Use this to run **your own personal QuantNest instance** on its own Ubuntu
-server. It uses the shared website, registration and workspace, with Paper and
-Live scopes enabled. There is no customer licence, renewal service, commercial
-quota or Private checkout to activate.
+Use this as the QuantNest operator to run **one customer's managed Private
+instance**, or your own personal instance, on a separate Ubuntu server. It uses
+the shared website, registration and workspace, with Paper and Live scopes.
+There is no customer licensing server, automated expiry, public-plan quota or
+Private checkout to activate. Agreed costs, service periods and renewals are
+managed directly, outside public subscription billing.
 
-Customer Private hosting/Live sales are not part of this setup. This document
-describes the current personal instance, with Oracle server steps reviewed on
-18 November 2026. Use [Private readiness](../../docs/private-deployment-readiness.md)
-for the current functional acceptance boundaries.
+The Oracle server instructions were reviewed on 18 November 2026; the managed
+offering was restored on 22 November 2026. Read
+[Live release checks](../../docs/live-trading.md#release-checks-and-unsupported-behavior) for technical
+acceptance boundaries before onboarding a real broker workflow.
+
+## Customer agreement and isolation
+
+1. Record the quotation, supported broker/products, intended sessions/instruments,
+   capacity, users, service period, hosting/provider costs and support arrangement.
+2. Agree backup retention, updates, recovery, any uptime commitment and offboarding.
+3. Use a separate host/hostname/database/volumes and new secrets per customer.
+   The fixed `quantnest-private` Compose project belongs to that host; this initial
+   deployment flow does not put several customer stacks on one host.
+4. Keep root/SSH, Docker, repository access and staff Admin with QuantNest. Give
+   the customer an ordinary application account; do not send source or env files.
+5. Ask the customer to complete their own trading authorization in Broker
+   Integration. Never collect app secrets or one-time codes through Support.
+6. Agree any public-to-Private record transfer explicitly. There is no automatic
+   account, subscription, credential or financial-record migration.
+7. Verify the selected workflow and restore procedure. No unattended real order
+   is part of these setup commands.
+
+Your own personal instance can use the same steps without a customer agreement.
 
 ## Step 1. Complete local simulation and prepare this separate instance
 
@@ -18,22 +39,22 @@ Read [Start here](../START-HERE.md) for how to publish the reviewed current sour
 
 Prepare:
 
-- [ ] A separate Ubuntu server/database for personal use, not the Public stack.
-- [ ] A personal hostname, such as `personal.example.com`.
+- [ ] A separate Ubuntu server/database for this instance, not the Public stack.
+- [ ] A dedicated hostname, such as `private.example.com`.
 - [ ] A reserved public server IP, including the required broker IP configuration.
-- [ ] FYERS market-data app and a separate personal trading app.
+- [ ] FYERS market-data app and the account owner's separate trading app.
 - [ ] Gemini key/model and matching internal research tokens.
 - [ ] Outgoing SMTP sender/login/key and production Turnstile widget.
 - [ ] Your reviewed source release and a safe plan for any existing data.
 
 Public user accounts, strategies and payments are not automatically copied here.
-Use instance-local accounts and credentials. Your personal mode still has the
+Use instance-local accounts and credentials. Private still has the
 ordinary registration page; it does not introduce a separate sign-in interface.
 
 ## Step 2. Prepare the host and DNS
 
 Complete [Server setup](../shared/SERVER-SETUP.md). Use Ubuntu 24.04 with Docker,
-Compose, Python 3.12 and age. SSH into the personal server and enter the clone:
+Compose, Python 3.12 and age. SSH into the dedicated server and enter the clone:
 
 ```sh
 cd ~/QuantNest
@@ -47,18 +68,18 @@ These and subsequent shell commands run **on the Ubuntu server**. Public and
 Private production defaults both publish 80/443, so do not start both on the same
 host using these files unchanged.
 On Oracle, follow that guide's public-subnet/Internet-Gateway, reserved-IP, NSG
-and guest-firewall steps. A separate personal host has its own resource needs;
+and guest-firewall steps. Each separate Private host has its own resource needs;
 the tenancy's free A1 CPU/RAM is shared with any Public host. On A1, build the
 Private backend, research and frontend images natively for ARM64.
 
-Create a DNS A record for `personal.example.com` pointing at this server's
+Create a DNS A record for `private.example.com` pointing at this server's
 reserved IP. If using Cloudflare DNS, use **DNS-only** for this direct-ingress
 configuration. No Cloudflare Pages project or Public origin hostname is needed.
 Allow inbound 80/443 and your restricted SSH access. Do not publish database,
 Redis, API or research ports.
 
 ```sh
-dig +short personal.example.com
+dig +short private.example.com
 ```
 
 Confirm it returns your server address. Use AAAA only if the IPv6 route/firewall
@@ -96,10 +117,10 @@ Set these domain/process values in `backend.env`:
 
 ```dotenv
 QUANTNEST_RELEASE=YOUR_REVIEWED_RELEASE_LABEL
-FRONTEND_URL=https://personal.example.com
-BACKEND_URL=https://personal.example.com
-PUBLIC_HOSTNAME=personal.example.com
-ALLOWED_HOSTS=personal.example.com,api,localhost,127.0.0.1
+FRONTEND_URL=https://private.example.com
+BACKEND_URL=https://private.example.com
+PUBLIC_HOSTNAME=private.example.com
+ALLOWED_HOSTS=private.example.com,api,localhost,127.0.0.1
 API_WORKERS=1
 EXECUTION_WORKERS=1
 ```
@@ -148,7 +169,7 @@ docker compose --env-file infra/private/backend.env -f infra/private/compose.yam
 python3 infra/shared/scripts/deploy.py --root . --mode private --build
 docker compose --env-file infra/private/backend.env -f infra/private/compose.yaml ps
 python3 infra/shared/scripts/diagnostics.py --root . --mode private
-curl -i https://personal.example.com/health/
+curl -i https://private.example.com/health/
 ```
 
 Deploy stops application writers for migrations, sets up Timescale/Site/static
@@ -170,7 +191,7 @@ If TLS fails, inspect DNS, inbound 80/443, server clock and Caddy logs:
 docker compose --env-file infra/private/backend.env -f infra/private/compose.yaml logs --tail=100 ingress
 ```
 
-Open the normal website at the personal domain. Use it for all user/provider
+Open the normal website at the Private domain. Use it for all user/provider
 callbacks rather than raw API/container addresses.
 
 ## Step 6. Create the administrator and initial metadata
@@ -183,7 +204,7 @@ docker compose --env-file infra/private/backend.env -f infra/private/compose.yam
 ```
 
 Replace the administrator username. Import the printed OTP URI into an
-authenticator privately, then log into `https://personal.example.com/admin/`.
+authenticator privately, then log into `https://private.example.com/admin/`.
 Do not repeat OTP enrolment every restart or share its secret.
 
 Review exchange/segment calendars, timezone/hours, holidays and special sessions.
@@ -200,9 +221,9 @@ request missing history through the common data layer when needed.
 
 Follow [FYERS data setup](../shared/INTEGRATIONS.md#6-fyers-shared-market-data-connection):
 
-1. Register `https://personal.example.com/api/v1/market/fyers/callback/` in the data app.
+1. Register `https://private.example.com/api/v1/market/fyers/callback/` in the data app.
 2. Sign into Admin on this same hostname.
-3. Open `https://personal.example.com/api/v1/market/fyers/login/` in the same browser.
+3. Open `https://private.example.com/api/v1/market/fyers/login/` in the same browser.
 4. Complete FYERS consent and inspect its staff token status/feed logs.
 5. Request a stock chart and deeper history; check live updates during its session.
 
@@ -215,7 +236,7 @@ Then confirm account/password/support email, Turnstile anonymous enquiries and
 Gemini research. If desired, add [Google login](../shared/INTEGRATIONS.md#8-google-sign-in-optional-backend-client)
 to this database's configured Site. It is separate from Public's Google client.
 
-## Step 8. Prove the simulated flow with an ordinary personal user
+## Step 8. Prove the simulated flow with an ordinary account owner
 
 Create a normal account through `/register`; do not use Admin as your everyday
 trading identity. Follow [the platform checklist](../shared/INTEGRATIONS.md#11-initial-platform-data-and-ordinary-user-acceptance):
@@ -240,7 +261,7 @@ Then complete these steps deliberately:
 
 1. In FYERS, use your individual trading app with order permissions and the
    server IP approved where required.
-2. Register `https://personal.example.com/api/v1/brokers/credentials/fyers/callback/`.
+2. Register `https://private.example.com/api/v1/brokers/credentials/fyers/callback/`.
    This is **not** the data callback configured in Step 7.
 3. In your ordinary QuantNest user account open Broker Integration -> FYERS.
 4. Save the trading App ID/Secret there and complete its browser login/consent.
@@ -329,6 +350,20 @@ Keep one execution supervisor and one Beat. Increase `EXECUTION_WORKERS` only
 with measured CPU/memory headroom on this shared-buffer host; do not scale the
 execution container count. Do not use `down -v` for upgrades and do not run
 native runtime commands against these same containers/volumes.
+
+## Service periods, renewal and offboarding
+
+There is no automatic Private payment, licence or expiry task. Keep the agreed
+period and renewal in your external operating records, contact the customer
+before it ends and confirm payment/renewal directly. The application does not
+enforce a date or automatically stop sessions at expiry.
+
+For offboarding, coordinate with the customer: review pending orders and real
+broker exposure, use the existing explicit session controls, confirm broker
+outcomes, provide agreed records, then handle account access, service shutdown
+and backup retention. A stopped process does not itself cancel broker orders.
+Do not use account deactivation or server shutdown as an unreviewed liquidation
+mechanism. Follow the written agreement for refunds, support and retained data.
 
 Reference: [Private configuration](README.md),
 [shared options](../shared/README.md), [operations](../shared/scripts/README.md).

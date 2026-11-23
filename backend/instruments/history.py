@@ -102,7 +102,7 @@ def historical_selector(underlying, policy, start, end):
             Instrument.objects.bulk_create(additions, ignore_conflicts=True, batch_size=1000)
     rows = {item.pk: item for item in family.filter(expiry_date__in=dates)}
     selector = PreparedSelector(policy, tuple(Candidate(item.pk, item.expiry_date, item.strike_price)
-        for item in rows.values()))
+        for item in rows.values() if item.expiry_date is not None))
     if not selector.expiries:
         raise ValueError(f'{underlying.name}: no discovered contracts match this selection policy.')
     return selector, rows, template

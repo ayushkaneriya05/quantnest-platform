@@ -1,6 +1,8 @@
 # Prepare an Oracle Cloud production server
 
-Use this once for the Public host and again for a separate personal Private host.
+Use this once for the Public host and again for each separate managed Private
+host. A personal Private instance uses the same setup. Keep customer databases,
+credentials, volumes and backups isolated; the initial flow is one stack per host.
 Skip this document for local Development. These instructions use **Ubuntu 24.04
 LTS**, matching the Python 3.12 host scripts. The applications run in Docker.
 

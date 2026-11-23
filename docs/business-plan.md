@@ -1,9 +1,9 @@
 # QuantNest business plan
 
-**Revised against the current product: 23 October 2026.**
+**Revised against the current product: 22 November 2026.**
 
-This is the business direction for QuantNest. The [implementation plan](implementation-plan.md)
-maps it to delivered code and remaining release work. [Commercial operations](commercial-operations.md)
+This is the business direction for QuantNest. The [acceptance checklist](../infra/START-HERE.md#7-acceptance-and-release-checklist)
+maps the current workflows to release verification. [Commercial operations](commercial-operations.md)
 explains customer and operator actions. Prices below describe the launch seed;
 published catalog terms and the customer's purchase determine actual entitlement.
 
@@ -18,9 +18,10 @@ version history, backtesting, a manual simulated Terminal, automated Paper,
 journaling, reports and account controls. It does not sell investment advice,
 ready-made return claims, managed money or a public strategy marketplace.
 
-Private is an operator-managed personal production instance. It is not offered to
-customers and has no sales, contract activation or licence renewal workflow.
-Personal Live code remains available separately from Public simulation.
+Private is a separately managed, contact-priced deployment for customers, with
+supported broker connections and automated Live strategies. The same mode also
+supports the operator's personal use. Quotations, payments, service periods and
+renewals are handled directly; no licensing server or automatic expiry is added.
 
 The public strategy workflow includes NSE stocks, futures and options for
 backtesting, Terminal simulation and automated Paper on all plans. Direct AI
@@ -88,12 +89,16 @@ These are seed values, not a second configurable catalog. To change limits or
 pricing, publish a new validated catalog revision in Admin as described in
 Commercial operations. Preserve purchased terms and provider price mappings.
 
-### Personal Private
+### QuantNest Private
 
-Private has no current customer revenue or acquisition target. Preserve its
-separate environment and shared execution code for personal use. Any future
-customer offering requires its own product, broker/compliance and operating
-review before adding contracts, billing or marketing.
+Offer one dedicated QuantNest-managed instance per customer, preserving the shared
+execution code, ordinary account flows and instance-local data. Quote setup,
+capacity, hosting, support, service periods and provider costs directly. Public
+plan quotas do not apply; technical/provider limits and operating capacity do.
+Customers receive browser access rather than source/server access by default.
+Start conversations through Private enquiries in the existing Support workflow.
+Agree and verify the exact supported broker/product workflow during onboarding;
+the presence of Live code is not acceptance evidence for every instrument.
 
 ### Custom development
 
@@ -123,7 +128,7 @@ Focus marketing on clarity, repeatability, saved configuration, reviewable evide
 and customer control. Avoid profit promises, invented testimonials, fabricated
 performance, unsupported uptime claims and implying regulatory approval.
 
-The site includes product/features, pricing, documentation, services, a Private availability notice,
+The site includes product/features, pricing, documentation, services, the Private offer,
 contact, feedback, FAQ, about, trust/security, methodology, policies, changelog
 and status. Status is operator-published information, not independent
 automated availability evidence.
@@ -165,7 +170,7 @@ dates as current evidence without checking the primary publication.
 | Research | Private FastAPI service with reviewed Gemini processing |
 | Market data | Existing source integration; no TrueData migration |
 | Backups and health | Local encrypted database/media backups copied off-host; shared diagnostics and Docker logs |
-| Private hosting | Separate operator-controlled Linux host for personal use |
+| Private hosting | Separate QuantNest-controlled Linux host per customer or personal instance; direct quotation and service agreement |
 
 Avoid adding analytics SaaS, a second website framework or more infrastructure
 providers before a real requirement justifies them. Optional Google sign-in and
@@ -245,7 +250,7 @@ Keep a short review record for:
 7. Whether the next feature improves retention, revenue or reliability enough to
    justify its ongoing complexity.
 
-Use the [implementation plan](implementation-plan.md) for delivery order,
+Use the [acceptance checklist](../infra/START-HERE.md#7-acceptance-and-release-checklist) for release verification,
 the [provider guide](third-party-setup.md) for account setup and
 [Commercial operations](commercial-operations.md) for day-to-day procedures.
 

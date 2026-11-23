@@ -9,7 +9,7 @@ order: 12
 Open **Support** from Settings → Account or the workspace menu.
 
 1. Choose New request and the relevant type: support, general question, feedback,
-   custom development, grievance or security report, as offered by the current form.
+   Private deployment, custom development, grievance or security report.
 2. Give it a short subject and explain the issue or requirement.
 3. Submit once and keep the request reference.
 4. Open the request to read its conversation and send a follow-up.
@@ -18,6 +18,11 @@ Requests belong to your account. The list is paged; changing its page does not
 close an active request. Reload the list/detail when checking for an update.
 Support is not a live chat and has no implied immediate reply time; current
 support hours and contact email are published on [Contact](/contact/).
+
+For [QuantNest Private](/docs/private/), choose Private deployment and describe
+your broker, markets, intended sessions/instruments and desired timing. Quotes,
+payments and agreed service periods are coordinated directly; Support does not
+activate a public subscription or ask you to send broker credentials.
 
 ## Make an issue reproducible
 

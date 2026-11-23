@@ -1,3 +1,4 @@
+from common.validation import validate_data
 import csv
 
 from django.http import HttpResponse
@@ -12,10 +13,7 @@ from .services import SOURCES, TradeFiltersSerializer, execution_report, executi
 
 def request_filters(request):
     serializer = TradeFiltersSerializer(data=request.query_params.dict())
-    serializer.is_valid(raise_exception=True)
-    return serializer.validated_data
-
-
+    return validate_data(serializer)
 class ExecutionReportViewSet(ViewSet):
     permission_classes = [IsAuthenticated]
 

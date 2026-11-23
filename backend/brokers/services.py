@@ -40,7 +40,7 @@ BROKER_CATALOG = {
     },
 }
 
-BROKER_ADAPTERS = {BrokerName.FYERS: FyersAdapter}
+BROKER_ADAPTERS: dict[str, type[BaseBrokerAdapter]] = {BrokerName.FYERS: FyersAdapter}
 
 class BrokerService:
     @staticmethod

@@ -19,7 +19,7 @@ from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.crypto import constant_time_compare
 from django.utils.http import url_has_allowed_host_and_scheme
-from dj_rest_auth.app_settings import api_settings as auth_settings
+from .configuration import auth_settings
 from requests import RequestException
 from rest_framework.exceptions import APIException, AuthenticationFailed, ValidationError
 from rest_framework.permissions import AllowAny
@@ -117,9 +117,8 @@ class GoogleStartView(AuthActionMixin, APIView):
         verifier = secrets.token_urlsafe(64)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
         client = _client(request._request, adapter, provider.app)
-        client.state = nonce
         authorization_url = client.get_redirect_url(adapter.authorize_url, ["openid", *provider.get_scope()], {
-            "code_challenge": challenge, "code_challenge_method": "S256", "prompt": "select_account",
+            "state": nonce, "code_challenge": challenge, "code_challenge_method": "S256", "prompt": "select_account",
         })
         response = Response({"authorization_url": authorization_url})
         _set_cookie(response, STATE_COOKIE, {"nonce": nonce, "verifier": verifier, "next": next_path})
@@ -179,6 +178,7 @@ class GoogleCompleteView(AuthActionMixin, APIView):
         if user is None or result["password_hash"] != get_md5_hash_password(user.password):
             raise AuthenticationFailed("Your account has changed. Please sign in again.")
         response = login_response(user, request)
+        assert isinstance(response.data, dict)
         response.data["next"] = result["next"]
         response.delete_cookie(RESULT_COOKIE, path=_cookie_path(), domain=auth_settings.JWT_AUTH_COOKIE_DOMAIN)
         return response

@@ -187,8 +187,11 @@ class StrategyDeploymentService:
             raise ValueError("This strategy version already has a Paper deployment. Choose another version.")
         StrategyDeploymentService.validate_snapshot(version.config_snapshot, scope)
         from instruments.services import InstrumentResolver
+        previous_version: StrategyVersion | None = allocation.deployed_version
+        if previous_version is None:
+            raise ValueError('The deployment has no saved version to replace.')
         old_bindings = {(item['route_id'], item['leg_id']): (InstrumentResolver.input_bindings(item), item.get('contract_selection'))
-                        for item in allocation.deployed_version.config_snapshot['watchlist_instruments']}
+                         for item in previous_version.config_snapshot['watchlist_instruments']}
         new_bindings = {(item['route_id'], item['leg_id']): (InstrumentResolver.input_bindings(item), item.get('contract_selection'))
                         for item in version.config_snapshot['watchlist_instruments']}
         if any(old_bindings.get(identity) != new_bindings.get(identity)
@@ -197,7 +200,7 @@ class StrategyDeploymentService:
         # An existing position belongs to its captured occurrence. Applying a
         # different setup would replace the meaning of its protection values.
         if positions.exists() and any(group.get('setup') for snapshot in
-                (allocation.deployed_version.config_snapshot, version.config_snapshot)
+                (previous_version.config_snapshot, version.config_snapshot)
                 for group in snapshot.get('rule_groups', []) if group.get('is_active', True)):
             raise ValueError('Close positions before changing a version that uses captured setup values.')
         active_statuses = ['PENDING', 'PLACED', 'PARTIAL_FILL', 'UNKNOWN']

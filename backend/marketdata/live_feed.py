@@ -4,6 +4,8 @@ import logging
 import threading
 import time
 import uuid
+from typing import cast
+import pandas as pd
 from datetime import datetime, timedelta, timezone
 
 from django.conf import settings
@@ -41,7 +43,7 @@ class LiveMarketDataRegistry:
 
     @classmethod
     def get_state(cls):
-        value = runtime_redis().get(cls.key("state"))
+        value = cast(str | None, runtime_redis().get(cls.key("state")))
         state = json.loads(value) if value else {}
         if not 0 <= time.time() - state.get("updated_at", 0) < cls.state_ttl:
             return {}
@@ -63,7 +65,7 @@ class LiveMarketDataRegistry:
 
         client = runtime_redis()
         client.zremrangebyscore(cls.client_key, "-inf", time.time() - 75)
-        browser = {json.loads(value)[0] for value in client.zrange(cls.client_key, 0, -1)}
+        browser = {json.loads(value)[0] for value in cast(list[str], client.zrange(cls.client_key, 0, -1))}
         execution, exposure = market_requirements()
         available = set(Instrument.objects.filter(sym_ticker__in=browser, is_active=True).values_list("sym_ticker", flat=True))
         ordered = sorted((execution.keys() | available) - invalid, key=lambda symbol: (
@@ -312,7 +314,7 @@ class MarketObservationClient:
                        if depths and symbol in self._subscribed_symbols}
             generation = self._generation
             connected_at = self._connected_at
-        revisions = dict(zip(targets, runtime_redis().mget([revision_key(symbol) for symbol in targets]))) if targets else {}
+        revisions = dict(zip(targets, cast(list[str | None], runtime_redis().mget([revision_key(symbol) for symbol in targets])))) if targets else {}
         for symbol, required in targets.items():
             if self._sync_stop.is_set():
                 return
@@ -376,7 +378,7 @@ class MarketObservationClient:
                     frame = frame.tail(depth)
                     through[source] = frame.index[-1].timestamp()
                     prepared[source] = np.column_stack((
-                        frame.loc[:, list(OHLCV)].to_numpy(dtype=float), frame.index.as_unit("s").asi8))
+                        frame.loc[:, list(OHLCV)].to_numpy(dtype=float), cast(pd.DatetimeIndex, frame.index).as_unit("s").view('i8')))
                 with self._symbol_lock(symbol):
                     with self._state_lock:
                         if self._sync_stop.is_set() or self._generation != generation or self._targets.get(symbol) != required:

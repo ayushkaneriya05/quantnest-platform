@@ -6,6 +6,8 @@ and the application's existing order, position and trade records together.
 from copy import deepcopy
 from decimal import Decimal
 import json
+from collections.abc import Callable
+from django.db.models import Model
 
 from django.db import transaction
 from django.core.serializers.json import DjangoJSONEncoder
@@ -17,7 +19,7 @@ from .models import AccountCheckpoint, Command, OrderCheckpoint
 from .snapshots import active_account, decode, encode
 from .types import Account, Transition, ZERO
 
-TERMINAL_STATUS = {OrderStatus.PENDING: TerminalOrderStatus.OPEN, OrderStatus.PLACED: TerminalOrderStatus.OPEN,
+TERMINAL_STATUS: dict[str, str] = {OrderStatus.PENDING: TerminalOrderStatus.OPEN, OrderStatus.PLACED: TerminalOrderStatus.OPEN,
     OrderStatus.PARTIAL_FILL: TerminalOrderStatus.OPEN, OrderStatus.FILLED: TerminalOrderStatus.COMPLETE,
     OrderStatus.CANCELLED: TerminalOrderStatus.CANCELLED, OrderStatus.REJECTED: TerminalOrderStatus.REJECTED,
     OrderStatus.EXPIRED: TerminalOrderStatus.CANCELLED}
@@ -75,8 +77,9 @@ def reject_command(command, error):
         from trading.models import Account as TerminalAccount
         from paper_trading.models import PaperAccount
         from brokers.models import BrokerCredential
-        model = {ExecutionMode.TERMINAL: TerminalAccount, ExecutionMode.PAPER: PaperAccount,
-                 ExecutionMode.LIVE: BrokerCredential}[command.mode]
+        models: dict[str, type[Model]] = {ExecutionMode.TERMINAL: TerminalAccount, ExecutionMode.PAPER: PaperAccount,
+                                        ExecutionMode.LIVE: BrokerCredential}
+        model = models[command.mode]
         user_id = model.objects.filter(pk=command.account_id).values_list('user_id', flat=True).first()
         if user_id is not None:
             transaction.on_commit(lambda: NotificationService.notify(user_id=user_id,
@@ -101,7 +104,9 @@ def initialize_account(account: Account) -> Account:
     row, created = AccountCheckpoint.objects.get_or_create(mode=account.key[0], account_id=account.key[1],
         defaults={'revision': account.revision, 'state': encode(active_account(account))})
     if not created:
-        return restore_account(account.key)
+        restored = restore_account(account.key)
+        assert restored is not None, 'An existing checkpoint must be recoverable.'
+        return restored
     OrderCheckpoint.objects.bulk_create([OrderCheckpoint(account=row, identity=order.identity, state=encode(order))
         for order in account.orders.values() if order.identity not in account.working], batch_size=500)
     return account
@@ -153,7 +158,7 @@ def _paper(result: Transition, state: Account):
         if position is None:
             owned.delete()
         else:
-            PaperPosition.objects.update_or_create(**owner_key,
+            PaperPosition.objects.update_or_create(account_id=state.key[1], route_id=order.unit[2], leg_id=order.unit[3],
                 defaults={'instrument_id': order.contract.instrument_id, 'strategy_id': session.strategy_id,
                 'side': Side.BUY if position.quantity > 0 else Side.SELL, 'quantity': abs(position.quantity),
                 'avg_price': position.average, 'current_price': result.fill.price,
@@ -200,7 +205,7 @@ def _live(result: Transition, state: Account):
         defaults['cancelled_at'] = order.broker_updated_at or timezone.now()
     previous = LiveOrder.objects.filter(request_id=order.identity).values('status', 'filled_quantity').first()
     record, created = LiveOrder.objects.update_or_create(request_id=order.identity, defaults=defaults)
-    if created or previous['status'] != order.status or previous['filled_quantity'] != order.filled:
+    if created or previous is None or previous['status'] != order.status or previous['filled_quantity'] != order.filled:
         ExecutionLog.objects.create(order=record, event_type='CREATED' if created else order.status,
             message=order.error or f'{order.reason}: {order.filled}/{order.quantity} filled')
     if result.fill is not None and order.reference_price > ZERO:
@@ -216,7 +221,7 @@ def _live(result: Transition, state: Account):
         if position is None:
             owned.delete()
         else:
-            LivePosition.objects.update_or_create(**owner_key,
+            LivePosition.objects.update_or_create(allocation_id=session.allocation_id, route_id=order.unit[2], leg_id=order.unit[3],
                 defaults={**ownership, 'instrument_id': order.contract.instrument_id, 'product_type': order.contract.product,
                 'side': Side.BUY if position.quantity > 0 else Side.SELL, 'quantity': abs(position.quantity),
                 'avg_price': position.average, 'current_price': result.fill.price,
@@ -279,7 +284,7 @@ def _terminal(result: Transition, state: Account):
     return record
 
 
-WRITERS = {ExecutionMode.PAPER: _paper, ExecutionMode.LIVE: _live, ExecutionMode.TERMINAL: _terminal}
+WRITERS: dict[str, Callable] = {ExecutionMode.PAPER: _paper, ExecutionMode.LIVE: _live, ExecutionMode.TERMINAL: _terminal}
 
 
 @transaction.atomic

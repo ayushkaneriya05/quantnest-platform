@@ -4,6 +4,7 @@ Backtesting Models
 Handles backtest runs, trades, metrics, equity curves,
 optimization, and Monte Carlo simulations.
 """
+from decimal import Decimal
 from django.db import models
 from execution.models import RouteOwnership
 from django.conf import settings
@@ -15,6 +16,12 @@ class BacktestRun(BaseTimestampModel):
     """
     A single backtest execution run.
     """
+    trades: "models.Manager[BacktestTrade]"
+    metrics: "BacktestMetrics"
+    strategy_id: int
+    user_id: int
+    strategy_version_id: int | None
+    charge_profile_id: int | None
     strategy = models.ForeignKey(
         'strategies.Strategy',
         on_delete=models.CASCADE,
@@ -41,8 +48,8 @@ class BacktestRun(BaseTimestampModel):
         related_name='backtest_runs',
         help_text="The specific strategy version used for this backtest."
     )
-    initial_capital = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
-    slippage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=0.01)
+    initial_capital = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('100000'))
+    slippage_pct = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.01'))
     charge_profile = models.ForeignKey(
         'brokers.BrokerChargeProfile',
         on_delete=models.SET_NULL,
@@ -93,6 +100,8 @@ class BacktestTrade(BaseTimestampModel, RouteOwnership):
     """
     One position opened by an entry and closed by one or more exit fills.
     """
+    run_id: int
+    instrument_id: int | None
     run = models.ForeignKey(
         BacktestRun,
         on_delete=models.CASCADE,
@@ -114,24 +123,24 @@ class BacktestTrade(BaseTimestampModel, RouteOwnership):
     quantity = models.PositiveIntegerField()
     
     # P&L
-    gross_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    brokerage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    slippage = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    net_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gross_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    brokerage = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0'))
+    slippage = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0'))
+    net_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     charges_json = models.JSONField(
         default=dict,
         blank=True,
         help_text='Itemized charge breakdown: {entry_charges: {...}, exit_charges: {...}, total_charges: N}'
     )
-    pnl_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
+    pnl_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0'))
     
     # Risk Metrics
     mae = models.DecimalField(
-        max_digits=12, decimal_places=4, default=0,
+        max_digits=12, decimal_places=4, default=Decimal('0'),
         help_text="Maximum adverse excursion in account currency for the entry quantity."
     )
     mfe = models.DecimalField(
-        max_digits=12, decimal_places=4, default=0,
+        max_digits=12, decimal_places=4, default=Decimal('0'),
         help_text="Maximum favorable excursion in account currency for the entry quantity."
     )
     
@@ -155,6 +164,7 @@ class BacktestMetrics(BaseTimestampModel):
     """
     Computed metrics for a backtest run.
     """
+    run_id: int
     run = models.OneToOneField(
         BacktestRun,
         on_delete=models.CASCADE,
@@ -170,14 +180,14 @@ class BacktestMetrics(BaseTimestampModel):
     max_consecutive_losses = models.PositiveIntegerField(default=0)
     
     # Win rate
-    win_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    win_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0'))
     
     # P&L stats
-    avg_win = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    avg_loss = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    largest_win = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    largest_loss = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    avg_trade_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    avg_win = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    avg_loss = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    largest_win = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    largest_loss = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    avg_trade_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     
     # Duration
     avg_holding_time_minutes = models.PositiveIntegerField(default=0)
@@ -186,7 +196,7 @@ class BacktestMetrics(BaseTimestampModel):
     
     # Risk metrics
     profit_factor = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
-    expectancy = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    expectancy = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
     payoff_ratio = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
     
     # Risk-adjusted returns
@@ -195,24 +205,24 @@ class BacktestMetrics(BaseTimestampModel):
     calmar_ratio = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
     
     # Drawdown
-    max_drawdown_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
-    max_drawdown_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    max_drawdown_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0'))
+    max_drawdown_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     max_drawdown_duration_days = models.PositiveIntegerField(default=0)
     recovery_factor = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True, default=None)
     
     # Capital
-    final_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    total_return_pct = models.DecimalField(max_digits=10, decimal_places=4, default=0)
-    cagr = models.DecimalField(max_digits=10, decimal_places=4, default=0)
-    volatility_pct = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    final_capital = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
+    total_return_pct = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal('0'))
+    cagr = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal('0'))
+    volatility_pct = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal('0'))
     
     # Fees
-    total_brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    total_slippage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    total_charges = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    avg_mae = models.DecimalField(max_digits=12, decimal_places=4, default=0)
-    avg_mfe = models.DecimalField(max_digits=12, decimal_places=4, default=0)
-    trade_efficiency = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    total_brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    total_slippage = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    total_charges = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    avg_mae = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
+    avg_mfe = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
+    trade_efficiency = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal('0'))
     monthly_returns_json = models.JSONField(default=dict, blank=True)
     instrument_breakdown_json = models.JSONField(default=dict, blank=True)
     
@@ -229,6 +239,8 @@ class EquityCurvePoint(models.Model):
     """
     Point-in-time equity value for charting.
     """
+    id: int
+    run_id: int
     run = models.ForeignKey(
         BacktestRun,
         on_delete=models.CASCADE,
@@ -237,7 +249,7 @@ class EquityCurvePoint(models.Model):
     
     timestamp = models.DateTimeField()
     equity_value = models.DecimalField(max_digits=15, decimal_places=2)
-    drawdown_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
+    drawdown_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0'))
     
     class Meta:
         db_table = 'backtest_equity_curve'
@@ -251,6 +263,8 @@ class MonteCarloRun(BaseTimestampModel):
     """
     Monte Carlo simulation run.
     """
+    results: "models.Manager[MonteCarloResult]"
+    backtest_run_id: int
     backtest_run = models.ForeignKey(
         BacktestRun,
         on_delete=models.CASCADE,
@@ -258,7 +272,7 @@ class MonteCarloRun(BaseTimestampModel):
     )
     
     num_simulations = models.PositiveIntegerField(default=1000)
-    confidence_level = models.DecimalField(max_digits=4, decimal_places=2, default=0.95)
+    confidence_level = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('0.95'))
     
     status = models.CharField(
         max_length=20,
@@ -285,6 +299,8 @@ class MonteCarloResult(models.Model):
     """
     Results from Monte Carlo simulation.
     """
+    id: int
+    monte_carlo_run_id: int
     monte_carlo_run = models.ForeignKey(
         MonteCarloRun,
         on_delete=models.CASCADE,

@@ -1,7 +1,7 @@
 """Shared display/valuation prices. Execution uses the local observation buffer."""
 from datetime import datetime, timedelta, timezone
 from math import isfinite
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from django.conf import settings
 from django.core.cache import caches
@@ -24,7 +24,7 @@ class QuoteSnapshot(TypedDict):
 
 def publish_quote(symbol: str, quote: dict) -> QuoteSnapshot:
     """Only the feed publishes observations; HTTP quotes have a separate cache."""
-    payload = {**quote, "symbol": symbol, "source": "observed", "available": True}
+    payload = cast(QuoteSnapshot, {**quote, "symbol": symbol, "source": "observed", "available": True})
     cache.set(f"marketdata:quote:{settings.MARKET_DATA_PROVIDER}:{symbol}", payload, 86400)
     return payload
 
@@ -108,7 +108,7 @@ def _read_quote(symbol: str, observations: list, include_history: bool) -> Quote
             stored = _stored_quote(symbol)
             cache.set(key, stored, 30)
         if stored:
-            return stored
+            return cast(QuoteSnapshot, stored)
     return {"symbol": symbol, "price": None, "timestamp": None, "updated_at": None,
             "source": "unavailable", "available": False, "change_percent": None}
 

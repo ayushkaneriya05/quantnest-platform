@@ -1,3 +1,5 @@
+from common.validation import validate_value
+from typing import cast
 import logging
 
 from django.http import JsonResponse
@@ -16,9 +18,9 @@ logger = logging.getLogger(__name__)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def quote_snapshots(request):
-    symbols = serializers.ListField(
+    symbols = cast(list[str], validate_value(serializers.ListField(
         child=serializers.CharField(max_length=128), allow_empty=False, max_length=1000,
-    ).run_validation(request.data.get("symbols"))
+    ), request.data.get("symbols")))
     try:
         return JsonResponse(refresh_quotes(symbols))
     except ValueError as exc:
@@ -36,7 +38,7 @@ def candles(request):
     if not symbol:
         return api_json_error("symbol is required", status_code=400)
 
-    fetch_missing = serializers.BooleanField().run_validation(request.query_params.get('fetch_missing', False))
+    fetch_missing = cast(bool, validate_value(serializers.BooleanField(), request.query_params.get('fetch_missing', False)))
     try:
         payload = ChartDataService.chart_window(
             symbol=symbol,

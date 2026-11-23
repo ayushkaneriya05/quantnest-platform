@@ -55,14 +55,16 @@ and shared by both enquiry forms. Do not duplicate a second list in a page.
 | --- | --- |
 | `general` | Product/service question |
 | `custom` | Separate custom software-development enquiry |
+| `private` | QuantNest-managed Private deployment, quotation or service-period enquiry |
 | `support` | Account/product workflow issue |
 | `feedback` | Suggestion or usability feedback |
 | `grievance` | Complaint requiring operator review |
 | `security` | Security report without secrets in its body |
 
-`private` is excluded from selectable options and rejected by request validation;
-customer Private/Live is not currently offered. General questions remain possible
-without creating a customer installation workflow.
+`private` is selectable in both anonymous Contact and signed-in Support. The same
+verification, ownership, acknowledgement and staff-reply flows apply. It starts
+a conversation rather than creating a subscription, installation licence or
+customer project. Quotations, payments and service periods are agreed directly.
 
 | Status | Meaning / transition |
 | --- | --- |

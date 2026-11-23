@@ -75,13 +75,13 @@ class Instrument(BaseTimestampModel):
 
     # ── Trading specifications ──
     lot_size = models.IntegerField(default=1)
-    tick_size = models.DecimalField(max_digits=10, decimal_places=4, default=0.05)
+    tick_size = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal('0.05'))
     qty_freeze = models.IntegerField(
         null=True, blank=True,
         help_text="Freeze quantity limit"
     )
     qty_multiplier = models.DecimalField(
-        max_digits=10, decimal_places=4, default=1.0
+        max_digits=10, decimal_places=4, default=Decimal('1.0')
     )
     face_value = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True
@@ -149,6 +149,8 @@ class ContractSpecification(models.Model):
     A current master proves terms from observation onward, not for older dates.
     Historical revisions require an explicit effective time and source reference.
     """
+    id: int
+    instrument_id: int
     instrument = models.ForeignKey(Instrument, on_delete=models.PROTECT, related_name='specifications')
     effective_at = models.DateTimeField()
     recorded_at = models.DateTimeField(auto_now_add=True)

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import cast
 
 from django.conf import settings
 from django.db import transaction
@@ -26,7 +27,7 @@ def revision_key(symbol: str) -> str:
 
 
 def data_revision(symbol: str) -> int:
-    return int(runtime_redis().get(revision_key(symbol)) or 0)
+    return int(cast(str | None, runtime_redis().get(revision_key(symbol))) or 0)
 
 
 def publish_revision(symbol: str):
@@ -193,8 +194,9 @@ def ensure_history(request: HistoryRequest, *, refresh: bool = False, max_reques
     if request.end <= request.start:
         return result
     result.missing = missing_history(request)
-    pending = [_trading_range(request, request.start, request.end)] if refresh else result.missing
-    if not any(pending):
+    trading_range = _trading_range(request, request.start, request.end) if refresh else None
+    pending = [trading_range] if refresh and trading_range is not None else ([] if refresh else result.missing)
+    if not pending:
         return result
     # Progress describes the remaining acquisition range, not simulated returns.
     total_seconds = sum((right - left).total_seconds() for left, right in pending)

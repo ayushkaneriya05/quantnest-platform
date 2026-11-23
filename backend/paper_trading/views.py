@@ -1,3 +1,6 @@
+from common.validation import validate_value
+from typing import cast
+from rest_framework.request import Request
 from common.pagination import StandardPagination
 from common.list_filters import record_filters
 from django.db.models import Count, Q
@@ -41,7 +44,7 @@ class PortfolioViewSet(viewsets.ReadOnlyModelViewSet):
     def deposit(self, request, pk=None):
         """Deposit funds into portfolio."""
         self.get_object()
-        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal('0.01')).run_validation(request.data.get('amount'))
+        amount = cast(Decimal, validate_value(DecimalField(max_digits=15, decimal_places=2, min_value=Decimal('0.01')), request.data.get('amount')))
         transaction = PortfolioService.deposit(request.user, amount, request.data.get('notes', ''))
         return Response({'success': True, 'new_balance': transaction.balance_after})
 
@@ -49,7 +52,7 @@ class PortfolioViewSet(viewsets.ReadOnlyModelViewSet):
     def withdraw(self, request, pk=None):
         """Withdraw funds from portfolio."""
         self.get_object()
-        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal('0.01')).run_validation(request.data.get('amount'))
+        amount = cast(Decimal, validate_value(DecimalField(max_digits=15, decimal_places=2, min_value=Decimal('0.01')), request.data.get('amount')))
         try:
             transaction = PortfolioService.withdraw(request.user, amount, request.data.get('notes', ''))
         except ValueError as exc:
@@ -57,6 +60,7 @@ class PortfolioViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({'success': True, 'new_balance': transaction.balance_after})
 
 class FundTransactionViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     """ViewSet for fund transactions (read-only)."""
     serializer_class = FundTransactionSerializer
@@ -74,6 +78,7 @@ class FundTransactionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     """ViewSet for paper trading sessions."""
     serializer_class = PaperTradingSessionSerializer
@@ -92,7 +97,7 @@ class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
         if session_status:
             from common.enums import ExecutionSessionStatus
             from rest_framework.fields import ChoiceField
-            session_status = ChoiceField(choices=ExecutionSessionStatus.choices).run_validation(session_status)
+            session_status = cast(str, validate_value(ChoiceField(choices=ExecutionSessionStatus.choices), session_status))
             sessions = sessions.filter(status=session_status)
         return sessions
 
@@ -116,9 +121,7 @@ class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"], url_path="update-allocation")
     def update_allocation(self, request, pk=None):
         session = self.get_object()
-        amount = DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
-            request.data.get("allocation_amount")
-        )
+        amount = cast(Decimal, validate_value(DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")), request.data.get("allocation_amount")))
         try:
             PortfolioService.update_allocation(session.allocation, amount)
         except ValueError as exc:
@@ -131,7 +134,7 @@ class PaperSessionViewSet(viewsets.ReadOnlyModelViewSet):
         from strategies.models import StrategyVersion
         from strategies.services import StrategyDeploymentService
         session = self.get_object()
-        version_id = IntegerField(min_value=1).run_validation(request.data.get("version_id"))
+        version_id = cast(int, validate_value(IntegerField(min_value=1), request.data.get("version_id")))
         try:
             version = StrategyVersion.objects.get(pk=version_id, strategy_id=session.strategy_id)
             StrategyDeploymentService.change_version(session.allocation, version, "paper", request.user)
@@ -193,6 +196,7 @@ class PaperAccountViewSet(viewsets.ReadOnlyModelViewSet):
         return PaperAccount.objects.with_totals().filter(user=self.request.user).prefetch_related('sessions').order_by('-created_at', '-id')
 
 class PaperPositionViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     """ViewSet for paper positions (read-only - strategy managed only)."""
     serializer_class = PaperPositionSerializer
@@ -209,6 +213,7 @@ class PaperPositionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class PaperOrderViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     """ViewSet for paper orders (read-only - strategy execution only)."""
     serializer_class = PaperOrderSerializer
@@ -220,7 +225,7 @@ class PaperOrderViewSet(viewsets.ReadOnlyModelViewSet):
         value = self.request.query_params.get('status')
         if value:
             from rest_framework.fields import ChoiceField
-            value = ChoiceField(choices=PaperOrder._meta.get_field('status').choices).run_validation(value)
+            value = cast(str, validate_value(ChoiceField(choices=PaperOrder._meta.get_field('status').choices), value))
             qs = qs.filter(status=value)
         return qs.order_by('-placed_at', '-id')
 
@@ -234,6 +239,7 @@ class PaperOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class PaperTradeViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     """ViewSet for paper trades (read-only)."""
     serializer_class = PaperTradeSerializer
@@ -244,9 +250,9 @@ class PaperTradeViewSet(viewsets.ReadOnlyModelViewSet):
         qs = record_filters(qs, self.request.query_params, 'exit_time')
         mode = self.request.query_params.get('pnl_mode', 'net')
         from rest_framework.fields import ChoiceField
-        mode = ChoiceField(choices=['net', 'gross']).run_validation(mode)
+        mode = cast(str, validate_value(ChoiceField(choices=['net', 'gross']), mode))
         field = mode + '_pnl'
-        outcome = ChoiceField(choices=['all', 'winning', 'losing']).run_validation(self.request.query_params.get('filter', 'all'))
+        outcome = cast(str, validate_value(ChoiceField(choices=['all', 'winning', 'losing']), self.request.query_params.get('filter', 'all')))
         if outcome != 'all':
             qs = qs.filter(**{field + ('__gt' if outcome == 'winning' else '__lt'): 0})
         return qs.order_by('-exit_time', '-id')

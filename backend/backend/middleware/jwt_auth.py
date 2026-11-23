@@ -2,10 +2,9 @@ from http.cookies import SimpleCookie
 
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
-from dj_rest_auth.app_settings import api_settings
+from users.configuration import auth_settings
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import AccessToken
 
 from users.authentication import SafeJWTAuthentication
 
@@ -21,10 +20,10 @@ class JWTAuthMiddleware:
         scope["user"] = AnonymousUser()
         headers = dict(scope.get("headers", []))
         cookies = SimpleCookie(headers.get(b"cookie", b"").decode())
-        cookie = cookies.get(api_settings.JWT_AUTH_COOKIE)
+        cookie = cookies.get(auth_settings.JWT_AUTH_COOKIE)
         if cookie:
             try:
-                token = AccessToken(cookie.value)
+                token = SafeJWTAuthentication().get_validated_token(cookie.value.encode())
                 scope["user"] = await database_sync_to_async(SafeJWTAuthentication().get_user)(token)
                 scope["auth_session_id"] = token["session_id"]
                 scope["auth_expires_at"] = token["exp"]

@@ -35,7 +35,7 @@ INDICATOR_SOURCE_CHOICES = [
     }
 ]
 
-def _number(key, label, default, minimum=1, maximum=None, step=1):
+def _number(key, label, default, minimum=1, maximum=None, step: int | float = 1):
     if maximum is None and key in _BAR_PARAMETERS:
         maximum = MAX_LOOKBACK_BARS
     return {

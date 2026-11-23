@@ -12,6 +12,8 @@ from common.enums import ExecutionMode, ExecutionCommandType, SettlementKind
 
 
 class AccountCheckpoint(models.Model):
+    completed_orders: "models.Manager[OrderCheckpoint]"
+    id: int
     mode = models.CharField(max_length=12, choices=ExecutionMode.choices)
     account_id = models.PositiveBigIntegerField()
     revision = models.PositiveBigIntegerField(default=0)
@@ -28,6 +30,8 @@ class OrderCheckpoint(models.Model):
     Working orders stay in the account checkpoint. Keeping completed orders in
     separate rows prevents each new fill from rewriting the full trading history.
     """
+    id: int
+    account_id: int
     account = models.ForeignKey(AccountCheckpoint, on_delete=models.CASCADE,
         related_name='completed_orders', db_index=False)  # The composite unique index starts with account.
     identity = models.CharField(max_length=160)
@@ -55,6 +59,7 @@ class Command(models.Model):
 
 class EvaluationCheckpoint(models.Model):
     """Small path-dependent rule state; indicator history stays in the data layer."""
+    id: int
     mode = models.CharField(max_length=12, choices=ExecutionMode.choices)
     session_id = models.PositiveBigIntegerField()
     route_id = models.CharField(max_length=80, default='')
@@ -79,6 +84,8 @@ class RouteOwnership(models.Model):
 
 class SettlementPrice(models.Model):
     """Reviewed source evidence, never inferred from a quote or candle close."""
+    id: int
+    instrument_id: int
     instrument = models.ForeignKey('instruments.Instrument', on_delete=models.PROTECT)
     kind = models.CharField(max_length=8, choices=SettlementKind.choices)
     effective_at = models.DateTimeField()
@@ -105,6 +112,9 @@ class SettlementPrice(models.Model):
 
 class SettlementPosting(RouteOwnership):
     """One sourced payment per owned position cycle, committed with its checkpoint."""
+    id: int
+    price_id: int
+    command_id: int | None
     identity = models.CharField(max_length=300, unique=True)
     price = models.ForeignKey(SettlementPrice, on_delete=models.PROTECT, related_name='postings')
     command = models.OneToOneField(Command, on_delete=models.PROTECT, null=True)

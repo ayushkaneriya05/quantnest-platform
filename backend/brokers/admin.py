@@ -9,7 +9,7 @@ class BrokerCredentialAdmin(admin.ModelAdmin):
     list_filter = ["broker_name", "is_active", "is_verified"]
     search_fields = ["user__username", "client_id", "label"]
     fields = ["user", "broker_name", "label", "client_id", "is_active", "is_verified", "last_verified_at"]
-    readonly_fields = fields
+    readonly_fields = ["user", "broker_name", "label", "client_id", "is_active", "is_verified", "last_verified_at"]
 
     def has_add_permission(self, request):
         return False
@@ -47,7 +47,7 @@ class BrokerChargeProfileAdmin(admin.ModelAdmin):
     actions = ['set_default']
 
     def get_readonly_fields(self, request, obj=None):
-        return self.readonly_fields + (('user',) if obj else ())
+        return tuple(self.readonly_fields) + (('user',) if obj else ())
 
     def get_deleted_objects(self, objs, request):
         deleted, counts, permissions, protected = super().get_deleted_objects(objs, request)

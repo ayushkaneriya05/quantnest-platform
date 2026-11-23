@@ -2,17 +2,17 @@
 
 catalog.ALLOWANCES defines each allowance. Inventory counts saved records,
 per-request limits validate submitted size, and period credits reserve once.
-Personal Private work has no commercial quotas or licence dependency.
+Private work has no commercial quotas or licence dependency.
 """
 import hashlib
 import json
 import logging
 from datetime import datetime, timezone as utc
 from math import ceil
+from typing import NoReturn
 from zoneinfo import ZoneInfo
 from uuid import uuid4
 
-from celery import current_app
 from celery.signals import task_failure, task_postrun
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
@@ -24,10 +24,10 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import F
 from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework.exceptions import APIException
 
+from backend.celery import app
 from execution.lifecycle import require_execution_scope
 from .catalog import ALLOWANCES, get_active_catalog
 from .models import Subscription, UsageBucket, UsageReservation
@@ -42,7 +42,7 @@ class CommercialRestriction(APIException):
     default_code = "commercial_restriction"
 
 
-def reject_request(code, message, **details):
+def reject_request(code, message, **details) -> NoReturn:
     raise CommercialRestriction({"code": code, "message": message, **details})
 
 
@@ -56,7 +56,7 @@ def get_account_policy(user, now=None):
     now = now or timezone.now()
     subscription = catalog = start = end = None
     if mode == "private":
-        plan = {"code": "private", "name": "Private", "price_minor": None,
+        plan = {"code": "private", "name": "QuantNest Private", "price_minor": None,
                 "limits": {key: None for key in ALLOWANCES}}
     else:
         subscription = Subscription.objects.filter(user=user).select_related("catalog").first()
@@ -175,7 +175,7 @@ def estimate_backtest_workload(user, config, start_date, end_date, *, policy=Non
                        definition=f"One credit per {unit:,} source candles including warmup. The reviewed cost is charged once on success.")
     else:
         preview.update(credits=None, credit_candles=None,
-                       definition="Personal Private has no commercial usage quotas. Server capacity and execution controls still apply.")
+                       definition="Private has no public-plan quotas. Server capacity and execution controls still apply.")
     preview["config_hash"] = hash_payload(config)
     return {**preview, "token": signing.dumps({"user": user.pk, **preview}, salt="backtest-workload", compress=True)}
 
@@ -329,7 +329,7 @@ def queue_compute_work(task_name, pk):
 
     def submit():
         try:
-            current_app.send_task(task_name, args=[pk], queue="compute")
+            app.send_task(task_name, args=[pk], queue="compute")
         except Exception as exc:
             logger.exception("Could not submit %s for resource %s", task_name, pk)
             with transaction.atomic():
@@ -363,8 +363,8 @@ for task_name, (_, model_name) in COMPUTE_RESOURCES.items():
     post_save.connect(handle_saved_work_outcome, sender=model_name, dispatch_uid=f"usage-completion:{task_name}")
 
 
-@receiver(task_postrun)
-@receiver(task_failure)
+@task_postrun.connect
+@task_failure.connect
 def handle_task_outcome(sender=None, args=None, kwargs=None, state=None, exception=None, retval=None, **extra):
     task_name = getattr(sender, "name", "")
     if task_name not in COMPUTE_RESOURCES or (exception is None and state not in {"SUCCESS", "FAILURE"}):

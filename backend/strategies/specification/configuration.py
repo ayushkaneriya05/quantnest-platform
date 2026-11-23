@@ -35,11 +35,11 @@ def choice(label, family, default=None):
     return {'label': label, 'choice_ref': family, 'default': default}
 
 
-def number(label, default, minimum, maximum=None, step=1):
+def number(label, default, minimum, maximum=None, step: int | float = 1):
     return {'label': label, 'default': default, 'min': minimum, 'max': maximum, 'step': step}
 
 
-DETAIL_FIELDS = {
+DETAIL_FIELDS: dict[str, dict] = {
     'name': {'label': 'Strategy name', 'default': '', 'min_length': 3, 'max_length': 255},
     'description': {'label': 'Description', 'default': ''},
     'strategy_type': choice('Strategy type', 'StrategyType', StrategyType.INTRADAY),

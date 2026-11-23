@@ -1,3 +1,6 @@
+from common.validation import validate_value
+from typing import cast
+from rest_framework.request import Request
 from decimal import Decimal
 
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Sum, Subquery, IntegerField
@@ -27,6 +30,7 @@ from .services import LiveExecutionService
 
 
 class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     serializer_class = TradingSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -40,7 +44,7 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
         if session_status:
             from common.enums import ExecutionSessionStatus
             from rest_framework.fields import ChoiceField
-            session_status = ChoiceField(choices=ExecutionSessionStatus.choices).run_validation(session_status)
+            session_status = cast(str, validate_value(ChoiceField(choices=ExecutionSessionStatus.choices), session_status))
             sessions = sessions.filter(status=session_status)
         return sessions.select_related(
             "strategy", "broker_credential"
@@ -79,7 +83,7 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     def stop(self, request, pk=None):
         session = self.get_object()
         from rest_framework.fields import BooleanField
-        close_positions = BooleanField().run_validation(request.data.get('close_positions', False))
+        close_positions = cast(bool, validate_value(BooleanField(), request.data.get('close_positions', False)))
         if session.status in {"STOPPED", "STOPPING"} and not close_positions:
             return Response(self.get_serializer(session).data)
         session = LiveExecutionService.stop_session(session, close_positions=close_positions)
@@ -105,6 +109,7 @@ class TradingSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     serializer_class = LiveOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardPagination
@@ -115,7 +120,7 @@ class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):
             value = self.request.query_params.get(field)
             if value:
                 if field != "status":
-                    value = IdentifierField(min_value=1).run_validation(value)
+                    value = cast(int, validate_value(IdentifierField(min_value=1), value))
                 queryset = queryset.filter(**{f"{field}_id" if field != "status" else field: value})
         return queryset.order_by('-placed_at', '-id')
 
@@ -134,6 +139,7 @@ class LiveOrderViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class LivePositionViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     serializer_class = LivePositionSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardPagination
@@ -145,7 +151,7 @@ class LivePositionViewSet(viewsets.ReadOnlyModelViewSet):
         for field in ("strategy", "allocation", "broker_credential"):
             value = self.request.query_params.get(field)
             if value:
-                value = IdentifierField(min_value=1).run_validation(value)
+                value = cast(int, validate_value(IdentifierField(min_value=1), value))
                 queryset = queryset.filter(**{f"{field}_id": value})
         return queryset
 
@@ -156,6 +162,7 @@ class LivePositionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class LiveTradeViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     serializer_class = LiveTradeSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardPagination
@@ -167,7 +174,7 @@ class LiveTradeViewSet(viewsets.ReadOnlyModelViewSet):
         for field in ("strategy", "allocation", "broker_credential"):
             value = self.request.query_params.get(field)
             if value:
-                value = IdentifierField(min_value=1).run_validation(value)
+                value = cast(int, validate_value(IdentifierField(min_value=1), value))
                 queryset = queryset.filter(**{f"{field}_id": value})
         return queryset.order_by('-exit_time', '-id')
 
@@ -184,6 +191,7 @@ class LiveTradeViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ExecutionLogViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     serializer_class = ExecutionLogSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardPagination
@@ -195,11 +203,12 @@ class ExecutionLogViewSet(viewsets.ReadOnlyModelViewSet):
         if event_type:
             queryset = queryset.filter(event_type=event_type)
         if order_id:
-            queryset = queryset.filter(order_id=IdentifierField(min_value=1).run_validation(order_id))
+            queryset = queryset.filter(order_id=cast(int, validate_value(IdentifierField(min_value=1), order_id)))
         return queryset
 
 
 class SlippageRecordViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     serializer_class = SlippageRecordSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardPagination
@@ -208,11 +217,12 @@ class SlippageRecordViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = SlippageRecord.objects.filter(order__user=self.request.user).select_related("order", "order__instrument", "order__broker_credential").order_by("-created_at", "-pk")
         order_id = self.request.query_params.get("order")
         if order_id:
-            queryset = queryset.filter(order_id=IdentifierField(min_value=1).run_validation(order_id))
+            queryset = queryset.filter(order_id=cast(int, validate_value(IdentifierField(min_value=1), order_id)))
         return queryset
 
 
 class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     serializer_class = LiveStrategyAllocationSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -221,19 +231,17 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = LiveStrategyAllocation.objects.with_totals().filter(user=self.request.user)
         broker_id = self.request.query_params.get("broker_credential")
         if broker_id:
-            queryset = queryset.filter(broker_credential_id=IdentifierField(min_value=1).run_validation(broker_id))
+            queryset = queryset.filter(broker_credential_id=cast(int, validate_value(IdentifierField(min_value=1), broker_id)))
         strategy_id = self.request.query_params.get("strategy")
         if strategy_id:
-            queryset = queryset.filter(strategy_id=IdentifierField(min_value=1).run_validation(strategy_id))
+            queryset = queryset.filter(strategy_id=cast(int, validate_value(IdentifierField(min_value=1), strategy_id)))
         return queryset
 
     @action(detail=True, methods=["post"], url_path="update-allocation")
     def update_allocation(self, request, pk=None):
         allocation = self.get_object()
         from rest_framework.fields import DecimalField as AmountField
-        amount = AmountField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")).run_validation(
-            request.data.get("allocation_amount")
-        )
+        amount = cast(Decimal, validate_value(AmountField(max_digits=15, decimal_places=2, min_value=Decimal("0.01")), request.data.get("allocation_amount")))
         try:
             allocation = LiveExecutionService.update_allocation(
                 allocation=allocation,
@@ -250,7 +258,7 @@ class LiveStrategyAllocationViewSet(viewsets.ReadOnlyModelViewSet):
         from strategies.models import StrategyVersion
         from strategies.services import StrategyDeploymentService
         allocation = self.get_object()
-        version_id = IntegerField(min_value=1).run_validation(request.data.get('version_id'))
+        version_id = cast(int, validate_value(IntegerField(min_value=1), request.data.get('version_id')))
         version = get_object_or_404(StrategyVersion, pk=version_id, strategy=allocation.strategy)
         try:
             allocation = StrategyDeploymentService.change_version(allocation, version, 'live', request.user)

@@ -19,10 +19,12 @@ def match_order(order: Order, tick: Tick) -> Fill | None:
     price = Decimal(str(tick.price))
     buy = order.side == Side.BUY
     if order.order_type in (OrderType.STOP_MARKET, OrderType.STOP_LIMIT) and order.activated_at is None:
+        assert order.trigger is not None, 'A stop order requires a validated trigger.'
         if not (price >= order.trigger if buy else price <= order.trigger):
             return None
         order.activated_at = tick.event_time
     if order.order_type in (OrderType.LIMIT, OrderType.STOP_LIMIT):
+        assert order.price is not None, 'A limit order requires a validated price.'
         if not (price <= order.price if buy else price >= order.price):
             return None
     adjustment = price * order.slippage_pct / 100
@@ -31,6 +33,7 @@ def match_order(order: Order, tick: Tick) -> Fill | None:
     rounding = ROUND_CEILING if buy else ROUND_FLOOR
     price = (price / order.contract.tick_size).to_integral_value(rounding=rounding) * order.contract.tick_size
     if order.order_type in (OrderType.LIMIT, OrderType.STOP_LIMIT):
+        assert order.price is not None
         price = min(price, order.price) if buy else max(price, order.price)
     if price <= ZERO:
         return None
@@ -75,6 +78,7 @@ class OrderBook:
             return
         buy = order.side == Side.BUY
         threshold = order.trigger if stop else order.price
+        assert threshold is not None, 'Working limit and stop orders require a threshold.'
         name = ('buy_' if buy else 'sell_') + ('stop' if stop else 'limit')
         heapq.heappush(self.heaps[name], (threshold if buy == stop else -threshold, revision, identity))
 

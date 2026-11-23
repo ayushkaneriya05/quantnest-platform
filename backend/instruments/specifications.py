@@ -72,7 +72,7 @@ def import_specifications(document, *, dry_run=False):
                 raise ValueError('effective_at must include a timezone offset.')
             if not isinstance(row['expiry_date'], str):
                 raise ValueError('expiry_date must be an ISO date.')
-            values = {'expiry_date': date.fromisoformat(row['expiry_date'])}
+            values: dict = {'expiry_date': date.fromisoformat(row['expiry_date'])}
             for field in ('lot_size', 'qty_freeze'):
                 if type(row[field]) is not int:
                     raise ValueError(f'{field} must be an integer.')
@@ -84,9 +84,10 @@ def import_specifications(document, *, dry_run=False):
                     continue
                 if not isinstance(value, str):
                     raise ValueError(f'{field} must be a decimal string, preserving exact precision.')
-                values[field] = Decimal(value)
-                if not values[field].is_finite():
+                decimal_value = Decimal(value)
+                if not decimal_value.is_finite():
                     raise ValueError(f'{field} must be finite.')
+                values[field] = decimal_value
             if instrument.instrument_type == InstrumentType.OPTION and (values['strike_price'] is None or values['strike_price'] <= 0):
                 raise ValueError('An option specification needs a positive strike_price.')
             record = ContractSpecification(instrument=instrument, effective_at=at, source=source.strip(), **values)

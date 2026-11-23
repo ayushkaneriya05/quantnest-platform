@@ -1,4 +1,5 @@
 import logging
+from typing import cast
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import viewsets
@@ -24,7 +25,7 @@ class EnquiryView(APIView):
         serializer = TicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
-            ticket = serializer.save()
+            ticket = cast(Ticket, serializer.save())
             queue_ticket_acknowledgement(ticket)
         return Response({"id": ticket.pk, "status": ticket.status, "message": "Your request has been received."}, status=201)
 

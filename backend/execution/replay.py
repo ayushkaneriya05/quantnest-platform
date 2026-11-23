@@ -13,6 +13,7 @@ from decimal import Decimal
 from heapq import merge
 from itertools import groupby
 from uuid import NAMESPACE_URL, uuid5
+from typing import cast
 
 from common.enums import ExecutionMode, ExecutionSessionStatus, OrderIntent, OrderType, Side
 from instruments.services import InstrumentResolver
@@ -22,6 +23,7 @@ from .engine import EvaluationUnit
 from .ledger import accept_intent, acknowledge, apply_fill, position_view, reject_order
 from .matching import match_order
 from .preparation import PreparedMarket
+from .settlements import SettlementPrice
 from .types import Account, ClosedTrade, Contract, Intent, Tick, ZERO, route_key
 
 class Replay:
@@ -175,7 +177,9 @@ class Replay:
                 role = next(role for role, source in binding.items() if source == instrument)
                 intent = unit.evaluate_sources({role: self.graphs[source] for role, source in binding.items()}, tick, role)
             if intent is not None:
-                self._execute(intent, self.markets[binding['trade']].contract)
+                contract = self.markets[binding['trade']].contract
+                assert contract is not None, 'A traded market requires its contract specification.'
+                self._execute(intent, contract)
 
     def _stage_quotes(self, observations: list[tuple]) -> None:
         """Publish one simultaneous price snapshot before evaluating any route.
@@ -232,14 +236,15 @@ class Replay:
             if phase == 3:
                 from .settlements import apply_settlement
                 for _, _, instrument, _, payload in batch:
+                    price = cast(SettlementPrice, payload)
                     for key, unit in self.units.items():
                         if self.bindings[key]['trade'] != instrument:
                             continue
                         position = self.account.positions.get(unit.key)
                         # Publication can occur after the next session starts. A
                         # new cycle did not own units at yesterday's cutoff.
-                        if position is not None and position.opened_at <= payload.effective_at:
-                            result = apply_settlement(self.account, unit.key, payload, now=at,
+                        if position is not None and position.opened_at <= price.effective_at:
+                            result = apply_settlement(self.account, unit.key, price, now=at,
                                 quantity=position.quantity, opened_at=position.opened_at)
                             if result is not None:
                                 self.settlements.append(result)
@@ -264,11 +269,12 @@ class Replay:
             if at < self.start:
                 continue
             self._stage_quotes(batch)
-            for _, _, instrument, _, (price, closed) in batch:
-                self._observe(instrument, at, price)
+            for _, _, instrument, _, payload in batch:
+                observed_price, closed = cast(tuple[float, bool], payload)
+                self._observe(instrument, at, observed_price)
                 if closed:
                     equity_due = True
-        if equity_due:
+        if equity_due and last_time is not None:
             self.record_equity(last_time)
         self.finish()
         if last_time is not None:

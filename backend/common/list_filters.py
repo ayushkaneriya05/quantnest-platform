@@ -1,4 +1,6 @@
 """Shared validation for read-only instrument history filters."""
+from typing import cast
+from common.validation import validate_value, validate_data
 from django.db.models import Q
 from rest_framework import serializers
 
@@ -12,7 +14,7 @@ class RecordFilters(serializers.Serializer):
 
     def validate(self, values):
         if 'account_ids' in values:
-            values['account_ids'] = serializers.ListField(child=serializers.IntegerField(min_value=1), max_length=100).run_validation(values['account_ids'].split(','))
+            values['account_ids'] = cast(list[int], validate_value(serializers.ListField(child=serializers.IntegerField(min_value=1), max_length=100), values['account_ids'].split(',')))
         if values.get('start_date') and values.get('end_date') and values['start_date'] > values['end_date']:
             raise serializers.ValidationError('Start date must not follow end date.')
         return values
@@ -20,8 +22,7 @@ class RecordFilters(serializers.Serializer):
 
 def record_filters(queryset, params, date_field, *, instrument=True, account=True):
     fields = RecordFilters(data=params)
-    fields.is_valid(raise_exception=True)
-    values = fields.validated_data
+    values = validate_data(fields)
     if account and values.get('account_id'):
         queryset = queryset.filter(account_id=values['account_id'])
     if account and values.get('account_ids'):

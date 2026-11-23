@@ -17,10 +17,11 @@ from .usage import get_account_policy, get_account_usage, reject_request
 @permission_classes([AllowAny])
 @authentication_classes([])
 def get_public_catalog(request):
-    from .catalog import LIMIT_LABELS, LIMIT_DIVISORS, PLANS, get_active_catalog
+    from .catalog import LIMIT_LABELS, LIMIT_DIVISORS, LIMIT_KINDS, PLANS, get_active_catalog
+    from brokers.services import BROKER_CATALOG
     from customer_support.catalog import get_support_specification
     data = deepcopy(get_active_catalog().specification)
-    data["features"] = [{key: feature[key] for key in ("code", "name", "documentation", "description")}
+    data["features"] = [{key: feature[key] for key in ("code", "name", "documentation", "description", "included_in")}
                         for feature in data["features"]]
     # JSONB does not preserve object order; use the canonical catalog plan order.
     data["plans"] = {code: data["plans"][code] for code in PLANS}
@@ -29,11 +30,15 @@ def get_public_catalog(request):
     data["support"] = get_support_specification()
     data["limit_labels"] = LIMIT_LABELS
     data["limit_divisors"] = LIMIT_DIVISORS
+    data["limit_kinds"] = LIMIT_KINDS
+    # Public capability metadata never contains credentials or account details.
+    data["brokers"] = [{"code": code, "name": broker["display_name"]}
+                       for code, broker in BROKER_CATALOG.items() if broker["enabled"]]
     data["checkout_available"] = settings.BILLING_ENABLED
     for plan in data["plans"].values():
         plan["checkout_available"] = bool(data["checkout_available"])
     data["tax_bps"] = settings.BILLING_TAX_BPS
-    data["live"] = "not-offered"  # Override old published catalog marketing without changing purchased terms.
+    data["private_offer"]["checkout_available"] = False
     data["execution_enabled_scopes"] = sorted(settings.EXECUTION_ENABLED_SCOPES)
     data["contact"] = {"name": settings.QUANTNEST_LEGAL_NAME, "email": settings.QUANTNEST_SUPPORT_EMAIL,
                        "hours": settings.QUANTNEST_SUPPORT_HOURS}
@@ -52,6 +57,9 @@ class AccountView(APIView):
         active = policy["catalog"]
         if active is None or not active.is_active:
             active = get_active_catalog()
+        if policy["plan"]["code"] == "private":
+            data["checkout_terms"] = {}
+            return Response(data)
         data["checkout_terms"] = {code: billing.calculate_billing_totals(active, code, policy["subscription"]) for code in ("build", "pro")}
         mappings = set(PriceMapping.objects.filter(catalog=active, tax_bps=settings.BILLING_TAX_BPS)
                        .values_list("plan", "total_minor"))

@@ -133,7 +133,7 @@ class Worker:
                 self.evaluation_errors.discard(message.key)
             unit = self.units.get(message.key)
             replace_unit = unit is None or unit.program.version != message.program.version
-            if replace_unit:
+            if unit is None or replace_unit:
                 unit = EvaluationUnit(message.key, message.account, message.program, message.position, message.status)
                 self.warming.add(message.key)
                 if message.checkpoint.get('state'):
@@ -275,6 +275,8 @@ class Worker:
                         self.publish(owner, result)
                     if entries:
                         raise ValueError('Cancelling the remaining entry quantity before a full exit.')
+                if message.binding is None:
+                    raise ValueError('An order intent must identify its signal and traded contract.')
                 result = owner.accept(message, owner.contracts[message.binding[1]])
                 self.publish(owner, result)
             except ValueError:

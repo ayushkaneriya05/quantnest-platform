@@ -6,6 +6,8 @@ from django.db import models
 
 
 class ResearchSession(BaseTimestampModel):
+    runs: "models.Manager[ResearchRun]"
+    user_id: int
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     title = models.CharField(max_length=160)
     context = models.JSONField(default=dict)
@@ -18,6 +20,10 @@ class ResearchSession(BaseTimestampModel):
 
 
 class ResearchRun(BaseTimestampModel):
+    actions: "models.Manager[ResearchAction]"
+    session_id: int
+    user_id: int
+    created_strategy_id: int | None
     class Status(models.TextChoices):
         PENDING = "PENDING", "Queued"
         RUNNING = "RUNNING", "Running"
@@ -56,6 +62,8 @@ class ResearchRun(BaseTimestampModel):
 
 class ResearchEvidenceRow(models.Model):
     """Immutable calculated rows, separate from lightweight conversation snapshots."""
+    id: int
+    run_id: int
     run = models.ForeignKey(ResearchRun, on_delete=models.CASCADE, related_name='evidence_rows')
     evidence_id = models.CharField(max_length=12)
     ordinal = models.PositiveIntegerField()
@@ -73,6 +81,7 @@ class ResearchEvidenceRow(models.Model):
 
 
 class ResearchAction(BaseTimestampModel):
+    run_id: int
     class Type(models.TextChoices):
         CREATE_DRAFT = "CREATE_DRAFT", "Create strategy draft"
         ADD_TO_WATCHLIST = "ADD_TO_WATCHLIST", "Add to terminal watchlist"

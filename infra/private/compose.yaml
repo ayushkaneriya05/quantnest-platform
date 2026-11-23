@@ -39,7 +39,7 @@ services:
     environment: {POSTGRES_DB: "${DB_NAME:?Set DB_NAME}", POSTGRES_USER: quantnest_admin, POSTGRES_PASSWORD: "${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}", DB_USER: "${DB_USER:?Set DB_USER}", DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD}", TIMESCALEDB_TELEMETRY: "off", TS_TUNE_MEMORY: "1536MB", TS_TUNE_NUM_CPUS: "2"}
     volumes: [postgres:/var/lib/postgresql/data, ../shared/postgres/010-initialize.sh:/docker-entrypoint-initdb.d/010-initialize.sh:ro]
     networks: [private]
-    healthcheck: {test: [CMD-SHELL, "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"], interval: 10s, timeout: 5s, retries: 10}
+    healthcheck: {test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"], interval: 10s, timeout: 5s, retries: 10}
     restart: unless-stopped
     mem_limit: 1536m
   redis:

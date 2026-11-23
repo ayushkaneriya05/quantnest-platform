@@ -68,7 +68,6 @@ def deploy(root, mode, *, build=False, profiles=()):
     if build:
         run("build")
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "check", *(["--deploy", "--fail-level", "WARNING"] if mode != "development" else []))
-    run("up", "-d", "--wait", *DATA_SERVICES)
     # Include previously enabled development profiles, even if this run disables them.
     all_services = subprocess.run(
         [*command, "--profile", "*", "config", "--services"],
@@ -76,6 +75,9 @@ def deploy(root, mode, *, build=False, profiles=()):
     ).stdout.split()
     producers = sorted(set(all_services) - set(DATA_SERVICES))
     run("stop", *producers)
+    # Data-service configuration can recreate PostgreSQL or Redis. Quiesce
+    # their clients first, then initialize/migrate against the ready services.
+    run("up", "-d", "--wait", *DATA_SERVICES)
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "migrate", "--noinput")
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "setup_timescale")
     run("run", "--rm", "--no-deps", "api", "python", "manage.py", "configure_site")

@@ -13,14 +13,14 @@ ingress rules, DNS records or browser build variables.
 
 ## 1. What to configure, and when
 
-| Integration | Development | Public | Personal Private |
+| Integration | Development | Public | Private |
 | --- | --- | --- | --- |
 | FYERS market-data app | When enabling the feed/history | Needed for data-dependent functionality | Needed for data-dependent functionality |
 | Gemini research | Optional `research` profile | Key/token needed by the supplied full deployment | Key/token needed by the supplied full deployment |
 | Brevo SMTP | Console email works initially | Configure outgoing account/support email | Configure outgoing account/support email |
 | Turnstile | Bypassed with Development and DEBUG true | Needed for anonymous enquiry forms | Needed for anonymous enquiry forms |
 | Google login | Optional | Optional; username/password remains available | Optional; username/password remains available |
-| FYERS personal trading app | Only intentional Live development | Not used for Public Live; Live is disabled | Configure before your own Live deployment |
+| FYERS personal trading app | Only intentional Live development | Not used for Public Live; Live is disabled | Configure for each account owner’s Live deployment |
 | Razorpay | Only a separate billing test environment | Optional after checkout acceptance | Not used; billing is disabled |
 
 The API calls internal services using Docker names. Provider dashboards need the
@@ -51,11 +51,11 @@ public; all the other provider secrets stay server-side.
 Replace domains before entering these URLs into a dashboard. Include the trailing
 slash exactly. Production `BACKEND_URL` equals the canonical browser origin.
 
-| Purpose | Development | Public | Personal Private |
+| Purpose | Development | Public | Private |
 | --- | --- | --- | --- |
-| Google OAuth | `http://localhost:8000/api/v1/users/auth/google/callback/` | `https://app.example.com/api/v1/users/auth/google/callback/` | `https://personal.example.com/api/v1/users/auth/google/callback/` |
-| Shared FYERS data | `http://localhost:8000/api/v1/market/fyers/callback/` | `https://app.example.com/api/v1/market/fyers/callback/` | `https://personal.example.com/api/v1/market/fyers/callback/` |
-| Personal FYERS trading | `http://localhost:8000/api/v1/brokers/credentials/fyers/callback/` | Not enabled for Public Live | `https://personal.example.com/api/v1/brokers/credentials/fyers/callback/` |
+| Google OAuth | `http://localhost:8000/api/v1/users/auth/google/callback/` | `https://app.example.com/api/v1/users/auth/google/callback/` | `https://private.example.com/api/v1/users/auth/google/callback/` |
+| Shared FYERS data | `http://localhost:8000/api/v1/market/fyers/callback/` | `https://app.example.com/api/v1/market/fyers/callback/` | `https://private.example.com/api/v1/market/fyers/callback/` |
+| Personal FYERS trading | `http://localhost:8000/api/v1/brokers/credentials/fyers/callback/` | Not enabled for Public Live | `https://private.example.com/api/v1/brokers/credentials/fyers/callback/` |
 | Razorpay webhook | Needs a reachable, separately configured test endpoint | `https://app.example.com/api/v1/billing/webhooks/razorpay/` | Not used |
 
 `/google-callback` is the React completion page, not the Google-registered backend
@@ -171,7 +171,7 @@ It is separate from the personal trading connection used to submit orders.
    | --- | --- |
    | Development | `http://localhost:8000/api/v1/market/fyers/login/` |
    | Public | `https://app.example.com/api/v1/market/fyers/login/` |
-   | Private | `https://personal.example.com/api/v1/market/fyers/login/` |
+   | Private | `https://private.example.com/api/v1/market/fyers/login/` |
 
 6. Complete FYERS login/consent on FYERS's own page. Return through the callback
    within the ten-minute flow window, using the same browser and hostname.
@@ -211,7 +211,7 @@ References: [FYERS individual apps](https://fyers.in/api-docs/v3/getting-started
 
 1. Open Cloudflare's Turnstile dashboard and add a widget for this environment.
 2. Choose Managed mode and allow the exact browser hostname, such as
-   `app.example.com` or `personal.example.com`. Hostnames are not full URLs.
+   `app.example.com` or `private.example.com`. Hostnames are not full URLs.
 3. Copy its public site key and private secret key.
 4. Put the secret in backend `TURNSTILE_SECRET_KEY`. Supply the public key as
    `VITE_TURNSTILE_SITE_KEY` in the location shown in the key table.
@@ -265,7 +265,7 @@ Live by adding a broker key or editing the browser.
 2. Grant the appropriate order permission template and set the approved static
    server IP where FYERS requires it. The address is the host's actual outbound
    public IP, not a container address or Cloudflare's edge IP.
-3. Sign into your personal QuantNest user account and open **Broker Integration**.
+3. Sign into the account owner’s QuantNest user account and open **Broker Integration**.
 4. Select FYERS and enter this app's App ID/Secret. Complete the saved connection's
    browser authorization with your own FYERS account. These are not backend
    `FYERS_CLIENT_ID/FYERS_SECRET` settings.
@@ -393,10 +393,12 @@ After first deployment and Admin OTP enrolment:
     outgoing email. Custom work remains a request; project execution happens
     outside this system.
 
-Current public market availability and research drafts focus on NSE stocks.
-Use a tradable NSE stock for initial acceptance. Index data is for analysis;
-do not assume an index can be ordered. Futures/options marketing remains Coming
-soon. No setup step in this guide enables an unfinished market/broker adapter.
+The current Public catalog includes NSE stocks, futures and options for
+simulation. Direct AI market analysis and screening still focus on active NSE
+stocks. Use a tradable stock for initial acceptance, then verify derivatives
+separately using their lot sizes, expiry and selection policies. Indices can
+supply signals and charts; they cannot receive orders. Broker-connected Live
+execution requires an enabled Live scope, normally in Private.
 
 The detailed user/execution procedures are in [Backtesting](../../docs/backtesting.md),
 [Paper](../../docs/paper-trading.md), [Live](../../docs/live-trading.md) and
@@ -404,9 +406,12 @@ The detailed user/execution procedures are in [Backtesting](../../docs/backtesti
 
 ## 12. Derivative data and settlement operations
 
-These steps support intentional Development/Private experiments. Public marketing
-availability remains controlled by the catalog; importing contracts does not change
-that publication policy. Begin with the ordinary stock acceptance above.
+These steps support derivatives simulation in Public, Development and Private,
+and supported broker execution where Live is enabled. Public availability is
+published by the catalog; importing contracts does not change scope or commercial
+policy. Begin with ordinary stock acceptance, then test a fixed contract before
+automatic selection. Follow the settlement boundaries in the mode guides;
+contract selection alone does not establish complete delivery or assignment support.
 
 1. Run `sync_instruments --archive-stale` in the selected mode's API container. For
    a smaller refresh use `--source NSE_FO` (or another configured master source).
@@ -449,6 +454,6 @@ that publication policy. Begin with the ordinary stock acceptance above.
    contracts. This is not physical delivery, a general rollover mechanism or a
    permission to invent Live broker fills.
 6. Check full-lot sizing, signal/traded-instrument inputs, contract selection,
-   entry/full exit, charges and settlement in simulation before personal Live use.
+   entry/full exit, charges and settlement in simulation before Live use.
    Broker-reported fills and broker-specific margin/settlement remain authoritative
    for a real account. Do not treat a health check as derivative execution acceptance.

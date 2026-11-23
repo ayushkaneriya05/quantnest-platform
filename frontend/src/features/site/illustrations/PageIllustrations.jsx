@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BrainCircuit, Check, Code2, FileCheck2, FileText, FlaskConical, Layers3, LockKeyhole, MessageSquare, Monitor, Search, Server, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { Activity, ArrowRight, BrainCircuit, Check, Code2, FileCheck2, FileText, FlaskConical, Landmark, Layers3, LockKeyhole, MessageSquare, Monitor, Radio, Search, Server, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ChoiceNote, FlowConnector, IllustrationFrame, IllustrationNode } from './IllustrationElements';
 
@@ -38,11 +38,18 @@ export function ResearchIntroIllustration() {
   </IllustrationFrame>;
 }
 
-// Previous Live illustration is preserved in the inactive marketing archive.
 export function PrivateIllustration() {
   return <IllustrationFrame name="private" title="QuantNest Private" icon={Server}>
-    <div className="rounded-2xl border p-6 text-center">
-      <Server className="mx-auto h-10 w-10 text-brand" /><p className="mt-5 font-semibold">Not available to customers</p><p className="mt-3 text-sm text-muted-foreground">Research, backtesting and simulation remain available in the public workspace.</p></div>
+    <IllustrationNode icon={Server} title="Your managed deployment" detail="Separate hostname, database and credentials" />
+    <FlowConnector vertical />
+    <div className="grid gap-3 sm:grid-cols-2"><IllustrationNode icon={Layers3} title="Research and test" detail="The complete workspace" /><IllustrationNode icon={Radio} title="Live strategies" detail="Your saved rules and capital" /></div>
+    <FlowConnector vertical />
+    <IllustrationNode icon={Landmark} title="Your supported broker" detail="Account-owned authorization and orders" />
+    <ChoiceNote label="Your Private agreement" choices={[
+      ['Setup', 'We agree your workflow, users, capacity and operating responsibilities before onboarding.'],
+      ['Pricing', 'A direct quotation covers hosting, support and any data or AI usage costs.'],
+      ['Control', 'You own your broker account and choose the strategy versions and execution actions.'],
+    ]} />
   </IllustrationFrame>;
 }
 

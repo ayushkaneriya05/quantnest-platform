@@ -121,7 +121,7 @@ The first build downloads images and installs the locked dependencies inside
 them. It may take longer than later builds. Keep the terminal open and read any
 error before retrying. Do not manually start extra processes while it builds.
 
-The helper then starts data services, stops application services if they exist,
+The helper then stops application services if they exist, starts data services,
 runs migrations/Timescale setup/Site configuration/static collection and starts
 the selected stack. A migration failure leaves the applications stopped.
 

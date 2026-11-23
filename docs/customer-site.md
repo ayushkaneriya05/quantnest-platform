@@ -78,7 +78,7 @@ without creating another frontend application.
 | --- | --- |
 | `/product`, `/features`, `/features/:slug` | Explain what each current tool accepts, does and returns |
 | `/pricing` | Display the published plans/allowances and link to reviewed billing |
-| `/private` | Explain that customer Private/Live is not currently offered |
+| `/private` | Managed Private offering, supported Live workflow and direct quotation |
 | `/custom-development` | Describe separate software development enquiries; not a project-management workspace |
 | `/docs`, `/docs/:document`, `/docs/reference` | Task guides and backend-driven builder input reference |
 | `/about`, `/faq` | Operator/product context and common questions |
@@ -94,9 +94,11 @@ allowances. Direct AI analysis and screening still focus on active NSE stocks.
 Customer copy must distinguish simulated execution from broker trading and note
 that eligible contracts and provider history determine historical availability.
 
-Public plans do not offer customer Live trading or customer Private deployments.
-Personal/operator Private retains separate Live code/use. The archived earlier
-Private marketing source is outside the frontend bundle and is not current copy.
+Public subscriptions cover research through simulation. Private is advertised
+alongside them as a separately managed, contact-priced offer with supported broker
+connections and automated Live strategies. Workspace execution still follows
+enabled scopes; viewing a feature page never grants Live permission. The earlier
+marketing archive stays outside the frontend bundle and is not current copy.
 
 Custom development remains an enquiry offering. Specifications, contracts, project
 delivery, milestones and project payments are outside this product's current
@@ -121,6 +123,14 @@ workflow. A support request does not create a project record or subscription.
 coalesces concurrent loads and holds it in memory. Startup, explicit retry and
 billing refresh load it; there is no continuous catalogue polling interval.
 An open page may need a reload/explicit refresh after a catalogue publication.
+
+The catalogue keeps Explore/Build/Pro in `plans` and the contact-priced managed
+offer in `private_offer`. Feature `included_in` lists drive the ten-feature
+comparison; `limit_labels`, `limit_divisors` and `limit_kinds` drive all twelve
+allowance rows. Private has a null numeric price and no checkout. Enabled broker
+names come from the backend adapter catalogue, without credentials or accounts.
+The Private, Broker Integration and Live customer guides explain onboarding and
+the execution/reporting boundaries; these pages remain visible on the public site.
 
 Invalid/missing platform configuration must show load/retry state rather than
 invent a fallback paid allowance. Editing a price/limit only in a React component

@@ -78,7 +78,7 @@ _ENUM_SOURCES = {
 
 def get_enum_metadata():
     """Expose names, values, labels and field requirements to the frontend."""
-    data = {
+    data: dict = {
         name: [{'name': member.name, 'value': member.value, 'label': member.label} for member in source]
         for name, source in _ENUM_SOURCES.items()
     }

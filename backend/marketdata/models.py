@@ -38,6 +38,8 @@ class MarketDataToken(models.Model):
 
 class HistoryCoverage(models.Model):
     """Successfully acquired ranges. Empty results do not prove there were no trades."""
+    id: int
+    instrument_id: int
     instrument = models.ForeignKey(Instrument, on_delete=models.CASCADE)
     provider = models.CharField(max_length=100, default="fyers")
     timeframe = models.CharField(max_length=2)
@@ -60,6 +62,7 @@ class Candle(BaseTimestampModel):
     In production this model should map to a Timescale hypertable with
     compression and indexes applied at the database layer.
     """
+    instrument_id: int | None
 
     instrument = models.ForeignKey(
         Instrument,

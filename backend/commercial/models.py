@@ -6,6 +6,7 @@ from django.utils import timezone
 
 
 class CatalogRevision(models.Model):
+    id: int
     revision = models.CharField(max_length=80, unique=True)
     specification = models.JSONField()
     published_at = models.DateTimeField(null=True, blank=True, editable=False)
@@ -32,6 +33,10 @@ class CatalogRevision(models.Model):
 
 
 class Subscription(models.Model):
+    id: int
+    # Django generates these ID attributes without explicit model fields.
+    user_id: int
+    catalog_id: int
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     plan = models.CharField(max_length=20, default="explore")
     catalog = models.ForeignKey(CatalogRevision, on_delete=models.PROTECT)
@@ -54,6 +59,8 @@ class Subscription(models.Model):
 
 
 class PriceMapping(models.Model):
+    id: int
+    catalog_id: int
     catalog = models.ForeignKey(CatalogRevision, on_delete=models.PROTECT)
     plan = models.CharField(max_length=20)
     provider_plan_id = models.CharField(max_length=100)
@@ -71,6 +78,8 @@ class PriceMapping(models.Model):
 
 
 class PaymentAttempt(models.Model):
+    user_id: int
+    catalog_id: int
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     idempotency_key = models.CharField(max_length=160)
@@ -96,6 +105,9 @@ class PaymentAttempt(models.Model):
 
 class RenewalTerms(models.Model):
     """Approved future terms, retained after the provider changes the current plan."""
+    id: int
+    subscription_id: int
+    mapping_id: int
     subscription = models.ForeignKey(Subscription, on_delete=models.PROTECT)
     mapping = models.ForeignKey(PriceMapping, on_delete=models.PROTECT)
     effective_after = models.DateTimeField()
@@ -107,6 +119,8 @@ class RenewalTerms(models.Model):
 
 
 class Payment(models.Model):
+    id: int
+    attempt_id: uuid.UUID
     attempt = models.ForeignKey(PaymentAttempt, on_delete=models.PROTECT, related_name="payments")
     provider_id = models.CharField(max_length=100, unique=True)
     status = models.CharField(max_length=25)
@@ -121,6 +135,9 @@ class Payment(models.Model):
 
 
 class Invoice(models.Model):
+    id: int
+    payment_id: int
+    user_id: int
     number = models.CharField(max_length=80, unique=True)
     payment = models.OneToOneField(Payment, on_delete=models.PROTECT)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
@@ -129,6 +146,9 @@ class Invoice(models.Model):
 
 
 class RefundRequest(models.Model):
+    id: int
+    user_id: int
+    payment_id: int
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     payment = models.ForeignKey(Payment, on_delete=models.PROTECT)
     reason = models.TextField(max_length=3000)
@@ -143,6 +163,8 @@ class RefundRequest(models.Model):
 
 
 class RefundRecord(models.Model):
+    id: int
+    payment_id: int
     provider_id = models.CharField(max_length=100, unique=True)
     payment = models.ForeignKey(Payment, on_delete=models.PROTECT)
     amount_minor = models.PositiveIntegerField()
@@ -152,6 +174,8 @@ class RefundRecord(models.Model):
 
 
 class Dispute(models.Model):
+    id: int
+    payment_id: int
     provider_id = models.CharField(max_length=100, unique=True)
     payment = models.ForeignKey(Payment, on_delete=models.PROTECT)
     status = models.CharField(max_length=25)
@@ -162,6 +186,8 @@ class Dispute(models.Model):
 
 
 class UsageBucket(models.Model):
+    id: int
+    user_id: int
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     feature = models.CharField(max_length=40)
     period_start = models.DateTimeField()
@@ -174,6 +200,8 @@ class UsageBucket(models.Model):
 
 
 class UsageReservation(models.Model):
+    bucket_id: int
+    user_id: int
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     bucket = models.ForeignKey(UsageBucket, on_delete=models.PROTECT, related_name="reservations")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)

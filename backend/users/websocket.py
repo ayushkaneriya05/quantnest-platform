@@ -2,13 +2,22 @@
 import asyncio
 import json
 import time
+from typing import TypedDict, cast
 from channels.db import database_sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import Token
 from .authentication import SafeJWTAuthentication
 
 
-class AuthSessionConsumerMixin:
+class SessionScope(TypedDict):
+    auth_token: Token
+    auth_expires_at: int
+    auth_session_id: str
+
+
+class AuthSessionConsumerMixin(AsyncWebsocketConsumer):
     async def __call__(self, *args, **kwargs):
         self.auth_group = None
         self.auth_expiry_task = None
@@ -25,6 +34,7 @@ class AuthSessionConsumerMixin:
         if not session_id:
             await self.close(code=4401)
             return
+        self.session_scope = cast(SessionScope, self.scope)
         self.auth_group = f"auth_session_{session_id}"
         await self.channel_layer.group_add(self.auth_group, self.channel_name)
         # Cover a revocation between middleware validation and joining the group.
@@ -37,18 +47,18 @@ class AuthSessionConsumerMixin:
     @database_sync_to_async
     def _session_is_valid(self):
         try:
-            self.scope["auth_token"].check_exp()
-            SafeJWTAuthentication().get_user(self.scope["auth_token"])
+            self.session_scope["auth_token"].check_exp()
+            SafeJWTAuthentication().get_user(self.session_scope["auth_token"])
             return True
         except (AuthenticationFailed, TokenError):
             return False
 
     async def _close_on_expiry(self):
-        await asyncio.sleep(max(0, self.scope["auth_expires_at"] - time.time()))
+        await asyncio.sleep(max(0, self.session_scope["auth_expires_at"] - time.time()))
         await self.close(code=4001)
 
     async def auth_session_revoked(self, event):
-        await self.send(text_data=json.dumps({"type": "auth.revoked", "session_id": self.scope["auth_session_id"]}))
+        await self.send(text_data=json.dumps({"type": "auth.revoked", "session_id": self.session_scope["auth_session_id"]}))
         await self.close(code=4401)
 
     async def auth_credentials_changed(self, event):

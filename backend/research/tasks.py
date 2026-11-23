@@ -7,6 +7,7 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 from notifications.services import NotificationService
+from common.enums import NotificationType
 
 from .context import service_payload
 from .models import ACTIVE_RUN_STATUSES, ResearchRun
@@ -37,7 +38,7 @@ def expire_runs():
             NotificationService.notify(
                 user_id=failed.user_id,
                 title="Research interrupted",
-                type="WARNING",
+                type=NotificationType.WARNING,
                 message=failed.error_message,
                 data={"module": "research", "research_session_id": failed.session_id},
                 dedupe_key=f"research:{failed.pk}:failed",
@@ -167,11 +168,11 @@ def start_research(run_id):
         )
         if failed:
             NotificationService.notify(
-                user_id=run.user_id,
+                user_id=failed.user_id,
                 title="Research failed",
                 message=failed.error_message,
-                type="WARNING",
-                data={"module": "research", "research_session_id": run.session_id},
-                dedupe_key=f"research:{run.pk}:failed",
+                type=NotificationType.WARNING,
+                data={"module": "research", "research_session_id": failed.session_id},
+                dedupe_key=f"research:{failed.pk}:failed",
             )
     return run_id

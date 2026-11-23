@@ -21,11 +21,11 @@ export const featureDetails = {
   builder: {
     task: 'Turn your trading idea into rules you can read and test.',
     summary: 'Define entries, exits, position size and safeguards without writing an execution program.',
-    steps: ['Start in Details, then use Studio’s Markets & size, Conditions, Schedule and Review steps.', 'Combine market inputs, formulas and nested conditions. Add captured setups when entry must wait for a later confirmation.', 'Validate and save a version. Backtest the saved configuration, then explicitly select a version for Paper deployment.'],
+    steps: ['Start in Details, then use Studio’s Markets & size, Conditions, Schedule and Review steps.', 'Combine market inputs, formulas and nested conditions. Add captured setups when entry must wait for a later confirmation.', 'Validate and save a version. Backtest it, then explicitly select a version for Paper or Private Live deployment.'],
     capabilities: [['Composable rules', 'Combine comparisons, arithmetic, rolling windows and reusable formulas with All, Any, Not or At least K conditions.'], ['Clear market roles', 'Choose each market input’s source; position values describe the owned traded position. Trade fixed contracts or select futures/options by underlying, expiry and ATM/ITM/OTM strike policy.'], ['Sizing and full exits', 'Use exact units, whole lots or a capital budget, with optional per-instrument sizing and explicit stop-loss, target and exit conditions.'], ['Versions and sharing', 'Inspect saved changes, restore deliberately and share the current configuration through a read-only link. Private execution records stay private.']],
     inputs: 'Your instruments, conditions, parameters, timeframe, sizing and execution restrictions.',
     outputs: 'A saved strategy and version history preserving the rules behind tests and deployments.',
-    limitations: 'Saving does not deploy or update a running session. Entry end stops new entries rather than closing positions. Contracts need eligible instrument details and available data. Public plans support simulation and do not activate customer Live trading.',
+    limitations: 'Saving does not deploy or update a running session. Entry end stops new entries rather than closing positions. Contracts need eligible instrument details and available data. Public plans support simulation; broker-connected Live strategies use QuantNest Private.',
   },
   backtesting: {
     task: 'Test your rules on historical prices before practising execution.',
@@ -57,8 +57,8 @@ export const featureDetails = {
   journal: {
     task: 'Understand your decisions and learn from recorded outcomes.',
     summary: 'Keep private trade reviews and examine performance without mixing execution environments.',
-    steps: ['Choose Terminal or Paper records, then select dates.', 'Review a close and save context, lessons, mistake tags and your execution rating.', 'Use Reports for realised summaries. Optionally attach results and selected notes to AI research.'],
-    capabilities: [['Private reviews', 'Record setup context, lessons, mistake tags and your own execution rating without changing the trade.'], ['Separate reports', 'Keep manual Terminal and automated Paper outcomes clearly separated, with server-filtered records and paging.'], ['Realised and open results', 'Read closed P&L and charges for the selected dates, with current open valuation shown separately.'], ['Connected research', 'Attach selected results to AI, choosing whether private journal notes are included.']],
+    steps: ['Choose Terminal, Paper or enabled Private Live records, then select dates.', 'Review a close and save context, lessons, mistake tags and your execution rating.', 'Use Reports for realised summaries. Optionally attach results and selected notes to AI research.'],
+    capabilities: [['Private reviews', 'Record setup context, lessons, mistake tags and your own execution rating without changing the trade.'], ['Separate reports', 'Keep Terminal, Paper and enabled Live outcomes separated, with server-filtered records and paging.'], ['Realised and open results', 'Read closed P&L and available charges for the selected dates, with current open valuation shown separately. Live results are before actual broker charges.'], ['Connected research', 'Attach selected results to AI, choosing whether private journal notes are included.']],
     inputs: 'Recorded closes, an execution source, dates and your private review notes.',
     outputs: 'Saved reviews, source-specific realised summaries and an optional research handoff.',
     limitations: 'Broker partial fills and manual reductions count separately. Ratings are self-reported. Equity metrics are unavailable when the necessary historical equity series is not recorded.',
@@ -71,6 +71,24 @@ export const featureDetails = {
     inputs: 'Your security preferences, control actions and saved configurations.',
     outputs: 'Account state, activity records, version history and plan usage.',
     limitations: 'Controls depend on functioning services. Manual pauses, strategy restrictions and subscription limits are separate; renewal does not automatically resume a strategy.',
+  },
+  brokers: {
+    task: 'Connect your broker to your Private workspace.',
+    summary: 'Authorize your own supported trading account and keep its connection, funds and order updates visible.',
+    steps: ['Arrange your QuantNest Private deployment and open Broker Integration in that workspace.', 'Choose a supported broker, enter your own app settings and complete its secure sign-in.', 'Check account readiness and funds before selecting the account for a Live strategy deployment. Reauthorize when the broker session expires.'],
+    capabilities: [['Account-owned connections', 'Each connection belongs to its signed-in owner; trading credentials remain separate from the platform’s market-data connection.'], ['Connection visibility', 'Inspect authorization status, broker account identity and the latest funds snapshot.'], ['Order synchronization', 'Broker order updates and reconciliation update owned orders; strategy positions stay attributed to their session.'], ['Deployment handoff', 'Select a ready broker account when you deploy a saved strategy version in Live.']],
+    inputs: 'Your own supported broker account, app configuration and completed broker authorization in your Private workspace.',
+    outputs: 'An authorized connection, account readiness, funds snapshots and owned broker-order updates.',
+    limitations: 'FYERS is currently implemented. Other broker integrations are not delivered yet. Broker permissions, product support and daily authorization still apply. Connecting does not deploy a strategy or place an order.',
+  },
+  live: {
+    task: 'Run your own saved strategy through your broker.',
+    summary: 'Use QuantNest Private to deploy a selected strategy version, allocate capital and manage real broker execution.',
+    steps: ['Connect an eligible FYERS account in your Private workspace and save the strategy version you want to run.', 'From My Strategies, choose Live, review the version, broker account, instruments, stop conditions and fixed capital allocation, then confirm.', 'Follow the session’s applied state, broker orders, positions and before-charges results. Use explicit pause, resume and stop controls when needed.'],
+    capabilities: [['Version-specific execution', 'A deployment retains the selected saved rules. Saving Studio alone does not replace a running session.'], ['Owned sessions', 'Run the same strategy on different broker accounts. The same strategy cannot have duplicate active deployments on one account.'], ['Live management', 'Request compatible capital/version changes, pause new entries while exits continue, or explicitly stop and close.'], ['Broker-confirmed fills', 'Broker reports establish actual fills. Reconciliation follows owned orders, preserving each strategy session’s exposure.']],
+    inputs: 'Your strategy version, supported contracts and data, authorized broker account, capital allocation and required stop conditions.',
+    outputs: 'Real broker orders, session-owned positions, execution logs and source-specific recorded results.',
+    limitations: 'Live trading uses real funds and can lose capital. An accepted signal is not a broker fill. Supported products, funds and market sessions apply. Live reports currently exclude actual broker charges; the manual Terminal remains simulated.',
   },
 };
 export function getFeaturePages(features = []) {

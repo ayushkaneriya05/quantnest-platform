@@ -2,6 +2,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from contextvars import ContextVar
+from typing import Any
 from .models import AuditLog, ActivityResource
 
 audit_request = ContextVar("audit_request", default=None)
@@ -21,7 +22,7 @@ CONFIG_FIELDS = ("name", "description", "strategy_type", "market_type", "exchang
                  "position_sizing_rule", "watchlist_instruments", "rule_groups", "expressions", "initial_risk")
 
 
-def json_safe(value):
+def json_safe(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     if isinstance(value, Decimal):

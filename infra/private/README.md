@@ -1,13 +1,22 @@
-# Private: personal production deployment
+# Private: managed production deployment
 
-For the full beginner procedure, follow [Personal Private setup](SETUP.md),
+For the full beginner procedure, follow [Private setup](SETUP.md),
 including host/tools, data authorization and your separate trading connection.
 
-This mode runs the QuantNest operator's own isolated production instance. It uses
+Use this mode for one customer's dedicated QuantNest-managed instance, or the
+operator's own personal instance. Each instance runs on a separate host. It uses
 the same frontend, signup/login, CRUD, data layer and execution engine as Public.
 Paper and Live access follows enabled scopes; Terminal remains simulated. There
-are no commercial quotas, licence activation, renewal or checkout in this mode.
-Customer Private hosting is not currently offered.
+are no public-plan quotas, licence activation, automated expiry or public checkout
+in this mode. Customer pricing, capacity, service periods and renewal are agreed
+directly. The customer receives application access; QuantNest retains server,
+deployment and source-code administration unless separately agreed.
+
+Never reuse a Public/customer database, secrets or volumes for another customer.
+Public accounts and subscriptions do not automatically transfer to Private.
+Use [commercial operations](../../docs/commercial-operations.md#managed-private-offer)
+for quotation and onboarding responsibilities. Existing technical acceptance
+boundaries still apply; marketing availability does not prove a real broker fill.
 
 One Linux host runs Caddy, API, the market-data feed, unified execution, broker
 events, Celery/Beat, research and data services. This is not a separate execution
@@ -23,7 +32,7 @@ and allow 80/443 for HTTPS. Database, Redis and research ports stay private.
 For OCI, follow [Oracle server setup](../shared/SERVER-SETUP.md) before these
 commands. It covers the reserved address, both firewall layers, native A1 builds
 and the shared resource budget for separate Public/Private hosts. Review
-[Private functionality readiness](../../docs/private-deployment-readiness.md)
+[Live acceptance and supported boundaries](../../docs/live-trading.md#release-checks-and-unsupported-behavior)
 before intentional Live use.
 
 ```sh
@@ -33,7 +42,7 @@ chmod 600 infra/private/backend.env infra/private/research.env
 ```
 
 Each copy creates this deployment's protected settings. Replace every placeholder;
-do not copy Public's database credentials or encryption keys into a personal host.
+do not copy Public's database credentials or encryption keys into this dedicated host.
 
 ### Each group of settings
 
@@ -43,12 +52,12 @@ do not copy Public's database credentials or encryption keys into a personal hos
 | `SECRET_KEY` | Unique Django signing key. |
 | `CREDENTIAL_ENCRYPTION_KEYS` | Unique Fernet credential key; retain for encrypted broker-data recovery. |
 | `POSTGRES_ADMIN_PASSWORD` | Bootstrap administrator password. |
-| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Personal application database and restricted role. |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Instance-local application database and restricted role. |
 | `REDIS_PASSWORD` | Hexadecimal Redis password used in generated internal URLs. |
 | `QUANTNEST_PROXY_TOKEN` | Random token Caddy injects when forwarding API/WebSocket requests. |
-| `FRONTEND_URL`, `BACKEND_URL` | Same HTTPS browser origin, e.g. `https://personal.example.com`. |
+| `FRONTEND_URL`, `BACKEND_URL` | Same HTTPS browser origin, e.g. `https://private.example.com`. |
 | `PUBLIC_HOSTNAME` | That hostname without scheme/path; selects Caddy's HTTPS site. |
-| `ALLOWED_HOSTS` | Personal host plus `api`, `localhost`, `127.0.0.1`. |
+| `ALLOWED_HOSTS` | This instance’s host plus `api`, `localhost`, `127.0.0.1`. |
 | SMTP login/key/sender | Outgoing account and support emails. Host/port/TLS use backend defaults. |
 | `FYERS_CLIENT_ID`, `FYERS_SECRET` | Market-data app, separate from each user's trading app. |
 | `RESEARCH_SERVICE_TOKEN` | Match the value in research.env. |
@@ -76,7 +85,7 @@ it securely. Other secrets can be generated with the commands in [the root guide
 
 ## 3. DNS and deployment
 
-Point the personal hostname's A/AAAA record directly at this host and allow ports
+Point this instance’s hostname’s A/AAAA record directly at this host and allow ports
 80/443. The supplied Caddy configuration assumes direct browser ingress; use a
 DNS-only record if managing DNS through Cloudflare. Adding another proxy requires
 reviewing trusted client-IP handling rather than trusting arbitrary headers.
@@ -97,7 +106,7 @@ trading via `/register`; no local account provisioning or licence token is requi
 
 | Directive | What it does and why |
 | --- | --- |
-| `{$PUBLIC_HOSTNAME}` | Personal domain listener and HTTPS certificate identity. |
+| `{$PUBLIC_HOSTNAME}` | Private domain listener and HTTPS certificate identity. |
 | `import /srv/site/security.caddy` | CSP generated from this exact frontend build/public origin. |
 | `import /srv/site/routes.caddy` | Known React routes used for direct links and page refreshes. |
 | `encode zstd gzip` | Compresses suitable responses. |
@@ -117,7 +126,7 @@ The final frontend image contains only Caddy/assets. Docker receives only the tw
 public frontend build arguments; Django, broker and Gemini secrets are runtime
 settings for their respective server containers.
 
-## 4. Prepare data and personal broker access
+## 4. Prepare data and account-owned broker access
 
 ```sh
 docker compose --env-file infra/private/backend.env -f infra/private/compose.yaml exec api python manage.py sync_market_holidays
@@ -126,11 +135,11 @@ docker compose --env-file infra/private/backend.env -f infra/private/compose.yam
 
 Review the exchange/segment calendars in Admin. Authorize the shared market-data
 source through `/api/v1/market/fyers/login/`. Its registered callback is
-`https://personal.example.com/api/v1/market/fyers/callback/`.
+`https://private.example.com/api/v1/market/fyers/callback/`.
 
 Enter the user's individual trading App ID/Secret through Broker Integration. Its
 separate callback is
-`https://personal.example.com/api/v1/brokers/credentials/fyers/callback/`.
+`https://private.example.com/api/v1/brokers/credentials/fyers/callback/`.
 Broker credentials are encrypted in this instance's database. Broker-events ingests
 order updates; the unified execution controller performs broker I/O and financial
 persistence outside tick evaluation.

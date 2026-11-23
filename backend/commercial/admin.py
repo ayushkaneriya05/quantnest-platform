@@ -1,6 +1,8 @@
 from copy import deepcopy
 from functools import partial
 from decimal import Decimal
+from typing import cast
+from celery.app.task import Task
 from django import forms
 from django.contrib import admin, messages
 from django.db import transaction
@@ -10,6 +12,8 @@ from .catalog import (
     LIMIT_LABELS,
     LIMIT_DIVISORS,
     PLANS,
+    FEATURES,
+    PRIVATE_OFFER,
     publish_catalog,
     get_catalog_specification,
     validate_catalog_specification,
@@ -40,6 +44,20 @@ class CatalogForm(forms.ModelForm):
                     help_text=f"One credit = {divisor:,} reported AI tokens." if divisor > 1 else "")
         self.fields["credit_candles"] = forms.IntegerField(label="Source candles per backtest credit", min_value=1, initial=data["credit_candles"],
             help_text="Existing approved previews retain their saved unit when work settles.")
+        offer = data.get("private_offer", PRIVATE_OFFER)
+        for key, label in (("name", "Private name"), ("description", "Private description"),
+                           ("capacity_note", "Capacity and costs"), ("cta_label", "Enquiry button")):
+            self.fields[f"private_{key}"] = forms.CharField(label=label, initial=offer[key], max_length=600,
+                widget=forms.Textarea(attrs={"rows": 2}) if key in {"description", "capacity_note"} else forms.TextInput())
+        feature_values = {feature["code"]: feature for feature in data["features"]}
+        choices = [(code, plan["name"]) for code, plan in data["plans"].items()] + [("private", offer["name"])]
+        for feature in FEATURES:
+            self.fields[f"feature_{feature['code']}"] = forms.MultipleChoiceField(
+                label=feature["name"], choices=choices,
+                initial=feature_values.get(feature["code"], feature).get("included_in", feature["included_in"]),
+                widget=forms.CheckboxSelectMultiple,
+                help_text="Customer-facing inclusion. Execution permissions still follow deployment scopes.",
+            )
 
     def clean(self):
         values = super().clean()
@@ -51,6 +69,9 @@ class CatalogForm(forms.ModelForm):
             data["plans"][code].update(name=values[f"{code}_name"], price_minor=values[f"{code}_price"],
                 limits={key: int(values[f"{code}_{key}"] * LIMIT_DIVISORS[key]) for key in LIMIT_LABELS})
         data["credit_candles"] = values["credit_candles"]
+        data["private_offer"].update({key: values[f"private_{key}"] for key in ("name", "description", "capacity_note", "cta_label")})
+        for feature in data["features"]:
+            feature["included_in"] = values[f"feature_{feature['code']}"]
         validate_catalog_specification(data, values["revision"])
         self.instance.specification = data
         return values
@@ -77,6 +98,9 @@ class CatalogAdmin(admin.ModelAdmin):
         sections = [("Draft revision", {"fields": ["revision", "credit_candles"],
             "description": "Save, then select Publish selected revision from the catalog list. No code change or restart is needed."})]
         sections += [(PLANS[code]["name"], {"fields": [f"{code}_name", f"{code}_price", *[f"{code}_{key}" for key in LIMIT_LABELS]]}) for code in PLANS]
+        sections += [("QuantNest Private", {"fields": [f"private_{key}" for key in ("name", "description", "capacity_note", "cta_label")],
+            "description": "Contact-priced managed deployment. No public checkout, numeric subscription price or automatic renewal."}),
+            ("Feature comparison", {"fields": [f"feature_{feature['code']}" for feature in FEATURES]})]
         return sections
 
     def get_readonly_fields(self, request, obj=None):
@@ -92,9 +116,15 @@ class CatalogAdmin(admin.ModelAdmin):
     def clone_revision(self, request, queryset):
         for original in queryset:
             revision = f"{original.revision[:35]}-{timezone.now():%Y%m%d%H%M%S%f}"
-            data = deepcopy(original.specification)
+            # Old purchased revisions stay immutable; new drafts receive the
+            # current offer schema while retaining their prices and copy.
+            data = {**get_catalog_specification(), **deepcopy(original.specification)}
+            previous_features = {feature["code"]: feature for feature in data["features"]}
+            data["features"] = [{**feature, **previous_features.get(feature["code"], {})} for feature in FEATURES]
+            data.pop("live", None)
             data["revision"] = revision
             for plan in data["plans"].values():
+                plan["execution_scopes"] = ["paper"]
                 plan["limits"] = {key: plan["limits"].get(key, 0) for key in LIMIT_LABELS}
             models.CatalogRevision.objects.create(revision=revision, specification=data)
         self.message_user(request, "Draft created. Open it, edit the plan fields, save, then publish it.", messages.SUCCESS)
@@ -128,7 +158,7 @@ class RefundAdmin(admin.ModelAdmin):
                 if row.status in {"eligible", "review"}:
                     row.status = "approved"
                     row.save(update_fields=["status"])
-                transaction.on_commit(partial(process_refund_task.delay, row.pk))
+                transaction.on_commit(partial(cast(Task, process_refund_task).delay, row.pk))
         self.message_user(request, "Refunds queued. Provider processing is authoritative.", messages.SUCCESS)
 
     @admin.action(description="Reject selected requests awaiting review", permissions=["change"])

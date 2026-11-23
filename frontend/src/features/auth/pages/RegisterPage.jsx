@@ -116,7 +116,7 @@ export default function RegisterPage() {
             </ol>
           </div>
           <p className="text-xs leading-6 text-muted-foreground lg:mt-7 lg:border-t lg:pt-5">
-            Public plans support simulated trading. Customer Live trading is not currently available.
+            Public plans support research and simulated trading. <Link to="/private/" className="text-brand underline underline-offset-4">QuantNest Private</Link> adds supported broker-connected Live strategies with contact pricing.
           </p>
         </>
       }

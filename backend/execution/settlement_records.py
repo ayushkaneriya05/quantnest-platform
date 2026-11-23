@@ -4,6 +4,7 @@ An imported price is evidence, not permission to fabricate a broker fill. Paper
 and Terminal accounts can consume reviewed simulation settlements. Live reports
 remain separate until an account-specific broker source is qualified.
 """
+from common.validation import serialize_object
 from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -267,7 +268,7 @@ def project_settlement(state, result):
         account = PaperAccount.objects.get(pk=account_id)
         current = owned.first()
         if current is not None:
-            publish_trading_update(f'user_{account.user_id}_paper', 'POSITION_UPDATE', PaperPositionSerializer(current).data)
+            publish_trading_update(f'user_{account.user_id}_paper', 'POSITION_UPDATE', serialize_object(PaperPositionSerializer(current)))
         publish_trading_update(f'user_{account.user_id}_paper', 'SESSION_UPDATE', {'id': result.unit[1], 'settlement': result.price_id})
     elif mode == Mode.TERMINAL:
         owned = Position.objects.filter(account_id=account_id, instrument_id=instrument_id)
@@ -286,8 +287,8 @@ def project_settlement(state, result):
         from trading.serializers import AccountSerializer, PositionSerializer
         account = Account.objects.get(pk=account_id)
         current = owned.first()
-        publish_trading_update(f'user_{account.user_id}', 'ACCOUNT_UPDATE', AccountSerializer(account).data)
-        publish_trading_update(f'user_{account.user_id}', 'POSITION_UPDATE', PositionSerializer(current).data if current else
+        publish_trading_update(f'user_{account.user_id}', 'ACCOUNT_UPDATE', serialize_object(AccountSerializer(account)))
+        publish_trading_update(f'user_{account.user_id}', 'POSITION_UPDATE', serialize_object(PositionSerializer(current)) if current else
             {'id': previous_id, 'instrument_id': instrument_id, 'quantity': 0, 'deleted': True})
     else:
         raise ValueError('No settlement projection is qualified for this deployment mode.')

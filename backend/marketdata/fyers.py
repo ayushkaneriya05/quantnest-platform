@@ -208,7 +208,7 @@ class FyersProvider:
         expired = (window.instrument.instrument_type in (InstrumentType.FUTURE, InstrumentType.OPTION)
                    and window.instrument.expiry_date is not None
                    and window.instrument.expiry_date < datetime.now(window.calendar.zone).date())
-        request = {
+        request: dict[str, str | int] = {
             "symbol": normalize_symbol(symbol),
             "resolution": self.RESOLUTIONS[timeframe], "date_format": "0",
             "range_from": str(int(start_dt.timestamp())), "range_to": str(int(end_dt.timestamp())),
@@ -329,12 +329,18 @@ class FyersLiveFeedClient(MarketObservationClient):
     def subscribe_symbols(self, symbols: list[str]) -> None:
         from .providers import acquire_data_request
         acquire_data_request(FyersProvider())
-        self.socket.subscribe(symbols=symbols, data_type="SymbolUpdate", channel=self.subscription_channel)
+        socket = self.socket
+        if socket is None:
+            raise ConnectionError('The FYERS market socket is disconnected.')
+        socket.subscribe(symbols=symbols, data_type="SymbolUpdate", channel=self.subscription_channel)
 
     def unsubscribe_symbols(self, symbols: list[str]) -> None:
         from .providers import acquire_data_request
         acquire_data_request(FyersProvider())
-        self.socket.unsubscribe(symbols=symbols, data_type="SymbolUpdate", channel=self.subscription_channel)
+        socket = self.socket
+        if socket is None:
+            raise ConnectionError('The FYERS market socket is disconnected.')
+        socket.unsubscribe(symbols=symbols, data_type="SymbolUpdate", channel=self.subscription_channel)
 
     def disconnect(self) -> None:
         self._transport_epoch = object()
@@ -357,7 +363,7 @@ class FyersLiveFeedClient(MarketObservationClient):
         if isinstance(message, dict) and message.get("type") == "cn":
             self.mark_disconnected()
         if isinstance(message, dict):
-            operation = {"sub": "subscribe", "unsub": "unsubscribe"}.get(message.get("type"))
+            operation = {"sub": "subscribe", "unsub": "unsubscribe"}.get(message.get("type", ""))
             if message.get("code") == -300 and message.get("invalid_symbols"):
                 with self._state_lock:
                     self._invalid_symbols.update(message.get("invalid_symbols", []))

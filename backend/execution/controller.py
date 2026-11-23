@@ -10,6 +10,7 @@ from decimal import Decimal
 import logging
 from queue import Empty
 import time
+from typing import TypedDict
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -27,7 +28,7 @@ from .messages import (Committed, Control, EvaluationSaved, InstallAccount, Inst
 from .models import Command
 from .recovery import load_configuration, recover_account
 from .repository import enqueue, persist_control, persist_transition
-from .types import ACTIVE_STATUSES, Intent, terminal_key
+from .types import ACTIVE_STATUSES, AccountKey, Intent, terminal_key
 from .worker import partition
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,13 @@ def prepare_settlements(accounts):
         close_old_connections()
 
 
-def latest_observation(symbol):
+class QuoteObservation(TypedDict):
+    sequence: int
+    generation: int
+    reference_price: Decimal
+
+
+def latest_observation(symbol) -> QuoteObservation:
     """Read an actual provider observation for an external command, never HTTP LTP."""
     buffer = SharedMemoryManager(symbol, '1m')
     try:
@@ -54,7 +61,7 @@ def latest_observation(symbol):
         if not len(rows):
             raise ValueError('Wait for a live price observation.')
         sequence, _, _, price, _ = rows[-1]
-        return dict(sequence=int(sequence)*2, generation=generation, reference_price=Decimal(str(price)))
+        return {'sequence': int(sequence)*2, 'generation': generation, 'reference_price': Decimal(str(price))}
     finally:
         buffer.close()
 
@@ -70,6 +77,9 @@ def broker_call(order_id, *, cancel=False):
     close_old_connections()
     try:
         order = LiveOrder.objects.select_related('broker_credential', 'instrument').get(pk=order_id)
+        credential_id = order.broker_credential_id
+        if credential_id is None or order.broker_credential is None:
+            raise ValueError('The order has no broker connection; restore it before reconciliation.')
         if cancel:
             if order.broker_order_id:
                 response = BrokerService.cancel_order(order.broker_credential, order.broker_order_id)
@@ -81,7 +91,7 @@ def broker_call(order_id, *, cancel=False):
         except ValueError as exc:
             # No broker request has started: expired authentication is a definite
             # local rejection, not an ambiguous submission to reconcile forever.
-            enqueue(Mode.LIVE, order.broker_credential_id, Kind.BROKER, {
+            enqueue(Mode.LIVE, credential_id, Kind.BROKER, {
                 'identity': str(order.request_id), 'broker_id': '', 'status': 'REJECTED',
                 'quantity': 0, 'average': '0', 'at': timezone.now().isoformat(), 'error': str(exc),
             })
@@ -91,7 +101,7 @@ def broker_call(order_id, *, cancel=False):
             'order_type': order.order_type, 'product_type': order.product_type,
             'order_tag': f'QN{order.pk}',
         }, broker_session=session)
-        enqueue(Mode.LIVE, order.broker_credential_id, Kind.BROKER, {
+        enqueue(Mode.LIVE, credential_id, Kind.BROKER, {
             'identity': str(order.request_id), 'broker_id': result.get('broker_order_id') or '',
             'status': result.get('status') or 'UNKNOWN', 'quantity': 0, 'average': '0',
             'at': timezone.now().isoformat(), 'error': result.get('message') or '',
@@ -105,7 +115,7 @@ def broker_call(order_id, *, cancel=False):
 class Controller:
     def __init__(self, inboxes, output):
         self.inboxes, self.output = inboxes, output
-        self.accounts = set()
+        self.accounts: set[AccountKey] = set()
         self.pending = {}  # account -> one in-flight external command
         self.configurations = {}  # command -> prepared configuration
         self.programs = {}  # (worker, symbol) -> independent programs sharing features
@@ -123,7 +133,7 @@ class Controller:
     def send(self, key, message):
         self.inboxes[partition(key, len(self.inboxes))].put(message, timeout=2)
 
-    def install_account(self, key, instrument_ids=()):
+    def install_account(self, key: AccountKey, instrument_ids=()):
         if key in self.accounts:
             return
         state = recover_account(key)
@@ -133,7 +143,7 @@ class Controller:
         self.accounts.add(key)
         self.install_units(state, config)
         # Startup refresh is ordered after already accepted user/broker commands.
-        enqueue(*key, Kind.REFRESH, {})
+        enqueue(key[0], key[1], Kind.REFRESH, {})
 
     def bootstrap(self):
         from paper_trading.models import PaperTradingSession, PaperPosition
@@ -141,7 +151,7 @@ class Controller:
         from trading.models import Account
         keys = {(Mode.PAPER, value) for value in PaperTradingSession.objects.exclude(status=Status.STOPPED).values_list('account_id', flat=True)}
         keys.update((Mode.PAPER, value) for value in PaperPosition.objects.filter(quantity__gt=0).values_list('account_id', flat=True))
-        keys.update((Mode.LIVE, value) for value in TradingSession.objects.exclude(status=Status.STOPPED).values_list('broker_credential_id', flat=True))
+        keys.update((Mode.LIVE, value) for value in TradingSession.objects.exclude(status=Status.STOPPED).filter(broker_credential__isnull=False).values_list('broker_credential_id', flat=True) if value is not None)
         keys.update((Mode.TERMINAL, value) for value in Account.objects.values_list('pk', flat=True))
         for key in sorted(keys):
             if key[0] != Mode.TERMINAL and key[0] not in settings.EXECUTION_ENABLED_SCOPES:
@@ -281,7 +291,9 @@ class Controller:
                     quote['reference_price'], intent=payload.get('intent', OrderIntent.ENTRY),
                     quantity=payload['quantity'], order_type=order_type, reduce_only=payload.get('reduce_only', False),
                     manual=key[0] == Mode.TERMINAL, generation=quote['generation'],
-                    binding=(instrument.pk, instrument.pk), **decimals)
+                    binding=(instrument.pk, instrument.pk), limit_price=decimals['limit_price'],
+                    trigger_price=decimals['trigger_price'], stop_loss=decimals['stop_loss'],
+                    take_profit=decimals['take_profit'])
                 return dict(intent=intent, contract=contract, calendar=calendar)
             if command.kind == Kind.PROTECT:
                 return dict(unit=unit, stop=Decimal(payload['stop']) if payload['stop'] is not None else None,
@@ -370,7 +382,8 @@ class Controller:
                 if isinstance(message, UnitFailure):
                     # A delayed error from the previous version must not disable
                     # a replacement version or resurrect a stopped deployment.
-                    active_version = session.applied_version_id or session.allocation.deployed_version_id
+                    allocation = session.allocation
+                    active_version = session.applied_version_id or (allocation.deployed_version_id if allocation else None)
                     if session.status == Status.STOPPED or active_version != message.version:
                         return
                     session.status, session.error_message = Status.ERROR, message.error
@@ -381,8 +394,9 @@ class Controller:
                     session.status, session.ended_at = Status.STOPPED, timezone.now()
                     fields = ['status', 'ended_at', 'updated_at']
                 session.save(update_fields=fields)
-                account_id = session.account_id if mode == Mode.PAPER else session.broker_credential_id
-                enqueue(mode, account_id, Kind.REFRESH, {'session_id': session.pk})
+                account_id = session.account_id if isinstance(session, PaperTradingSession) else session.broker_credential_id
+                if account_id is not None:
+                    enqueue(mode, account_id, Kind.REFRESH, {'session_id': session.pk})
         else:
             raise TypeError(f'Unknown execution output {type(message).__name__}')
 
@@ -422,7 +436,7 @@ class Controller:
             if today != self.calendar_day:
                 # Refresh exchange holidays and contract facts off the tick path.
                 for key in self.accounts:
-                    enqueue(*key, Kind.REFRESH, {})
+                    enqueue(key[0], key[1], Kind.REFRESH, {})
                 self.calendar_day = today
             self.maintenance_at = now + 10
         if self.evaluations and now >= self.checkpoint_at:

@@ -67,6 +67,7 @@ def price_source(kind: str, candle: Candle) -> float:
 
 class PublishedFeature:
     """Timestamped outputs let every evaluator read only its causal history."""
+    history: deque[tuple[datetime, float]]
     def at(self, at: datetime, shift: int = 0) -> float:
         for timestamp, value in reversed(self.history):
             if timestamp <= at:
@@ -333,6 +334,7 @@ class Feature(PublishedFeature):
             import numpy as np
             columns = [np.fromiter((getattr(b, name) for b in self.bars), dtype=float)
                        for name in ('open', 'high', 'low', 'close')]
+            assert self.pattern is not None, 'The configured candle pattern must be compiled.'
             result = int(self.pattern(*columns)[-1])
             name = p['pattern']
             if name in (CandlePatternType.ENGULFING_BULLISH, CandlePatternType.HARAMI_BULLISH):
@@ -440,6 +442,7 @@ class Feature(PublishedFeature):
 
         # ATR/trend/flow calculations below do not consume price extrema.
         # Avoid scanning two period-sized windows for those unrelated features.
+        highest = lowest = nan
         if kind in (OperandType.DONCHIAN_CHANNEL, OperandType.WILLIAMS_R, OperandType.STOCHASTIC):
             high = self.window('high', bar.high, n)
             low = self.window('low', bar.low, n)

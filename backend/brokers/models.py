@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
@@ -12,6 +13,9 @@ from common.models import BaseTimestampModel
 
 
 class BrokerCredential(BaseTimestampModel):
+    _audit_sensitive_fields: tuple[str, ...]
+    sessions: "models.Manager[BrokerSession]"
+    user_id: int
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -36,6 +40,7 @@ class BrokerCredential(BaseTimestampModel):
 
 
 class BrokerSession(BaseTimestampModel):
+    credential_id: int
     credential = models.ForeignKey(
         BrokerCredential,
         on_delete=models.CASCADE,
@@ -57,6 +62,7 @@ class BrokerSession(BaseTimestampModel):
 
 
 class BrokerAPILog(BaseTimestampModel):
+    credential_id: int | None
     credential = models.ForeignKey(
         BrokerCredential,
         on_delete=models.CASCADE,
@@ -80,18 +86,19 @@ class BrokerAPILog(BaseTimestampModel):
 
 
 class BrokerFundsSnapshot(BaseTimestampModel):
+    credential_id: int
     credential = models.ForeignKey(
         BrokerCredential,
         on_delete=models.CASCADE,
         related_name="fund_snapshots",
     )
-    cash_balance = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    available_margin = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    used_margin = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    collateral = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    cash_balance = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
+    available_margin = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
+    used_margin = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
+    collateral = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
     withdrawable_balance = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    net_equity = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    net_equity = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
+    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
     unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     raw_payload = models.JSONField(default=dict, blank=True)
     snapshot_time = models.DateTimeField(default=timezone.now)
@@ -111,6 +118,7 @@ class BrokerChargeProfile(BaseTimestampModel):
     brokerage, STT, exchange charges, SEBI fees, stamp duty, and GST.
     Users can create named profiles without connecting a broker account.
     """
+    user_id: int
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -124,61 +132,61 @@ class BrokerChargeProfile(BaseTimestampModel):
 
     # --- Brokerage ---
     brokerage_per_order = models.DecimalField(
-        max_digits=10, decimal_places=2, default=20,
+        max_digits=10, decimal_places=2, default=Decimal('20'),
         help_text='Flat brokerage per executed order in INR'
     )
     brokerage_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.03,
+        max_digits=6, decimal_places=4, default=Decimal('0.03'),
         help_text='Brokerage as percentage of turnover (e.g., 0.03 = 0.03%)'
     )
     brokerage_cap = models.DecimalField(
-        max_digits=10, decimal_places=2, default=20,
+        max_digits=10, decimal_places=2, default=Decimal('20'),
         help_text='Maximum brokerage per order in INR (cap)'
     )
 
     # --- STT (Securities Transaction Tax) ---
     stt_eq_delivery_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.1,
+        max_digits=6, decimal_places=4, default=Decimal('0.1'),
         help_text='STT on equity delivery (buy + sell) as % of turnover'
     )
     stt_eq_intraday_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.025,
+        max_digits=6, decimal_places=4, default=Decimal('0.025'),
         help_text='STT on equity intraday (sell side only) as % of turnover'
     )
     stt_futures_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.05,
+        max_digits=6, decimal_places=4, default=Decimal('0.05'),
         help_text='STT on futures (sell side only) as % of turnover'
     )
     stt_options_sell_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.15,
+        max_digits=6, decimal_places=4, default=Decimal('0.15'),
         help_text='STT on options (sell side, on premium) as % of turnover'
     )
-    ctt_futures_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=0,
+    ctt_futures_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=Decimal('0'),
         help_text='Configured commodity futures sell tax rate; set the rate applicable to the contract')
-    ctt_options_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=0,
+    ctt_options_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=Decimal('0'),
         help_text='Configured commodity options sell tax rate; set the rate applicable to the contract')
 
     # --- Exchange Transaction Charges ---
     exchange_txn_pct = models.DecimalField(
-        max_digits=8, decimal_places=6, default=0.00345,
+        max_digits=8, decimal_places=6, default=Decimal('0.00345'),
         help_text='Exchange transaction charge for equity as % of turnover'
     )
     exchange_txn_fo_pct = models.DecimalField(
-        max_digits=8, decimal_places=6, default=0.05,
+        max_digits=8, decimal_places=6, default=Decimal('0.05'),
         help_text='Exchange transaction charge for F&O as % of turnover'
     )
 
     # --- Regulatory Charges ---
     sebi_turnover_pct = models.DecimalField(
-        max_digits=10, decimal_places=8, default=0.0001,
+        max_digits=10, decimal_places=8, default=Decimal('0.0001'),
         help_text='SEBI turnover fee as % of turnover'
     )
     stamp_duty_pct = models.DecimalField(
-        max_digits=6, decimal_places=4, default=0.003,
+        max_digits=6, decimal_places=4, default=Decimal('0.003'),
         help_text='Stamp duty on buy side as % of turnover'
     )
     gst_pct = models.DecimalField(
-        max_digits=5, decimal_places=2, default=18.00,
+        max_digits=5, decimal_places=2, default=Decimal('18.0'),
         help_text='GST percentage applied on brokerage + exchange charges'
     )
 
@@ -212,7 +220,7 @@ class BrokerChargeProfile(BaseTimestampModel):
         get_user_model().objects.select_for_update().get(pk=self.user_id)
         self.refresh_from_db(fields=['is_default'])
         if self.is_default:
-            raise ProtectedError('Set another charge profile as default before deleting this one.', [self])
+            raise ProtectedError('Set another charge profile as default before deleting this one.', {self})
         return super().delete(*args, **kwargs)
 
     def __str__(self):

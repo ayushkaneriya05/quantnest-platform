@@ -1,4 +1,5 @@
 import os
+from typing import cast
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings")
 import django
 django.setup()
@@ -22,12 +23,12 @@ application = ProtocolTypeRouter({
     "http": django_asgi_app,
     "websocket": TrustedWebSocketIngress(OriginValidator(JWTAuthMiddleware(
         URLRouter(
-            marketdata.routing.websocket_urlpatterns + 
+            cast(list, marketdata.routing.websocket_urlpatterns +
             live_trading.routing.websocket_urlpatterns +
             paper_trading.routing.websocket_urlpatterns +
             backtesting.routing.websocket_urlpatterns +
             notifications.routing.websocket_urlpatterns +
-            research.routing.websocket_urlpatterns
+            research.routing.websocket_urlpatterns)
         )
     ), settings.CORS_ALLOWED_ORIGINS)),
 })

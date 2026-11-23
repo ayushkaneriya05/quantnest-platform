@@ -1,6 +1,7 @@
 """Chart orchestration over the common reader; history acquisition is bounded."""
 import json
 import time
+from typing import cast
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -55,7 +56,7 @@ class ChartDataService:
         more = len(rows) > limit or bool(gaps)
         rows = rows[-limit:]
         if before is None:
-            cached = runtime_redis().get(f"quantnest:chart-live:{symbol}:{resolution}")
+            cached = cast(str | None, runtime_redis().get(f"quantnest:chart-live:{symbol}:{resolution}"))
             if cached:
                 live = json.loads(cached)
                 if live["data_revision"] == data_revision(symbol) and (
@@ -94,7 +95,7 @@ class LiveChartPublisher:
         redis = runtime_redis()
         redis.zremrangebyscore("quantnest:chart-subscriptions", "-inf", time.time() - 75)
         self.subscriptions = {}
-        for value in redis.zrange("quantnest:chart-subscriptions", 0, -1):
+        for value in cast(list[str], redis.zrange("quantnest:chart-subscriptions", 0, -1)):
             symbol, interval, _ = json.loads(value)
             self.subscriptions.setdefault(symbol, set()).add(interval)
         self.calendars = {symbol: value for symbol, value in self.calendars.items() if symbol in self.subscriptions}
@@ -125,7 +126,7 @@ class LiveChartPublisher:
         prefixes = {}
         for interval, start in starts.items():
             source = source_timeframe(interval)
-            frame = aggregate_candles(sources[source], interval, calendar, instant, source=source, include_open=True)
+            frame = aggregate_candles(sources[ChartTimeframe(source)], interval, calendar, instant, source=source, include_open=True)
             rows = frame.loc[frame.index == pd.Timestamp(start)]
             prefixes[interval] = rows.iloc[-1].to_dict() if not rows.empty else None
         return prefixes

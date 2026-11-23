@@ -5,9 +5,8 @@ import logging
 from django.http import JsonResponse
 from rest_framework.exceptions import ErrorDetail, ParseError
 from rest_framework.parsers import JSONParser
-from rest_framework.renderers import BrowsableAPIRenderer, JSONRenderer
+from rest_framework.renderers import BaseRenderer, BrowsableAPIRenderer, JSONRenderer
 from rest_framework.response import Response
-from rest_framework.views import exception_handler as drf_exception_handler
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +68,8 @@ def error_envelope(data, status_code):
 
 def api_exception_handler(exc, context):
     """Apply the API error envelope to all handled DRF exceptions."""
+    # APIView loads our renderer through settings; importing it above creates a cycle.
+    from rest_framework.views import exception_handler as drf_exception_handler
     response = drf_exception_handler(exc, context)
     if response is None:
         logger.error(
@@ -81,7 +82,7 @@ def api_exception_handler(exc, context):
     return response
 
 
-class APIErrorRendererMixin:
+class APIErrorRendererMixin(BaseRenderer):
     """Normalize manually returned DRF error responses as well as exceptions."""
 
     def render(self, data, accepted_media_type=None, renderer_context=None):

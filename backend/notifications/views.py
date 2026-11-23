@@ -1,3 +1,6 @@
+from common.validation import validate_value
+from typing import cast
+from rest_framework.request import Request
 from common.pagination import StandardPagination
 from django.db.models import Q
 from rest_framework import mixins, permissions, viewsets
@@ -10,6 +13,7 @@ from .services import NotificationService
 
 
 class NotificationViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
+    request: Request
     pagination_class = StandardPagination
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -22,12 +26,12 @@ class NotificationViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSe
                 qs = qs.filter(Q(title__icontains=search) | Q(message__icontains=search))
             state = self.request.query_params.get('filter', 'all')
             from rest_framework.fields import ChoiceField
-            state = ChoiceField(choices=['all', 'unread', 'read']).run_validation(state)
+            state = cast(str, validate_value(ChoiceField(choices=['all', 'unread', 'read']), state))
             if state != 'all':
                 qs = qs.filter(is_read=state == 'read')
             if self.request.query_params.get('type'):
                 from common.enums import NotificationType
-                kind = ChoiceField(choices=NotificationType.choices).run_validation(self.request.query_params['type'])
+                kind = cast(str, validate_value(ChoiceField(choices=NotificationType.choices), self.request.query_params['type']))
                 qs = qs.filter(type=kind)
         return qs.order_by('-created_at', '-id')
 

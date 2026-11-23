@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
@@ -8,6 +9,8 @@ class Watchlist(models.Model):
     """
     Links a user to a collection of instruments they are watching.
     """
+    id: int
+    user_id: int
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='terminal_watchlists')
     name = models.CharField(max_length=60, default='Main')
     instruments = models.ManyToManyField("instruments.Instrument", related_name='trading_watchlists', blank=True)
@@ -23,18 +26,21 @@ class Account(models.Model):
     """
     Represents a user's paper trading account, including balance and P&L.
     """
+    id: int
+    user_id: int
+    charge_profile_id: int | None
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='account')
-    balance = models.DecimalField(max_digits=15, decimal_places=2, default=1000000.00)
-    margin = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
-    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    balance = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('1000000.0'))
+    margin = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.0'))
+    realized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.0'))
+    unrealized_pnl = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.0'))
     created_at = models.DateTimeField(auto_now_add=True)
 
     charge_profile = models.ForeignKey('brokers.BrokerChargeProfile', null=True, blank=True, on_delete=models.SET_NULL)
-    futures_margin_pct = models.DecimalField(max_digits=5, decimal_places=2, default=20)
-    short_option_margin_pct = models.DecimalField(max_digits=5, decimal_places=2, default=25)
-    charges_paid = models.DecimalField(max_digits=20, decimal_places=2, default=0)
-    starting_balance = models.DecimalField(max_digits=20, decimal_places=2, default=1000000)
+    futures_margin_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('20'))
+    short_option_margin_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('25'))
+    charges_paid = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
+    starting_balance = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('1000000'))
 
     def __str__(self):
         return f"{self.user.username}'s Account"
@@ -43,11 +49,14 @@ class Position(models.Model):
     """
     Represents a user's holding in a specific instrument, including risk management.
     """
+    id: int
+    account_id: int
+    instrument_id: int
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='positions')
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE)
     quantity = models.IntegerField()
     average_price = models.DecimalField(max_digits=20, decimal_places=8)
-    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=Decimal('0'))
     stop_loss = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     take_profit = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -59,6 +68,9 @@ class Position(models.Model):
         return f"{self.account.user.username}'s Position in {self.instrument.name}"
 
 class Order(models.Model):
+    id: int
+    account_id: int
+    instrument_id: int
     request_id = models.UUIDField(null=True, unique=True, editable=False)
     """
     Represents a single trading order placed by a user with a clear lifecycle.
@@ -69,7 +81,7 @@ class Order(models.Model):
     status = models.CharField(max_length=10, choices=TerminalOrderStatus.choices, default=TerminalOrderStatus.OPEN, db_index=True)
     transaction_type = models.CharField(max_length=4, choices=Side.choices)
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    reserved_cash = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    reserved_cash = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
     price = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     trigger_price = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
@@ -97,10 +109,12 @@ class TradeHistory(models.Model):
     """
     Logs every single executed trade for historical analysis and P&L calculation.
     """
+    id: int
+    order_id: int
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='trades')
     executed_price = models.DecimalField(max_digits=20, decimal_places=8)
     quantity = models.PositiveIntegerField()
-    charges = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    charges = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
     charges_breakdown = models.JSONField(default=dict)
     timestamp = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -111,6 +125,9 @@ class ClosedPositionLog(models.Model):
     """
     Logs round-trip trades (Closed Positions) for Realized P&L reporting.
     """
+    id: int
+    account_id: int
+    instrument_id: int
     account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name='closed_positions')
     instrument = models.ForeignKey("instruments.Instrument", on_delete=models.CASCADE)
     side = models.CharField(max_length=5, choices=PositionSide.choices)
@@ -118,8 +135,8 @@ class ClosedPositionLog(models.Model):
     entry_price = models.DecimalField(max_digits=20, decimal_places=8)
     exit_price = models.DecimalField(max_digits=20, decimal_places=8)
     realized_pnl = models.DecimalField(max_digits=15, decimal_places=2)
-    gross_pnl = models.DecimalField(max_digits=20, decimal_places=2, default=0)
-    recorded_charges = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    gross_pnl = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
+    recorded_charges = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
     exit_reason = models.CharField(max_length=100, choices=TerminalExitReason.choices, default=TerminalExitReason.MANUAL)
     entry_time = models.DateTimeField()
     exit_time = models.DateTimeField(default=timezone.now)

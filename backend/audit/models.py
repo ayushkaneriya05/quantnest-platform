@@ -4,6 +4,7 @@ from common.models import BaseTimestampModel
 from common.enums import ActivityResource
 
 class AuditLog(BaseTimestampModel):
+    user_id: int | None
     ACTIONS = [(value, value.replace("_", " ").title()) for value in
                ("CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "DEPLOY", "PAUSE", "RESUME",
                 "STOP_REQUESTED", "STOP", "ALLOCATE", "DEALLOCATE", "RESET")]

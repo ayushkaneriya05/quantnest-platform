@@ -110,7 +110,7 @@ PostgreSQL 16 and TimescaleDB. The `postgres` volume keeps all durable applicati
 | `DB_USER`, `DB_PASSWORD` | Inputs read by the initializer, not built-in image user variables. |
 | `TIMESCALEDB_TELEMETRY: "off"` | Disables extension telemetry. |
 | `TS_TUNE_MEMORY: 1536MB`, `TS_TUNE_NUM_CPUS: "2"` | Production tuning budget matching the starter memory cap and assumed CPU count; review when changing host/container capacity. |
-| `pg_isready -U ... -d ...` | Confirms database readiness without a Django startup. |
+| `pg_isready -h 127.0.0.1 -U ... -d ...` | Waits for the final TCP server. The temporary socket-only server used during first-volume initialization must not mark PostgreSQL ready before role/extension setup finishes. |
 | Development `127.0.0.1:54329:5432` | Optional host database tools can connect locally; production has no published database port. |
 
 `postgres/010-initialize.sh` line meanings:
@@ -167,7 +167,7 @@ Public and Private cap the execution container at `1536m`. Increasing
 `EXECUTION_WORKERS` does not raise that cap: revisit the Compose resource budgets
 and host headroom together after measuring. More workers also do not multiply the
 controller's serial database-writer throughput. See the current
-[release verification and capacity evidence](../../docs/release-readiness.md).
+[release verification and capacity measurement checklist](../START-HERE.md#capacity-recovery-and-beta).
 
 The API healthcheck uses Python's standard HTTP client to call `/health/` on the
 already running server. `ProxyHandler({})` bypasses inherited host HTTP proxy

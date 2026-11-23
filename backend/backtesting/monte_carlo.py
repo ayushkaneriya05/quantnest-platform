@@ -90,7 +90,7 @@ class MonteCarloSimulator:
 
         # B9: Store equity distribution for histogram
         percentiles = [1, 5, 10, 25, 50, 75, 90, 95, 99]
-        equity_distribution = {
+        equity_distribution: dict = {
             f"p{p}": float(np.percentile(final_equities, p)) for p in percentiles
         }
         equity_distribution["min"] = float(min(final_equities))

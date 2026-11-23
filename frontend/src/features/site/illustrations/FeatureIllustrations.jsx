@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BookOpen, BrainCircuit, Check, CircleDot, Clock3, FileCheck2, FileText, Filter, FlaskConical, History, Layers3, LineChart, ListChecks, Monitor, Search, ShieldCheck, SlidersHorizontal, Terminal, Wallet } from 'lucide-react';
+import { Activity, ArrowRight, BookOpen, BrainCircuit, Check, CircleDot, Clock3, FileCheck2, FileText, Filter, FlaskConical, History, Landmark, Layers3, LineChart, ListChecks, Monitor, Radio, Search, ShieldCheck, SlidersHorizontal, Terminal, Wallet } from 'lucide-react';
 import { ChoiceNote, FlowConnector, IllustrationFrame, IllustrationNode } from './IllustrationElements';
 
 export function ResearchIllustration() {
@@ -92,6 +92,32 @@ export function ControlsIllustration() {
       ['2FA', 'Add a second verification step and keep recovery codes private.'],
       ['Sessions', 'Review active sign-ins and revoke access you no longer recognise.'],
       ['Activity', 'Inspect recorded changes and explicit account or deployment actions.'],
+    ]} />
+  </IllustrationFrame>;
+}
+
+export function BrokerIllustration() {
+  return <IllustrationFrame name="brokers" title="Your broker connection" icon={Landmark}>
+    <IllustrationNode icon={ShieldCheck} title="Your authorization" detail="Sign in with your own broker account" />
+    <FlowConnector vertical /><IllustrationNode icon={Landmark} title="Supported broker" detail="FYERS trading integration" />
+    <FlowConnector vertical /><IllustrationNode icon={FileCheck2} title="Connection readiness" detail="Authorization, funds and order updates" />
+    <ChoiceNote label="Broker workflow" choices={[
+      ['Connect', 'App settings belong to the connection owner. Keep them out of enquiry forms.'],
+      ['Review', 'Inspect readiness and available funds before deploying a Live strategy.'],
+      ['Renew', 'Reauthorize when the daily broker session expires; a connection alone places no orders.'],
+    ]} />
+  </IllustrationFrame>;
+}
+
+export function LiveIllustration() {
+  return <IllustrationFrame name="live" title="Your saved strategy, live" icon={Radio}>
+    <IllustrationNode icon={Layers3} title="Selected strategy version" detail="Your rules, schedule and position size" />
+    <FlowConnector vertical /><IllustrationNode icon={Wallet} title="Fixed capital allocation" detail="A ready broker account and required stop rules" />
+    <FlowConnector vertical /><IllustrationNode icon={Radio} title="Broker-confirmed execution" detail="Orders, owned positions and recorded results" />
+    <ChoiceNote label="Live session controls" choices={[
+      ['Monitor', 'Check applied state, execution logs and broker fills; a signal is not a fill.'],
+      ['Pause', 'Pause new entries while existing positions retain exit management.'],
+      ['Stop', 'Request Stop & close and follow remaining orders and exposure until settled.'],
     ]} />
   </IllustrationFrame>;
 }

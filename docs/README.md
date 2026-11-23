@@ -1,6 +1,6 @@
 # QuantNest documentation
 
-**Current-state documentation consolidated: 7 November 2026.** Each topic below
+**Current-state documentation consolidated: 7 November 2026; index and acceptance links reviewed: 23 November 2026.** Each topic below
 has one current guide. Mode guides own execution; Strategy Studio owns authoring
 and shared rule meanings. Authentication, site/workspace, Commercial and Support
 each own their current workflows. Retired plans and dated execution reviews are
@@ -51,9 +51,8 @@ current behavior and operational limits are retained in these guides.
 | Plan quantitative capabilities | [Quantitative research roadmap](quantitative-research-roadmap.md) | Data quality, validation, portfolio analytics, ML, architecture and learning |
 | Build a separate research product | [AI research assistant transformation](ai-financial-research-transformation.md) | Separate repository, datasets, experiments, portfolio/ML methods and career evidence |
 | Find a local quant/fintech role | [Ahmedabad, Gandhinagar and GIFT City career plan](quant-fintech-career-plan-ahmedabad-2026-10.md) | Dated employer research, eligibility, project evidence and interview/application preparation |
-| Review delivery scope | [Implementation plan](implementation-plan.md) | Implementation map and remaining release work |
-| Assess launch readiness | [Release readiness](release-readiness.md) | Current architecture, verified fixes, deployment-mode checks, measured costs, migrations and remaining acceptance gates |
-| Assess personal Private readiness | [Private readiness](private-deployment-readiness.md) | Functionality matrix, source-token lifecycle fix, Live product/commodity gaps and account/provider acceptance |
+| Verify a release | [Acceptance checklist](../infra/START-HERE.md#7-acceptance-and-release-checklist) | User journeys, execution controls, mode policies, integration evidence and recovery |
+| Assess Private operation | [Private deployment](../infra/private/README.md) | Instance isolation, broker setup, service periods and supported Live boundaries |
 | First deployment as a beginner | [Start here](../infra/START-HERE.md) | Development/Public/Private walkthroughs, tools, first user and operations |
 | Install or upgrade | [Infrastructure](../infra/README.md) | Service commands, environment, migrations and backups |
 | Configure integrations | [Integration setup](../infra/shared/INTEGRATIONS.md) | Provider dashboards, keys, callbacks and acceptance |
@@ -83,9 +82,13 @@ decision and financial result. Update examples and relative links together. Code
 inspection is not a latency guarantee or proof of a real broker fill. Historical
 database migrations remain necessary even when retired plans/docs are deleted.
 
-## Personal Private policy
+## Managed Private offering
 
-Private currently serves the operator on a separate instance; customer Live and
-Private sales are unavailable. See [Private deployment](../infra/private/README.md).
+QuantNest Private is available through direct quotation for a separately managed
+customer instance, and the same mode supports the operator's personal use.
+It includes supported broker connections and Live strategies, no public-plan
+quotas and no public subscription checkout or automatic licence expiry.
+See [Private deployment](../infra/private/README.md) and
+[commercial operation](commercial-operations.md#managed-private-offer).
 The [old Private marketing source](archive/private-marketing-2026-10-23.md) is
 inactive reference material and is not bundled into the application.

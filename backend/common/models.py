@@ -1,6 +1,7 @@
 """
 Common app - base models for QuantNest Algo Trading Platform.
 """
+from collections.abc import Callable
 from django.db import models
 
 from common.enums import Exchange, FyersSegment, Timezone
@@ -12,6 +13,7 @@ def trading_weekdays():
 
 class BaseTimestampModel(models.Model):
     """Abstract base model with timestamp fields."""
+    id: int
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -29,6 +31,7 @@ class ExchangeConfig(BaseTimestampModel):
     Eliminates hardcoded market hours across the platform by providing
     a single source of truth for exchange trading schedules.
     """
+    get_segment_display: "Callable[[], str]"
     exchange = models.CharField(
         max_length=10,
         choices=Exchange.choices,
@@ -116,6 +119,7 @@ class MarketHoliday(BaseTimestampModel):
     Used to skip signal evaluation on non-trading days and
     to calculate accurate trading day counts for analytics.
     """
+    exchange_id: int
     exchange = models.ForeignKey(
         ExchangeConfig,
         on_delete=models.CASCADE,

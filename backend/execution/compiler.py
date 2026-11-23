@@ -63,7 +63,7 @@ def _operand_warmup(kind: str, params: dict, timeframe: str, calendar) -> int:
         anchored = ceil(calendar.session_minutes / minutes) * sessions if minutes else sessions
         lookback = max(lookback, anchored + 2)
     source = params.get('source')
-    if source in INDICATOR_OPERANDS:
+    if isinstance(source, str) and source in INDICATOR_OPERANDS:
         lookback += _operand_warmup(source, params.get('source_params', {}), timeframe, calendar) - 1
     return lookback + int(params.get('shift', 0)) + 1  # Preceding observation for crosses.
 
@@ -218,7 +218,8 @@ class Program:
 
     def permits_binding(self, binding):
         return (binding == self.binding if self.selection is None else
-                binding is not None and binding[0] == self.binding[0] and binding[1] in self.candidates)
+                binding is not None and self.binding is not None and
+                binding[0] == self.binding[0] and binding[1] in self.candidates)
 
     def for_source(self, role):
         """Cold projection: prepare only features required from this market."""
@@ -411,7 +412,7 @@ def compile_strategy(config: dict, version: int, *, calendar, signal_calendar=No
                 raise ValueError('Reward/risk requires an unconditional price or negative P&L stop; its threshold cannot depend on reward/risk or current P&L.')
         if not stops:
             raise ValueError('Reward/risk requires a stop-loss rule to define initial risk.')
-    operators = {RuleType.ENTRY: LogicalOperator(entry.get('entry_group_operator', LogicalOperator.OR))}
+    operators: dict[str, str] = {RuleType.ENTRY: LogicalOperator(entry.get('entry_group_operator', LogicalOperator.OR))}
     for kind, key in ((RuleType.STOP_LOSS, 'stop_loss_group_operator'), (RuleType.TARGET, 'target_group_operator'), (RuleType.EXIT, 'exit_group_operator')):
         operators[kind] = LogicalOperator(exit_config.get(key, LogicalOperator.OR))
     # Resolve contract-dependent state once. Changing ATM while flat must clear
@@ -511,7 +512,7 @@ class FeatureGraph:
             (candle.closed_at, self.counts[timeframe]))
 
     def completed_at(self, timeframe: str, at: datetime) -> tuple[datetime | None, int]:
-        for completed, count in reversed(self.completions.get(timeframe, ())):
+        for completed, count in reversed(self.completions.get(timeframe, deque())):
             if completed <= at:
                 return completed, count
         return None, 0

@@ -1,3 +1,5 @@
+from rest_framework.request import Request
+from common.validation import validate_data
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import serializers, viewsets
@@ -24,6 +26,7 @@ class ActivityFilters(serializers.Serializer):
 
 
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     permission_classes = [IsAuthenticated]
     serializer_class = AuditLogSerializer
     pagination_class = StandardPagination
@@ -33,8 +36,7 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action not in {"list", "stats"}:
             return qs
         filters = ActivityFilters(data=self.request.query_params.dict())
-        filters.is_valid(raise_exception=True)
-        data = filters.validated_data
+        data = validate_data(filters)
         for field in ("action", "entity_type"):
             if field in data:
                 qs = qs.filter(**{field: data[field]})

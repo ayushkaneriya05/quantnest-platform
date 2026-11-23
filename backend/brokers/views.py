@@ -1,3 +1,6 @@
+from common.validation import validate_data, validate_value
+from typing import cast
+from rest_framework.request import Request
 import hmac
 import logging
 import secrets
@@ -85,11 +88,10 @@ class BrokerCredentialViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=["post"])
     def configure(self, request):
         serializer = BrokerConfigurationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        data = validate_data(serializer)
         try:
             credential = BrokerService.configure_connection(
-                request.user, serializer.validated_data["broker_name"],
-                serializer.validated_data["client_id"], serializer.validated_data.get("api_secret", ""),
+                request.user, data["broker_name"], data["client_id"], data.get("api_secret", ""),
             )
         except ValueError as exc:
             return _oauth_response(broker_error_response(exc))
@@ -184,6 +186,7 @@ class BrokerSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class BrokerAPILogViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     serializer_class = BrokerAPILogSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardPagination
@@ -200,7 +203,7 @@ class BrokerAPILogViewSet(viewsets.ReadOnlyModelViewSet):
         status_code = self.request.query_params.get("status_code")
         if status_code:
             from rest_framework.fields import IntegerField
-            status_code = IntegerField(min_value=0, max_value=599).run_validation(status_code)
+            status_code = cast(int, validate_value(IntegerField(min_value=0, max_value=599), status_code))
             queryset = queryset.filter(status_code=status_code)
 
         endpoint = self.request.query_params.get("endpoint")

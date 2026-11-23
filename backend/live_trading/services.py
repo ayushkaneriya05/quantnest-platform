@@ -147,7 +147,10 @@ class LiveExecutionService:
         BrokerService.ensure_session(credential)
         LiveExecutionService.sync_funds(credential)
         from strategies.services import StrategyDeploymentService
-        StrategyDeploymentService.validate_snapshot(session.allocation.deployed_version.config_snapshot, 'live')
+        allocation = session.allocation
+        if allocation is None or allocation.deployed_version is None:
+            raise ValueError('Select a saved strategy version before resuming this deployment.')
+        StrategyDeploymentService.validate_snapshot(allocation.deployed_version.config_snapshot, 'live')
         if session.strategy.status != 'ACTIVE' or not session.strategy.live_trading_enabled:
             raise ValueError('Activate the strategy and enable live trading before resuming this session.')
         was_stopped = session.status == "STOPPED"

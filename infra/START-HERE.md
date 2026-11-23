@@ -15,7 +15,7 @@ following the Docker procedure.
 | --- | --- | --- |
 | Learn and develop on your Windows computer | [Development setup](development/SETUP.md) | PowerShell, from `E:\QuantNest` |
 | Run the customer website with research, backtests and Paper | [Public setup](public/SETUP.md) | Ubuntu server plus Cloudflare dashboard |
-| Run your own personal Paper/Live instance | [Private setup](private/SETUP.md) | A separate Ubuntu server and your browser |
+| Run a managed customer or personal Paper/Live instance | [Private setup](private/SETUP.md) | A separate Ubuntu server and your browser |
 
 Do Development first. Then choose Public, Private, or both on separate servers.
 For local development, start/unpause Docker Desktop, then run
@@ -102,7 +102,7 @@ Write these in a private deployment record/password manager:
 | Public backend origin domain | `origin.example.com` |
 | Personal browser domain | `personal.example.com` |
 | Public server address | Your server's reserved public IP |
-| Private server address | Your separate personal server's reserved public IP |
+| Private server address | This instance's separate server and reserved public IP |
 | Oracle region/compartment/shape | Record the actual tenancy allocation and host architecture |
 | OCI storage/recovery | Boot volume identity, remaining shared allowance and off-host backup location |
 | Reviewed source release | Your pushed commit/tag |
@@ -152,3 +152,169 @@ a prose placeholder into a command.
 
 When your selected walkthrough is complete, use the
 [operations runbook](shared/scripts/README.md) for upgrades, backups and restores.
+
+## 7. Acceptance and release checklist
+
+Use this checklist for the exact release you intend to deploy. Record the commit,
+mode, host, date, fixture/account and outcome for each run. A successful build,
+type check or container health check does not prove provider authorization,
+strategy correctness, real broker execution or production capacity.
+
+### Development restart and readiness
+
+1. Start or unpause Docker Desktop. Finish any running trading test before a
+   planned restart; stopping application processes does not close broker exposure.
+2. From `E:\QuantNest`, run
+   `.\.venv\Scripts\python.exe infra/development/dev.py --no-build` when only
+   source changed. Omit `--no-build` after dependency or image changes. This is the
+   normal migration/restart flow, not just a health probe.
+3. Run `.\.venv\Scripts\python.exe infra/development/dev.py status`. Require all
+   readiness flags to pass and inspect failed services before continuing. Do not
+   also start native feed/execution/Celery processes against this deployment.
+4. Check which profiles were selected. A configured Live scope also enables
+   broker-events; use isolated simulated fixtures for broad acceptance and arrange
+   real-account broker verification deliberately.
+
+### Ordinary-user journey
+
+Use two disposable ordinary users, not a staff account with elevated permissions.
+Complete the first user's workflow and verify that the second user cannot read,
+change, attach, export or act on the first user's private resources.
+
+| Area | Required acceptance evidence |
+| --- | --- |
+| Authentication | Registration, verification, login, refresh, reset, 2FA/backup code, logout and session revocation; optional Google callback on its configured domain |
+| Data | Fresh and stored symbols, older chart history, all supported chart timeframes, correct session/holiday boundaries, reconnect and unavailable-history messages |
+| Studio | Save/reopen/validate a version; price/indicator inputs, multi-timeframe rules, formulas, rolling windows, position inputs, capture/confirmation, sizing and entry schedule |
+| Backtest | Preview workload, run/cancel, inspect known entries/exits, costs, metrics, pagination and Monte Carlo; distinguish synthetic OHLC observations from actual tick history |
+| Paper | Fund wallet, deploy from Strategies, inspect signal/order/fill/P&L, pause/resume, stop and close owned positions, update capital/version and recover after restart |
+| Terminal | Named watchlists, all supported order types on both sides, lots/units, modify/cancel, protection, reduce/reverse/close and separate gross/charges/net results |
+| Derivatives | Fixed future/option, CE/PE ATM/ITM/OTM grid selection, expiry policy, pinned owned contract, expired history and clearly recorded historical-term assumptions |
+| Research | Real configured-provider answer, calculated evidence, named watchlist action, validated draft, backtest preview/confirmation, cancellation and token-credit settlement |
+| Screener | Compare known conditions with completed-candle calculations; save/reopen screens and verify filtering and server pagination |
+| Reports | Journal ownership, review save, realized totals, fee basis and realtime open valuation agree with the underlying records |
+| Support | Public enquiry verification, signed-in ticket, staff reply, owned notification and actual production SMTP delivery |
+| Commercial | All three allowance categories, failure refunds, original-period charging and provider test-mode payment/webhook/renewal/refund flows |
+
+### Mode and execution checks
+
+Test the actual mode configuration; Development deliberately does not prove
+Public quota rejection. Public must enforce inventory, period and per-request
+allowances and deny Live admission. Development records usage without enforcing
+commercial quotas. Private has no public-plan quotas or public checkout and uses
+its enabled execution scopes. Authentication and ownership apply in every mode.
+
+During execution, test simultaneous inputs, duplicate/late broker reports,
+partial fills, uncertain submission, reconnect, warmup/history correction and
+ordered capital/version/stop commands. Repeated reports must not duplicate fills,
+fees or trades. A failed deployment must not stop unrelated accounts. Record
+which scenarios used deterministic fixtures and which used real provider data.
+
+For Live, verify broker acknowledgement, actual cumulative fills, rejection,
+cancellation, exit, reconnect and order reconciliation with a controlled account.
+Local simulations and stubbed broker reports cannot complete that acceptance.
+Live results currently exclude actual broker fees and do not provide complete
+delivery/assignment settlement. Atomic multi-leg orders and automatic rollover
+are not current features. See [Live boundaries](../docs/live-trading.md#release-checks-and-unsupported-behavior).
+
+### Capacity, recovery and beta
+
+1. Measure tick receipt to evaluation, signal, admission, durable write and UI
+   delivery separately; record broker transport/fill latency separately. Include
+   p50/p95/p99, CPU, memory, instruments, sessions, rule count and warmup size.
+   Numerical microbenchmarks alone do not establish concurrent customer capacity.
+2. Exercise encrypted backup and restore on a separate empty deployment. Verify
+   database rows, media, ownership and credential decryption. Keep execution and
+   broker services off on the recovery drill. Never restore over the source.
+3. Review the exact feature/market catalog, plan allowances, contact details,
+   email/domain/callback settings and customer-facing limitations.
+4. Commit the reviewed release and run CI. Publish/deploy only when the chosen
+   host, accounts and acceptance gates are ready; retain its matching backup,
+   environment keys and image/release identifier.
+5. Begin with a small simulation/research beta. Expand users after observing
+   measured resource headroom and resolving reproduced failures. Keep a separate
+   acceptance record for each managed Private broker deployment.
+
+Private service periods are managed by the operator. Record the agreed start,
+renewal date, quotation, capacity and contact owner per instance. Before the end
+date, obtain the renewal decision and agree how active positions and pending
+orders will be handled. Suspension must follow that procedure; stopping a server
+does not close trades. There is no automatic subscription/licence expiry service
+in Private.
+
+## 8. Local verification record: 23 November 2026
+
+This record covers the uncommitted working tree based on `51328ef`. It is local
+acceptance evidence, not a production release certificate. Test helpers and
+fixtures were kept outside the repository; disposable databases, recovery
+containers/volumes and temporary browser accounts were removed afterward.
+
+| Verification | Result and scope |
+| --- | --- |
+| Static checks | 555 Python files: zero Pyright errors/warnings; Django system and migration-consistency checks passed; frontend lint and production build passed |
+| Fresh database | All 288 migrations replayed on a separate empty PostgreSQL database |
+| Shared numerical runtime | 75 checks: 40 warmed candle operands, ten TA-Lib comparisons, cumulative fills, position inputs, atomic capital/protection rejection and graph handoff; database access forbidden during the numerical checks |
+| Expressions and derivatives | 59 further checks: arithmetic, named formulas, rolling calculations, Boolean UNKNOWN, crossings, capture/re-entry/expiry, frozen reward/risk, CE/PE three-strike ITM/OTM selection, lot/tick validation; no database access during evaluation |
+| Account workflows | 109 checks in a disposable database: ordinary-user ownership, Studio revisions, watchlists/support, Paper admission and persisted fills/exits/recovery, Terminal admission and persisted fills/exits, synthetic Live cumulative reports and durable writes, AI credits/renewal and explicit watchlist confirmation |
+| Runtime/authentication regressions | 86 checks covering SHM, calendar aggregation, all four manual order types on both sides, four-mode ledger/snapshot flows, JSON streams, login/refresh/CSRF/revocation and metrics |
+| Billing | 29 checks with mocked payment transport: capture, duplicate delivery, renewal, refund and completion/refund accounting; no real payment initiated |
+| Deployment policies/catalog | 52 checks covering Public, Development and Private policy, scopes, pricing, enquiry ownership and catalog validation; all three Compose queue configurations passed; Public and Private Django deployment security checks passed with isolated HTTPS-origin settings |
+| Encrypted recovery | Nine checks against a disposable Compose project using the repository backup/restore implementations: archive checksum, exact ledger/candle/media restoration, restored application ownership, applications left stopped and refusal to overwrite a nonempty target |
+| Customer-site browser checks | 55 checks across light/dark desktop/mobile pages, Private contact pricing and Billing; no browser exceptions or HTTP 5xx |
+| Workspace browser checks | 24 workspace routes in both light and dark themes: 48 checks with no outer horizontal overflow, browser exceptions or HTTP 5xx; temporary ordinary-user session removed afterward |
+| Real AI integration | A configured-provider request completed through Django admission, task, separate service and saved answer; its reported 1,790 tokens settled as 1.790 credits; duplicate task delivery made no extra charge; fixture rolled back |
+
+These suites overlap; their check counts are not independent coverage measures.
+The backtest persistence check used prepared synthetic candles, Paper/Terminal
+used deterministic observations, and Live used synthetic broker reports. None
+proves actual broker order transport or exchange fills.
+
+### Measured numerical cost
+
+One Windows 11/Python 3.12.14 process on the 12-logical-CPU development laptop
+evaluated a synthetic 20-condition, four-timeframe strategy with 600 prepared
+bars per timeframe. The four timeframes were 1m, 5m, 15m and 1H; expressions
+combined live LTP with EMA/SMA arithmetic. Across 150 observations per workload:
+
+| Evaluators on the same observation, sequential in one process | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| 1 | 0.36 ms | 0.81 ms | 1.21 ms |
+| 10 | 2.67 ms | 5.87 ms | 7.12 ms |
+| 50 | 29.75 ms | 40.70 ms | 51.30 ms |
+| 100 | 58.50 ms | 104.35 ms | 191.95 ms |
+
+This isolates prepared evaluation. It excludes provider delivery, worker IPC,
+account admission, durable writes, broker transport/fills and browser delivery.
+Host load changes these results. Do not convert them into a supported user count
+or a complete tick-to-order latency claim. Repeat the staged measurements in
+section 7 on the actual production host with realistic symbols and sessions.
+
+### Findings corrected
+
+- Strategy activate/pause/archive/unarchive now return 404 for an absent or
+  foreign strategy instead of exposing an unhandled model lookup as HTTP 500.
+- PostgreSQL readiness now checks TCP on 127.0.0.1 in all deployment modes and
+  CI. The temporary socket-only initialization server cannot report readiness
+  before extensions and the application role have been initialized.
+- Deployment now stops application clients before changing PostgreSQL/Redis,
+  then migrates and starts the selected stack. Configuration validation and
+  optional image building still happen before stopping a working installation.
+  Preflight-failure and migration-failure sequencing was checked, and the updated
+  Development restart finished with all 12 services running and every diagnostic
+  readiness flag passing.
+- Stale links to deleted release/implementation documents and obsolete
+  derivatives "Coming soon" instructions were replaced with current guides.
+
+### External acceptance still required
+
+At verification time the stored FYERS market-data token had expired. Renew it
+using the staff authorization flow in [Integrations](shared/INTEGRATIONS.md#6-fyers-shared-market-data-connection)
+before testing actual quotes, history and live ticks. A healthy waiting feed
+container does not mean the source is authorized.
+
+Actual Live broker execution, payment-provider test-mode events, Google consent,
+production email delivery, full-market-session observation and target-server
+capacity still need their configured accounts/domain/host. No real orders,
+payments, external support messages or public deployment were performed by this
+verification. Private renewal/suspension remains the operator procedure in
+section 7, not an automatic licence-enforcement service.

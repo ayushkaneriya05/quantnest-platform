@@ -212,10 +212,12 @@ def market_rows(run, config, comparison=False, *, instrument_ids=None, charts=Fa
                 else any(item["passed"] for item in operands)
             )
             quote = read_quote(instrument.sym_ticker)
+            observed_at, updated_at = quote['timestamp'], quote['updated_at']
             if (
                 not quote["available"]
-                or pd.Timestamp(quote["timestamp"]) > run.as_of
-                or pd.Timestamp(quote["updated_at"]) > run.as_of
+                or observed_at is None or updated_at is None
+                or pd.Timestamp(observed_at) > run.as_of
+                or pd.Timestamp(updated_at) > run.as_of
             ):
                 quote = None
             reference = _finite_number(frame["close"].iloc[-21])

@@ -1167,7 +1167,7 @@ This does not mean every licensed research product is governed identically to a 
 
 Before customer Live offerings, check current broker/exchange requirements for API-based algorithmic trading and the relevant registration/approval arrangements. Separate questions arise for personalised recommendations, research publication and handling client money or trading authority. A private server or client static IP alone does not settle these questions. [SEBI retail algorithmic trading framework](https://www.sebi.gov.in/legal/circulars/feb-2025/safer-participation-of-retail-investors-in-algorithmic-trading_91614.html), [NSE algorithmic trading procedures](https://www.nseindia.com/static/trade/platform-services-non-neat-decision-support-tools-algorithm-trading)
 
-For this roadmap, retain the current personal Private boundary. Keep public feature claims focused on what the product actually offers and what its permissions support. Do not market generated strategies as assured alpha or imply institutional approval.
+Public plans cover research and simulation; the managed QuantNest Private offer includes supported broker-connected Live strategies. Keep feature claims focused on delivered functionality and enabled execution scopes. Do not market generated strategies as assured alpha or imply institutional approval.
 
 ### 23.4 Practical launch questions
 

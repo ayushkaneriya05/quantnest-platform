@@ -19,7 +19,7 @@ class NotificationService:
             raise ValueError(f"Unsupported notification type: {type}")
         if user is None and user_id is None:
             raise ValueError("A user or user_id is required to create a notification")
-        resolved_user_id = user_id or user.pk
+        resolved_user_id = user_id if user_id is not None else user.pk if user is not None else None
         preference = NotificationPreference.objects.filter(user_id=resolved_user_id, type=type).only("in_app_enabled").first()
         if preference and not preference.in_app_enabled:
             return None

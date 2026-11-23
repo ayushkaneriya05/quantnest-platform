@@ -1,6 +1,8 @@
 """Backtest orchestration: prepare history, replay the shared kernel, save reports."""
+from decimal import Decimal
 import logging
 from datetime import datetime, timedelta
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -151,6 +153,7 @@ class BacktestEngine:
             publish_backtest_update(self.run)
 
     def _save_replay_results(self):
+        assert self.replay is not None, 'Replay must finish before saving its results.'
         for trade in self.replay.trades:
             entry = trade.charges.get('entry_charges', {})
             exit = trade.charges.get('exit_charges', {})
@@ -191,6 +194,7 @@ class BacktestEngine:
         return ((self.max_equity - current_value) / self.max_equity) * 100 if self.max_equity > 0 else 0
 
     def _finalize_run(self):
+        assert self.replay is not None, 'Replay must finish before finalization.'
         self._broadcast_progress_update(95, "Saving completed trades...")
         # Publish results and completion together. Cancel/delete cannot interleave
         # with partially saved trades or overwrite the final outcome.
@@ -209,6 +213,7 @@ class BacktestEngine:
             publish_backtest_update(self.run, trades_count=len(self.trades_to_create))
 
     def _calculate_metrics(self):
+        assert self.replay is not None and self.replay.account is not None, 'Replay account is required for metrics.'
         metrics, _ = BacktestMetrics.objects.get_or_create(run=self.run)
         for field in metrics._meta.concrete_fields:
             if field.name not in {"id", "run", "created_at", "updated_at"}:
@@ -226,13 +231,13 @@ class BacktestEngine:
         metrics.winning_trades = len(win_pnls)
         metrics.losing_trades = len(loss_pnls)
         metrics.breakeven_trades = len(breakeven)
-        metrics.win_rate = (metrics.winning_trades / metrics.total_trades) * 100 if metrics.total_trades else 0
+        metrics.win_rate = Decimal(str((metrics.winning_trades / metrics.total_trades) * 100)) if metrics.total_trades else Decimal(str(0))
 
-        metrics.avg_win = np.mean(win_pnls) if win_pnls else 0
-        metrics.avg_loss = np.mean(loss_pnls) if loss_pnls else 0
-        metrics.largest_win = max(win_pnls) if win_pnls else 0
-        metrics.largest_loss = min(loss_pnls) if loss_pnls else 0
-        metrics.avg_trade_pnl = np.mean(pnl_series) if pnl_series else 0
+        metrics.avg_win = Decimal(str(np.mean(win_pnls))) if win_pnls else Decimal(str(0))
+        metrics.avg_loss = Decimal(str(np.mean(loss_pnls))) if loss_pnls else Decimal(str(0))
+        metrics.largest_win = Decimal(str(max(win_pnls))) if win_pnls else Decimal(str(0))
+        metrics.largest_loss = Decimal(str(min(loss_pnls))) if loss_pnls else Decimal(str(0))
+        metrics.avg_trade_pnl = Decimal(str(np.mean(pnl_series))) if pnl_series else Decimal(str(0))
 
         metrics.avg_holding_time_minutes = int(np.mean(holding_times)) if holding_times else 0
         winning_holds = [int(t.holding_duration_minutes or 0) for t in trades if float(t.net_pnl) > 0]
@@ -242,17 +247,17 @@ class BacktestEngine:
 
         gross_profit = sum(win_pnls)
         gross_loss = abs(sum(loss_pnls))
-        metrics.profit_factor = gross_profit / gross_loss if gross_loss else None
-        metrics.expectancy = float(np.mean(pnl_series)) if pnl_series else 0
-        metrics.payoff_ratio = float(metrics.avg_win) / abs(float(metrics.avg_loss)) if metrics.avg_loss else None
+        metrics.profit_factor = Decimal(str(gross_profit / gross_loss)) if gross_loss else None
+        metrics.expectancy = Decimal(str(float(np.mean(pnl_series)))) if pnl_series else Decimal(str(0))
+        metrics.payoff_ratio = Decimal(str(float(metrics.avg_win) / abs(float(metrics.avg_loss)))) if metrics.avg_loss else None
 
-        metrics.final_capital = float(self.replay.account.balance)
-        metrics.total_return_pct = ((float(self.replay.account.balance) - self.initial_capital) / self.initial_capital) * 100 if self.initial_capital else 0
-        metrics.total_brokerage = sum(float(t.brokerage) for t in trades)
-        metrics.total_slippage = sum(float(t.slippage) for t in trades)
-        metrics.total_charges = sum(float((t.charges_json or {}).get("total_charges", 0) or 0) for t in trades)
-        metrics.avg_mae = np.mean([float(t.mae or 0) for t in trades]) if trades else 0
-        metrics.avg_mfe = np.mean([float(t.mfe or 0) for t in trades]) if trades else 0
+        metrics.final_capital = Decimal(str(float(self.replay.account.balance)))
+        metrics.total_return_pct = Decimal(str(((float(self.replay.account.balance) - self.initial_capital) / self.initial_capital) * 100)) if self.initial_capital else Decimal(str(0))
+        metrics.total_brokerage = Decimal(str(sum(float(t.brokerage) for t in trades)))
+        metrics.total_slippage = Decimal(str(sum(float(t.slippage) for t in trades)))
+        metrics.total_charges = Decimal(str(sum(float((t.charges_json or {}).get("total_charges", 0) or 0) for t in trades)))
+        metrics.avg_mae = Decimal(str(np.mean([float(t.mae or 0) for t in trades]))) if trades else Decimal(str(0))
+        metrics.avg_mfe = Decimal(str(np.mean([float(t.mfe or 0) for t in trades]))) if trades else Decimal(str(0))
         instrument_breakdown = {}
         for trade in trades:
             symbol = trade.instrument.sym_ticker if trade.instrument else "Unknown"
@@ -274,20 +279,20 @@ class BacktestEngine:
             for trade in trades
             if float(trade.mfe or 0) != 0
         ]
-        metrics.trade_efficiency = np.mean(efficiencies) if efficiencies else 0
+        metrics.trade_efficiency = Decimal(str(np.mean(efficiencies))) if efficiencies else Decimal(str(0))
         metrics.monthly_returns_json = self._calculate_monthly_returns()
 
         drawdown_series = [float(point.drawdown_pct) for point in self.equity_curve]
-        metrics.max_drawdown_pct = max(drawdown_series) if drawdown_series else 0
+        metrics.max_drawdown_pct = Decimal(str(max(drawdown_series))) if drawdown_series else Decimal(str(0))
         peak = self.initial_capital
         max_drawdown_amount = 0.0
         for point in self.equity_curve:
             equity = float(point.equity_value)
             peak = max(peak, equity)
             max_drawdown_amount = max(max_drawdown_amount, peak - equity)
-        metrics.max_drawdown_amount = max_drawdown_amount
+        metrics.max_drawdown_amount = Decimal(str(max_drawdown_amount))
         net_profit = float(metrics.final_capital) - self.initial_capital
-        metrics.recovery_factor = net_profit / max_drawdown_amount if max_drawdown_amount else None
+        metrics.recovery_factor = Decimal(str(net_profit / max_drawdown_amount)) if max_drawdown_amount else None
 
         # Calculate Sharpe, Sortino, and Volatility from periodic equity returns (not trade PnL)
         if len(self.equity_curve) > 1:
@@ -312,18 +317,18 @@ class BacktestEngine:
                 std_return = np.std(daily_returns)
                 if std_return > 0:
                     # Annualize: multiply by sqrt(252) for daily returns
-                    metrics.sharpe_ratio = (mean_return / std_return) * np.sqrt(252)
-                    metrics.volatility_pct = (std_return * np.sqrt(252)) * 100
+                    metrics.sharpe_ratio = Decimal(str((mean_return / std_return) * np.sqrt(252)))
+                    metrics.volatility_pct = Decimal(str((std_return * np.sqrt(252)) * 100))
 
                 # Sortino Ratio using downside deviation
                 downside_deviation = float(np.sqrt(np.mean(np.minimum(daily_returns.to_numpy(), 0) ** 2)))
                 if downside_deviation > 0:
-                    metrics.sortino_ratio = (mean_return / downside_deviation) * np.sqrt(252)
+                    metrics.sortino_ratio = Decimal(str((mean_return / downside_deviation) * np.sqrt(252)))
 
         metrics.max_consecutive_wins, metrics.max_consecutive_losses = self._consecutive_streaks(pnl_series)
-        metrics.cagr = self._calculate_cagr()
+        metrics.cagr = Decimal(str(self._calculate_cagr()))
         if metrics.max_drawdown_pct:
-            metrics.calmar_ratio = float(metrics.cagr) / float(metrics.max_drawdown_pct)
+            metrics.calmar_ratio = Decimal(str(float(metrics.cagr) / float(metrics.max_drawdown_pct)))
         metrics.max_drawdown_duration_days = self._calculate_drawdown_duration_days()
 
         metrics.save()
@@ -354,7 +359,7 @@ class BacktestEngine:
         returns = {}
         previous_equity = self.initial_capital
         for index, equity in monthly_equity.items():
-            returns[index.strftime("%Y-%m")] = ((float(equity) / previous_equity) - 1) * 100 if previous_equity else 0.0
+            returns[cast(pd.Timestamp, index).strftime("%Y-%m")] = ((float(equity) / previous_equity) - 1) * 100 if previous_equity else 0.0
             previous_equity = float(equity)
         return returns
 
@@ -378,6 +383,7 @@ class BacktestEngine:
         return max_wins, max_losses
 
     def _calculate_cagr(self):
+        assert self.replay is not None and self.replay.account is not None, 'Replay account is required for CAGR.'
         duration_days = max((self.run.end_date - self.run.start_date).days + 1, 1)
         years = duration_days / 365.25
         if years <= 0 or self.initial_capital <= 0 or float(self.replay.account.balance) <= 0:

@@ -13,11 +13,13 @@ layer and execution engine. The frontend, registration and support flows are sha
 | --- | --- | --- | --- |
 | Development | Local work with Vite and console mail | Paper by default; usage recorded without plan enforcement; optional Live | [Development](development/README.md) |
 | Public | Hosted customer application | Paper and simulated Terminal; Public plan allowances enforced; configured subscription checkout | [Public](public/README.md) |
-| Private | Operator's personal production deployment | Paper, Live and simulated Terminal; no commercial quotas or checkout | [Private](private/README.md) |
+| Private | Separate QuantNest-managed customer or personal deployment | Paper, Live and simulated Terminal; no public-plan quotas or checkout | [Private](private/README.md) |
 
 Public uses Cloudflare Pages for React and a Pages Function for API/WebSocket
 proxying. Private builds React inside Docker and serves it through Caddy.
-Private is currently personal use; no customer licence/installer service is included.
+Private uses one isolated host per customer, with manually agreed pricing,
+capacity and service periods. No licence/installer or automatic expiry service
+is included. The same deployment flow also supports the operator's personal use.
 
 For local Docker development, start/unpause Docker Desktop and run
 `.\.venv\Scripts\python.exe infra/development/dev.py` from the repository root.

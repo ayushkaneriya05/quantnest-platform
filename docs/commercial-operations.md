@@ -1,6 +1,6 @@
 # Commercial operations: catalogues, allowances and billing
 
-**Source reviewed: 7 November 2026.** This guide describes the current commercial
+**Source reviewed: 22 November 2026.** This guide describes the current commercial
 model and end-to-end customer/operator workflows. It replaces the accumulated
 commercial implementation notes and retired feature descriptions.
 
@@ -15,6 +15,7 @@ belong to [Backtesting](backtesting.md), [Paper](paper-trading.md),
 
 - [Scope and records](#scope-and-records)
 - [Deployment mode, execution scope and allowance](#deployment-mode-execution-scope-and-allowance)
+- [Managed Private offer](#managed-private-offer)
 - [First installation and operator setup](#first-installation-and-operator-setup)
 - [Publish plan changes without code](#publish-plan-changes-without-code)
 - [All current allowances](#all-current-allowances)
@@ -37,8 +38,9 @@ Pricing/market descriptions come from a published database catalogue.
 The public catalogue includes NSE stocks, futures and options for backtesting,
 Terminal simulation and automated Paper on Explore, Build and Pro. Plans differ
 in numeric allowances, not per-market gates. Direct AI stock analysis and
-screening remain focused on active NSE stocks. Customer Live/Private is not
-offered; execution scopes enforce the Paper/Live boundary separately.
+screening remain focused on active NSE stocks. QuantNest Private adds supported
+broker connections and Live strategies in a separately managed deployment.
+Execution scopes enforce the Paper/Live boundary separately from marketing.
 
 Migration `0017_derivatives_simulation` publishes this scope in a new catalogue
 revision. It clones the active revision's prices, allowances and provider price
@@ -84,10 +86,51 @@ Three independent questions must not be combined into scattered feature checks:
 | Development | Not commercially enforced | Recorded for inspection | Can use deliberately configured payment setup |
 | Private | No commercial resource caps | No commercial quota ledger | No public checkout/renewal |
 
-Private is currently an operator's personal deployment. All modes retain the same
+Private supports a managed customer deployment or the operator's personal use.
+All modes retain the same
 registration/site UI; execution scopes determine applicable pages. Private does
 not bypass ownership, account-active state, contract/session validity or actual
 funds checks. It has no customer licensing/installations dependency.
+
+## Managed Private offer
+
+The catalog has three public `plans` and a separate `private_offer`. Private is
+contact-priced with `price_minor: null`, not a zero-price plan. Its `included_in`
+feature metadata drives the same comparison as Explore/Build/Pro. Broker Integration
+and Live are Private features; the public catalog lists only enabled broker adapters
+with safe code/name metadata. It never returns trading credentials.
+
+Migration `0018_private_offer` clones the active catalog, preserving public prices,
+allowances and compatible provider mappings. It adds the quoted offer, feature
+inclusion and Paper-only public plan scope descriptors. Purchased snapshots,
+subscriptions and invoices remain linked to their original terms. Runtime scopes
+remain authoritative; catalog metadata does not grant access.
+
+Operations Admin edits offer name, description, capacity/cost note, CTA label and
+feature inclusion on a draft revision. Quoted delivery/pricing and Private-only
+Live inclusion remain validated. Published revisions stay immutable. Cloning an
+older published snapshot adds current offer descriptors while retaining prices.
+
+The public pricing page presents four cards and one comparison generated from
+the catalog, including all twelve allowances grouped by kind. Private displays
+contact pricing and no public-plan quotas; server capacity/provider limits remain.
+`GET /public/catalog/` includes `private_offer`, per-feature `included_in`,
+`limit_kinds`, public plan `execution_scopes` and safe `brokers` metadata. The
+obsolete `live: not-offered` override is removed.
+
+Private is not a supported plan for public subscription checkout. Private account
+responses have empty `checkout_terms`; Billing presents the managed agreement and
+contact route. Quotes, payments, service periods, cancellation/refunds and renewals
+are agreed manually. No new licence model, expiry task, payment endpoint or
+customer-project subsystem is involved. Agree and record any operating commitments
+outside public subscription billing.
+
+Enquiries use the existing `private` Support type, including anonymous verified
+Contact requests. Staff replies and outgoing notification email remain unchanged.
+Arrange the workflow, supported broker/products, capacity, users, costs and period;
+then follow [Private setup](../infra/private/SETUP.md) for a separate host with its
+own database/credentials/backups. Customer browser access does not imply SSH,
+repository access, source-code delivery or discretionary account management.
 
 An active paid account uses its purchased catalogue and paid period. Otherwise the
 effective Public/Development plan is Explore from the active catalogue, with a

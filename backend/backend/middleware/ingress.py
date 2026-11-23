@@ -34,7 +34,7 @@ class TrustedIngressMiddleware:
             response = self.get_response(request)
         if request.path.startswith(("/api/", "/admin/", "/ws/")):
             response["Cache-Control"] = "private, no-store"
-            if "Content-Security-Policy" not in response:
+            if "Content-Security-Policy" not in response.headers:
                 hashes = []
                 if not response.streaming and response.get("Content-Type", "").startswith("text/html"):
                     for attributes, script in re.findall(rb"<script\b([^>]*)>([\s\S]*?)</script>", response.content, re.I):

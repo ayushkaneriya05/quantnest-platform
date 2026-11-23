@@ -1,3 +1,4 @@
+from common.validation import serialize_object
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -16,12 +17,12 @@ def publish_paper_session_update(sender, instance, **kwargs):
 
 @receiver(post_save, sender=PaperOrder)
 def publish_paper_order_update(sender, instance, **kwargs):
-    publish_trading_update(f"user_{instance.account.user_id}_paper", "ORDER_UPDATE", PaperOrderSerializer(instance).data)
+    publish_trading_update(f"user_{instance.account.user_id}_paper", "ORDER_UPDATE", serialize_object(PaperOrderSerializer(instance)))
 
 
 @receiver(post_save, sender=PaperPosition)
 def publish_paper_position_update(sender, instance, **kwargs):
-    publish_trading_update(f"user_{instance.account.user_id}_paper", "POSITION_UPDATE", PaperPositionSerializer(instance).data)
+    publish_trading_update(f"user_{instance.account.user_id}_paper", "POSITION_UPDATE", serialize_object(PaperPositionSerializer(instance)))
 
 
 @receiver(post_delete, sender=PaperPosition)

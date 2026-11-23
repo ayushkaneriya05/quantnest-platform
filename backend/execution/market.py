@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from django.db import close_old_connections
 
 from common.enums import CandleTimeframe
-from marketdata.candles import aggregate_candles, candle_frame
+from marketdata.candles import aggregate_candles, candle_frame, candle_rows
 from marketdata.contracts import OHLCV, source_timeframe
 from marketdata.shared_memory import SharedMemoryManager
 
@@ -81,7 +81,7 @@ def _prepare_symbol(symbol: str, programs: list[Program]) -> PreparedSymbol:
         for tf in timeframes:
             source = source_timeframe(tf)
             frame = aggregate_candles(sources[source], tf, calendar, now, source=source, include_open=True)
-            for row in frame.iloc[1:].itertuples():
+            for row in candle_rows(frame.iloc[1:]):
                 candle = Candle(row.Index.to_pydatetime(), calendar.candle_close(row.Index, tf),
                     row.open, row.high, row.low, row.close, row.volume)
                 if candle.closed_at <= now:
@@ -95,7 +95,7 @@ def _prepare_symbol(symbol: str, programs: list[Program]) -> PreparedSymbol:
                 today = calendar.session_bounds(now)[0]
                 partial = aggregate_candles(minute_frame.loc[minute_frame.index >= today], tf, calendar, now,
                                             source=CandleTimeframe.M1, include_open=True)
-                for row in partial.itertuples():
+                for row in candle_rows(partial):
                     end = calendar.candle_close(row.Index, tf)
                     if end <= now:
                         continue

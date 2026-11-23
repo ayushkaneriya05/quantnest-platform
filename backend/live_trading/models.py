@@ -29,6 +29,11 @@ from execution.order_reports import ACTIVE
 
 
 class TradingSession(BaseTimestampModel):
+    applied_version_id: int | None
+    user_id: int
+    strategy_id: int
+    allocation_id: int | None
+    broker_credential_id: int | None
     applied_version = models.ForeignKey('strategies.StrategyVersion', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='+')
     applied_at = models.DateTimeField(null=True, blank=True)
@@ -100,8 +105,25 @@ class LiveStrategyAllocationQuerySet(models.QuerySet):
         )
 
 
+class LiveStrategyAllocationManager(models.Manager):
+    _hints: dict
+
+    def get_queryset(self):
+        return LiveStrategyAllocationQuerySet(self.model, using=self._db, hints=self._hints)
+
+    def with_totals(self):
+        return self.get_queryset().with_totals()
+
+
 class LiveStrategyAllocation(BaseTimestampModel):
-    objects = LiveStrategyAllocationQuerySet.as_manager()
+    session: "TradingSession"
+    positions: "models.Manager[LivePosition]"
+    trades: "models.Manager[LiveTrade]"
+    user_id: int
+    strategy_id: int
+    deployed_version_id: int | None
+    broker_credential_id: int
+    objects: LiveStrategyAllocationManager = LiveStrategyAllocationManager()
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_strategy_allocations")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.CASCADE, related_name="live_allocations")
@@ -114,8 +136,8 @@ class LiveStrategyAllocation(BaseTimestampModel):
         help_text='Pinned strategy version for this live allocation'
     )
     broker_credential = models.ForeignKey("brokers.BrokerCredential", on_delete=models.CASCADE, related_name="strategy_allocations")
-    allocated_capital = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    broker_equity_reference = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    allocated_capital = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
+    broker_equity_reference = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0'))
     is_over_allocated = models.BooleanField(default=False)
     breach_reason = models.TextField(blank=True)
 
@@ -176,6 +198,13 @@ class LiveStrategyAllocation(BaseTimestampModel):
 
 
 class LiveOrder(BaseTimestampModel, RouteOwnership):
+    user_id: int
+    strategy_id: int | None
+    session_id: int | None
+    allocation_id: int | None
+    broker_credential_id: int | None
+    instrument_id: int
+    strategy_version_id: int | None
     STATUS_CHOICES = list(OrderStatus.choices) + [("UNKNOWN", "Unknown")]
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_orders")
@@ -196,8 +225,8 @@ class LiveOrder(BaseTimestampModel, RouteOwnership):
     filled_quantity = models.PositiveIntegerField(default=0)
     pending_quantity = models.PositiveIntegerField(default=0)
     avg_fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    filled_value = models.DecimalField(max_digits=24, decimal_places=8, default=0)
-    reserved_capital = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    filled_value = models.DecimalField(max_digits=24, decimal_places=8, default=Decimal('0'))
+    reserved_capital = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
     strategy_version = models.ForeignKey("strategies.StrategyVersion", on_delete=models.PROTECT, null=True, related_name="live_orders")
     intent = models.CharField(max_length=10, choices=OrderIntent.choices, default=OrderIntent.ENTRY)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=OrderStatus.PENDING)
@@ -231,7 +260,12 @@ class LiveOrder(BaseTimestampModel, RouteOwnership):
 
 
 class LivePosition(BaseTimestampModel, RouteOwnership):
-    margin_blocked = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    user_id: int
+    strategy_id: int | None
+    allocation_id: int | None
+    broker_credential_id: int | None
+    instrument_id: int
+    margin_blocked = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_positions")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_positions")
     allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="positions")
@@ -241,9 +275,9 @@ class LivePosition(BaseTimestampModel, RouteOwnership):
     side = models.CharField(max_length=10, choices=Side.choices)
     quantity = models.PositiveIntegerField()
     avg_price = models.DecimalField(max_digits=12, decimal_places=4)
-    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
-    current_price = models.DecimalField(max_digits=12, decimal_places=4, default=0)
-    unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=Decimal('0'))
+    current_price = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
+    unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     opened_at = models.DateTimeField(default=timezone.now)
     last_updated = models.DateTimeField(auto_now=True)
     
@@ -253,6 +287,12 @@ class LivePosition(BaseTimestampModel, RouteOwnership):
 
 
 class LiveTrade(BaseTimestampModel, RouteOwnership):
+    user_id: int
+    strategy_id: int | None
+    allocation_id: int | None
+    broker_credential_id: int | None
+    instrument_id: int
+    exit_order_id: int | None
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="live_trades")
     strategy = models.ForeignKey("strategies.Strategy", on_delete=models.SET_NULL, null=True, blank=True, related_name="live_trades")
     allocation = models.ForeignKey("live_trading.LiveStrategyAllocation", on_delete=models.SET_NULL, null=True, blank=True, related_name="trades")
@@ -273,8 +313,8 @@ class LiveTrade(BaseTimestampModel, RouteOwnership):
     exit_reason = models.TextField(blank=True)
     
     # P&L (broker handles costs, but we track for analytics)
-    gross_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    realized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gross_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    realized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     
     # Duration
     holding_duration_seconds = models.PositiveIntegerField(default=0)
@@ -295,6 +335,7 @@ class LiveTrade(BaseTimestampModel, RouteOwnership):
 
 class ExecutionLog(BaseTimestampModel):
     """Simplified execution log for broker order lifecycle tracking."""
+    order_id: int
     EVENT_TYPES = [
         ("CREATED", "Created"),
         ("PLACED", "Placed"),
@@ -317,12 +358,13 @@ class ExecutionLog(BaseTimestampModel):
 
 class SlippageRecord(BaseTimestampModel):
     """Track slippage for analytics - broker handles execution, we track for analysis."""
+    order_id: int
     order = models.OneToOneField(LiveOrder, on_delete=models.CASCADE, related_name="slippage_record")
     expected_price = models.DecimalField(max_digits=12, decimal_places=4)
     actual_price = models.DecimalField(max_digits=12, decimal_places=4)
     slippage_pct = models.DecimalField(max_digits=10, decimal_places=4)
     slippage_amount = models.DecimalField(max_digits=12, decimal_places=4)
-    market_impact = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    market_impact = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
 
     class Meta:
         db_table = "live_slippage_record"

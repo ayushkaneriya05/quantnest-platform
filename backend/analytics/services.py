@@ -1,4 +1,5 @@
 """On-demand reports over execution records. No duplicate financial ledger."""
+from common.validation import validate_data
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
@@ -181,8 +182,7 @@ def execution_review_context(user, settings):
     from trade_journal.models import JournalEntry
 
     serializer = ExecutionReviewSerializer(data=settings)
-    serializer.is_valid(raise_exception=True)
-    values = serializer.validated_data
+    values = validate_data(serializer)
     filters = values["filters"]
     source = filters["source"]
     qs = trade_queryset(user, filters)

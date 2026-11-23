@@ -1,5 +1,6 @@
 """Dependency readiness for the HTTP endpoint and deployment command."""
 from django.conf import settings
+from typing import cast
 from django.db import connection
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -20,7 +21,7 @@ def get_readiness_status(*, workers=False):
         client = runtime_redis()
         status["runtime"] = bool(client.ping())
         if workers:
-            status["execution_workers"] = int(client.get("quantnest:execution:workers") or 0) == settings.EXECUTION_WORKERS
+            status["execution_workers"] = int(cast(str | None, client.get("quantnest:execution:workers")) or 0) == settings.EXECUTION_WORKERS
     except Exception:
         status["runtime"] = False
     if workers:

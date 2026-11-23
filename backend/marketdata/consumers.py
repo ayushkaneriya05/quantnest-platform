@@ -31,8 +31,8 @@ class MarketDataConsumer(AuthSessionConsumerMixin, AsyncWebsocketConsumer):
         self.chart_subscriptions = {}
         self.subscription_errors = {}
         self.user_group_name = None
-        user = self.scope["user"]
-        if user.is_anonymous:
+        user = self.scope.get("user")
+        if user is None or user.is_anonymous:
             await self.close()
             return
 
@@ -100,6 +100,8 @@ class MarketDataConsumer(AuthSessionConsumerMixin, AsyncWebsocketConsumer):
 
             if message_type in ('subscribe_chart', 'unsubscribe_chart'):
                 interval = data.get('interval')
+                if not isinstance(interval, str):
+                    raise ValueError('Supply a chart timeframe.')
                 interval_minutes(interval)
                 key = (normalized_instrument, interval)
                 chart_group = MarketDataStreamer.chart_group(normalized_instrument, interval)

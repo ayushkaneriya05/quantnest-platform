@@ -1,7 +1,9 @@
 """Research uses the same serializers and parameter defaults as the builder."""
 
+from common.validation import validate_data
 import json
 import re
+from typing import cast
 
 from common.enums import CandleTimeframe, InstrumentType, LogicalOperator, OperandType, RuleType
 from strategies.specification.operands import get_operand_parameter_config
@@ -27,12 +29,11 @@ def json_data(value):
 def validate_screen_condition(data):
     if not isinstance(data, dict):
         raise ValidationError("Each rule must be an object.")
-    serializer = ScreenConditionSerializer(data=data)
+    serializer = cast(ScreenConditionSerializer, ScreenConditionSerializer(data=data))
     unknown = set(data) - set(serializer.fields)
     if unknown:
         raise ValidationError(f"Unsupported rule fields: {', '.join(sorted(unknown))}.")
-    serializer.is_valid(raise_exception=True)
-    result = serializer.validated_data
+    result = validate_data(serializer)
     # ScreenConditionSerializer normalizes defaults once; research additionally rejects unknown keys.
     for side in ("a", "b"):
         field = f"operand_{side}_params"
@@ -73,7 +74,7 @@ def validate_draft(draft, instrument_ids):
     if set(draft) - allowed:
         raise ValidationError(f'Unsupported draft fields: {sorted(set(draft) - allowed)}.')
     serializer = StrategyCreateSerializer(data={key: draft[key] for key in base_fields if key in draft})
-    serializer.is_valid(raise_exception=True)
+    base = validate_data(serializer)
     try:
         document = validate_definition(document_from_snapshot(draft))
     except (ValueError, KeyError) as exc:
@@ -89,7 +90,7 @@ def validate_draft(draft, instrument_ids):
         raise ValidationError('A strategy needs an entry condition.')
     if not any(group['rule_type'] != RuleType.ENTRY for group in groups):
         raise ValidationError('Add an exit, stop-loss or target condition.')
-    strategy = Strategy(**serializer.validated_data, definition=document)
+    strategy = Strategy(**base, definition=document)
     result = {**{key: getattr(strategy, key) for key in base_fields}, **document}
     # Compilation validates source clocks, formula dependencies and risk units.
     try:

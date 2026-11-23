@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, defaultdict
 from decimal import Decimal
 from django.db.models import Avg
 from analytics.services import SOURCES, trade_queryset
@@ -16,7 +16,7 @@ def journal_summary(user, filters):
     reviewed = entries.count()
     total = trades.count()
     tags = Counter()
-    tag_pnl = Counter()
+    tag_pnl: dict[str, Decimal] = defaultdict(Decimal)
     pnl_field = SOURCES[filters["source"]]["pnl"]
     for values, pnl in entries.values_list("mistake_tags", f"{relation}__{pnl_field}").iterator():
         tags.update(set(values))

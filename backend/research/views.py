@@ -1,3 +1,6 @@
+from typing import cast
+from rest_framework.request import Request
+from common.validation import validate_value, validate_data
 import hmac
 
 from django.conf import settings
@@ -32,6 +35,7 @@ from .validation import MAX_SCREEN_CONDITIONS, SCREEN_DEFAULTS
 
 
 class ResearchSessionViewSet(viewsets.ModelViewSet):
+    request: Request
     permission_classes = [IsAuthenticated]
     serializer_class = ResearchSessionSerializer
     pagination_class = StandardPagination
@@ -78,6 +82,7 @@ class ResearchSessionViewSet(viewsets.ModelViewSet):
 
 
 class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
+    request: Request
     permission_classes = [IsAuthenticated]
     serializer_class = ResearchRunSerializer
     pagination_class = StandardPagination
@@ -91,15 +96,14 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
                 queryset = queryset.filter(status__in=ACTIVE_RUN_STATUSES)
             if self.request.query_params.get('before'):
                 from rest_framework.fields import IntegerField
-                before = IntegerField(min_value=1).run_validation(self.request.query_params['before'])
+                before = cast(int, validate_value(IntegerField(min_value=1), self.request.query_params['before']))
                 queryset = queryset.filter(pk__lt=before)
             return queryset.order_by("-created_at", "-id")
         return queryset
 
     def create(self, request):
         serializer = RunRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        data = validate_data(serializer)
         run, created = accept_run(request.user, data, request.data)
         return Response(ResearchRunSerializer(run).data, status=202 if created else 200)
 
@@ -136,7 +140,7 @@ class ResearchRunViewSet(viewsets.ReadOnlyModelViewSet):
         if query:
             rows = rows.filter(symbol__icontains=query)
         columns = ['symbol', 'close', 'return_20_bars_pct', 'volatility_20_bars_pct', 'ordinal']
-        ordering = ChoiceField(choices=[name for column in columns for name in (column, '-' + column)]).run_validation(request.query_params.get('ordering', 'ordinal'))
+        ordering = cast(str, validate_value(ChoiceField(choices=[name for column in columns for name in (column, '-' + column)]), request.query_params.get('ordering', 'ordinal')))
         page = self.paginate_queryset(rows.order_by(ordering, 'ordinal'))
         return self.get_paginated_response([{**{key: value for key, value in row.payload.items() if key not in {'chart', 'coverage'}}, 'ordinal': row.ordinal} for row in page])
 

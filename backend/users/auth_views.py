@@ -17,6 +17,7 @@ from rest_framework.exceptions import AuthenticationFailed, NotFound, Validation
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.generics import GenericAPIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.utils import get_md5_hash_password
 from rest_framework_simplejwt.settings import api_settings as jwt_settings
@@ -28,7 +29,7 @@ from .sessions import issue_login_response, refresh_session, refresh_session_con
 from .tokens import CustomRefreshToken
 
 
-class AuthActionMixin:
+class AuthActionMixin(APIView):
     """Login and refresh are cookie actions too, so protect them against CSRF."""
 
     def initial(self, request, *args, **kwargs):
@@ -77,7 +78,7 @@ def _challenge_response(user):
     })
 
 
-class SessionLoginMixin(AuthActionMixin):
+class SessionLoginMixin(AuthActionMixin, GenericAPIView):
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [LoginThrottle]

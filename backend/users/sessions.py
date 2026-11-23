@@ -2,6 +2,7 @@
 import ipaddress
 import logging
 import uuid
+from typing import cast
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -9,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.middleware.csrf import get_token, rotate_token
 from django.utils import timezone
-from dj_rest_auth.app_settings import api_settings as auth_settings
+from .configuration import auth_settings
 from dj_rest_auth.jwt_auth import set_jwt_cookies
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.response import Response
@@ -124,7 +125,7 @@ def issue_login_response(user, request, *, refresh=None, status=200):
     # for_user records the token before the session claim has been assigned.
     OutstandingToken.objects.filter(jti=refresh["jti"]).update(token=str(refresh))
     session.refresh_jti = refresh["jti"]
-    session.expires_at = datetime_from_epoch(refresh["exp"])
+    session.expires_at = datetime_from_epoch(int(refresh["exp"]))
     for field, value in _request_metadata(request).items():
         setattr(session, field, value)
     session.save()
@@ -149,7 +150,7 @@ def refresh_session(request, raw_token):
     # Verify signature, expiry and blacklist before reading any claims.
     refresh = CustomRefreshToken(raw_token)
     user = get_user_model().objects.select_for_update().filter(pk=refresh.get("user_id"), is_active=True).first()
-    if user is None or refresh.get(jwt_settings.REVOKE_TOKEN_CLAIM) != get_md5_hash_password(user.password):
+    if user is None or refresh.get(cast(str, jwt_settings.REVOKE_TOKEN_CLAIM)) != get_md5_hash_password(user.password):
         raise AuthenticationFailed("Your session has ended. Please sign in again.")
     session = UserSession.objects.select_for_update().filter(
         session_id=token_session_id(refresh), user=user, expires_at__gt=timezone.now(),
@@ -162,7 +163,7 @@ def refresh_session(request, raw_token):
     refresh.set_iat()
     refresh.outstand()
     session.refresh_jti = refresh["jti"]
-    session.expires_at = datetime_from_epoch(refresh["exp"])
+    session.expires_at = datetime_from_epoch(int(refresh["exp"]))
     session.save(update_fields=["refresh_jti", "expires_at", "last_activity"])
     from customer_support.services import link_verified_customer_records
     link_verified_customer_records(user)

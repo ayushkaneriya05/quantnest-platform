@@ -14,7 +14,22 @@ Explore, Build and Pro include NSE stocks, futures and options for backtesting,
 Terminal simulation and automated Paper trading. Plans differ in usage capacity;
 available contracts and provider history determine what you can test. Direct AI
 stock analysis and screening focus on active NSE stocks. Public plans do not
-enable customer Live trading. QuantNest Private is not currently for sale.
+enable Live trading. [QuantNest Private](/docs/private/) includes supported broker
+connections and automated Live strategies with contact-based pricing.
+
+## Private quotations and payments
+
+Private is listed alongside public plans in the [feature comparison](/pricing/).
+Select **Discuss Private** to send a Private enquiry. Setup, capacity, hosting,
+support, provider costs, service periods and renewals are agreed directly.
+
+A Private workspace shows its managed agreement and contact route in Billing.
+It does not offer public subscription checkout as a Private renewal mechanism.
+There are no public-plan quotas, but server capacity and provider/technical limits
+still apply. Private does not include automatic payment or software expiry.
+
+The public payment, allowance-period and first-purchase refund sections below
+describe Explore/Build/Pro. Private cancellation/refund terms follow its agreement.
 
 ## Three kinds of allowance
 

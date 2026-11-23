@@ -2,6 +2,7 @@
 
 import django.db.models.deletion
 import uuid
+from decimal import Decimal
 from django.conf import settings
 from django.db import migrations, models
 
@@ -216,7 +217,7 @@ class Migration(migrations.Migration):
                 ('provider', models.CharField(blank=True, max_length=40)),
                 ('observation_id', models.CharField(max_length=160, unique=True)),
                 ('currency', models.CharField(default='USD', max_length=3)),
-                ('amount', models.DecimalField(decimal_places=8, default=0, max_digits=16)),
+                ('amount', models.DecimalField(decimal_places=8, default=Decimal('0'), max_digits=16)),
                 ('quantities', models.JSONField(default=dict)),
                 ('rate_revision', models.CharField(blank=True, max_length=80)),
                 ('observed_at', models.DateTimeField(auto_now_add=True)),

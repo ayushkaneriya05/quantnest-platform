@@ -238,7 +238,7 @@ def _closing_costs(position: Position, order: Order, quantity: int, fill: Fill) 
             lots.append(replace(lot, quantity=lot.quantity - taken))
     if remaining:
         raise ValueError('Entry fill history is incomplete; closing charges cannot be determined.')
-    result = {leg: {key: float(value.quantize(MONEY, rounding=ROUND_HALF_UP)) for key, value in values.items()}
+    result: dict = {leg: {key: float(value.quantize(MONEY, rounding=ROUND_HALF_UP)) for key, value in values.items()}
               for leg, values in totals.items()}
     result['total_charges'] = round(sum(values['total'] for values in result.values()), 2)
     return result, lots
@@ -280,7 +280,7 @@ def apply_fill(account: Account, fill: Fill) -> Transition:
     lots = list(previous.lots) if previous else []
     slippage = (order.contract.value(abs(fill.price - fill.reference_price), fill.quantity)
                 if fill.reference_price is not None else ZERO)
-    if closed:
+    if previous is not None and closed:
         entry_slippage, left = ZERO, closed
         for lot in sorted(lots, key=lambda item: (
                 TradingCostCalculator.get_tax_classification(item.at, fill.at) !=

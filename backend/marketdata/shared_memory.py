@@ -212,7 +212,10 @@ class SharedMemoryManager:
             # History never changes observation sequence or connection validity.
 
     def close(self):
-        self.array = self.ticks = self.meta_array = None
+        if self._map.closed:
+            return
+        # Release NumPy's exported views before closing the mapping.
+        del self.array, self.ticks, self.meta_array
         self._map.close()
         self._file.close()
 

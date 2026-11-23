@@ -3,13 +3,17 @@ import time
 from abc import ABC, abstractmethod
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 from django.utils import timezone
 
 from common.enums import NotificationType
 from notifications.services import NotificationService
-from .models import BrokerAPILog
+from .models import BrokerAPILog, BrokerSession
+
+if TYPE_CHECKING:
+    from .websocket.base_websocket import BaseBrokerWebSocket
 
 
 BROKER_SESSION_EXPIRED_CACHE_KEY = "broker_session_expired_notification_{credential_id}"
@@ -59,7 +63,7 @@ class BaseBrokerAdapter(ABC):
             status_code=status_code, error_message=error_message,
         )
 
-    def get_session(self):
+    def get_session(self) -> BrokerSession:
         session = self.credential.sessions.filter(is_valid=True).order_by("-created_at").first()
         if session and session.token_expiry > timezone.now():
             session.last_used_at = timezone.now()
@@ -93,7 +97,7 @@ class BaseBrokerAdapter(ABC):
     def connection_details() -> dict: ...
 
     @abstractmethod
-    def exchange_auth_code(self, auth_code: str): ...
+    def exchange_auth_code(self, auth_code: str) -> BrokerSession: ...
 
     @abstractmethod
     def get_profile(self) -> dict: ...
@@ -111,4 +115,4 @@ class BaseBrokerAdapter(ABC):
     def cancel_order(self, broker_order_id: str) -> dict: ...
 
     @abstractmethod
-    def create_order_stream(self): ...
+    def create_order_stream(self) -> 'BaseBrokerWebSocket': ...

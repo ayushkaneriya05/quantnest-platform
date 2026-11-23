@@ -5,7 +5,7 @@ and [Integration setup](../infra/shared/INTEGRATIONS.md). The mode-specific
 `SETUP.md` files own first-deployment instructions; this document retains the
 deeper provider and broker contract reference.
 
-**Configuration review: 16 October 2026.** Read this with the [implementation plan](implementation-plan.md), [commercial operations guide](commercial-operations.md) and [Live trading guide](live-trading.md). For complete host commands and each script's purpose, start with the [three-mode infrastructure guides](../infra/README.md). This document owns external account setup; infrastructure READMEs own deployment commands.
+**Configuration review: 16 October 2026; acceptance links updated: 23 November 2026.** Read this with the [acceptance checklist](../infra/START-HERE.md#7-acceptance-and-release-checklist), [commercial operations guide](commercial-operations.md) and [Live trading guide](live-trading.md). For complete host commands and each script's purpose, start with the [three-mode infrastructure guides](../infra/README.md). This document owns external account setup; infrastructure READMEs own deployment commands.
 
 This guide distinguishes preparing software from activating external accounts. No merchant account, domain ownership, data permission, Live approval or deployed recovery test is inferred from working code. Configure test accounts first. Keep real secrets out of Git, screenshots, tickets and browser build variables.
 
@@ -32,14 +32,16 @@ in operating records rather than application approval rows.
 | Host monitoring | Oracle Monitoring and Notifications | Readiness, capacity, persistence and backup alarms |
 | Historical/streaming observations | Existing FYERS source | Retained pipeline, with purpose-specific permissions |
 
-The personal Private host follows [Private deployment](../infra/private/README.md).
-It has no central activation dependency. Public and personal hosting use separate secrets, data and backups.
+Each managed Private host follows [Private deployment](../infra/private/README.md).
+It has no central activation dependency. Public and Private hosting use separate secrets, data and backups.
 
 Configure the domain/gateway first, then database/email, operator authentication
 and market data, AI/forms, and finally payments. Google sign-in can be configured
 when needed. Customer Support replies use the workspace, with SMTP notifications.
 
-Public Workspace ends at simulated Paper. Personal Live uses its own broker authorization; customer Live is not offered. Terminal, Paper and Live records remain distinct.
+Public Workspace ends at simulated Paper. QuantNest Private adds supported Live
+strategies with each owner's broker authorization in a separately managed
+instance. Terminal, Paper and Live records remain distinct; Terminal is simulated.
 
 ### Initial identity
 
@@ -59,7 +61,7 @@ Public Workspace ends at simulated Paper. Personal Live uses its own broker auth
 6. Keep BILLING_ENABLED=False until merchant configuration, webhook acceptance and capacity are ready.
 7. Use synthetic data and the Live execution scope disabled while preparing the deployment.
 
-`DEBUG` is a Boolean setting: use `DEBUG=False` for production. Set the separate `QUANTNEST_DEPLOYMENT_MODE` value to `public` or `private`; do not put an environment name such as `release` in `DEBUG`. Use `infra/development` only on developer machines, `infra/public` for the hosted Paper product, and `infra/private` for a personal production instance. Do not combine a mode's Compose file with another mode's environment files.
+`DEBUG` is a Boolean setting: use `DEBUG=False` for production. Set the separate `QUANTNEST_DEPLOYMENT_MODE` value to `public` or `private`; do not put an environment name such as `release` in `DEBUG`. Use `infra/development` only on developer machines, `infra/public` for the hosted Paper product, and `infra/private` for a separately managed or personal Private instance. Do not combine a mode's Compose file with another mode's environment files.
 
 Only public `VITE_` settings belong in the React browser build. They must never contain payment secrets, SMTP passwords, Gemini keys, database credentials or OCI private keys. Compose supplies internal service URLs and mode policy; use the selected mode's examples rather than merging unrelated provider/operator variables.
 
@@ -73,7 +75,7 @@ instance-principal IAM policies.
 
 Install Docker/Compose, Python 3.12 and age. Restrict administration access and
 open 80/443 for Caddy HTTPS. Database/Redis/research ports stay private. For Public,
-keep the Pages gateway token configured; for Private use the direct personal
+keep the Pages gateway token configured; for Private use the direct Private
 Caddy hostname. Environment files are managed by the operator and kept out of Git.
 
 Follow [Public setup](../infra/public/README.md) or
@@ -268,11 +270,11 @@ can restart the flow. Do not copy authorization codes or state into logs or tick
 ### Private broker integration
 
 1. Public Workspace does not activate broker Live execution.
-2. Record the personal broker/data arrangements, server setup and reviewed release.
-3. Configure the personal broker application/callback/static-IP and authentication requirements for the accepted hosting route.
+2. Record the account owner’s broker/data arrangements, server setup and reviewed release.
+3. Configure the account owner’s broker application/callback/static-IP and authentication requirements for the accepted hosting route.
 4. Test account-scoped order matching, the verified QN tag fallback, saved-session ownership, cumulative fills, REST/WebSocket reconciliation, unknown outcomes and protective reductions.
 5. Keep unmatched activity outside strategy P&L. Do not overwrite individual strategy positions from account-wide broker totals.
-6. Enable personal Live only after verifying applicable broker requirements. Private mode does not establish a compliance exemption.
+6. Enable Live only after verifying applicable broker requirements. Private mode does not establish a compliance exemption.
 7. Verify direct broker access and incident procedures remain available independently of the application.
 
 No TrueData account, key, adapter or replacement source is required by this implementation.
@@ -468,7 +470,7 @@ broker does not replace the platform's data source or create another market feed
 5. Configure `CREDENTIAL_ENCRYPTION_KEYS` before saving app credentials. Back up
    the database together with its encryption keys. Rotation uses the existing
    `rotate_credential_encryption` command; there is no plaintext secret fallback.
-6. Use the mode's execution scope and personal broker setup for Live. App
+6. Use the mode's execution scope and account-owned broker setup for Live. App
    configuration alone does not grant Live execution. Public Workspace keeps
    its existing scope boundary.
 
@@ -604,7 +606,7 @@ Before accepting customers, record evidence for:
 - Actual ARM64 image startup and resource admission measurements.
 - Restored encrypted backups and worker/crash recovery.
 - Privacy/tenant isolation, owned exports and safe account shutdown.
-- Personal-only Private with instance-local accounts, shared registration/UI, no quotas or checkout and applicable broker authorization.
+- Managed or personal Private with instance-local accounts, shared registration/UI, no quotas or checkout and applicable broker authorization.
 
 The software can be configured before these external prerequisites exist. Keep the affected feature in qualified beta/unavailable and checkout disabled until they are accepted. Record public, Private non-live and Private Live readiness separately.
 

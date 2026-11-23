@@ -113,8 +113,8 @@ python3 infra/shared/scripts/deploy.py --root . --mode development --build
 python3 infra/shared/scripts/diagnostics.py --root . --mode development
 ```
 
-The first command builds images, waits for data services, stops application
-services, migrates, configures Timescale/Site/static assets and starts the stack.
+The first command builds images, validates settings, stops application services,
+waits for data services, migrates, configures Timescale/Site/static assets and starts the stack.
 The second checks effective configuration, running services, execution workers
 and both Celery workers' actual queue subscriptions.
 Open `http://localhost:5173` for React. `http://localhost:8000/admin/` is the local

@@ -8,7 +8,7 @@ from .contracts import interval_minutes
 
 class MarketSessionCalendar:
     def __init__(self, exchange, timezone_name, market_open, market_close, *,
-                 segment=FyersSegment.CAPITAL_MARKET, config_id=None,
+                 segment: int = FyersSegment.CAPITAL_MARKET, config_id=None,
                  trading_weekdays=(0, 1, 2, 3, 4), session_breaks=()):
         self.exchange, self.segment, self.config_id = exchange, segment, config_id
         self.timezone_name, self.zone = timezone_name, ZoneInfo(timezone_name)
@@ -29,7 +29,7 @@ class MarketSessionCalendar:
         return cls.for_exchange(instrument.exchange, instrument.segment)
 
     @classmethod
-    def for_exchange(cls, exchange, segment=FyersSegment.CAPITAL_MARKET):
+    def for_exchange(cls, exchange, segment: int = FyersSegment.CAPITAL_MARKET):
         from common.models import ExchangeConfig
         config = ExchangeConfig.objects.filter(exchange=exchange, segment=segment, is_active=True).first()
         if config is None:
@@ -129,7 +129,10 @@ class MarketSessionCalendar:
             return self.session_open(day)
         opening = next((left for left, right in self.trading_periods(day) if left <= instant < right),
                        self.session_open(day))
-        step = interval_minutes(timeframe) * 60
+        minutes = interval_minutes(timeframe)
+        if minutes is None:
+            raise ValueError(f'Unsupported candle timeframe: {timeframe}')
+        step = minutes * 60
         stamp = opening.timestamp() + ((instant.timestamp() - opening.timestamp()) // step) * step
         return datetime.fromtimestamp(stamp, self.zone)
 

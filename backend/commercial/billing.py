@@ -14,7 +14,7 @@ from .catalog import get_active_catalog
 from .usage import hash_payload, reject_request
 
 
-def parse_provider_timestamp(value):
+def parse_provider_timestamp(value) -> datetime | None:
     return datetime.fromtimestamp(int(value), utc.utc) if value else None
 
 
@@ -25,17 +25,19 @@ def require_verified_email(user):
 
 def calculate_billing_totals(catalog, plan, subscription=None):
     base = catalog.specification["plans"][plan]["price_minor"]
-    protected = bool(subscription and subscription.plan == plan and subscription.founding_price_until and subscription.founding_price_until > timezone.now())
-    if protected:
+    protected_until = None
+    if (subscription is not None and subscription.plan == plan and subscription.founding_price_until
+            and subscription.founding_price_until > timezone.now()):
         base = min(base, subscription.protected_price_minor or base)
+        protected_until = subscription.founding_price_until
     tax = (base * settings.BILLING_TAX_BPS + 5000) // 10000
     return {"base_minor": base, "tax_minor": tax, "total_minor": base + tax,
-        "price_protected_until": subscription.founding_price_until if protected else None}
+        "price_protected_until": protected_until}
 
 
 def create_checkout(user, data, key, *, manual=False):
     if settings.QUANTNEST_DEPLOYMENT_MODE == "private":
-        reject_request("checkout_unavailable", "Personal Private does not use public subscription checkout.")
+        reject_request("checkout_unavailable", "QuantNest Private pricing and payments are agreed directly with support.")
     require_verified_email(user)
     if not settings.BILLING_ENABLED:
         reject_request("checkout_unavailable", "Checkout is not open yet. You can use Explore or contact us.")
@@ -146,12 +148,13 @@ def verify_payment(payment_id, *, user=None):
     provider_subscription = request_razorpay("GET", "subscriptions/" + subscription_id) if subscription_id else None
     purchased_catalog, purchased_plan = attempt.catalog, attempt.plan
     base_minor, tax_minor, total_minor = attempt.base_minor, attempt.tax_minor, attempt.total_minor
-    verified_start = verified_end = None
+    billing_period = None
     if provider_subscription and captured_payment:
         verified_start, verified_end = parse_provider_timestamp(invoice_data.get("billing_start")), parse_provider_timestamp(invoice_data.get("billing_end"))
         if (invoice_data.get("subscription_id") != subscription_id or invoice_data.get("payment_id") != payment_id
                 or invoice_data.get("status") != "paid" or not verified_start or not verified_end or verified_end <= verified_start):
             reject_request("billing_period_pending", "The captured payment is awaiting its own verified invoice period.")
+        billing_period = (verified_start, verified_end)
         current = Subscription.objects.filter(user_id=attempt.user_id, provider_id=subscription_id).first()
         changed = RenewalTerms.objects.select_related("mapping__catalog").filter(subscription=current,
             state="accepted", effective_after__lte=verified_start).order_by("-effective_after", "-pk").first() if current else None
@@ -194,8 +197,8 @@ def verify_payment(payment_id, *, user=None):
             return payment
         subscription, _ = Subscription.objects.get_or_create(user=attempt.user, defaults={"catalog": attempt.catalog})
         captured = parse_provider_timestamp(payment_data.get("captured_at")) or parse_provider_timestamp(invoice_data.get("paid_at")) or parse_provider_timestamp(payment_data.get("created_at")) or now
-        if provider_subscription:
-            start, end = verified_start, verified_end
+        if billing_period is not None:
+            start, end = billing_period
         else:
             start = max(captured, subscription.paid_through or captured)
             end = start + relativedelta(months=1)
@@ -269,7 +272,7 @@ def cancel_subscription_renewal(user):
 
 def schedule_plan_change(user, plan, approved_total=None):
     if settings.QUANTNEST_DEPLOYMENT_MODE == "private":
-        reject_request("checkout_unavailable", "Personal Private has no subscription or renewal.")
+        reject_request("checkout_unavailable", "QuantNest Private renewals are agreed directly with support.")
     if not isinstance(plan, str) or plan not in {"explore", "build", "pro"}:
         reject_request("invalid_plan", "Choose Explore, Build or Pro.")
     if plan == "explore":
@@ -385,6 +388,8 @@ def refresh_subscription_access(payment):
     subscription = Subscription.objects.select_for_update().filter(user_id=payment.attempt.user_id).first()
     if subscription:
         if latest:
+            # The query excludes payments without a completed billing period.
+            assert latest.period_end is not None
             subscription.period_start, subscription.paid_through = latest.period_start, latest.period_end
             subscription.plan = latest.billing_snapshot.get("plan", latest.attempt.plan)
             revision = latest.billing_snapshot.get("catalog", latest.attempt.catalog.revision)
@@ -410,8 +415,9 @@ def record_refund(payment, data, *, refund_request=None):
     if row.status != "processed":
         row.status = data.get("status", "pending")
     if row.status == "processed" and not row.credit_note:
+        issued_at = parse_provider_timestamp(data.get("created_at")) or timezone.now()
         row.credit_note = {"number": "QN-CN-"+str(row.pk), "invoice": payment.invoice.number, "amount_minor": row.amount_minor,
-            "currency": payment.currency, "provider_refund_id": row.provider_id, "issued_at": parse_provider_timestamp(data.get("created_at")).isoformat() if data.get("created_at") else timezone.now().isoformat()}
+            "currency": payment.currency, "provider_refund_id": row.provider_id, "issued_at": issued_at.isoformat()}
     row.save()
     if refund_request is None:
         notes = data.get("notes") or {}

@@ -33,7 +33,7 @@ def encode_account_export(account, collections):
 
 def shutdown_account(user, *, erase=False):
     """Freeze account admission under the same locks as execution; never force exits."""
-    from django.contrib.auth import get_user_model
+    from users.models import User
     from django.db import transaction
     from django.utils import timezone
     from brokers.models import BrokerCredential, BrokerSession
@@ -46,7 +46,7 @@ def shutdown_account(user, *, erase=False):
     from commercial.usage import settle_usage
     from users.sessions import revoke_sessions
     with transaction.atomic():
-        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+        user = User.objects.select_for_update().get(pk=user.pk)
         list(BrokerCredential.objects.select_for_update().filter(user=user).order_by("pk"))
         list(PaperAccount.objects.select_for_update().filter(user=user).order_by("pk"))
         list(Account.objects.select_for_update().filter(user=user).order_by("pk"))
@@ -89,7 +89,7 @@ def shutdown_account(user, *, erase=False):
             avatar = user.avatar
             if avatar:
                 transaction.on_commit(lambda: avatar.storage.delete(avatar.name))
-            user.avatar = None
+            user.avatar.name = ''
             user.email = f"deleted_{user.pk}@example.invalid"
             user.username = f"deleted_user_{user.pk}"
             user.first_name = user.last_name = user.bio = ""

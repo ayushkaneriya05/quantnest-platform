@@ -1,5 +1,7 @@
 """Customer record linking and support email."""
 from functools import partial
+from typing import cast
+from celery.app.task import Task
 from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.db import transaction
@@ -14,7 +16,7 @@ def link_verified_customer_records(user):
 
 
 def queue_support_email(**message):
-    transaction.on_commit(partial(send_support_email_task.delay, **message), robust=True)
+    transaction.on_commit(partial(cast(Task, send_support_email_task).delay, **message), robust=True)
 
 
 def queue_ticket_acknowledgement(ticket):

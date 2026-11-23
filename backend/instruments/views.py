@@ -1,6 +1,8 @@
 """
 Views for the instruments app.
 """
+from common.validation import validate_value
+from typing import cast
 from rest_framework import viewsets, permissions, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -31,7 +33,7 @@ class InstrumentViewSet(viewsets.ReadOnlyModelViewSet):
         from .selection import SelectionPolicy, prepare_current_selector
         if not isinstance(request.data, dict) or set(request.data) != {'underlying_id', 'policy'}:
             raise serializers.ValidationError('Provide underlying_id and policy.')
-        identity = serializers.IntegerField(min_value=1).run_validation(request.data['underlying_id'])
+        identity = cast(int, validate_value(serializers.IntegerField(min_value=1), request.data['underlying_id']))
         underlying = get_object_or_404(Instrument, pk=identity, is_active=True)
         try:
             policy = SelectionPolicy.parse(request.data['policy'])

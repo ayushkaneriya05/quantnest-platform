@@ -10,6 +10,7 @@ from django.db import models
 
 
 class User(AbstractUser):
+    id: int
     first_name = models.CharField(max_length=30, blank=True)
     last_name = models.CharField(max_length=30, blank=True)
     email = models.EmailField(unique=True)
@@ -39,6 +40,8 @@ class User(AbstractUser):
 
 class BackupCode(models.Model):
     """One-time-use backup codes for 2FA recovery."""
+    id: int
+    user_id: int
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="backup_codes")
     code_hash = models.CharField(max_length=128)
@@ -83,6 +86,8 @@ class BackupCode(models.Model):
 
 class UserSession(models.Model):
     """Tracks active JWT sessions for a user with metadata."""
+    id: int
+    user_id: int
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sessions")
     session_id = models.UUIDField(unique=True, help_text="Constant Session Identifier", default=uuid.uuid4)

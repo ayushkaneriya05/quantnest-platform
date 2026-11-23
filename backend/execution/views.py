@@ -1,4 +1,7 @@
 """Read-only, owner-scoped settlement history. Financial writes use commands."""
+from common.validation import validate_value
+from typing import cast
+from rest_framework.request import Request
 from django.db.models import Q
 from rest_framework import generics, serializers
 from common.pagination import StandardPagination
@@ -24,6 +27,7 @@ class SettlementSerializer(serializers.ModelSerializer):
 
 
 class SettlementHistoryView(generics.ListAPIView):
+    request: Request
     permission_classes = [IsAuthenticated]
     serializer_class = SettlementSerializer
     pagination_class = StandardPagination
@@ -37,7 +41,7 @@ class SettlementHistoryView(generics.ListAPIView):
         accounts = model.objects.filter(user=self.request.user)
         identity = self.request.query_params.get('account_id')
         if identity:
-            identity = serializers.IntegerField(min_value=1).run_validation(identity)
+            identity = cast(int, validate_value(serializers.IntegerField(min_value=1), identity))
             accounts = accounts.filter(pk=identity)
         rows = SettlementPosting.objects.filter(mode=self.mode, account_id__in=accounts.values('pk')).select_related('price__instrument')
         search = self.request.query_params.get('symbol', '')[:100]

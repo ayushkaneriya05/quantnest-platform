@@ -1,5 +1,6 @@
 """Adapter selection and one shared request budget for market-data HTTP calls."""
 import time
+from typing import cast
 from datetime import datetime
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -39,10 +40,10 @@ def acquire_data_request(adapter, *, wait_seconds=5):
     deadline = time.monotonic() + wait_seconds
     while True:
         day = datetime.now(zone).date().isoformat()
-        delay = int(runtime_redis().eval(
+        delay = int(cast(int, runtime_redis().eval(
             REQUEST_BUDGET, 2, f"{prefix}:spacing", f"{prefix}:{day}",
             adapter.request_interval_ms, adapter.daily_request_limit,
-        ))
+        )))
         if delay == 0:
             return
         if delay < 0:

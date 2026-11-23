@@ -1,6 +1,19 @@
 """
 Strategies app - core strategy configuration and metadata.
 """
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from backtesting.models import BacktestRun
+    from live_trading.models import LiveOrder
+    from live_trading.models import LivePosition
+    from live_trading.models import LiveStrategyAllocation
+    from live_trading.models import TradingSession
+    from paper_trading.models import CapitalAllocation
+    from paper_trading.models import PaperOrder
+    from paper_trading.models import PaperPosition
+    from paper_trading.models import PaperTrade
+
 from django.db import models
 from django.conf import settings
 from common.models import BaseTimestampModel
@@ -16,6 +29,7 @@ class StrategyTag(models.Model):
     """
     Tags for categorizing strategies (trend, momentum, mean-reversion, etc.)
     """
+    id: int
     name = models.CharField(max_length=50, unique=True)
     description = models.CharField(max_length=255, blank=True)
 
@@ -28,6 +42,17 @@ class Strategy(BaseTimestampModel):
     Core strategy configuration model.
     Contains all meta information about a trading strategy.
     """
+    versions: "models.Manager[StrategyVersion]"
+    backtest_runs: "models.Manager[BacktestRun]"
+    capital_allocations: "models.Manager[CapitalAllocation]"
+    paper_positions: "models.Manager[PaperPosition]"
+    paper_orders: "models.Manager[PaperOrder]"
+    paper_trades: "models.Manager[PaperTrade]"
+    live_sessions: "models.Manager[TradingSession]"
+    live_allocations: "models.Manager[LiveStrategyAllocation]"
+    live_orders: "models.Manager[LiveOrder]"
+    live_positions: "models.Manager[LivePosition]"
+    user_id: int
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -162,6 +187,8 @@ class StrategyVersion(BaseTimestampModel):
     Version history for strategy configurations.
     Stores complete snapshots for rollback capability.
     """
+    strategy_id: int
+    created_by_id: int | None
     strategy = models.ForeignKey(
         Strategy,
         on_delete=models.CASCADE,

@@ -10,8 +10,9 @@ QuantNest connects research, your own strategy rules, historical testing, manual
 simulation and automated Paper practice. All public plans include NSE stocks,
 futures and options for backtesting, Terminal simulation and Paper, within their
 allowances. Direct AI stock analysis and screening focus on active NSE stocks.
-Available contracts and provider history determine what you can test. Customer
-Live trading and QuantNest Private are not offered. Check
+Available contracts and provider history determine what you can test.
+[QuantNest Private](/docs/private/) adds supported broker connections and automated
+[Live strategies](/docs/live/) in a separately managed workspace. Check
 [Billing and Usage](/docs/billing/) before upgrading for a particular task.
 
 You do not need to connect a personal broker account for research, backtests,

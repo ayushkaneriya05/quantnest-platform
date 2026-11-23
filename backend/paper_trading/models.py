@@ -22,6 +22,8 @@ class Portfolio(BaseTimestampModel):
     """
     User's trading portfolio with capital and performance tracking.
     """
+    allocations: "models.Manager[CapitalAllocation]"
+    user_id: int
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -32,11 +34,11 @@ class Portfolio(BaseTimestampModel):
     
     # Capital
     initial_capital = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
+        max_digits=15, decimal_places=2, default=Decimal('0'),
         help_text="Starting capital"
     )
     current_capital = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
+        max_digits=15, decimal_places=2, default=Decimal('0'),
         help_text="Current available capital"
     )
     is_active = models.BooleanField(default=True)
@@ -98,6 +100,10 @@ class CapitalAllocation(BaseTimestampModel):
     """
     Capital allocated to a specific strategy.
     """
+    paper_sessions: "models.Manager[PaperTradingSession]"
+    portfolio_id: int
+    strategy_id: int
+    deployed_version_id: int | None
     portfolio = models.ForeignKey(
         Portfolio,
         on_delete=models.CASCADE,
@@ -118,7 +124,7 @@ class CapitalAllocation(BaseTimestampModel):
     )
     
     allocated_amount = models.DecimalField(
-        max_digits=15, decimal_places=2, default=0,
+        max_digits=15, decimal_places=2, default=Decimal('0'),
         help_text="Capital assigned to this deployment"
     )
 
@@ -135,6 +141,7 @@ class FundTransaction(BaseTimestampModel):
     """
     Record of fund deposits, withdrawals, and transfers.
     """
+    portfolio_id: int
     portfolio = models.ForeignKey(
         Portfolio,
         on_delete=models.CASCADE,
@@ -195,10 +202,26 @@ class PaperAccountQuerySet(models.QuerySet):
         )
 
 
+class PaperAccountManager(models.Manager):
+    _hints: dict
+
+    def get_queryset(self):
+        return PaperAccountQuerySet(self.model, using=self._db, hints=self._hints)
+
+    def with_totals(self):
+        return self.get_queryset().with_totals()
+
+
 class PaperAccount(BaseTimestampModel):
     """
     Virtual trading account for paper trading.
     """
+    positions: "models.Manager[PaperPosition]"
+    orders: "models.Manager[PaperOrder]"
+    trades: "models.Manager[PaperTrade]"
+    sessions: "models.Manager[PaperTradingSession]"
+    user_id: int
+    allocation_id: int
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -212,13 +235,13 @@ class PaperAccount(BaseTimestampModel):
         help_text="Capital allocation this paper account was created from"
     )
     
-    objects = PaperAccountQuerySet.as_manager()
+    objects: PaperAccountManager = PaperAccountManager()
 
     name = models.CharField(max_length=100, default='Paper Account')
     
     # Capital
-    initial_balance = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
-    current_balance = models.DecimalField(max_digits=15, decimal_places=2, default=100000)
+    initial_balance = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('100000'))
+    current_balance = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('100000'))
     
     class Meta:
         db_table = 'paper_account'
@@ -277,6 +300,9 @@ class PaperPosition(BaseTimestampModel, RouteOwnership):
     """
     Open position in a paper trading account.
     """
+    account_id: int
+    strategy_id: int | None
+    instrument_id: int
     account = models.ForeignKey(
         PaperAccount,
         on_delete=models.CASCADE,
@@ -298,15 +324,15 @@ class PaperPosition(BaseTimestampModel, RouteOwnership):
     side = models.CharField(max_length=10, choices=Side.choices)
     quantity = models.PositiveIntegerField()
     avg_price = models.DecimalField(max_digits=12, decimal_places=4)
-    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=Decimal('0'))
     
     # Current values
-    current_price = models.DecimalField(max_digits=12, decimal_places=4, default=0)
-    unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    current_price = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
+    unrealized_pnl = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     
     
     # Margin
-    margin_blocked = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    margin_blocked = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     
     # Timestamps
     opened_at = models.DateTimeField(default=timezone.now)
@@ -331,7 +357,10 @@ class PaperPosition(BaseTimestampModel, RouteOwnership):
 
 
 class PaperOrder(BaseTimestampModel, RouteOwnership):
-    reserved_capital = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    account_id: int
+    strategy_id: int | None
+    instrument_id: int
+    reserved_capital = models.DecimalField(max_digits=20, decimal_places=2, default=Decimal('0'))
     """
     Order placed in paper trading.
     """
@@ -367,8 +396,8 @@ class PaperOrder(BaseTimestampModel, RouteOwnership):
     # Execution
     filled_quantity = models.PositiveIntegerField(default=0)
     avg_fill_price = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    slippage_pct_applied = models.DecimalField(max_digits=7, decimal_places=4, default=0)
-    slippage_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    slippage_pct_applied = models.DecimalField(max_digits=7, decimal_places=4, default=Decimal('0'))
+    slippage_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     
     # Status
     status = models.CharField(max_length=20, choices=OrderStatus.choices, default=OrderStatus.PENDING)
@@ -403,6 +432,11 @@ class PaperTrade(BaseTimestampModel, RouteOwnership):
     """
     Completed trade (entry + exit) in paper trading.
     """
+    account_id: int
+    strategy_id: int | None
+    instrument_id: int
+    entry_order_id: int | None
+    exit_order_id: int | None
     account = models.ForeignKey(
         PaperAccount,
         on_delete=models.CASCADE,
@@ -448,10 +482,10 @@ class PaperTrade(BaseTimestampModel, RouteOwnership):
     # P&L
     gross_pnl = models.DecimalField(max_digits=12, decimal_places=2)
     net_pnl = models.DecimalField(max_digits=12, decimal_places=2)
-    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
+    settled_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=Decimal('0'))
     pnl_pct = models.DecimalField(max_digits=8, decimal_places=4)
-    brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    taxes = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    brokerage = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    taxes = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     charges_json = models.JSONField(default=dict, blank=True)
     
     # Duration
@@ -474,13 +508,16 @@ class PaperTrade(BaseTimestampModel, RouteOwnership):
 
 
 class PaperTradingSession(BaseTimestampModel):
+    """Control whether a Paper deployment is running, paused or stopped."""
+    applied_version_id: int | None
+    user_id: int
+    strategy_id: int
+    account_id: int
+    charge_profile_id: int | None
+    allocation_id: int
     applied_version = models.ForeignKey('strategies.StrategyVersion', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='+')
     applied_at = models.DateTimeField(null=True, blank=True)
-    """
-    Execution controller for paper trading. Mirrors TradingSession from live trading.
-    Controls whether a paper deployment is RUNNING, PAUSED, or STOPPED.
-    """
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -504,7 +541,7 @@ class PaperTradingSession(BaseTimestampModel):
     slippage_pct = models.DecimalField(
         max_digits=7,
         decimal_places=4,
-        default=0,
+        default=Decimal('0'),
         help_text='Simulated adverse fill adjustment as a percentage.'
     )
     charge_profile = models.ForeignKey(

@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from math import isfinite, nan
 import operator
+from typing import cast
 
 from common.enums import ComparisonOperator, OperandType
 
@@ -25,6 +26,7 @@ NUMERIC_FUNCTIONS = {'add': operator.add, 'subtract': operator.sub, 'multiply': 
 
 def validate_tree(root, validate_input=None, *, expected='boolean', captures=None, expressions=None):
     """Return an owned, normalized tree; reject ignored fields and wrong types."""
+    expressions = expressions or {}
     count = 0
     expanding = set()
 
@@ -116,6 +118,7 @@ def validate_tree(root, validate_input=None, *, expected='boolean', captures=Non
 
 def input_requirements(root, expressions=None, _trail=(), _extra=0):
     """Propagate native-bar lookback through nested windows during preparation."""
+    expressions = expressions or {}
     if root['op'] == 'input':
         yield root, _extra
     elif root['op'] == 'expression':
@@ -183,7 +186,8 @@ def parse_arithmetic_expression(expression: str, variable_names: Iterable[str] =
         raise ValueError('Enter a valid arithmetic expression.') from None
 
     allowed_names = set(variable_names)
-    pending, count = [(tree, 0)], 0
+    pending: list[tuple[ast.AST, int]] = [(tree, 0)]
+    count = 0
     while pending:
         node, depth = pending.pop()
         count += 1
@@ -193,11 +197,12 @@ def parse_arithmetic_expression(expression: str, variable_names: Iterable[str] =
             raise ValueError('Only numeric constants, configured variables and arithmetic operators are supported.')
         if isinstance(node, ast.Name) and node.id not in allowed_names:
             raise ValueError(f'Unknown expression variable: {node.id}.')
-        if isinstance(node, ast.Constant) and (isinstance(node.value, bool) or not isinstance(node.value, (int, float))):
-            raise ValueError('Expression constants must be numbers.')
         if isinstance(node, ast.Constant):
+            value = node.value
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError('Expression constants must be numbers.')
             try:
-                finite = isfinite(node.value)
+                finite = isfinite(value)
             except OverflowError:
                 finite = False
             if not finite:
@@ -221,7 +226,7 @@ def compile_arithmetic(tree, variable_names):
         if isinstance(node, ast.Name):
             return variables[node.id]
         if isinstance(node, ast.Constant):
-            instructions.append((None, (float(node.value),)))
+            instructions.append((None, (float(cast(int | float, node.value)),)))
         elif isinstance(node, ast.UnaryOp):
             index = visit(node.operand)
             if isinstance(node.op, ast.UAdd):
@@ -240,8 +245,12 @@ def compile_numeric(node, operand, named=None, window=None):
     """Lower a tree into leaves plus a topologically ordered numerical program."""
     from .compiler import Operand
     if node['op'] in WINDOWS:
+        if window is None:
+            raise ValueError('Window expressions require a window compiler.')
         return window(node)
     if node['op'] == 'expression':
+        if named is None:
+            raise ValueError('Named expressions require a formula compiler.')
         return named(node['name'])
     if node['op'] == 'capture':
         return Operand('', '', {}, capture=(node['setup'], node['name']))

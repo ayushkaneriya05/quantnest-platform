@@ -7,8 +7,10 @@ order: 9
 ## Choose the source before reading a result
 
 Open **Trade Journal** or **Performance Reports**. Select Terminal or Paper; Live
-appears only on deployments where that execution scope is enabled. Customer
-Live trading is not part of the current public offer.
+appears on workspaces with Live execution scope, including
+[QuantNest Private](/docs/private/). Public plans retain Terminal/Paper reporting.
+Live results currently exclude actual broker charges; preserve that basis when
+comparing them with simulated results.
 
 Use dates and the offered instrument/account/review filters. A Terminal account
 and a Paper session are separate records. Keep the selected source and charge

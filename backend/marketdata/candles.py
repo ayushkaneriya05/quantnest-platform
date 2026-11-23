@@ -1,13 +1,34 @@
 """Shared historical reads and pure candle aggregation, including live observations."""
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import hashlib
+from typing import Protocol, cast
 
 import numpy as np
 import pandas as pd
 
 from .contracts import CandleRequest, HistoryRequest, OHLCV, interval_minutes, source_timeframe
+
+
+class CandleRow(Protocol):
+    """Columns guaranteed by the shared OHLCV loaders."""
+    Index: pd.Timestamp
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class ChartRow(CandleRow, Protocol):
+    source_end: int
+    available_at: int
+    is_final: bool
+
+
+def candle_rows(frame: pd.DataFrame) -> Iterator[CandleRow]:
+    return cast(Iterator[CandleRow], frame.itertuples())
 
 
 def candle_frame(rows: list[dict]) -> pd.DataFrame:
@@ -20,7 +41,7 @@ def candle_frame(rows: list[dict]) -> pd.DataFrame:
 def available_frame(frame: pd.DataFrame, timeframe: str, calendar) -> pd.DataFrame:
     result = frame.loc[:, list(OHLCV)].copy()
     result.index = pd.DatetimeIndex([calendar.candle_close(stamp.to_pydatetime(), timeframe)
-                                    for stamp in frame.index], tz="UTC", name="timestamp")
+                                    for stamp in cast(pd.DatetimeIndex, frame.index)], tz="UTC", name="timestamp")
     return result
 
 
@@ -35,10 +56,11 @@ def aggregate_candles(data: pd.DataFrame, timeframe: str, calendar, as_of: datet
     if data.empty:
         return pd.DataFrame(columns=columns, index=pd.DatetimeIndex([], tz="UTC"))
     minutes = interval_minutes(timeframe)
-    seconds = data.index.as_unit("s").asi8
+    index = cast(pd.DatetimeIndex, data.index)
+    seconds = index.as_unit("s").view('i8')
     buckets, visible = np.zeros(len(data), dtype=np.int64), np.zeros(len(data), dtype=bool)
-    first = calendar.session_bounds(data.index[0])[0].date()
-    last = data.index[-1].astimezone(calendar.zone).date()
+    first = calendar.session_bounds(index[0])[0].date()
+    last = index[-1].astimezone(calendar.zone).date()
     # Assign integer buckets in place. Build one DataFrame, rather than slicing
     # and copying a DataFrame for every trading day and session break.
     for day in calendar._date_range(first, last):
@@ -69,7 +91,7 @@ def aggregate_candles(data: pd.DataFrame, timeframe: str, calendar, as_of: datet
     )
     frame.index = pd.to_datetime(frame.index, unit="s", utc=True).rename("time")
     frame["available_at"] = [int(calendar.candle_close(stamp.to_pydatetime(), timeframe).timestamp())
-                             for stamp in frame.index]
+                             for stamp in cast(pd.DatetimeIndex, frame.index)]
     frame["is_final"] = frame["available_at"] <= as_of.timestamp()
     return frame if include_open else frame.loc[frame["is_final"]]
 
@@ -93,7 +115,7 @@ class CandleBatch:
              "volume": int(row.volume), "source_end": int(row.source_end),
              "available_at": int(row.available_at), "is_final": bool(row.is_final),
              "source": "provider", "revision": self.quality["updated_at"]}
-            for row in self.frame.itertuples()
+            for row in cast(Iterator[ChartRow], self.frame.itertuples())
         ]
 
 

@@ -1,11 +1,11 @@
 import logging
 from io import BytesIO
+from typing import cast
 
 
 import qrcode
 import qrcode.image.svg
 from allauth.account.models import EmailAddress
-from django.contrib.auth import get_user_model
 from django_otp import devices_for_user
 from rest_framework import generics, status, throttling
 from rest_framework.exceptions import ValidationError
@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 from dj_rest_auth.jwt_auth import unset_jwt_cookies
 from django.db import transaction
 
-from .models import BackupCode
+from .models import BackupCode, User
 from .serializers import UserProfileSerializer
 from .sessions import revoke_sessions
 from .auth_views import AuthActionMixin, LoginThrottle, SecurityActionThrottle
@@ -23,7 +23,6 @@ from .auth_views import AuthActionMixin, LoginThrottle, SecurityActionThrottle
 
 logger = logging.getLogger(__name__)
 
-User = get_user_model()
 
 
 # ──────────────────────────────────────────────
@@ -225,7 +224,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     throttle_classes = [throttling.UserRateThrottle]
 
     def get_object(self):
-        return self.request.user
+        return cast(User, self.request.user)
 
     def update(self, request, *args, **kwargs):
         user = self.get_object()

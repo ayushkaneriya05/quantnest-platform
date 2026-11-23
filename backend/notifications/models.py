@@ -6,6 +6,7 @@ from common.models import BaseTimestampModel
 
 
 class Notification(BaseTimestampModel):
+    user_id: int
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
     type = models.CharField(max_length=20, choices=NotificationType.choices, default=NotificationType.INFO)
     title = models.CharField(max_length=180)
@@ -21,6 +22,7 @@ class Notification(BaseTimestampModel):
 
 
 class NotificationPreference(BaseTimestampModel):
+    user_id: int
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_preferences")
     type = models.CharField(max_length=20, choices=NotificationType.choices)
     in_app_enabled = models.BooleanField(default=True)

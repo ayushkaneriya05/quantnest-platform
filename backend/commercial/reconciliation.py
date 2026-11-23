@@ -44,7 +44,7 @@ def link_provider_checkout(attempt, remote_id):
 def find_provider_checkout(attempt):
     """Discover by saved identity, never by user email, approximate amount or latest row."""
     kind = "subscriptions" if attempt.kind == "subscription" else "orders"
-    query = {"count": 100}
+    query: dict[str, int | str] = {"count": 100}
     if kind == "orders":
         query["receipt"] = str(attempt.pk)
     else:

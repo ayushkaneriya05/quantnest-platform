@@ -1,5 +1,7 @@
 """FYERS order-only stream using the same normalization as REST."""
 import logging
+from collections.abc import Callable
+from typing import cast
 
 from django.conf import settings
 from fyers_apiv3.FyersWebsocket import order_ws
@@ -17,7 +19,9 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
     def connect(self) -> None:
         session = self.adapter.get_session()
         self.auth_session_id = session.pk
-        self.socket = order_ws.FyersOrderSocket(
+        # FYERS documents a bool, but its SDK annotates reconnect as Callable.
+        create_socket = cast(Callable[..., order_ws.FyersOrderSocket], order_ws.FyersOrderSocket)
+        self.socket = create_socket(
             access_token=f"{self.credential.client_id}:{session.access_token}",
             log_path=str(settings.BASE_DIR / "logs"),
             on_orders=self._on_order_message,
@@ -55,7 +59,7 @@ class FyersOrderWebSocket(BaseBrokerWebSocket):
         logger.warning("FYERS order socket error credential=%s", self.credential.pk)
 
     def subscribe(self) -> None:
-        if not self.is_connected:
+        if not self.is_connected or self.socket is None:
             raise RuntimeError("Connect the broker order stream before subscribing.")
         self.socket.subscribe(data_type="OnOrders")
         self.is_subscribed = True

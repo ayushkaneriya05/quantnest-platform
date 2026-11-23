@@ -1,4 +1,5 @@
 """Small, permission-scoped option lists for searchable dropdowns."""
+from common.validation import validate_data
 from django.db.models import Case, F, IntegerField, Q, Value, When
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
@@ -99,8 +100,7 @@ def choices(request):
     # Query filters are optional values, not HTML checkboxes: omitted booleans
     # must stay absent instead of being interpreted as False by DRF.
     params = ChoiceQuerySerializer(data=request.query_params.dict())
-    params.is_valid(raise_exception=True)
-    values = params.validated_data
+    values = validate_data(params)
     source = SOURCES[values["resource"]]
     required = source.get("required")
     if required and required not in values:

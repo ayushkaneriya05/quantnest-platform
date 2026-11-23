@@ -576,7 +576,7 @@ preparation memory in every deployment mode; it is not a commercial allowance.
 The history plan can require more source bars than the parameter itself because
 of recursive convergence, timeframe expansion, Shift and nested-source warmup.
 An existing shared buffer must have enough capacity for that full plan. See
-[preparation and maintenance limits](release-readiness.md#maintenance-cases-that-still-require-care).
+[history preparation](backtesting.md) and [runtime operation](paper-trading.md#runtime-operations-and-scaling).
 
 Period/source indicators can consume a permitted price series or a listed source
 indicator. For example, select RSI as EMA's Source, configure RSI's source-parameter

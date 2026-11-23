@@ -5,6 +5,10 @@ from common.models import BaseTimestampModel
 
 
 class JournalEntry(BaseTimestampModel):
+    user_id: int
+    terminal_trade_id: int | None
+    paper_trade_id: int | None
+    live_trade_id: int | None
     class Source(models.TextChoices):
         TERMINAL = "TERMINAL", "Terminal"
         PAPER = "PAPER", "Paper"

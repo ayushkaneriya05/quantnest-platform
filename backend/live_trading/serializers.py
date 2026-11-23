@@ -1,3 +1,4 @@
+from decimal import Decimal
 from rest_framework import serializers
 
 from .models import ExecutionLog, LiveOrder, LivePosition, LiveStrategyAllocation, LiveTrade, SlippageRecord, TradingSession
@@ -17,7 +18,7 @@ class TradingSessionSerializer(serializers.ModelSerializer):
     broker_session_valid = serializers.BooleanField(source="annotated_broker_session_valid", read_only=True)
     allocation = serializers.SerializerMethodField()
     trades_count = serializers.IntegerField(source="allocation.annotated_trade_count", read_only=True, default=0)
-    pnl = serializers.DecimalField(source="allocation.annotated_total_pnl", max_digits=18, decimal_places=4, read_only=True, default=0)
+    pnl = serializers.DecimalField(source="allocation.annotated_total_pnl", max_digits=18, decimal_places=4, read_only=True, default=Decimal('0'))
 
     class Meta:
         model = TradingSession

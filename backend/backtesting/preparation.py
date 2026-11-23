@@ -40,8 +40,8 @@ def acquire_plan(compiled, plan, *, report, check_cancelled):
             for source, bounds in row['windows'].items():
                 if stopped.is_set():
                     return
-                request = HistoryRequest(instrument, source,
-                    *(datetime.fromisoformat(value) for value in bounds), calendar)
+                start, end = (datetime.fromisoformat(value) for value in bounds)
+                request = HistoryRequest(instrument, source, start, end, calendar)
                 result = ensure_history(request)
                 if result.error and not result.retryable:
                     raise ValueError(f'{instrument.sym_ticker}: {result.error}')
@@ -175,6 +175,7 @@ def build_plan(config, start, end, *, maximum=None, on_progress=None):
         if contract and contract.expiry and contract.expiry < start.astimezone(calendar.zone).date():
             raise ValueError(f'{instrument.name}: the requested range starts after contract expiry.')
         if assumed_from:
+            assert contract is not None
             terms = assumed_from, contract.lot_size, str(contract.tick_size), str(contract.multiplier), contract.quantity_freeze
             assumptions[terms] = assumptions.get(terms, 0) + 1
         for watch in config['watchlist_instruments']:

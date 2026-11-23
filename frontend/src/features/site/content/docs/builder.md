@@ -12,7 +12,7 @@ position. It does not start running when you save it.
 All public plans include NSE stocks, futures and options for backtesting and
 simulation, within the plan allowances. Use a fixed instrument or an automatic
 contract-selection policy. Contracts still need eligible instrument details and
-available data; public plans do not include customer Live trading. See
+available data; public plans cover simulation; QuantNest Private adds broker-connected Live strategies. See
 [Billing and Usage](/docs/billing/).
 
 ## Create and navigate a strategy

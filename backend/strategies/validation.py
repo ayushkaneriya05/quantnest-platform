@@ -72,7 +72,7 @@ def validate_operand_parameters(operand_type: OperandType, raw_params: dict, fie
                     source_type = OperandType(value)
                 except ValueError:
                     source_type = None
-                if source_type in PARAMETERS:
+                if source_type is not None and source_type in PARAMETERS:
                     source_schema = PARAMETERS[source_type]
                     raw_source_params = normalized.get('source_params') or {}
                     if not isinstance(raw_source_params, dict):

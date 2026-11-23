@@ -176,7 +176,8 @@ class PaperExecutionService:
             slippage_pct = Decimal(str(slippage_pct))
         except (InvalidOperation, TypeError, ValueError):
             raise ValueError("Slippage must be a valid percentage.")
-        if not slippage_pct.is_finite() or not 0 <= slippage_pct < 100 or slippage_pct.as_tuple().exponent < -4:
+        exponent = slippage_pct.as_tuple().exponent
+        if not slippage_pct.is_finite() or not isinstance(exponent, int) or not 0 <= slippage_pct < 100 or exponent < -4:
             raise ValueError('Slippage must be at least zero and less than 100 percent, with at most 4 decimal places.')
         if not isinstance(include_charges, bool):
             raise ValueError("Include charges must be true or false.")
@@ -206,7 +207,7 @@ class PaperExecutionService:
             session.user, slippage_pct, charge_profile_id, include_charges
         )
         session.slippage_pct = slippage_pct
-        session.charge_profile = profile
+        session.charge_profile_id = profile.pk if profile is not None else None
         session.charge_profile_snapshot = snapshot
         session.include_charges = include_charges
         session.save(update_fields=[

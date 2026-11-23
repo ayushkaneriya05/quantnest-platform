@@ -100,7 +100,7 @@ class PreparedSelector:
         first = (bisect_left if policy.allow_expiry_day else bisect_right)(self.expiries, session_day)
         if policy.expiry == ExpirySelection.FIXED:
             expiry = policy.expiry_date
-            if expiry not in self.contracts or expiry < session_day or (expiry == session_day and not policy.allow_expiry_day):
+            if expiry is None or expiry not in self.contracts or expiry < session_day or (expiry == session_day and not policy.allow_expiry_day):
                 raise ValueError('The requested expiry is not eligible in this catalog.')
         else:
             index = first + (policy.expiry == ExpirySelection.NEXT)
@@ -137,6 +137,7 @@ class PreparedSelector:
         if self.policy.instrument_type == InstrumentType.FUTURE or self.policy.strike == StrikeSelection.FIXED:
             return {selected.instrument_id}
         grid = self.grids[selected.expiry]
+        assert selected.strike is not None, 'Selected options require a qualified strike.'
         index = bisect_left(grid, selected.strike)
         return {self.contracts[selected.expiry][strike].instrument_id
                 for strike in grid[max(0, index-1):index+2]}
@@ -165,7 +166,7 @@ def prepare_current_selector(underlying, policy, *, allow_empty=False):
     instruments = {row.pk: row for row in rows}
     if not instruments and not allow_empty:
         raise ValueError('No qualified contracts are linked to this underlying. Sync the instrument catalog first.')
-    candidates = tuple(Candidate(row.pk, row.expiry_date, row.strike_price) for row in instruments.values())
+    candidates = tuple(Candidate(row.pk, row.expiry_date, row.strike_price) for row in instruments.values() if row.expiry_date is not None)
     if policy.expiry == ExpirySelection.FIXED:
         candidates = tuple(row for row in candidates if row.expiry == policy.expiry_date)
     else:

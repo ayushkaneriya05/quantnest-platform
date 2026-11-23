@@ -2,6 +2,7 @@
 from dataclasses import fields, replace
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from .types import Account, Contract, EntryLot, Order, Position
 
@@ -19,9 +20,9 @@ def active_account(account: Account) -> Account:
     return replace(account, orders=dict(account.working))
 
 
-def encode(value):
+def encode(value: Any) -> Any:
     record = RECORDS.get(type(value).__name__)
-    if record is type(value):
+    if record is not None and record is type(value):
         return {'record': record.__name__, 'fields': {field.name: encode(getattr(value, field.name)) for field in fields(value) if field.init}}
     if isinstance(value, Decimal):
         return {'decimal': str(value)}
@@ -40,7 +41,7 @@ def encode(value):
     raise TypeError(f'Unsupported checkpoint value: {type(value).__name__}')
 
 
-def decode(value):
+def decode(value: Any) -> Any:
     if isinstance(value, list):
         return [decode(item) for item in value]
     if not isinstance(value, dict):

@@ -1,7 +1,10 @@
 """Validate previews and execute only explicit, idempotent confirmations."""
 
+from common.validation import validate_data
 import logging
 from types import SimpleNamespace
+from typing import cast
+from collections.abc import Callable
 
 from backtesting.models import BacktestRun
 from backtesting.serializers import BacktestRunSerializer
@@ -59,7 +62,7 @@ def execute_strategy_draft(run, payload):
         data={key: draft[key] for key in base_keys if key in draft}, context={"request": SimpleNamespace(user=user)}
     )
     serializer.is_valid(raise_exception=True)
-    strategy = serializer.save(paper_trading_enabled=True, live_trading_enabled=False, auto_version_enabled=False)
+    strategy = cast(Strategy, serializer.save(paper_trading_enabled=True, live_trading_enabled=False, auto_version_enabled=False))
     from strategies.definitions import document_from_snapshot
     strategy.definition = document_from_snapshot(draft)
     Strategy.objects.filter(pk=strategy.pk).update(definition=strategy.definition)
@@ -161,8 +164,7 @@ def preview_backtest(run, payload):
         data={**settings, "strategy": strategy.pk},
         context={"request": SimpleNamespace(user=run.user, headers={}), "charge_profile_snapshot": saved_costs or {}},
     )
-    serializer.is_valid(raise_exception=True)
-    validated = serializer.validated_data
+    validated = validate_data(serializer)
     profile = validated.get("charge_profile")
     from common.costs import snapshot_charge_profile
 
@@ -214,7 +216,7 @@ def execute_backtest(run, payload):
 
 # Persistent capabilities require BOTH a validated preview and explicit confirmation.
 # Adding one action does not change the shared confirmation/rollback workflow.
-ACTION_HANDLERS = {
+ACTION_HANDLERS: dict[str, tuple[Callable, Callable]] = {
     ResearchAction.Type.CREATE_DRAFT: (preview_strategy_draft, execute_strategy_draft),
     ResearchAction.Type.ADD_TO_WATCHLIST: (preview_watchlist, execute_watchlist),
     ResearchAction.Type.START_BACKTEST: (preview_backtest, execute_backtest),
