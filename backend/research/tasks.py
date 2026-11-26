@@ -66,7 +66,22 @@ def start_research(run_id):
         return
     try:
         if run.mode == "SCREEN":
-            evidence = execute_tool(run, "screen_instruments", run.request["screen"])
+            # Deterministic screener keeps its compact comparison editor, lowered
+            # through the same compiler as AI's nested market conditions.
+            from .evaluation import market_rows
+            from .validation import screen_configuration
+            config = screen_configuration(run.request['screen'])
+            from .services import update_active_run as update
+            data = market_rows(run, config, charts=True)
+            from .evidence import store_evidence
+            from django.db import transaction
+            with transaction.atomic():
+                locked = ResearchRun.objects.select_for_update().get(pk=run.pk)
+                if locked.status != ResearchRun.Status.RUNNING:
+                    return run_id
+                evidence = store_evidence(locked, {'tool': 'analyze_market', 'data': data, 'evidence_id': 'E1',
+                    'source_run_id': run.pk, 'source_as_of': run.as_of.isoformat()})
+                update(run.pk, evidence=[evidence])
             result = {
                 "answer": f"{evidence['data']['matched']} instruments matched; {len(evidence['data']['excluded'])} were excluded.",
                 "evidence_ids": [evidence["evidence_id"]],
@@ -88,7 +103,7 @@ def start_research(run_id):
             if run.request.get("refresh"):
                 previous_screen = None
             if previous_screen and set(run.request["instrument_ids"]) <= set(previous_screen.request["instrument_ids"]):
-                source = next((item for item in previous_screen.evidence if item["tool"] == "screen_instruments"), None)
+                source = next((item for item in previous_screen.evidence if item["tool"] == "analyze_market"), None)
                 if source:
                     from .evidence import hydrate_evidence
                     source = hydrate_evidence(source)
@@ -110,7 +125,7 @@ def start_research(run_id):
                 run.refresh_from_db()
             payload = service_payload(run)
             deadline = time.monotonic() + max(0, payload["deadline"] - time.time())
-            result, usage = None, {}
+            result, usage, partial, last_partial = None, {}, '', 0.0
             with httpx.Client(timeout=httpx.Timeout(settings.RESEARCH_TIMEOUT_SECONDS, connect=10)) as client:
                 with client.stream(
                     "POST",
@@ -143,6 +158,11 @@ def start_research(run_id):
                         elif event["type"] == "usage":
                             usage = event.get("usage", {})
                             update_active_run(run_id, usage=usage)
+                        elif event['type'] == 'answer':
+                            partial = str(event['text'])
+                            if time.monotonic() - last_partial >= 0.5:
+                                update_active_run(run_id, partial_answer=partial)
+                                last_partial = time.monotonic()
                         elif event["type"] == "result":
                             result, usage = event["result"], event.get("usage", {})
                         elif event["type"] == "error":

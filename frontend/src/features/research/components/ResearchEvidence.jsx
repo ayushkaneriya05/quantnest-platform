@@ -13,6 +13,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { formatCurrency, formatDate, formatDateTime, formatNumber } from "@/shared/utils/formatters";
 import StrategyConfiguration, { ConfigurationFields as ConfigFields } from "@/shared/components/StrategyConfiguration";
+import Markdown from '@/shared/components/ui/markdown';
 
 const number = (value) => value == null ? "N/A" : formatNumber(value);
 const pct = (value) => value == null ? "N/A" : `${formatNumber(value)}%`;
@@ -25,8 +26,9 @@ Summary.propTypes = { items: PropTypes.array.isRequired };
 const evidenceProps = { evidence: PropTypes.object.isRequired, enums: PropTypes.object, detailed: PropTypes.bool, selected: PropTypes.array, onSelect: PropTypes.func, onResearch: PropTypes.func, onDetails: PropTypes.func, onChoose: PropTypes.func };
 
 function StockConditions({ row, rules, enums }) {
+  if (!row.operand_values?.length) return <div className="space-y-1 text-xs text-muted-foreground">{Object.entries(row.indicators || {}).map(([name, value]) => <p key={name}>{name}: <span className="text-foreground">{number(value)}</span></p>)}{!Object.keys(row.indicators || {}).length && 'Market observations'}</div>;
   return <details className="text-sm"><summary className="cursor-pointer text-brand">Conditions: {row.operand_values.filter((value) => value.passed).length}/{row.operand_values.length} passed</summary>
-    <ul className="mt-3 space-y-3">{row.operand_values.map((value, index) => <li key={index} className="break-words text-xs leading-relaxed"><p>{describeRule(rules[index], enums)}</p><p className={value.passed ? "mt-1 font-medium text-success" : "mt-1 font-medium text-warning"}>{number(value.a)} vs {number(value.b)} · {value.passed ? "Passed" : "Not met"}</p></li>)}</ul>
+    <ul className="mt-3 space-y-3">{row.operand_values.map((value, index) => <li key={index} className="break-words text-xs leading-relaxed"><p>{rules[index] ? describeRule(rules[index], enums) : `Comparison ${index + 1} · ${value.comparison}`}</p><p className={value.passed ? "mt-1 font-medium text-success" : "mt-1 font-medium text-warning"}>{number(value.a)} vs {number(value.b)} · {value.passed ? "Passed" : "Not met"}</p></li>)}</ul>
   </details>;
 }
 StockConditions.propTypes = { row: PropTypes.object.isRequired, rules: PropTypes.array.isRequired, enums: PropTypes.object };
@@ -97,15 +99,15 @@ function MarketEvidence({ evidence, enums, detailed, selected, onSelect, onResea
       <thead className="bg-card text-xs text-muted-foreground"><tr>{onSelect && <th className="p-2">Select</th>}{marketColumns.map(([label, key]) => <th className="p-2" key={key}><Button variant="ghost" onClick={() => sort(key)} aria-label={`Sort by ${label}`}>{label}{ordering.replace('-', '') === key ? ordering.startsWith('-') ? " ↓" : " ↑" : ""}</Button></th>)}<th className="p-2">Conditions</th>{detailed && <th className="p-2">Chart</th>}</tr></thead>
       <tbody>{result.results.map(row => <tr key={row.instrument_id} className="border-t border-border align-top">
         {onSelect && <td className="p-2"><Checkbox aria-label={`Select ${row.symbol}`} checked={selected.includes(row.instrument_id)} onCheckedChange={() => onSelect(row.instrument_id)} /></td>}
-        <td className="p-2 font-medium">{row.symbol}</td><td className="p-2 whitespace-nowrap">{formatCurrency(row.close)}</td><td className="p-2">{pct(row.return_20_bars_pct)}</td><td className="p-2">{pct(row.volatility_20_bars_pct)}</td>
-        <td className="min-w-44 p-2"><StockConditions row={row} rules={data.conditions.rules} enums={enums} /></td>
+        <td className="p-2 font-medium">{row.name || row.symbol}<p className="text-xs text-muted-foreground">{row.ticker || row.symbol}</p></td><td className="p-2 whitespace-nowrap">{formatCurrency(row.close)}</td><td className="p-2">{pct(row.return_20_bars_pct)}</td><td className="p-2">{pct(row.volatility_20_bars_pct)}</td>
+        <td className="min-w-44 p-2"><StockConditions row={row} rules={data.conditions?.rules || []} enums={enums} /></td>
         {detailed && <td className="p-2"><Button variant="outline" size="sm" onClick={() => { setDetail({ ordinal: row.ordinal }); setDetailRevision(value => value + 1); }}>View chart</Button></td>}
       </tr>)}</tbody>
-    </table>{!result.results.length && <p className="p-3 text-sm text-muted-foreground">{loading ? <GlobalLoader inline text="Loading evidence…" /> : "No stocks match this view."}</p>}</div>
-    <Pagination {...result} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={setPageSize} label={`${evidence.evidence_id} stock pages`} />
-    {detail && (detailLoading ? <GlobalLoader inline text="Loading chart…" /> : detail.row && <StockDetail row={detail.row} rules={data.conditions.rules} enums={enums} />)}
-    {data.excluded.length > 0 && <details className="rounded-lg border border-warning/30 p-3 text-sm"><summary className="cursor-pointer text-warning">Excluded stocks ({data.excluded.length})</summary><ul className="mt-3 space-y-2 text-muted-foreground">{data.excluded.map(item => <li key={item.instrument_id}>{item.symbol || item.instrument_id}: {item.reason}</li>)}</ul></details>}
-    <div className="flex flex-wrap gap-2">{onDetails && <Button size="sm" variant="outline" onClick={() => onDetails(evidence)}>View conditions and charts</Button>}{onResearch && <Button size="sm" variant="outline" disabled={!selected.length} onClick={() => onResearch(evidence, selected)}>Ask AI about selected stocks</Button>}</div>
+    </table>{!result.results.length && <p className="p-3 text-sm text-muted-foreground">{loading ? <GlobalLoader inline text="Loading evidence…" /> : "No instruments match this view."}</p>}</div>
+    <Pagination {...result} page={page} pageSize={pageSize} loading={loading} onPageChange={setPage} onPageSizeChange={setPageSize} label={`${evidence.evidence_id} instrument pages`} />
+    {detail && (detailLoading ? <GlobalLoader inline text="Loading chart…" /> : detail.row && <StockDetail row={detail.row} rules={data.conditions?.rules || []} enums={enums} />)}
+    {data.excluded.length > 0 && <details className="rounded-lg border border-warning/30 p-3 text-sm"><summary className="cursor-pointer text-warning">Excluded instruments ({data.excluded.length})</summary><ul className="mt-3 space-y-2 text-muted-foreground">{data.excluded.map(item => <li key={item.instrument_id}>{item.symbol || item.instrument_id}: {item.reason}</li>)}</ul></details>}
+    <div className="flex flex-wrap gap-2">{onDetails && <Button size="sm" variant="outline" onClick={() => onDetails(evidence)}>View conditions and charts</Button>}{onResearch && <Button size="sm" variant="outline" disabled={!selected.length} onClick={() => onResearch(evidence, selected)}>Ask AI about selected instruments</Button>}</div>
   </>;
 }
 MarketEvidence.propTypes = evidenceProps;
@@ -126,6 +128,7 @@ ExecutionEvidence.propTypes = evidenceProps;
 
 function BacktestEvidence({ evidence, enums, detailed, onDetails }) {
   const data = evidence.data;
+  if (!data.metrics) return <p className="text-sm">{data.name} · {data.status}. {data.message}</p>;
     return <><h4 className="font-medium">{data.name}</h4><Summary items={[["Trades", data.totals.trades], ["Net P&L", formatCurrency(data.totals.net_pnl)], ["Charges", formatCurrency(data.metrics.total_charges)], ["Max drawdown", pct(data.metrics.max_drawdown_pct)]]} />
       <p className="text-xs text-muted-foreground">{data.start_date} – {data.end_date} · slippage {pct(data.slippage_pct)} · {data.include_charges ? "Charges included" : "Charges excluded"} · saved strategy snapshot</p>
       {data.data_quality?.complete === false && <p className="rounded-lg bg-warning/10 p-3 text-sm text-warning">Historical data is incomplete. Interpret this run with its recorded coverage limitations.</p>}
@@ -140,7 +143,7 @@ BacktestEvidence.propTypes = evidenceProps;
 
 function ComparisonEvidence({ evidence, enums, detailed }) {
   const data = evidence.data;
-    return <><h4 className="font-medium">Experiment comparison</h4><p className="text-xs text-warning">{data.differences.length ? `Configuration differences: ${data.differences.join(", ")}. These runs may not be directly comparable.` : "The recorded dates, rules, instruments and costs match."}</p>{data.reports.map((report) => <ResearchEvidence key={report.backtest_id} evidence={{ ...evidence, tool: "get_backtest_report", data: report }} enums={enums} detailed={detailed} />)}</>;
+    return <><h4 className="font-medium">Backtest reports</h4>{data.reports.length > 1 && <p className="text-xs text-warning">{data.differences.length ? `Configuration differences: ${data.differences.join(", ")}. These runs may not be directly comparable.` : "Completed reports have matching recorded configurations."}</p>}{data.reports.map(report => <BacktestEvidence key={report.backtest_id} evidence={{ ...evidence, data: report }} enums={enums} detailed={detailed} />)}</>;
 }
 ComparisonEvidence.propTypes = evidenceProps;
 
@@ -152,14 +155,23 @@ StrategyEvidence.propTypes = evidenceProps;
 
 function InstrumentEvidence({ evidence, onChoose }) {
   const data = evidence.data;
-    return <><p className="text-sm">{data.selection_required ? "Select a stock for your next research request." : data.ambiguous ? "Choose a stock before continuing." : data.instruments.length ? "Resolved stock" : "No active NSE stock matched."}</p>{data.instruments.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-sm text-muted-foreground"><p>{item.symbol} · {item.name}</p>{onChoose && <Button size="sm" variant="outline" onClick={() => onChoose(item)}>Use {item.symbol}</Button>}</div>)}</>;
+    return <><p className="text-sm">{data.kind} · page {data.page}{data.next_page ? ' · more results available' : ''}</p>{data.items.map(item => <div key={item.id} className="flex items-center justify-between gap-3 text-sm text-muted-foreground"><p>{item.name || item.title || item.symbol}<span className="block text-xs">{item.sym_ticker || item.status || (item.instrument_count != null ? `${item.instrument_count} instruments` : '')}</span></p>{onChoose && data.kind === 'instruments' && <Button size="sm" variant="outline" onClick={() => onChoose(item)}>Use instrument</Button>}</div>)}</>;
 }
 InstrumentEvidence.propTypes = evidenceProps;
+function WebEvidence({ evidence }) {
+  const data = evidence.data;
+  return <section className="space-y-2 text-sm"><p>{data.grounded ? 'Provider-grounded web research' : 'No source grounding was returned; do not treat this as verified current information.'}</p><Markdown>{data.summary}</Markdown>{data.sources.map(source => <a className="block break-all text-brand underline" key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a>)}{data.search_suggestions?.map((html, index) => <iframe key={index} title={`Search suggestions ${index + 1}`} sandbox="allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={html} className="h-40 w-full rounded border border-border bg-white" />)}</section>;
+}
+WebEvidence.propTypes = evidenceProps;
+function ConversationEvidence({ evidence }) {
+  return <div className="space-y-2 text-sm">{evidence.data.turns?.map(turn => <details key={turn.run_id}><summary className="cursor-pointer text-brand">Turn #{turn.run_id} · {turn.prompt}</summary><p className="whitespace-pre-wrap">{turn.answer}</p></details>)}</div>;
+}
+ConversationEvidence.propTypes = evidenceProps;
 const renderers = {
-  screen_instruments: MarketEvidence, compare_instruments: MarketEvidence, analyze_stock: MarketEvidence,
-  get_execution_review: ExecutionEvidence, get_backtest_report: BacktestEvidence,
-  compare_backtests: ComparisonEvidence, validate_strategy_draft: StrategyEvidence,
-  get_strategy_snapshot: StrategyEvidence, resolve_instruments: InstrumentEvidence,
+  analyze_market: MarketEvidence, get_execution_review: ExecutionEvidence,
+  get_backtest_reports: ComparisonEvidence, validate_strategy_draft: StrategyEvidence,
+  get_strategy_snapshot: StrategyEvidence, find_resources: InstrumentEvidence,
+  research_web: WebEvidence, get_conversation_evidence: ConversationEvidence,
 };
 
 export default function ResearchEvidence({ evidence, enums = {}, detailed = false, selected = [], onSelect, onResearch, onDetails, onChoose }) {

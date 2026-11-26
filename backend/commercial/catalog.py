@@ -5,7 +5,7 @@ the active database revision; published and purchased snapshots are immutable.
 """
 from copy import deepcopy
 
-REVISION = "2026-11-private-offer-1"
+REVISION = "2026-11-research-open-1"
 TOKENS_PER_CREDIT = 1000
 MARKETS = {
     "nse_stocks": {"code": "nse_stocks", "name": "NSE stocks", "status": "available"},
@@ -30,8 +30,6 @@ ALLOWANCES = {
                 "resource_type": "research", "model": "research.ResearchRun", "task": "research.start_research"},
     "monte_carlo": {"label": "Monte Carlo runs per period", "kind": "period", "defaults": (1, 5, 10),
                     "resource_type": "monte_carlo", "model": "backtesting.MonteCarloRun", "task": "backtesting.run_monte_carlo"},
-    "research_instruments": {"label": "Stocks per research request", "kind": "per_request", "defaults": (5, 20, 50)},
-    "backtest_attachments": {"label": "Backtests attached per request", "kind": "per_request", "defaults": (3, 3, 3)},
     "backtest_workload": {"label": "Source candles per backtest", "kind": "per_request", "defaults": (100000, 250000, 1000000)},
     "mc_simulations": {"label": "Simulations per Monte Carlo run", "kind": "per_request", "defaults": (1000, 1000, 1000)},
 }
@@ -58,8 +56,8 @@ FEATURES = [
     {"code": code, "name": name, "documentation": f"/docs/{code}/", "description": description,
      "included_in": ["private"] if code in {"brokers", "live"} else [*PLANS, "private"]}
     for code, name, description in [
-        ("research", "AI Research Assistant", "Explain calculations, clarify your rules and review recorded evidence."),
-        ("screener", "Market Screener", "Evaluate your selected stocks against your explicit conditions."),
+        ("research", "AI Research Assistant", "Research finance and supported markets, develop strategy ideas and review evidence with period credits."),
+        ("screener", "Market Screener", "Evaluate selected catalog instruments against completed-candle conditions."),
         ("builder", "Strategy Builder", "Define your own entry, exit, sizing and risk settings; preserve versions."),
         ("backtesting", "Backtesting", "Evaluate saved rules against historical candles with costs and diagnostics."),
         ("terminal", "Simulated Terminal", "Practise manual order handling against observed prices."),

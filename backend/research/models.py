@@ -41,6 +41,7 @@ class ResearchRun(BaseTimestampModel):
     progress_message = models.CharField(max_length=255, default="Queued for research")
     evidence = models.JSONField(default=list)
     result = models.JSONField(default=dict)
+    partial_answer = models.TextField(blank=True, default='')
     usage = models.JSONField(default=dict)
     revision = models.PositiveIntegerField(default=1)
     tool_attempts = models.PositiveSmallIntegerField(default=0)
@@ -55,7 +56,7 @@ class ResearchRun(BaseTimestampModel):
         constraints = [
             models.UniqueConstraint(fields=["user", "request_id"], name="research_request_unique"),
             models.UniqueConstraint(
-                fields=["user"], condition=models.Q(status__in=["PENDING", "RUNNING"]), name="research_one_active_run"
+                fields=["session"], condition=models.Q(status__in=["PENDING", "RUNNING"]), name="research_one_active_session"
             ),
         ]
 
@@ -84,7 +85,7 @@ class ResearchAction(BaseTimestampModel):
     run_id: int
     class Type(models.TextChoices):
         CREATE_DRAFT = "CREATE_DRAFT", "Create strategy draft"
-        ADD_TO_WATCHLIST = "ADD_TO_WATCHLIST", "Add to terminal watchlist"
+        SAVE_STRATEGY_VERSION = "SAVE_STRATEGY_VERSION", "Save strategy version"
         START_BACKTEST = "START_BACKTEST", "Start backtest"
 
     class Status(models.TextChoices):
@@ -93,7 +94,7 @@ class ResearchAction(BaseTimestampModel):
         FAILED = "FAILED", "Failed"
 
     run = models.ForeignKey(ResearchRun, on_delete=models.CASCADE, related_name="actions")
-    action_type = models.CharField(max_length=20, choices=Type.choices)
+    action_type = models.CharField(max_length=24, choices=Type.choices)
     payload = models.JSONField(default=dict)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PROPOSED)
     resource_ids = models.JSONField(default=dict)

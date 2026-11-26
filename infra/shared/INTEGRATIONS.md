@@ -457,3 +457,15 @@ contract selection alone does not establish complete delivery or assignment supp
    entry/full exit, charges and settlement in simulation before Live use.
    Broker-reported fills and broker-specific margin/settlement remain authoritative
    for a real account. Do not treat a health check as derivative execution acceptance.
+
+### Research capability rollout
+
+The assistant now discovers resources, supports available catalog instruments,
+suggests testable parameters and offers confirmed strategy revisions. There is no
+watchlist-write action. Public period credits remain; attachment and eight-tool
+caps are removed. Deploy backend, compute, research and frontend together, apply
+`research.0008_expanded_research` and `commercial.0019_open_research_capabilities`
+after active research ends, then restart the affected services. A normal model
+request verifies generation and streaming; separately verify native grounded web
+search/URL access and project quota. Separate search charges are provider costs;
+customer AI credits continue to follow reported token totals.

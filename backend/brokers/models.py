@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from common.enums import BrokerName
 from common.models import BaseTimestampModel
+from .charge_rates import default_market_rates, validate_market_rates
 
 
 class BrokerCredential(BaseTimestampModel):
@@ -161,19 +162,19 @@ class BrokerChargeProfile(BaseTimestampModel):
         max_digits=6, decimal_places=4, default=Decimal('0.15'),
         help_text='STT on options (sell side, on premium) as % of turnover'
     )
-    ctt_futures_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=Decimal('0'),
+    ctt_futures_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=Decimal('0.01'),
         help_text='Configured commodity futures sell tax rate; set the rate applicable to the contract')
-    ctt_options_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=Decimal('0'),
+    ctt_options_sell_pct = models.DecimalField(max_digits=6, decimal_places=4, default=Decimal('0.05'),
         help_text='Configured commodity options sell tax rate; set the rate applicable to the contract')
 
     # --- Exchange Transaction Charges ---
     exchange_txn_pct = models.DecimalField(
-        max_digits=8, decimal_places=6, default=Decimal('0.00345'),
+        max_digits=10, decimal_places=8, default=Decimal('0.0030699'),
         help_text='Exchange transaction charge for equity as % of turnover'
     )
     exchange_txn_fo_pct = models.DecimalField(
-        max_digits=8, decimal_places=6, default=Decimal('0.05'),
-        help_text='Exchange transaction charge for F&O as % of turnover'
+        max_digits=10, decimal_places=8, default=Decimal('0.0355299'),
+        help_text='Fallback derivatives exchange fee; market rates override this by contract'
     )
 
     # --- Regulatory Charges ---
@@ -187,7 +188,11 @@ class BrokerChargeProfile(BaseTimestampModel):
     )
     gst_pct = models.DecimalField(
         max_digits=5, decimal_places=2, default=Decimal('18.0'),
-        help_text='GST percentage applied on brokerage + exchange charges'
+        help_text='GST on brokerage, exchange, clearing, SEBI and IPFT fees'
+    )
+    market_rates = models.JSONField(
+        default=default_market_rates, validators=[validate_market_rates], blank=True,
+        help_text='Per-market percentage overrides, applied using exchange, segment and contract type',
     )
 
     # --- Default Flag ---

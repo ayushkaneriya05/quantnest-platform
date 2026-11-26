@@ -190,7 +190,7 @@ change, attach, export or act on the first user's private resources.
 | Paper | Fund wallet, deploy from Strategies, inspect signal/order/fill/P&L, pause/resume, stop and close owned positions, update capital/version and recover after restart |
 | Terminal | Named watchlists, all supported order types on both sides, lots/units, modify/cancel, protection, reduce/reverse/close and separate gross/charges/net results |
 | Derivatives | Fixed future/option, CE/PE ATM/ITM/OTM grid selection, expiry policy, pinned owned contract, expired history and clearly recorded historical-term assumptions |
-| Research | Real configured-provider answer, calculated evidence, named watchlist action, validated draft, backtest preview/confirmation, cancellation and token-credit settlement |
+| Research | Real configured-provider answer and streaming, calculated/grounded evidence, named watchlist reading, validated draft, strategy-version preview, backtest confirmation, cancellation and token-credit settlement |
 | Screener | Compare known conditions with completed-candle calculations; save/reopen screens and verify filtering and server pagination |
 | Reports | Journal ownership, review save, realized totals, fee basis and realtime open valuation agree with the underlying records |
 | Support | Public enquiry verification, signed-in ticket, staff reply, owned notification and actual production SMTP delivery |

@@ -1,252 +1,142 @@
-"""The single source of tool schemas, handlers and model-facing projections."""
-
+"""One registry supplies tool schemas, validation, handlers and evidence projections."""
 import hashlib
 import json
 import logging
 import time
-from functools import lru_cache, partial
+from functools import lru_cache
 
+import fastjsonschema
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from .models import ACTIVE_RUN_STATUSES, ResearchRun
-from .validation import MAX_SCREEN_CONDITIONS, json_data
+from .validation import json_data
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
 def registry():
-    from common.enums import CandleTimeframe, ComparisonOperator, LogicalOperator
-
+    from common.enums import CandleTimeframe, Exchange, InstrumentType
     from . import tools
-    from .evaluation import SCREEN_OPERAND_TYPES
+    from .resources import find_resources
 
-    screen_operand_types = SCREEN_OPERAND_TYPES
-    # Historical tools accept only the completed-candle operands supplied by Django.
-    rule = {
-        "type": "object",
-        "properties": {
-            "operand_a_type": {"type": "string", "enum": screen_operand_types},
-            "operand_a_params": {"type": "object"},
-            "operand_a_timeframe": {"type": "string", "enum": CandleTimeframe.values},
-            "comparison": {"type": "string", "enum": ComparisonOperator.values},
-            "operand_b_type": {"type": "string", "enum": screen_operand_types},
-            "operand_b_params": {"type": "object"},
-            "operand_b_timeframe": {"type": "string", "enum": CandleTimeframe.values},
-        },
-        "required": ["operand_a_type", "comparison", "operand_b_type"],
-    }
-    screen = {
-        "type": "object",
-        "properties": {
-            "timeframe": {"type": "string", "enum": CandleTimeframe.values},
-            "logical_operator": {"type": "string", "enum": LogicalOperator.values},
-            "conditions": {"type": "array", "items": rule, "minItems": 1, "maxItems": MAX_SCREEN_CONDITIONS},
-        },
-        "required": ["timeframe", "conditions"],
-    }
-    screen["properties"]["instrument_ids"] = {"type": "array", "items": {"type": "integer"}}
+    string = {'type': 'string'}
+    identity = {'type': 'integer', 'minimum': 1}
+    ids = {'type': 'array', 'items': identity, 'uniqueItems': True}
+    timeframe = {'type': 'string', 'enum': CandleTimeframe.values}
     registered = {}
 
-    def add(name, handler, description, parameters, *, context_field="", minimum=1):
-        registered[name] = {
-            "definition": {"name": name, "description": description, "parameters": parameters},
-            "handler": handler,
-            "context_field": context_field,
-            "minimum": minimum,
-        }
+    def add(name, handler, description, properties, required=()):
+        parameters = {'type': 'object', 'properties': properties,
+                      'required': list(required), 'additionalProperties': False}
+        registered[name] = {'definition': {'name': name, 'description': description, 'parameters': parameters},
+                            'handler': handler, 'validate': fastjsonschema.compile(parameters)}
 
-    # Discovery and builder metadata.
-    add(
-        "resolve_instruments",
-        tools.handle_resolve_instruments,
-        "Find an active NSE stock by symbol or name. Ask the user to select new stocks for a new request; the current analysis universe is fixed.",
-        {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
-    )
-    add(
-        "get_rule_schema",
-        tools.handle_get_rule_schema,
-        "Read builder choices and defaults, plus parameter schemas for the requested operand types. Fetch this before constructing rules.",
-        {
-            "type": "object",
-            "properties": {"operand_types": {"type": "array", "items": {"type": "string"}, "maxItems": 12}},
-        },
-    )
-
-    # Completed-candle market research.
-    add(
-        "screen_instruments",
-        partial(tools.handle_market, name="screen_instruments"),
-        "Evaluate entry rules on the latest completed candles for the selected universe; returns matches and exclusions.",
-        screen,
-        context_field="instrument_ids",
-    )
-    add(
-        "compare_instruments",
-        partial(tools.handle_market, name="compare_instruments"),
-        "Return all evaluated instruments with rule values, 20-bar return and 20-bar volatility. To compare without filtering use CLOSE > CONSTANT 0.",
-        screen,
-        context_field="instrument_ids",
-    )
-    add(
-        "analyze_stock",
-        partial(tools.handle_market, name="analyze_stock"),
-        "Analyze up to five stocks selected in this run's frozen context with configured indicators and bounded charts.",
-        {
-            "type": "object",
-            "properties": {
-                "instrument_ids": {"type": "array", "items": {"type": "integer"}, "maxItems": 5},
-                "timeframe": {"type": "string", "enum": CandleTimeframe.values},
-                "indicators": {
-                    "type": "array",
-                    "maxItems": 8,
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "type": {"type": "string", "enum": screen_operand_types},
-                            "params": {"type": "object"},
-                        },
-                        "required": ["type"],
-                    },
-                },
-            },
-        },
-        context_field="instrument_ids",
-    )
-
-    # Saved strategy, backtest and execution reviews.
-    add(
-        "get_strategy_snapshot",
-        tools.handle_get_strategy_snapshot,
-        "Read the strategy configuration frozen at request creation. No other strategy IDs are accepted.",
-        {"type": "object", "properties": {}},
-        context_field="strategy_snapshot",
-    )
-    add(
-        "get_backtest_report",
-        tools.handle_get_backtest_report,
-        "Read actual metrics, diagnostics, costs and saved snapshot for an attached completed backtest.",
-        {"type": "object", "properties": {"backtest_id": {"type": "integer"}}},
-        context_field="backtest_ids",
-    )
-    add(
-        "compare_backtests",
-        tools.handle_compare_backtests,
-        "Compare the attached completed backtests and their saved configurations. At least two are required.",
-        {"type": "object", "properties": {}},
-        context_field="backtest_ids",
-        minimum=2,
-    )
-    add(
-        "get_execution_review",
-        tools.handle_get_execution_review,
-        "Read the attached owned execution report or selected close, with its original time, P&L basis and optional user assessments.",
-        {"type": "object", "properties": {}},
-        context_field="execution_evidence",
-    )
-
-    # Conversation evidence and proposed strategy rules.
-    add(
-        "get_conversation_evidence",
-        tools.handle_get_conversation_evidence,
-        "Retrieve an earlier artifact in this conversation and preserve its observation time.",
-        {
-            "type": "object",
-            "properties": {"run_id": {"type": "integer"}, "evidence_id": {"type": "string"}},
-            "required": ["run_id", "evidence_id"],
-        },
-    )
-    add(
-        "validate_strategy_draft",
-        tools.handle_validate_strategy_draft,
-        "Validate a canonical Studio draft. First call get_rule_schema for StrategyStudio.defaults.document, defaults.templates.group and conditions.operands parameters. Add name, description, strategy_type, market_type, exchange and instrument_type. Groups use stable string id, name, rule_type, priority, is_active and condition expression trees (not flat screening rules). Use input nodes with type, params, timeframe and source signal or trade; compare nodes have left, comparison and right; all/any/not/at_least have args. Named formulas are in expressions; references use op expression and name. Optional initial_risk is a traded-price numeric expression. Watchlist items use instrument_id and optional signal_instrument_id from this run only. The backend validates and compiles the same document as Studio; creating it still requires customer confirmation.",
-        {"type": "object", "properties": {"draft": {"type": "object"}}, "required": ["draft"]},
-        context_field="instrument_ids",
-    )
+    add('find_resources', find_resources,
+        'Find catalog instruments or your own strategies, backtests and named watchlists. Page through results. Instruments need not be attached before analysis. Use exact sym_ticker for identity; indices are analysis inputs, not orderable securities.',
+        {'kind': {'type': 'string', 'enum': ['instruments', 'strategies', 'backtests', 'watchlists']},
+         'query': string, 'page': identity, 'exchange': {'type': 'string', 'enum': Exchange.values},
+         'instrument_type': {'type': 'string', 'enum': InstrumentType.values}, 'include_expired': {'type': 'boolean'}}, ['kind'])
+    add('analyze_market', tools.handle_market,
+        'Analyze, compare or screen catalog instruments or an owned watchlist. Optional condition uses the canonical Studio boolean expression tree; indicators are named numeric expressions. All numeric market calculations use completed candles; quotes are reported separately. With no conditions, return observations without a dummy comparison. For large sets use page and page_size until next_page is null.',
+        {'instrument_ids': ids, 'watchlist_id': identity, 'timeframe': timeframe,
+         'condition': {'type': 'object'}, 'expressions': {'type': 'object'},
+         'indicators': {'type': 'array', 'items': {'type': 'object', 'properties': {
+             'name': {'type': 'string', 'minLength': 1}, 'expression': {'type': 'object'}},
+             'required': ['name', 'expression'], 'additionalProperties': False}},
+         'mode': {'type': 'string', 'enum': ['analyze', 'compare', 'screen']},
+         'page': identity, 'page_size': {'type': 'integer', 'minimum': 1, 'maximum': 25},
+         'as_of': {'type': 'string', 'format': 'date-time'}})
+    add('get_strategy_snapshot', tools.handle_get_strategy_snapshot,
+        'Read one of your strategies, current configuration or a specified saved version. An attachment is optional.',
+        {'strategy_id': identity, 'version_number': identity})
+    add('get_backtest_reports', tools.handle_get_backtest_reports,
+        'Read one or several owned backtests, their recorded status, actual metrics, costs, fills, diagnostics and configuration differences. Incomplete runs are status reports, not performance evidence.',
+        {'backtest_ids': ids, 'page': identity, 'page_size': {'type': 'integer', 'minimum': 1, 'maximum': 25}})
+    add('get_execution_review', tools.handle_get_execution_review,
+        'Review recorded Terminal/Paper/Live execution. Supply review.filters with source TERMINAL/PAPER/LIVE and optional date_from, date_to, account_id, strategy_id, instrument_id or search. Optional trade_id selects a close. Saved notes are included only when include_notes is explicitly true. Without review use attached execution context.',
+        {'review': {'type': 'object'}})
+    add('get_rule_schema', tools.handle_get_rule_schema,
+        'Read the current canonical StrategyStudio specification, default document and parameter definitions for requested operands. Use before composing unfamiliar rules. Supports the same expression trees, contract policies, sizing and schedule as Studio.',
+        {'operand_types': {'type': 'array', 'items': string}})
+    add('validate_strategy_draft', tools.handle_validate_strategy_draft,
+        'Validate and compile a complete canonical Studio draft. Include name, description, strategy_type, market_type, exchange, instrument_type and the document fields from get_rule_schema. It may use fixed contracts, supported automatic expiry/strike policies, signal/trade inputs, named formulas, capture/confirmation, sizing and schedules. This validates a proposal; it does not save or deploy it.',
+        {'draft': {'type': 'object'}}, ['draft'])
+    add('get_conversation_evidence', tools.handle_get_conversation_evidence,
+        'Find earlier instructions/answers in this conversation using query and pagination. Or provide run_id and evidence_id to retrieve one earlier artifact, retaining its original observation time.',
+        {'query': string, 'page': identity, 'run_id': identity, 'evidence_id': string})
+    add('research_web', tools.handle_research_web,
+        'Research current financial facts, announcements, regulations or supplied public URLs. Returns provider-grounded sources and an observation time. Use market tools for numerical prices and indicators. Search charges may be additional to token usage.',
+        {'query': string, 'urls': {'type': 'array', 'items': {'type': 'string', 'format': 'uri'}}}, ['query'])
     return registered
 
 
 def _compact_data(data):
-    """Keep chart series and trade examples in Django, retaining observations and rules."""
-    if "rows" in data:
-        data = {
-            **data,
-            "rows": [
-                {key: value for key, value in row.items() if key not in {"chart", "coverage"}} for row in data["rows"]
-            ],
-        }
-    data = {key: value for key, value in data.items() if key not in {"largest_winners", "largest_losers"}}
-    if "reports" in data:
-        data = {**data, "reports": [_compact_data(report) for report in data["reports"]]}
+    """Full charts stay in paged Django evidence; the model receives calculated values."""
+    if 'rows' in data:
+        data = {**data, 'rows': [{key: value for key, value in row.items() if key not in {'chart', 'coverage'}} for row in data['rows']]}
+    data = {key: value for key, value in data.items() if key not in {'largest_winners', 'largest_losers'}}
+    if 'reports' in data:
+        data = {**data, 'reports': [_compact_data(report) for report in data['reports']]}
     return data
 
 
 def compact_evidence(evidence):
-    """Use the common projection without altering its persisted evidence or provenance."""
     from .evidence import hydrate_evidence
-    data = _compact_data(hydrate_evidence(evidence)["data"])
-    return {key: value for key, value in {**evidence, "data": data}.items() if key not in {"cache_key", "arguments"}}
-
-
-def tool_available(tool, run):
-    if tool['definition']['name'] == 'validate_strategy_draft':
-        from .context import draft_instrument_ids
-        return bool(draft_instrument_ids(run))
-    field = tool["context_field"]
-    return not field or len(run.request.get(field) or ()) >= tool["minimum"]
+    data = _compact_data(hydrate_evidence(evidence)['data'])
+    return {key: value for key, value in {**evidence, 'data': data}.items() if key not in {'cache_key', 'arguments'}}
 
 
 def tool_definitions(run):
-    return [tool["definition"] for tool in registry().values() if tool_available(tool, run)]
+    # Discovery makes every capability accessible without attachment-based gates.
+    return [tool['definition'] for tool in registry().values()]
 
 
 def execute_tool(run, name, arguments):
-    """Reserve attempts before work; cache artifacts and frames only for this run."""
-    if not isinstance(arguments, dict):
-        raise ValidationError("Tool arguments must be an object.")
     from .services import publish_run
-
     tool = registry().get(name)
-    if tool is None or not tool_available(tool, run):
-        raise ValidationError("This tool is not available for the selected context.")
-    key = hashlib.sha256(json.dumps([name, arguments], sort_keys=True, default=str).encode()).hexdigest()
-    with transaction.atomic():
-        current = ResearchRun.objects.select_for_update().filter(pk=run.pk).first()
-        if not current or current.status not in ACTIVE_RUN_STATUSES:
-            raise ValidationError("Research was cancelled.")
-        cached = next((item for item in current.evidence if item.get("cache_key") == key), None)
-        if cached:
-            return cached
-        if current.tool_attempts >= settings.RESEARCH_MAX_TOOL_CALLS:
-            raise ValidationError("Tool limit reached. Complete the answer from existing evidence.")
-        current.tool_attempts += 1
-        current.save(update_fields=["tool_attempts"])
-        run = current
-    started = time.monotonic()
+    if tool is None:
+        raise ValidationError('Unknown research capability.')
     try:
-        calculated = json_data(tool["handler"](run, arguments))
-    finally:
-        logger.info("Research tool run=%s tool=%s duration_ms=%d", run.pk, name, (time.monotonic() - started) * 1000)
+        tool['validate'](arguments)
+    except fastjsonschema.JsonSchemaException as exc:
+        raise ValidationError(str(exc)) from None
+    key = hashlib.sha256(json.dumps([name, arguments], sort_keys=True).encode()).hexdigest()
     with transaction.atomic():
         current = ResearchRun.objects.select_for_update().get(pk=run.pk)
         if current.status not in ACTIVE_RUN_STATUSES:
-            raise ValidationError("Research was cancelled.")
-        evidence = {
-            "tool": name,
-            "arguments": json_data(arguments),
-            **calculated,
-            "evidence_id": f"E{len(current.evidence) + 1}",
-            "cache_key": key,
-            "source_run_id": calculated.get("source_run_id", run.pk),
-            "source_as_of": calculated.get("source_as_of", run.as_of.isoformat()),
-        }
+            raise ValidationError('Research was cancelled.')
+        if current.started_at and (timezone.now() - current.started_at).total_seconds() >= settings.RESEARCH_TIMEOUT_SECONDS:
+            raise ValidationError('Research deadline reached; return the evidence already collected.')
+        cached = next((item for item in current.evidence if item.get('cache_key') == key), None)
+        if cached:
+            return {**cached, 'reused': True}
+        current.tool_attempts += 1
+        current.save(update_fields=['tool_attempts'])
+        run = current
+    started = time.monotonic()
+    try:
+        calculated = json_data(tool['handler'](run, arguments))
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ValidationError(f'Invalid {name} arguments: {exc}') from None
+    finally:
+        logger.info('Research tool run=%s tool=%s duration_ms=%d', run.pk, name, (time.monotonic() - started) * 1000)
+    with transaction.atomic():
+        current = ResearchRun.objects.select_for_update().get(pk=run.pk)
+        if current.status not in ACTIVE_RUN_STATUSES:
+            raise ValidationError('Research was cancelled.')
+        evidence = {'tool': name, 'arguments': json_data(arguments), **calculated,
+            'evidence_id': f'E{len(current.evidence) + 1}', 'cache_key': key,
+            'source_run_id': calculated.get('source_run_id', run.pk),
+            'source_as_of': calculated.get('source_as_of', run.as_of.isoformat())}
         from .evidence import store_evidence
         evidence = store_evidence(current, evidence)
         current.evidence = [*current.evidence, evidence]
-        current.progress_message = f"Completed {name.replace('_', ' ')}"
+        current.progress_message = f'Completed {name.replace("_", " ")}'
         current.revision += 1
-        current.save(update_fields=["evidence", "progress_message", "revision", "updated_at"])
+        current.save(update_fields=['evidence', 'progress_message', 'revision', 'updated_at'])
         publish_run(current)
     return evidence

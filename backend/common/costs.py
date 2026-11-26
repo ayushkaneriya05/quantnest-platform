@@ -4,12 +4,14 @@ Provides accurate simulation of Indian market trading costs including
 brokerage, STT, exchange charges, SEBI fees, stamp duty, and GST.
 Used by backtesting, paper trading and the simulated Terminal.
 """
+from copy import deepcopy
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Tuple
 from datetime import datetime
 from django.utils import timezone
 
-from common.enums import FyersSegment, ProductType, Side, InstrumentType
+from common.enums import Exchange, FyersSegment, ProductType, Side, InstrumentType
+from brokers.charge_rates import resolve_charge_rates
 
 CHARGE_PROFILE_FIELDS = (
     "brokerage_per_order",
@@ -35,12 +37,13 @@ def snapshot_charge_profile(profile):
     return {
         "name": profile.name,
         **{field: str(getattr(profile, field)) for field in CHARGE_PROFILE_FIELDS},
+        "market_rates": deepcopy(profile.market_rates),
     }
 
 
 def get_charges_breakdown(charge_records):
     """Combine stored entry/exit charges for one trade or a report."""
-    totals = dict.fromkeys(('brokerage', 'stt', 'exchange_txn', 'sebi', 'stamp_duty', 'gst', 'total'), 0.0)
+    totals = dict.fromkeys(('brokerage', 'stt', 'exchange_txn', 'clearing', 'ipft', 'sebi', 'stamp_duty', 'gst', 'total'), 0.0)
     for charges in charge_records:
         charges = charges or {}
         totals['total'] += float(charges.get('total_charges', 0) or 0)
@@ -49,6 +52,8 @@ def get_charges_breakdown(charge_records):
             totals['brokerage'] += float(leg.get('brokerage', 0) or 0)
             totals['stt'] += float(leg.get('stt', 0) or 0)
             totals['exchange_txn'] += float(leg.get('exchange_charges', 0) or 0)
+            totals['clearing'] += float(leg.get('clearing_charges', 0) or 0)
+            totals['ipft'] += float(leg.get('ipft', 0) or 0)
             totals['sebi'] += float(leg.get('sebi_fee', 0) or 0)
             totals['stamp_duty'] += float(leg.get('stamp_duty', 0) or 0)
             totals['gst'] += float(leg.get('gst', 0) or 0)
@@ -59,12 +64,13 @@ class TradingCostCalculator:
     """Calculates realistic trading costs for Indian markets.
     
     Uses an immutable charge-profile snapshot dictionary to compute all components:
-    - Brokerage (flat + percentage, capped)
+    - Brokerage (lower of flat and percentage, capped; options flat)
     - STT / configured commodity CTT, selected by segment
     - Exchange Transaction Charges
     - SEBI Turnover Fees
     - Stamp Duty
-    - GST on brokerage + exchange charges
+    - Clearing fees and IPFT
+    - GST on brokerage + exchange + clearing + SEBI + IPFT
     """
     
     @staticmethod
@@ -168,15 +174,10 @@ class TradingCostCalculator:
     @staticmethod
     def calculate_exchange_charges(
         turnover: Decimal,
-        instrument_type: str,
         profile: dict,
     ) -> Decimal:
-        """Calculate exchange transaction charges."""
-        if instrument_type in (InstrumentType.FUTURE, InstrumentType.OPTION):
-            pct = Decimal(profile['exchange_txn_fo_pct'])
-        else:
-            pct = Decimal(profile['exchange_txn_pct'])
-        
+        """Use the already resolved exchange/segment/contract rate."""
+        pct = Decimal(profile['exchange_txn_pct'])
         return (turnover * pct / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
     @staticmethod
@@ -203,9 +204,10 @@ class TradingCostCalculator:
         exchange_charges: Decimal,
         sebi_fee: Decimal,
         profile: dict,
+        *, clearing_charges: Decimal = Decimal('0'), ipft: Decimal = Decimal('0'),
     ) -> Decimal:
-        """Calculate GST on brokerage + exchange charges + SEBI fee."""
-        taxable = brokerage + exchange_charges + sebi_fee
+        """STT/CTT and stamp duty are excluded from the GST base."""
+        taxable = brokerage + exchange_charges + sebi_fee + clearing_charges + ipft
         gst_pct = Decimal(profile['gst_pct'])
         return (taxable * gst_pct / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
@@ -219,6 +221,7 @@ class TradingCostCalculator:
         profile: dict,
         include_charges: bool = True,
         *, segment: int = FyersSegment.CAPITAL_MARKET,
+        exchange: str = Exchange.NSE, symbol: str = '',
     ) -> Dict:
         """Calculate all charges for a single order leg.
         
@@ -238,6 +241,8 @@ class TradingCostCalculator:
                 'brokerage': 0,
                 'stt': 0,
                 'exchange_charges': 0,
+                'clearing_charges': 0,
+                'ipft': 0,
                 'sebi_fee': 0,
                 'stamp_duty': 0,
                 'gst': 0,
@@ -245,23 +250,31 @@ class TradingCostCalculator:
             }
         
         turnover = Decimal(str(turnover))
+        profile = resolve_charge_rates(profile, instrument_type, tax_classification, segment, exchange, symbol)
         
         brokerage = cls.calculate_brokerage(
             turnover, Decimal(profile['brokerage_per_order']),
             Decimal(profile['brokerage_pct']), Decimal(profile['brokerage_cap']),
         )
         stt = cls.calculate_stt(turnover, instrument_type, tax_classification, side, profile, segment=segment)
-        exchange_charges = cls.calculate_exchange_charges(turnover, instrument_type, profile)
+        exchange_charges = cls.calculate_exchange_charges(turnover, profile)
+        clearing_charges = (turnover * Decimal(profile.get('clearing_pct', '0')) / 100).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP)
+        ipft = (turnover * Decimal(profile.get('ipft_pct', '0')) / 100).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP)
         sebi_fee = cls.calculate_sebi_fee(turnover, profile)
         stamp_duty = cls.calculate_stamp_duty(turnover, side, profile)
-        gst = cls.calculate_gst(brokerage, exchange_charges, sebi_fee, profile)
+        gst = cls.calculate_gst(brokerage, exchange_charges, sebi_fee, profile,
+                                clearing_charges=clearing_charges, ipft=ipft)
         
-        total = brokerage + stt + exchange_charges + sebi_fee + stamp_duty + gst
+        total = brokerage + stt + exchange_charges + clearing_charges + ipft + sebi_fee + stamp_duty + gst
         
         return {
             'brokerage': float(brokerage),
             'stt': float(stt),
             'exchange_charges': float(exchange_charges),
+            'clearing_charges': float(clearing_charges),
+            'ipft': float(ipft),
             'sebi_fee': float(sebi_fee),
             'stamp_duty': float(stamp_duty),
             'gst': float(gst),
@@ -281,13 +294,14 @@ class TradingCostCalculator:
         profile: dict,
         include_charges: bool = True,
         *, segment: int = FyersSegment.CAPITAL_MARKET,
+        exchange: str = Exchange.NSE, symbol: str = '',
     ) -> Dict:
         """Calculate complete charges for a round-trip trade (entry + exit).
         
         Args:
             entry_price: Entry fill price.
             exit_price: Exit fill price.
-            quantity: Number of shares/lots.
+            quantity: Number of order units (lots must already be converted).
             side: Entry side ('BUY' or 'SELL').
             instrument_type: InstrumentType
             entry_time: Datetime of entry.
@@ -306,10 +320,12 @@ class TradingCostCalculator:
         tax_classification = cls.get_tax_classification(entry_time, exit_time)
         
         entry_charges = cls.calculate_charges(
-            entry_turnover, instrument_type, tax_classification, side, profile, include_charges, segment=segment
+            entry_turnover, instrument_type, tax_classification, side, profile, include_charges,
+            segment=segment, exchange=exchange, symbol=symbol,
         )
         exit_charges = cls.calculate_charges(
-            exit_turnover, instrument_type, tax_classification, exit_side, profile, include_charges, segment=segment
+            exit_turnover, instrument_type, tax_classification, exit_side, profile, include_charges,
+            segment=segment, exchange=exchange, symbol=symbol,
         )
         
         total_charges = entry_charges['total'] + exit_charges['total']
@@ -334,6 +350,7 @@ class TradingCostCalculator:
         profile: dict,
         include_charges: bool = True,
         *, segment: int = FyersSegment.CAPITAL_MARKET,
+        exchange: str = Exchange.NSE, symbol: str = '',
     ) -> Tuple[Decimal, Dict]:
         """Calculate net PnL after deducting all trading charges.
         
@@ -341,7 +358,7 @@ class TradingCostCalculator:
             gross_pnl: Gross profit/loss before charges.
             entry_price: Entry fill price.
             exit_price: Exit fill price.
-            quantity: Number of shares/lots.
+            quantity: Number of order units (lots must already be converted).
             side: Entry side ('BUY' or 'SELL').
             instrument_type: InstrumentType
             entry_time: Datetime of entry.
@@ -354,7 +371,8 @@ class TradingCostCalculator:
         """
         charges = cls.calculate_trade_charges(
             entry_price, exit_price, quantity, side,
-            instrument_type, entry_time, exit_time, profile, include_charges, segment=segment,
+            instrument_type, entry_time, exit_time, profile, include_charges,
+            segment=segment, exchange=exchange, symbol=symbol,
         )
         
         gross_pnl = Decimal(str(gross_pnl))

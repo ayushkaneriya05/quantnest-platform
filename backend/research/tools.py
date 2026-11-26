@@ -11,46 +11,14 @@ from django.db.models.functions import TruncMonth
 from django.forms.models import model_to_dict
 from rest_framework.exceptions import ValidationError
 
-from .context import research_instrument_ids, draft_instrument_ids
 from .evaluation import market_rows
 from .models import ResearchRun
 from .validation import (
     json_data,
-    screen_configuration,
-    validate_customer_rules,
     validate_draft,
 )
 
-# Discovery and builder metadata.
-
-
-def handle_resolve_instruments(run, arguments):
-    from trading.services import TradingInstrumentService
-
-    if (
-        set(arguments) != {"query"}
-        or not isinstance(arguments["query"], str)
-        or not 2 <= len(arguments["query"]) <= 100
-    ):
-        raise ValidationError("Provide a stock name or symbol between 2 and 100 characters.")
-    rows = list(
-        TradingInstrumentService.search(arguments["query"], exchange="NSE", instrument_type="STOCK").values(
-            "id", "symbol", "sym_ticker", "name"
-        )
-    )
-    exact = [
-        row
-        for row in rows
-        if arguments["query"].upper() in {row["symbol"].upper(), row["sym_ticker"].upper(), row["name"].upper()}
-    ]
-    selected = exact if len(exact) == 1 else rows
-    data = {
-        "instruments": selected,
-        "ambiguous": len(selected) > 1,
-        "query": arguments["query"],
-        "selection_required": any(row["id"] not in research_instrument_ids(run) for row in selected),
-    }
-    return {"data": data}
+# Builder metadata is loaded only when needed.
 
 
 def handle_get_rule_schema(run, arguments):
@@ -61,10 +29,9 @@ def handle_get_rule_schema(run, arguments):
     if (
         set(arguments) - {"operand_types"}
         or not isinstance(operands, list)
-        or len(operands) > 12
         or any(value not in OperandType.values for value in operands)
     ):
-        raise ValidationError("Choose up to twelve supported operand types.")
+        raise ValidationError("Choose supported operand types.")
     specification = studio_specification(operand_types=operands)
     data = {'StrategyStudio': specification, **choice_metadata(specification)}
     return {"data": data}
@@ -73,74 +40,61 @@ def handle_get_rule_schema(run, arguments):
 # Completed-candle market research.
 
 
-def handle_market(run, arguments, *, name):
-    arguments = dict(arguments)
-    ids = arguments.pop("instrument_ids", None)
-    allowed = research_instrument_ids(run)
-    if ids is not None and (
-        not isinstance(ids, list) or any(type(value) is not int for value in ids) or set(ids) - set(allowed)
-    ):
-        raise ValidationError("Select these instruments in a new research request before analyzing them.")
-    if name == "analyze_stock":
-        indicators = arguments.pop("indicators", [])
-        if not isinstance(indicators, list) or len(indicators) > 8 or len(ids or allowed) > 5:
-            raise ValidationError("Analyze up to five stocks with at most eight configured indicators.")
-        if any(
-            not isinstance(item, dict) or set(item) - {"type", "params"} or not item.get("type") for item in indicators
-        ):
-            raise ValidationError("Each indicator needs an operand type and its supported parameters.")
-        arguments["conditions"] = [
-            {
-                "operand_a_type": item["type"],
-                "operand_a_params": item.get("params", {}),
-                "comparison": "GT",
-                "operand_b_type": "CONSTANT",
-                "operand_b_params": {"value": 0},
-            }
-            for item in indicators
-        ] or [
-            {
-                "operand_a_type": "CLOSE",
-                "comparison": "GT",
-                "operand_b_type": "CONSTANT",
-                "operand_b_params": {"value": 0},
-            }
-        ]
-    arguments.setdefault("timeframe", run.request.get("timeframe", "1D"))
-    data = market_rows(
-        run,
-        screen_configuration(arguments),
-        comparison=name != "screen_instruments",
-        instrument_ids=ids,
-        charts=name == "analyze_stock",
-    )
-    return {"data": data}
+def handle_market(run, arguments):
+    from .resources import market_instruments
+    from .evaluation import analysis_configuration
+    from copy import copy
+    from django.utils.dateparse import parse_datetime
+    ids = market_instruments(run, arguments)
+    page, size = arguments.get('page', 1), arguments.get('page_size', 25)
+    start = (page - 1) * size
+    observation = copy(run)
+    if arguments.get('as_of'):
+        from django.utils import timezone
+        observed_at = parse_datetime(arguments['as_of'])
+        if observed_at is None or timezone.is_naive(observed_at) or observed_at > run.as_of:
+            raise ValidationError('Use a timezone-aware observation time no later than this request.')
+        observation.as_of = observed_at
+    config = analysis_configuration(arguments, run.request.get('timeframe', '1D'))
+    data = market_rows(observation, config, comparison=arguments.get('mode', 'analyze') != 'screen',
+        instrument_ids=ids[start:start + size], charts=True)
+    data.update(page=page, universe_count=len(ids),
+                next_page=page + 1 if start + size < len(ids) else None)
+    return {'data': data}
 
 
 # Saved strategy, backtest and execution reviews.
 
 
 def handle_get_strategy_snapshot(run, arguments):
-    if arguments:
-        raise ValidationError("This tool reads only the attached strategy.")
-    data = run.request.get("strategy_snapshot")
-    if not data:
-        raise ValidationError("Attach a strategy to inspect its saved configuration.")
-    return {"data": data}
+    from django.shortcuts import get_object_or_404
+    from strategies.models import Strategy
+    from strategies.services import StrategySnapshotService
+    identity = arguments.get('strategy_id', run.request.get('strategy_id'))
+    if not identity:
+        raise ValidationError('Find a strategy or attach one to read its definition.')
+    strategy = get_object_or_404(Strategy, pk=identity, user_id=run.user_id)
+    if arguments.get('version_number'):
+        version = get_object_or_404(strategy.versions, version_number=arguments['version_number'])
+        data = version.config_snapshot
+    elif identity == run.request.get('strategy_id') and run.request.get('strategy_snapshot'):
+        data = run.request['strategy_snapshot']
+    else:
+        data = StrategySnapshotService._serialize_strategy(strategy)
+    return {'data': data}
 
 
-def get_backtest_report(run, backtest_id=None):
-    ids = run.request.get("backtest_ids", [])
-    backtest_id = backtest_id or (ids[0] if len(ids) == 1 else None)
-    if backtest_id not in ids:
-        raise ValidationError("Choose one of the attached completed backtests.")
+def get_backtest_report(run, backtest_id):
     backtest = (
         BacktestRun.objects.select_related("metrics")
-        .filter(pk=backtest_id, user_id=run.user_id, status="COMPLETED")
+        .filter(pk=backtest_id, user_id=run.user_id)
         .first()
     )
-    if not backtest or not hasattr(backtest, "metrics"):
-        raise ValidationError("Attach one of your completed backtests with calculated metrics.")
+    if not backtest:
+        raise ValidationError('Choose one of your own backtests.')
+    if backtest.status != 'COMPLETED' or not hasattr(backtest, 'metrics'):
+        return {'backtest_id': backtest.pk, 'name': backtest.name, 'status': backtest.status,
+                'message': 'Performance metrics are available only after successful completion.'}
     trades = backtest.trades.all()
     totals = trades.aggregate(trades=Count("id"), net_pnl=Sum("net_pnl"), gross_pnl=Sum("gross_pnl"))
     totals = {key: value if value is not None else 0 for key, value in totals.items()}
@@ -173,7 +127,7 @@ def get_backtest_report(run, backtest_id=None):
             "charge_profile_id": backtest.charge_profile_id,
             "snapshot": backtest_configuration(backtest),
             "metrics": model_to_dict(backtest.metrics, exclude=["id", "run"]),
-            "data_quality": backtest.data_quality,
+            "data_quality": {key: value for key, value in backtest.data_quality.items() if key != 'accepted_workload'},
             "totals": totals,
             "diagnostics": backtest.diagnostics or None,
             "monthly": monthly,
@@ -189,79 +143,82 @@ def get_backtest_report(run, backtest_id=None):
     )
 
 
-def handle_get_backtest_report(run, arguments):
-    if set(arguments) - {"backtest_id"}:
-        raise ValidationError("This tool reads only attached backtests.")
-    data = get_backtest_report(run, arguments.get("backtest_id"))
-    return {"data": data}
-
-
-def handle_compare_backtests(run, arguments):
-    if arguments or len(run.request.get("backtest_ids", [])) < 2:
-        raise ValidationError("Attach at least two completed backtests to compare.")
-    reports = [get_backtest_report(run, value) for value in run.request["backtest_ids"]]
-    configs = [
-        {
-            key: item[key]
-            for key in (
-                "start_date",
-                "end_date",
-                "initial_capital",
-                "slippage_pct",
-                "include_charges",
-                "charge_profile_id",
-                "snapshot",
-            )
-        }
-        for item in reports
-    ]
-    differences = [key for key in configs[0] if any(item[key] != configs[0][key] for item in configs[1:])]
-    data = {
-        "reports": reports,
-        "differences": differences,
-        "limitations": ["Different dates, universes, rules or cost settings limit direct comparison."]
-        if differences
-        else [],
-    }
-    return {"data": data}
+def handle_get_backtest_reports(run, arguments):
+    ids = arguments.get('backtest_ids', run.request.get('backtest_ids', []))
+    if not ids:
+        raise ValidationError('Find owned backtests or attach them to review results.')
+    page, size = arguments.get('page', 1), arguments.get('page_size', 25)
+    start = (page - 1) * size
+    reports = [get_backtest_report(run, value) for value in ids[start:start + size]]
+    completed = [item for item in reports if 'snapshot' in item]
+    keys = ('start_date', 'end_date', 'initial_capital', 'slippage_pct', 'include_charges', 'charge_profile_id', 'snapshot')
+    differences = [key for key in keys if any(item[key] != completed[0][key] for item in completed[1:])] if completed else []
+    return {'data': {'reports': reports, 'differences': differences, 'page': page,
+                     'next_page': page + 1 if start + size < len(ids) else None}}
 
 
 def handle_get_execution_review(run, arguments):
-    if arguments:
-        raise ValidationError("This tool reads only the attached execution review.")
-    data = run.request.get("execution_evidence")
+    if arguments.get('review'):
+        from analytics.services import execution_review_context
+        _, data = execution_review_context(run.user, arguments['review'])
+    else:
+        data = run.request.get('execution_evidence')
     if not data:
-        raise ValidationError("Attach a journal close or execution report before requesting a review.")
-    return {"data": data, "source_as_of": data["as_of"]}
-
-
-# Conversation evidence and proposed strategy rules.
+        raise ValidationError('Specify execution filters or attach a journal/report context.')
+    return {'data': data, 'source_as_of': data['as_of']}
 
 
 def handle_get_conversation_evidence(run, arguments):
-    if set(arguments) != {"run_id", "evidence_id"}:
-        raise ValidationError("Provide an earlier run ID and evidence ID.")
-    previous = ResearchRun.objects.filter(
-        pk=arguments["run_id"], user_id=run.user_id, session_id=run.session_id, status="COMPLETED", id__lt=run.pk
-    ).first()
-    if not previous:
-        raise ValidationError("Evidence can only be retrieved from an earlier turn in this conversation.")
-    source = next((item for item in previous.evidence if item["evidence_id"] == arguments["evidence_id"]), None)
-    if not source:
-        raise ValidationError("This evidence was not recorded for the selected turn.")
-    from .evidence import hydrate_evidence
-    source = hydrate_evidence(source)
-    return {
-        **source,
-        "source_run_id": source.get("source_run_id", previous.pk),
-        "source_as_of": source.get("source_as_of", previous.as_of.isoformat()),
-    }
+    from django.db.models import Q
+    previous = ResearchRun.objects.filter(user_id=run.user_id, session_id=run.session_id,
+                                          status='COMPLETED', pk__lt=run.pk)
+    if arguments.get('run_id') or arguments.get('evidence_id'):
+        if not arguments.get('run_id') or not arguments.get('evidence_id'):
+            raise ValidationError('Provide both run_id and evidence_id for an artifact.')
+        record = previous.filter(pk=arguments['run_id']).first()
+        if record is None:
+            raise ValidationError('This earlier turn does not belong to the current conversation.')
+        item = next((value for value in record.evidence if value['evidence_id'] == arguments['evidence_id']), None)
+        if item is None:
+            raise ValidationError('Evidence was not recorded for this turn.')
+        from .evidence import hydrate_evidence
+        item = hydrate_evidence(item)
+        return {**item, 'reused': True, 'source_run_id': item.get('source_run_id', record.pk),
+                'source_as_of': item.get('source_as_of', record.as_of.isoformat())}
+    query = arguments.get('query', '').strip()
+    if query:
+        previous = previous.filter(Q(prompt__icontains=query) | Q(result__answer__icontains=query))
+    page = arguments.get('page', 1)
+    records = list(previous.order_by('-pk')[(page - 1) * 10:page * 10 + 1])
+    return {'data': {'turns': [{'run_id': value.pk, 'prompt': value.prompt,
+              'answer': value.result.get('answer', ''), 'as_of': value.as_of,
+              'evidence': [{'evidence_id': item['evidence_id'], 'tool': item['tool']} for item in value.evidence]}
+              for value in records[:10]], 'next_page': page + 1 if len(records) > 10 else None}}
 
 
 def handle_validate_strategy_draft(run, arguments):
-    if set(arguments) != {"draft"}:
-        raise ValidationError("Provide a draft object.")
-    draft = validate_draft(arguments["draft"], draft_instrument_ids(run))
-    validate_customer_rules(run, arguments["draft"])
-    data = {"valid": True, "draft": draft}
-    return {"data": data}
+    return {'data': {'valid': True, 'draft': validate_draft(arguments['draft'])}}
+
+
+def handle_research_web(run, arguments):
+    import httpx
+    from django.conf import settings
+    from django.utils import timezone
+    try:
+        response = httpx.post(f'{settings.RESEARCH_SERVICE_URL.rstrip("/")}/web-research',
+            json=arguments, headers={'X-Research-Service-Token': settings.RESEARCH_SERVICE_TOKEN},
+            timeout=httpx.Timeout(min(settings.RESEARCH_TIMEOUT_SECONDS, 120), connect=10))
+        if response.is_error:
+            detail = response.json().get('detail')
+            message = detail if isinstance(detail, str) else 'Web retrieval could not start. Use valid public HTTP/HTTPS URLs and check provider availability.'
+            return {'data': {'summary': message,
+                             'sources': [], 'grounded': False, 'available': False},
+                    'provider_usage': {'requests': 1, 'total_tokens': 0, 'complete': False},
+                    'source_as_of': timezone.now().isoformat()}
+        result = response.json()
+    except httpx.RequestError:
+        return {'data': {'summary': 'The web research provider could not be reached. Continue with available evidence.',
+                         'sources': [], 'grounded': False, 'available': False},
+                'provider_usage': {'requests': 1, 'total_tokens': 0, 'complete': False},
+                'source_as_of': timezone.now().isoformat()}
+    return {'data': result['data'], 'provider_usage': result['usage'], 'source_as_of': timezone.now().isoformat()}

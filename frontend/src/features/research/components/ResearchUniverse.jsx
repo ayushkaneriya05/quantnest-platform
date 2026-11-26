@@ -7,12 +7,12 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
 import { useInstrumentSearch } from "@/shared/hooks/useInstrumentSearch";
 
-export default function ResearchUniverse({ value, onChange, disabled, maxInstruments }) {
+export default function ResearchUniverse({ value, onChange, disabled }) {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const source = value.watchlist_id ? "watchlist" : value.strategy_id ? "strategy" : value.source || "manual";
   const { results: instruments, loading, error } = useInstrumentSearch(query,
-    { exchange: "NSE", type: "STOCK" }, searchOpen && !disabled && source === "manual");
+    {}, searchOpen && !disabled && source === "manual");
   const selected = value.instruments || [];
   return <div className="space-y-3">
     <Select disabled={disabled} value={source} onValueChange={(source) => onChange({ source, strategy_id: null, watchlist_id: null, instruments: [] })}>
@@ -33,17 +33,17 @@ export default function ResearchUniverse({ value, onChange, disabled, maxInstrum
       <SelectContent searchPlaceholder="Search strategies" />
     </Select>}
     {source === "manual" && <div className="space-y-3" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchOpen(false); }}>
-      <Input aria-label="Search NSE instruments" placeholder="Search NSE stocks…" value={query} disabled={disabled}
+      <Input aria-label="Search catalog instruments" placeholder="Search stocks, indices, futures or options…" value={query} disabled={disabled}
         onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }}
         onKeyDown={(event) => { if (event.key === "Escape") setSearchOpen(false); }} />
       {loading && <p className="text-xs text-muted-foreground"><GlobalLoader inline text="Loading instruments…" /></p>}
       {error && <p role="alert" className="text-sm text-loss">{error}</p>}
       {instruments.length > 0 && <div className="scrollbar-thin-theme max-h-52 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-        {instruments.map((item) => <Button key={item.id} variant="ghost" className="w-full justify-start" disabled={disabled || (maxInstruments != null && selected.length >= maxInstruments) || selected.some((value) => value.id === item.id)} onClick={() => { onChange({ ...value, instruments: [...selected, item] }); setQuery(""); setSearchOpen(false); }}>{item.symbol} · {item.name}</Button>)}
+        {instruments.map((item) => <Button key={item.id} variant="ghost" className="w-full justify-start" disabled={disabled || selected.some((value) => value.id === item.id)} onClick={() => { onChange({ ...value, instruments: [...selected, item] }); setQuery(""); setSearchOpen(false); }}>{item.name || item.symbol} · {item.sym_ticker}</Button>)}
       </div>}
       <div className="flex flex-wrap gap-2">{selected.map((item) => <Badge key={item.id} variant="outline"><Button variant="ghost" type="button" className="h-auto p-0 text-xs" disabled={disabled} aria-label={`Remove ${item.symbol}`} onClick={() => onChange({ ...value, instruments: selected.filter((value) => value.id !== item.id) })}>{item.symbol} ×</Button></Badge>)}</div>
     </div>}
-    <p className="text-xs text-muted-foreground">NSE stocks{maxInstruments != null ? ` · up to ${maxInstruments} per request` : ''} · calculations use completed candles.</p>
+    <p className="text-xs text-muted-foreground">Supported catalog instruments · calculations use completed candles.</p>
   </div>;
 }
-ResearchUniverse.propTypes = { value: PropTypes.object.isRequired, onChange: PropTypes.func.isRequired, disabled: PropTypes.bool, maxInstruments: PropTypes.number };
+ResearchUniverse.propTypes = { value: PropTypes.object.isRequired, onChange: PropTypes.func.isRequired, disabled: PropTypes.bool };

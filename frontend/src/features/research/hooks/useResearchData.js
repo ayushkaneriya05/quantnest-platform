@@ -47,7 +47,7 @@ export function useResearchData(session) {
     if (updateActive && accepted.length) {
       activeRevision.current += 1;
       setActiveRun((current) => {
-        const active = accepted.find(isResearchActive);
+        const active = accepted.find((run) => isResearchActive(run) && String(run.session) === String(sessionRef.current));
         return active || (accepted.some((run) => run.id === current?.id) ? null : current);
       });
     }
@@ -58,7 +58,7 @@ export function useResearchData(session) {
     try {
       const [response, active] = await Promise.all([
         session ? researchApi.runs(session, before ? { before } : {}) : { data: { results: [], next: null } },
-        researchApi.runs(null, { active: true }),
+        session ? researchApi.runs(session, { active: true }) : { data: { results: [] } },
       ]);
       if (current !== generation.current) return;
       receive(response.data.results, true, false);
@@ -67,7 +67,7 @@ export function useResearchData(session) {
         const record = active.data.results[0];
         const newest = record && latestRecords.current.get(record.id);
         const resolved = newest && newest.revision > record.revision ? newest : record;
-        setActiveRun(isResearchActive(resolved) ? resolved : null);
+        setActiveRun(isResearchActive(resolved) && String(resolved.session) === String(sessionRef.current) ? resolved : null);
       }
       if (before || oldestCursor.current == null) {
         const ids = response.data.results.map(run => run.id);

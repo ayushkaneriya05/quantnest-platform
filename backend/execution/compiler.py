@@ -68,7 +68,7 @@ def _operand_warmup(kind: str, params: dict, timeframe: str, calendar) -> int:
     return lookback + int(params.get('shift', 0)) + 1  # Preceding observation for crosses.
 
 
-def strategy_requirements(config: dict, calendar, *, role=None) -> tuple[str, dict, dict]:
+def strategy_requirements(config: dict, calendar, *, role=None, numeric_outputs=()) -> tuple[str, dict, dict]:
     """One history plan for admission, data warmup, research and compilation."""
     base = CandleTimeframe(config['time_rule']['candle_timeframe'])
     counts = {base: MIN_WARMUP_BARS}
@@ -98,8 +98,11 @@ def strategy_requirements(config: dict, calendar, *, role=None) -> tuple[str, di
                 source = 'trade' if item['type'] in POSITION_OPERANDS else item.get('source', 'signal')
                 if role is None or source == role:
                     include(item['type'], item['params'], item.get('timeframe') or base, extra)
+    output_trees = [*numeric_outputs]
     if config.get('initial_risk') is not None:
-        for item, extra in input_requirements(config['initial_risk'], config.get('expressions', {})):
+        output_trees.append(config['initial_risk'])
+    for tree in output_trees:
+        for item, extra in input_requirements(tree, config.get('expressions', {})):
             if role is None or role == item.get('source', 'signal'):
                 include(item['type'], item['params'], item.get('timeframe') or base, extra)
     sources = {}
@@ -215,6 +218,7 @@ class Program:
     candidates: dict[int, str] = field(default_factory=dict)
     rebind_rules: frozenset[int] = frozenset()
     rebind_setups: frozenset[str] = frozenset()
+    outputs: dict[str, Operand] = field(default_factory=dict)
 
     def permits_binding(self, binding):
         return (binding == self.binding if self.selection is None else
@@ -292,8 +296,9 @@ class Program:
             not any(left <= clock <= right for left, right in self.no_trade_windows))
 
 
-def compile_strategy(config: dict, version: int, *, calendar, signal_calendar=None) -> Program:
-    base, counts, sources = strategy_requirements(config, calendar)
+def compile_strategy(config: dict, version: int, *, calendar, signal_calendar=None, numeric_outputs=None) -> Program:
+    numeric_outputs = numeric_outputs or {}
+    base, counts, sources = strategy_requirements(config, calendar, numeric_outputs=numeric_outputs.values())
     features = {}
     market_features = {'signal': {}, 'trade': {}}
 
@@ -428,16 +433,20 @@ def compile_strategy(config: dict, version: int, *, calendar, signal_calendar=No
         rebind_rules.update(affected)
         if group.setup and (affected or any(uses_trade(value) for _, value in group.setup.captures)):
             rebind_setups.add(group.setup.identity)
+    # Analytics can observe numeric formulas without inventing comparison rules.
+    outputs = {name: compile_numeric(validate_tree(tree, expected='number', expressions=expressions), operand, named, window)
+               for name, tree in numeric_outputs.items()}
     return Program(version, base, counts, sources, tuple(groups), operators, features,
         Side(entry.get('entry_side', Side.BUY)), calendar, ZoneInfo(timing['timezone']),
         frozenset(day.title() for day in timing.get('trading_days') or []),
         time.fromisoformat(timing['start_time']) if timing.get('start_time') else None,
         time.fromisoformat(timing['end_time']) if timing.get('end_time') else None,
         tuple((time.fromisoformat(item['start']), time.fromisoformat(item['end'])) for item in timing.get('no_trade_windows') or []),
-        {role: (*strategy_requirements(config, signal_calendar or calendar if role == 'signal' else calendar, role=role)[1:],
+        {role: (*strategy_requirements(config, signal_calendar or calendar if role == 'signal' else calendar,
+                                      role=role, numeric_outputs=numeric_outputs.values())[1:],
                 market_features[role]) for role in market_features},
         market_calendars={'signal': signal_calendar or calendar, 'trade': calendar}, initial_risk=initial_risk,
-        rebind_rules=frozenset(rebind_rules), rebind_setups=frozenset(rebind_setups))
+        rebind_rules=frozenset(rebind_rules), rebind_setups=frozenset(rebind_setups), outputs=outputs)
 
 
 class CandleHistoryConflict(ValueError):

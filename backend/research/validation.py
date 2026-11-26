@@ -5,21 +5,17 @@ import json
 import re
 from typing import cast
 
-from common.enums import CandleTimeframe, InstrumentType, LogicalOperator, OperandType, RuleType
+from common.enums import CandleTimeframe, LogicalOperator, OperandType
 from strategies.specification.operands import get_operand_parameter_config
-from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from instruments.models import Instrument
 from rest_framework.exceptions import ValidationError
 from strategies.serializers import (
     StrategyCreateSerializer,
 )
 
-from .models import ResearchRun
 from .serializers import ScreenConditionSerializer
 
 SCREEN_DEFAULTS = {'timeframe': CandleTimeframe.D1, 'logical_operator': LogicalOperator.AND}
-MAX_SCREEN_CONDITIONS = 12
 
 
 def json_data(value):
@@ -63,7 +59,7 @@ def _validate_parameter_keys(operand, params, *, source=False):
             _validate_parameter_keys(variable["type"], variable.get("params") or {})
 
 
-def validate_draft(draft, instrument_ids):
+def validate_draft(draft):
     """AI proposals use Studio's document and compiler, without a second builder."""
     from strategies.definitions import CONFIG_FIELDS, document_from_snapshot, validate_definition, compile_preview
     from strategies.models import Strategy
@@ -79,17 +75,6 @@ def validate_draft(draft, instrument_ids):
         document = validate_definition(document_from_snapshot(draft))
     except (ValueError, KeyError) as exc:
         raise ValidationError(f'Invalid Studio draft: {exc}') from None
-    watches = document['watchlist_instruments']
-    ids = {item['instrument_id'] for item in watches} | {item['signal_instrument_id'] for item in watches}
-    if not ids or ids - set(instrument_ids):
-        raise ValidationError('Choose signal and traded instruments from this research context.')
-    if Instrument.objects.filter(pk__in=ids, is_active=True).count() != len(ids):
-        raise ValidationError('Choose active instruments for a new draft.')
-    groups = [group for group in document['rule_groups'] if group.get('is_active', True)]
-    if not any(group['rule_type'] == RuleType.ENTRY for group in groups):
-        raise ValidationError('A strategy needs an entry condition.')
-    if not any(group['rule_type'] != RuleType.ENTRY for group in groups):
-        raise ValidationError('Add an exit, stop-loss or target condition.')
     strategy = Strategy(**base, definition=document)
     result = {**{key: getattr(strategy, key) for key in base_fields}, **document}
     # Compilation validates source clocks, formula dependencies and risk units.
@@ -98,74 +83,6 @@ def validate_draft(draft, instrument_ids):
     except ValueError as exc:
         raise ValidationError(str(exc)) from None
     return json_data(result)
-
-
-UNSUPPORTED_CLAIMS = re.compile(
-    r"\b(?:guaranteed|assured|risk[ -]free)\s+(?:profits?|returns?|income)|"
-    r"\b(?:i recommend|you should|you must)\s+(?:buy|sell|invest|short)\b|"
-    r"\b(?:(?:your|recommended|our) price target(?: is)?|target price is|suitable for your (?:portfolio|risk)|best stocks? to buy)\b",
-    re.I,
-)
-
-
-def validate_written_result(result):
-    if settings.QUANTNEST_DEPLOYMENT_MODE == "development":
-        return
-    text = "\n".join(
-        [result.get("answer", ""), *result.get("next_steps", []), *result.get("clarification_questions", [])]
-    )
-    if UNSUPPORTED_CLAIMS.search(text):
-        raise ValidationError(
-            "The response crossed the software-only boundary. Ask for an explanation of your own conditions or recorded results."
-        )
-
-
-def validate_customer_rules(run, draft):
-    """A new draft must be traceable to explicit user-supplied trading choices."""
-    if settings.QUANTNEST_DEPLOYMENT_MODE == "development":
-        return
-    baseline = run.request.get("strategy_snapshot") or run.request.get("draft_context", {}).get("draft", {})
-    prompts = [
-        run.prompt,
-        *ResearchRun.objects.filter(session_id=run.session_id, user_id=run.user_id, pk__lt=run.pk)
-        .order_by("-pk")
-        .values_list("prompt", flat=True)[:20],
-    ]
-    text = " ".join(prompts).lower()
-    groups = draft.get("rule_groups", [])
-    choices_supplied = all(
-        re.search(pattern, text)
-        for pattern in (
-            r"\b(?:entry|enter|buy|long|short)\b",
-            r"\b(?:exit|close|sell)\b",
-            r"\b(?:minute|hour|daily|day|weekly|1m|5m|15m|1h|1d|1w)\b",
-            r"\b(?:quantity|shares|capital|sizing)\b",
-        )
-    )
-    if not baseline and (not groups or not choices_supplied):
-        raise ValidationError(
-            "Ask the customer to specify entry, exit, timeframe and sizing choices before translating a new draft."
-        )
-    numeric_choices = {float(value) for value in re.findall(r"(?<![a-z])\d+(?:\.\d+)?", text)}
-    if baseline and not run.prompt.strip():
-        raise ValidationError("Describe the requested rule change.")
-    def numeric_parameters(value, path=()):
-        if isinstance(value, dict):
-            for key, child in value.items():
-                yield from numeric_parameters(child, (*path, key))
-        elif isinstance(value, list):
-            for index, child in enumerate(value):
-                yield from numeric_parameters(child, (*path, index))
-        elif path and path[-1] in {'value', 'period', 'length', 'fast', 'slow', 'signal', 'bars', 'count',
-                                    'expires_after_bars', 'fixed_quantity', 'capital_percentage'}:
-            try:
-                yield path, float(value)
-            except (ValueError, TypeError):
-                pass
-    previous = dict(numeric_parameters(baseline))
-    for path, number in numeric_parameters(draft):
-        if previous.get(path) != number and number not in numeric_choices:
-            raise ValidationError('A trading threshold, period or sizing value was not supplied by the customer. Ask for that choice before generating rules.')
 
 
 def normalize_citations(text, evidence, references):
@@ -219,8 +136,7 @@ def finalize_result(run, result):
         values = result.get(field, [])
         if (
             not isinstance(values, list)
-            or len(values) > 8
-            or any(not isinstance(value, str) or len(value) > 2000 for value in values)
+            or any(not isinstance(value, str) for value in values)
         ):
             raise ValueError(f"Invalid {field} in research response.")
         result[field] = [normalize_citations(value, evidence, references) for value in values]
@@ -240,7 +156,6 @@ def finalize_result(run, result):
         if not item or item["tool"] != "validate_strategy_draft":
             raise ValueError("The proposed strategy draft has not passed backend validation.")
         result["draft"] = item["data"]["draft"]
-    validate_written_result(result)
     return result
 
 
@@ -254,8 +169,8 @@ def screen_configuration(arguments):
     conditions = arguments.get("conditions", [])
     if timeframe not in CandleTimeframe.values or operator not in LogicalOperator.values:
         raise ValidationError("Choose a supported timeframe and group operator.")
-    if not isinstance(conditions, list) or not 1 <= len(conditions) <= MAX_SCREEN_CONDITIONS:
-        raise ValidationError(f"Provide between 1 and {MAX_SCREEN_CONDITIONS} screening conditions.")
+    if not isinstance(conditions, list) or not conditions:
+        raise ValidationError("Provide at least one screening condition.")
     rules = [validate_screen_condition(value) for value in conditions]
     if any(not rule["is_active"] for rule in rules):
         raise ValidationError("Screening conditions must be active.")

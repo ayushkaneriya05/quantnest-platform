@@ -42,7 +42,7 @@ HTTP errors; SDK retries are disabled so attempts do not multiply. A timeout is
 reported directly and does not trigger another potentially billed generation.
 The ten-minute research deadline still covers multiple model/tool rounds.
 Gemini receives compact schemas describing field types and allowed choices;
-Pydantic and Django enforce length, count, ownership and value limits. This
+Pydantic and Django enforce contract types, ownership and executable values. This
 avoids constrained-decoder state explosions from nested bounded tool arguments.
 
 Service logs record slot wait, model-round duration, tool calls and token counts
@@ -77,15 +77,13 @@ or subscriptions needing a reviewed terms transition.
 One credit is 1,000 reported tokens. Successful saved answers settle actual usage;
 failed/cancelled requests charge no customer credits. There is no cumulative
 customer token cap per request. The service retains technical provider limits,
-a ten-minute deadline supplied by Django, eight uncached tool executions, bounded
-retries and bounded model rounds. A valid structured answer returns immediately.
+a ten-minute deadline supplied by Django, bounded concurrent I/O and retries. Repeated calls reuse evidence; a stalled loop finishes from collected evidence. A valid structured answer returns immediately.
 
 The system instruction separates educational replies, admitted data/evidence,
-customer-defined drafts, report reviews and confirmed UI actions. A rejected tool
+suggested and customer-defined drafts, report reviews and confirmed UI actions. A rejected tool
 call is returned to the model as an explicit error. One malformed final answer
 may be repaired using validation feedback; that repair cannot fetch new data.
-Blank answers and follow-up text beyond the application limits are validated in
-the service before saving. Invalid optional proposals do not remove valid ones.
+Blank or malformed answers are rejected; optional actions are validated separately. Invalid optional proposals do not remove valid ones.
 
 ## Verification
 
@@ -102,3 +100,29 @@ confirms startup only; it does not verify provider access.
 Provider references: [Interactions](https://ai.google.dev/gemini-api/docs/interactions-overview),
 [structured output](https://ai.google.dev/gemini-api/docs/structured-output),
 [reported usage](https://ai.google.dev/gemini-api/docs/tokens).
+
+## Expanded research release
+
+Apply `research.0008_expanded_research` and
+`commercial.0019_open_research_capabilities` with backend/compute/service/frontend
+updated together. The assistant discovers resources during a request, analyses
+supported catalog instrument types, suggests testable parameters and financial
+code, and offers confirmed strategy revisions. Watchlist writes are removed.
+
+`research_web` delegates to this service’s authenticated `/web-research` endpoint.
+The Gemini adapter uses native Google Search and optional URL context. It returns
+provider citation annotations and reported token totals; native search availability
+and separate provider charges depend on the configured model/project. Web quota
+failure is a recoverable tool error, not permission to invent current facts.
+
+The adapter streams actual answer text and assembles native continuation steps,
+function arguments and thought signatures for the next tool round. The provider
+interface accepts `on_text` snapshots and returns plain `ProviderStep` values.
+Recent history is bounded by Django’s `RESEARCH_CONTEXT_CHARACTERS`; older turns
+stay accessible through retrieval. `RESEARCH_OUTPUT_TOKENS` defaults to 16384 as a
+technical single-generation output bound and must fit the chosen model.
+
+The service has two conversation slots and separate web slots. The workflow
+permits three concurrent independent tools, without an overall eight-tool cap.
+An identical call shares its in-flight result; repeated no-progress rounds request
+a final answer. No extra Celery queue or worker is introduced.

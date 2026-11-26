@@ -10,7 +10,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from .providers import ResearchError, create_provider
-from .schemas import ResearchRequest
+from .schemas import ResearchRequest, WebResearchRequest
 from .workflow import research_events
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -22,6 +22,8 @@ async def lifespan(app):
     if not os.environ.get("RESEARCH_SERVICE_TOKEN"):
         raise RuntimeError("RESEARCH_SERVICE_TOKEN is required.")
     app.state.slots = asyncio.Semaphore(2)
+    # Separate slots avoid deadlock when active conversations request web evidence.
+    app.state.web_slots = asyncio.Semaphore(2)
     app.state.provider = create_provider()
     try:
         yield
@@ -46,7 +48,7 @@ async def research(
     secret = os.environ.get("RESEARCH_SERVICE_TOKEN", "")
     if not secret or not hmac.compare_digest(secret, x_research_service_token):
         raise HTTPException(403, "Invalid research service credentials.")
-    if len(json.dumps(payload.model_dump())) > 200000:
+    if len(json.dumps(payload.model_dump()).encode()) > 1000000:
         raise HTTPException(413, "Research context is too large.")
 
     async def stream():
@@ -107,3 +109,19 @@ async def research(
         media_type="application/x-ndjson",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"},
     )
+
+
+@app.post('/web-research')
+async def web_research(payload: WebResearchRequest, request: Request, x_research_service_token: str = Header(default='')):
+    secret = os.environ.get('RESEARCH_SERVICE_TOKEN', '')
+    if not secret or not hmac.compare_digest(secret, x_research_service_token):
+        raise HTTPException(403, 'Invalid research service credentials.')
+    if len(json.dumps(payload.model_dump()).encode()) > 1000000:
+        raise HTTPException(413, 'Web research request is too large.')
+    try:
+        async with asyncio.timeout(120), request.app.state.web_slots:
+            return await request.app.state.provider.web_research(payload.query, payload.urls)
+    except Exception as exc:
+        logger.warning('Web research failed category=%s', type(exc).__name__)
+        detail = str(exc) if isinstance(exc, ResearchError) else 'The configured provider could not retrieve grounded web evidence.'
+        raise HTTPException(502, detail) from exc

@@ -25,11 +25,11 @@ import ResearchActionPreview, { ResearchActionLinks } from "@/features/research/
 
 const starters = [
   { title: "Explore the market", prompts: [
-    ["Analyze a stock", "Explain RELIANCE’s daily trend and momentum using EMA 50 and RSI 14."],
+    ["Analyse markets", "Find RELIANCE and BANKNIFTY in the catalog and compare their daily trend using EMA 50 and RSI 14."],
     ["Compare my watchlist", "Compare the attached stocks using momentum and volatility."],
-    ["Find technical setups", "Find stocks above EMA 50 with RSI above 50 in my selected watchlist."]]},
+    ["Research current events", "Research the latest RBI monetary policy announcement using primary sources and explain the implications for banks and bonds."]]},
   { title: "Develop a strategy", prompts: [
-    ["Turn an idea into rules", "Help me turn an intraday EMA crossover idea into clear entry, stop-loss and target rules. Ask me about missing settings first."],
+    ["Turn an idea into rules", "Help me turn an intraday EMA crossover idea into clear entry, stop-loss and target rules. Suggest sensible starting parameters and explain your assumptions and how to test them."],
     ["Review a backtest", "Review the attached backtest using its actual trades, costs, drawdown and entry diagnostics."],
     ["Compare experiments", "Compare the attached backtests, their configurations and results. Explain comparability limitations."]]}
 ];
@@ -72,16 +72,15 @@ export default function AIResearchAssistant() {
   const [target, setTarget] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState({});
   const scrollRef = useRef(null);
   const openedSession = useRef(null);
   const followLatest = useRef(true);
   const inputRef = useRef(null);
   const restored = useRef(null);
   const submitting = useRef(false);
-  const { allowance, runs, receive, loading, activeRun, active, connected, reload, hasMore, loadMore } = useResearchData(session);
+  const { allowance, runs, receive, loading, active, connected, reload, hasMore, loadMore } = useResearchData(session);
   const exhausted = allowance?.enforced && allowance.remaining === 0;
-  const credits = (tokens) => formatNumber(tokens / (allowance?.tokens_per_credit || 1000));
+  const credits = (tokens) => formatNumber(tokens / (allowance?.tokens_per_credit || 1000), { minimumFractionDigits: 3, maximumFractionDigits: 3 });
   const turns = session ? runs.filter((run) => String(run.session) === session) : [];
   const latest = turns.at(-1);
   const contextReady = !session || restored.current === session;
@@ -101,9 +100,6 @@ export default function AIResearchAssistant() {
     // Query attachments are initial context; conversation navigation restores each saved turn instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => {
-    if (!session && activeRun && !params.get("backtest") && !params.get("source")) setParams(conversationQuery(activeRun.session, params), { replace: true });
-  }, [activeRun, session, params, setParams]);
   useEffect(() => {
     const context = latest?.request;
     // Progress events omit the frozen request; restore attachments after REST loads it.
@@ -183,14 +179,10 @@ export default function AIResearchAssistant() {
   function chooseInstrument(item) {
     const instruments = universe.strategy_id || universe.watchlist_id ? [] : universe.instruments;
     if (instruments.some((selected) => selected.id === item.id)) return;
-    if (schema?.limits.instruments != null && instruments.length >= schema.limits.instruments) {
-      notify.error(`You can attach up to ${schema.limits.instruments} stocks per request.`);
-      return;
-    }
     setUniverse({ strategy_id: null, instruments: [...instruments, item], watchlist_id: null });
-    setDetails(null); if (!prompt.trim()) followUp("Use the selected stocks for this investigation.");
+    setDetails(null); if (!prompt.trim()) followUp("Use the selected instruments for this investigation.");
   }
-  function toggleSelected(runId, id) { setSelected((previous) => ({ ...previous, [runId]: (previous[runId] || []).includes(id) ? previous[runId].filter((item) => item !== id) : [...previous[runId] || [], id] })); }
+
   const conversations = <ResearchConversations session={session} refreshKey={`${latest?.id || ""}-${latest?.status || ""}`} onSelect={(id) => { setParams(conversationQuery(id, params)); setPrompt(""); setSidebar(false); setError(""); }} onDelete={(id) => { if (String(id) === session) newChat(); }} />;
 
   return <div className="flex min-h-0 flex-1 overflow-hidden bg-background/40 text-foreground">
@@ -200,20 +192,20 @@ export default function AIResearchAssistant() {
         onScroll={(event) => { const node = event.currentTarget; followLatest.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100; }}>
         <div className={`mx-auto w-full max-w-[1040px] space-y-3 px-3 py-3 sm:px-4 ${!session ? "flex min-h-full flex-col justify-center" : ""}`}>
           {loading && session && <p className="text-sm text-muted-foreground"><GlobalLoader inline text="Loading conversation…" /></p>}
-          {!session && <div className="space-y-3 py-2"><div className="flex items-start gap-3"><Brain className="mt-1 h-7 w-7 shrink-0 text-brand" /><div><h2 className="text-xl font-semibold sm:text-2xl">What would you like to investigate?</h2><p className="mt-2 text-sm text-muted-foreground">Explore stocks, develop rules, and learn from real backtests. Attach context when it helps.</p></div></div><div className="grid gap-3 sm:grid-cols-2">{starters.map((group) => <section key={group.title} className="rounded-lg border border-border p-3"><h3 className="mb-3 text-sm font-semibold text-brand">{group.title}</h3><div className="space-y-2">{group.prompts.map(([label, text]) => <Button variant="ghost" type="button" key={label} onClick={() => followUp(text)} className="block h-auto w-full whitespace-normal rounded-md px-2.5 py-2 text-left text-sm">{label}</Button>)}</div></section>)}</div></div>}
+          {!session && <div className="space-y-3 py-2"><div className="flex items-start gap-3"><Brain className="mt-1 h-7 w-7 shrink-0 text-brand" /><div><h2 className="text-xl font-semibold sm:text-2xl">What would you like to investigate?</h2><p className="mt-2 text-sm text-muted-foreground">Research markets and finance, develop strategies, and learn from recorded results. Context is optional.</p></div></div><div className="grid gap-3 sm:grid-cols-2">{starters.map((group) => <section key={group.title} className="rounded-lg border border-border p-3"><h3 className="mb-3 text-sm font-semibold text-brand">{group.title}</h3><div className="space-y-2">{group.prompts.map(([label, text]) => <Button variant="ghost" type="button" key={label} onClick={() => followUp(text)} className="block h-auto w-full whitespace-normal rounded-md px-2.5 py-2 text-left text-sm">{label}</Button>)}</div></section>)}</div></div>}
           {hasMore && session && <Button className="w-full" variant="outline" disabled={loading} onClick={loadMore}>Load earlier turns</Button>}
           {turns.map((run) => <article key={run.id} className="space-y-3" data-run-id={run.id}>
             <div className="ml-auto max-w-[85%] rounded-xl bg-secondary/70 px-4 py-3"><p className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">You</p><p className="whitespace-pre-wrap text-sm">{run.prompt || "Run the saved market screen."}</p></div>
             <div className="space-y-3"><div className="flex items-center gap-2 text-xs text-brand"><Brain size={16} />QuantNest Research<span className="ml-auto text-muted-foreground">{formatDateTime(run.as_of)}</span></div>
               {run.request && <p className="text-xs text-muted-foreground">{run.request.execution_review ? `${run.request.execution_review.filters.source.toLowerCase()} execution · ${run.request.execution_review.filters.date_from} – ${run.request.execution_review.filters.date_to}` : `${run.request.instruments.map((item) => item.symbol).join(", ") || "General research"} · ${run.request.timeframe} · closed candles`}</p>}
-              {isResearchActive(run) || !run.request || run.status === "COMPLETED" && run.loadedRevision < run.revision ? <div role="status" className="flex items-center gap-3 rounded-xl border border-brand/20 bg-brand/5 p-3"><LoaderMark className="h-4 w-4" /><p className="flex-1 text-sm text-foreground">{run.progress_message}</p>{isResearchActive(run) && <Button size="sm" variant="outline" disabled={busy} onClick={() => cancel(run)}>Cancel</Button>}</div> : run.status === "COMPLETED" ? <>
+              {isResearchActive(run) || !run.request || run.status === "COMPLETED" && run.loadedRevision < run.revision ? <><div role="status" className="flex items-center gap-3 rounded-xl border border-brand/20 bg-brand/5 p-3"><LoaderMark className="h-4 w-4" /><p className="flex-1 text-sm text-foreground">{run.progress_message}</p>{isResearchActive(run) && <Button size="sm" variant="outline" disabled={busy} onClick={() => cancel(run)}>Cancel</Button>}</div>{run.partial_answer && <Markdown>{run.partial_answer}</Markdown>}</> : run.status === "COMPLETED" ? <>
                 <CitedText text={run.result.answer} evidence={run.evidence} onEvidence={setDetails} />
                 {run.mode === "RESEARCH" && Number.isInteger(run.usage?.total_tokens) && <p className="text-xs text-muted-foreground">{credits(run.usage.total_tokens)} AI credits{run.usage.complete === false ? " · reported usage is incomplete" : ""}</p>}
-                {run.evidence.filter((item) => (run.result.artifact_refs?.length ? run.result.artifact_refs : run.result.evidence_ids || []).includes(item.evidence_id)).map((item) => <ResearchEvidence key={item.evidence_id} evidence={item} enums={enums} onDetails={setDetails} onChoose={active ? undefined : chooseInstrument} selected={selected[run.id] || []} onSelect={item.data.row_count != null ? (id) => toggleSelected(run.id, id) : undefined} />)}
+                {run.evidence.filter((item) => (run.result.artifact_refs?.length ? run.result.artifact_refs : run.result.evidence_ids || []).includes(item.evidence_id)).map((item) => <ResearchEvidence key={item.evidence_id} evidence={item} enums={enums} onDetails={setDetails} onChoose={active ? undefined : chooseInstrument} />)}
                 {run.result.clarification_questions?.length > 0 && <div className="rounded-xl border border-brand/20 p-3"><h4 className="mb-3 text-sm font-medium">To continue</h4>{run.result.clarification_questions.map((text, index) => <CitedText key={index} text={text} evidence={run.evidence} onEvidence={setDetails} />)}</div>}
                 {run.result.limitations?.length > 0 && <details className="text-sm text-muted-foreground"><summary className="cursor-pointer">Limitations and assumptions</summary><div className="mt-3 space-y-2">{run.result.limitations.map((text, index) => <CitedText key={index} text={text} evidence={run.evidence} onEvidence={setDetails} />)}</div></details>}
                 <div className="flex flex-wrap gap-2">{run.result.next_steps?.map((text, index) => <Button key={index} variant="outline" size="sm" className="h-auto whitespace-normal text-left" onClick={() => followUp(text)}>{text.replace(/\[E\d+\]/g, "")}</Button>)}</div>
-                <div className="flex flex-wrap gap-2">{run.evidence.map((item) => <Button key={item.evidence_id} size="sm" variant="ghost" onClick={() => setDetails(item)}>Source {item.evidence_id}</Button>)}<Button variant="ghost" size="sm" disabled={active || busy} onClick={() => send(run)}>Run analysis again</Button>{run.result.draft && !run.created_strategy && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "CREATE_DRAFT" })}>Preview strategy draft</Button>}{selected[run.id]?.length > 0 && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "ADD_TO_WATCHLIST", payload: { instrument_ids: selected[run.id] } })}>Preview watchlist additions</Button>}{Boolean(run.created_strategy || run.request.strategy_id || run.request.backtest_ids.length) && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "START_BACKTEST" })}>Configure one backtest</Button>}</div>
+                <div className="flex flex-wrap gap-2">{run.evidence.map((item) => <Button key={item.evidence_id} size="sm" variant="ghost" onClick={() => setDetails(item)}>Source {item.evidence_id}</Button>)}<Button variant="ghost" size="sm" disabled={active || busy} onClick={() => send(run)}>Run analysis again</Button>{run.result.draft && !run.created_strategy && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "CREATE_DRAFT" })}>Preview strategy draft</Button>}{run.result.draft && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "SAVE_STRATEGY_VERSION" })}>Preview revision to a strategy</Button>}<Button size="sm" variant="outline" onClick={() => setTarget({ run, type: "START_BACKTEST" })}>Configure a backtest</Button></div>
                 {run.actions?.map((action) => <div key={action.id} className="space-y-2 rounded-lg border border-border p-3 text-sm"><p>{actionLabel[action.action_type]} · {action.status === "PROPOSED" ? "Awaiting confirmation" : action.status.toLowerCase()}</p>{action.status === "PROPOSED" && <Button size="sm" variant="outline" onClick={() => setTarget({ run, type: action.action_type, action })}>Review proposed action</Button>}{action.error_message && <p className="text-loss">{action.error_message}</p>}<ResearchActionLinks action={action} /></div>)}
               </> : <div role="alert" className="space-y-3 rounded-xl border border-loss/20 p-3"><p className="text-sm text-loss">{run.status === "CANCELLED" ? "Research was cancelled. Earlier messages and evidence are retained." : run.error_message}</p><Button variant="outline" size="sm" disabled={busy || active} onClick={() => send(run)}>Retry this question</Button></div>}
             </div>
@@ -231,9 +223,10 @@ export default function AIResearchAssistant() {
           <Button variant="ghost" size="sm" disabled={active || !schema} onClick={() => setAttachmentsOpen(true)}><Paperclip size={14} className="mr-1" />Attach context</Button>
           <TooltipHint content={connected ? "Live research updates connected" : "Reconnecting; saved research is retained"}><span tabIndex={0} role="status" aria-label={connected ? "Research updates connected" : "Research updates reconnecting"} className={`ml-auto mr-1 h-2 w-2 shrink-0 rounded-full ${connected ? "bg-success" : "bg-warning"}`} /></TooltipHint>
         </div>
-        <form className="flex items-end gap-2 rounded-xl border border-border bg-card/40 p-1.5 focus-within:border-brand/60" onSubmit={(event) => { event.preventDefault(); send(); }}><Textarea ref={inputRef} rows={1} aria-label="Research question" title="Enter to send; Shift+Enter for a new line" placeholder="Ask a question or describe your trading idea…" className="max-h-32 min-h-[40px] resize-none rounded-lg border-0 bg-transparent py-2.5 focus-visible:ring-0 focus-visible:ring-offset-0" value={prompt} maxLength={6000} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} /><Button variant="default" type="submit" size="icon" className="w-10 shrink-0" aria-label="Send research question" disabled={exhausted || busy || active || loading || !contextReady || !prompt.trim() || !schema?.service_configured}><Send size={17} /></Button></form>
+        {allowance && <p className="text-xs text-muted-foreground">{allowance.remaining == null ? "No commercial AI quota" : `${credits(allowance.remaining)} credits remaining this period`}{!allowance.enforced && allowance.remaining != null ? " · recording only" : ""}</p>}
+        <form className="flex items-end gap-2 rounded-xl border border-border bg-card/40 p-1.5 focus-within:border-brand/60" onSubmit={(event) => { event.preventDefault(); send(); }}><Textarea ref={inputRef} rows={1} aria-label="Research question" title="Enter to send; Shift+Enter for a new line" placeholder="Ask a question or describe your trading idea…" className="max-h-32 min-h-[40px] resize-none rounded-lg border-0 bg-transparent py-2.5 focus-visible:ring-0 focus-visible:ring-offset-0" value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(); } }} /><Button variant="default" type="submit" size="icon" className="w-10 shrink-0" aria-label="Send research question" disabled={exhausted || busy || active || loading || !contextReady || !prompt.trim() || !schema?.service_configured}><Send size={17} /></Button></form>
         {(error || !schema?.service_configured && schema) && <p role="alert" className="text-xs text-loss">{error || "The research service needs configuration before you can send a question."}</p>}
-        {activeRun && String(activeRun.session) !== session && <p className="text-xs text-warning">Another conversation has active research. <Button variant="ghost" type="button" className="inline h-auto whitespace-normal p-0 text-xs underline" onClick={() => setParams(conversationQuery(activeRun.session, params))}>Open it to follow progress or cancel.</Button></p>}
+
       </div></div>
     </section>
     <ResearchDrawer open={sidebar} onOpenChange={setSidebar} title="Conversations">{sidebar && conversations}</ResearchDrawer>
@@ -242,14 +235,14 @@ export default function AIResearchAssistant() {
       <DialogContent style={{ "--tw-enter-scale": 1, "--tw-exit-scale": 1 }} className="flex max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-xl flex-col border-border bg-background p-3 text-foreground">
         <div className="space-y-2 pr-7">
         <DialogTitle>Attach research context</DialogTitle>
-        <DialogDescription>Optional stocks, a watchlist, a strategy, or completed backtests within your allowance.</DialogDescription>
+        <DialogDescription>Optional instruments, a watchlist, a strategy, or completed backtests to focus the investigation. You can also ask the assistant to find them.</DialogDescription>
         </div>
         <div className="scrollbar-theme min-h-0 space-y-3 overflow-y-auto pr-1">
-        <ResearchUniverse value={universe} onChange={(value, preferredTimeframe) => { setUniverse(value); if (preferredTimeframe) setTimeframe(preferredTimeframe); }} disabled={active} maxInstruments={schema?.limits.instruments} />
+        <ResearchUniverse value={universe} onChange={(value, preferredTimeframe) => { setUniverse(value); if (preferredTimeframe) setTimeframe(preferredTimeframe); }} disabled={active} />
         <section>
-          <h3 className="mb-3 text-sm">Completed backtests ({attached.length}{schema?.limits.backtests != null ? `/${schema.limits.backtests}` : ''})</h3>
+          <h3 className="mb-3 text-sm">Completed backtests ({attached.length})</h3>
           <Select resource="backtests" filters={{ status: "COMPLETED" }} value=""
-            disabled={active || (schema?.limits.backtests != null && attached.length >= schema.limits.backtests)}
+            disabled={active}
             onValueChange={(value, option) => {
               const id = Number(value);
               setAttached((previous) => previous.includes(id) ? previous : [...previous, id]);

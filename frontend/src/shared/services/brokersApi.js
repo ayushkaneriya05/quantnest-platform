@@ -14,6 +14,7 @@ export const brokersApi = {
 
   // Charge Profiles
   getChargeProfiles: () => api.get(`${BASE_URL}/charge-profiles/`),
+  getChargeProfileDefaults: () => api.get(`${BASE_URL}/charge-profiles/defaults/`),
   createChargeProfile: (payload) => api.post(`${BASE_URL}/charge-profiles/`, payload),
   updateChargeProfile: (id, payload) => api.patch(`${BASE_URL}/charge-profiles/${id}/`, payload),
   deleteChargeProfile: (id) => api.delete(`${BASE_URL}/charge-profiles/${id}/`),

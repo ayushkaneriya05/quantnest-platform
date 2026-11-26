@@ -343,6 +343,48 @@ the system computes the applicable simulated round-trip charges, including the
 same-session equity intraday/delivery distinction and segment-specific STT/CTT.
 The order product label alone does not determine the holding-period charge basis.
 
+New `QuantNest` charge profiles use the FYERS **Standard** schedule verified on
+25 November 2026. The editable table in `brokers/charge_rates.py` selects NSE,
+BSE or MCX and equity, currency or commodity contracts. Futures and options have
+separate transaction/clearing rates. Options use flat order brokerage; stock
+delivery uses its delivery brokerage and buy-side stamp duty. GST includes
+brokerage, exchange, clearing, SEBI and IPFT fees, excluding STT/CTT and stamp duty.
+The editor obtains its initial values from the backend rather than maintaining
+another list of defaults in JavaScript.
+
+The ordinary-trade estimates include:
+
+- Equity delivery/intraday STT: 0.1% on both sides / 0.025% on sale.
+- Equity futures/options STT: 0.05% / 0.15% on sale (effective 1 April 2026).
+- Non-agricultural futures/options CTT: 0.01% / 0.05% on sale.
+- No STT/CTT on currency derivatives. Currency stamp duty is 0.0001% on buy.
+- Stock delivery/intraday stamp duty: 0.015% / 0.003% on buy;
+  equity/commodity futures 0.002%, options 0.003% on buy.
+
+Sources: [FYERS pricing](https://fyers.in/pricing),
+[FYERS detailed charges](https://fyers.in/charges-list),
+[NSE transaction/IPFT circular](https://nsearchives.nseindia.com/content/circulars/FA73061.pdf),
+[NSE statutory levies](https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies)
+and [MCXCCL CTT](https://www.mcxccl.com/clearing-settlement/commodities-transaction-tax).
+
+This remains a per-trade simulation, not an exact broker contract note. Fees are
+rounded to paise per allocated leg; real bills can aggregate/round STT per client
+and day. FYERS' ₹12.50 plus GST delivery DP debit is an account/scrip event and
+is not charged once per strategy trade. Funding/pledge charges, penalties,
+exercise/devolvement and physical delivery are outside ordinary round-trip fees.
+ETF tax classification, debt/government-security rates, special BSE scrip groups
+and agricultural exemptions are not inferred from a generic instrument type;
+use a separately configured profile for those instruments. The default commodity
+CTT assumptions are non-agricultural. FYERS Prime is not the default pricing tier.
+
+The selected snapshot is a fixed cost assumption for the entire backtest period,
+including dates before the current rates took effect. Choose an appropriate
+profile for historical-rate studies. Existing result/fill snapshots are not
+rewritten when the default profile changes; new runs and new deployments copy the
+updated profile. Restarting an existing Paper session does not replace its saved
+profile snapshot. Live broker fees are still reconciled separately from simulated
+costs.
+
 Adverse slippage changes execution prices. Reported slippage amounts describe that
 effect; do not subtract the same amount from already adjusted net P&L a second time.
 

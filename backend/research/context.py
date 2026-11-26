@@ -1,8 +1,9 @@
-"""Resolve owned attachments once; every research turn keeps its own immutable context."""
+"""Optional starting attachments; tools can discover further owned resources."""
+import json
 
 from backtesting.models import BacktestRun
 from backtesting.services import backtest_configuration
-from common.enums import CandleTimeframe, Exchange, InstrumentType
+from common.enums import CandleTimeframe
 from django.shortcuts import get_object_or_404
 from instruments.models import Instrument
 from rest_framework.exceptions import ValidationError
@@ -11,143 +12,95 @@ from strategies.services import StrategySnapshotService
 
 from .models import ResearchRun
 
-CONTEXT_FIELDS = (
-    "strategy_id",
-    "backtest_ids",
-    "instrument_ids",
-    "timeframe",
-    "watchlist_id",
-    "screen",
-    "source_run_id",
-    "execution_review",
-)
-SAVED_CONTEXT_FIELDS = (*CONTEXT_FIELDS, "watchlist_name", "instruments", "execution_evidence")
+CONTEXT_FIELDS = ('strategy_id', 'backtest_ids', 'instrument_ids', 'timeframe', 'watchlist_id',
+                  'screen', 'source_run_id', 'execution_review')
+SAVED_CONTEXT_FIELDS = (*CONTEXT_FIELDS, 'watchlist_name', 'instruments', 'execution_evidence')
 
 
-def active_stocks(ids):
+def selected_instruments(ids):
+    """Identity comes from the catalog; eligibility/data coverage belongs to each use."""
     ids = list(dict.fromkeys(ids))
-    rows = list(
-        Instrument.objects.filter(pk__in=ids, is_active=True, exchange=Exchange.NSE, instrument_type=InstrumentType.STOCK).values(
-            "id", "symbol", "name", "sym_ticker"
-        )
-    )
-    if len(rows) != len(ids):
-        raise ValidationError("Research supports active NSE stocks.")
-    by_id = {item["id"]: item for item in rows}
-    return [by_id[value] for value in ids]
+    rows = Instrument.objects.filter(pk__in=ids).values(
+        'id', 'symbol', 'name', 'sym_ticker', 'exchange', 'instrument_type', 'segment',
+        'lot_size', 'expiry_date', 'strike_price', 'option_type', 'is_active')
+    by_id = {row['id']: row for row in rows}
+    if set(ids) - by_id.keys():
+        raise ValidationError('An instrument is missing from the instrument catalog.')
+    return [by_id[identity] for identity in ids]
 
 
 def resolve_context(user, data, saved=None):
     context = {**(saved or {}), **{key: data[key] for key in CONTEXT_FIELDS if key in data}}
-    review = context.get("execution_review")
+    review = context.get('execution_review')
     if review:
-        if (
-            data.get("refresh")
-            or not context.get("execution_evidence")
-            or review != (saved or {}).get("execution_review")
-        ):
+        if data.get('refresh') or not context.get('execution_evidence') or review != (saved or {}).get('execution_review'):
             from analytics.services import execution_review_context
-
-            context["execution_review"], context["execution_evidence"] = execution_review_context(user, review)
+            context['execution_review'], context['execution_evidence'] = execution_review_context(user, review)
     else:
-        context.pop("execution_evidence", None)
+        context.pop('execution_evidence', None)
     snapshot = None
-    if context.get("strategy_id"):
-        strategy = get_object_or_404(Strategy, pk=context["strategy_id"], user=user)
+    if context.get('strategy_id'):
+        strategy = get_object_or_404(Strategy, pk=context['strategy_id'], user=user)
         snapshot = StrategySnapshotService._serialize_strategy(strategy)
-    ids = list(dict.fromkeys(context.get("backtest_ids", [])))
-    backtests = list(BacktestRun.objects.filter(pk__in=ids, user=user, status="COMPLETED"))
+    ids = list(dict.fromkeys(context.get('backtest_ids', [])))
+    backtests = list(BacktestRun.objects.filter(pk__in=ids, user=user, status='COMPLETED'))
     if len(backtests) != len(ids):
-        raise ValidationError("Attach only your completed backtests.")
-    context["backtest_ids"] = ids
-    context["backtests"] = [
-        {"id": item.pk, "name": item.name, "snapshot": backtest_configuration(item)} for item in backtests
-    ]
-    snapshot = snapshot or (context["backtests"][0]["snapshot"] if len(backtests) == 1 else None)
-    context["strategy_snapshot"] = snapshot
-    instruments = context.get("instrument_ids", [])
-    context.pop("watchlist_name", None)
-    if context.get("watchlist_id"):
+        raise ValidationError('Attach only your completed backtests.')
+    context['backtest_ids'] = ids
+    context['backtests'] = [{'id': item.pk, 'name': item.name, 'snapshot': backtest_configuration(item)} for item in backtests]
+    snapshot = snapshot or (context['backtests'][0]['snapshot'] if len(backtests) == 1 else None)
+    context['strategy_snapshot'] = snapshot
+    instruments = context.get('instrument_ids', [])
+    context.pop('watchlist_name', None)
+    if context.get('watchlist_id'):
         from trading.models import Watchlist
-
-        watchlist = get_object_or_404(Watchlist, pk=context["watchlist_id"], user=user)
-        context["watchlist_name"] = watchlist.name
-        instruments = list(
-            watchlist.instruments.filter(is_active=True, exchange=Exchange.NSE, instrument_type=InstrumentType.STOCK).values_list(
-                "id", flat=True
-            )
-        )
+        watchlist = get_object_or_404(Watchlist, pk=context['watchlist_id'], user=user)
+        context['watchlist_name'] = watchlist.name
+        instruments = list(watchlist.instruments.values_list('pk', flat=True))
     elif not instruments and snapshot:
-        # A saved F&O/Studio report is still reviewable. Its optional stock
-        # research universe must not reject the attached immutable definition.
-        # Derivative analytics remain separate from the existing stock tools.
-        inputs = {identity for item in snapshot.get("watchlist_instruments", [])
-                  for identity in (item["instrument_id"], item.get("signal_instrument_id", item["instrument_id"]))}
-        instruments = list(Instrument.objects.filter(pk__in=inputs, is_active=True,
-            exchange=Exchange.NSE, instrument_type=InstrumentType.STOCK).values_list('pk', flat=True))
-    context["instruments"] = active_stocks(instruments)
-    context["instrument_ids"] = [item["id"] for item in context["instruments"]]
-    timeframe = context.get("timeframe") or (snapshot or {}).get("time_rule", {}).get("candle_timeframe") or "1D"
+        instruments = list(dict.fromkeys(identity for watch in snapshot.get('watchlist_instruments', [])
+            for identity in (watch.get('instrument_id'), watch.get('signal_instrument_id'), watch.get('target_underlying_id')) if identity))
+    context['instruments'] = selected_instruments(instruments)
+    context['instrument_ids'] = [item['id'] for item in context['instruments']]
+    timeframe = context.get('timeframe') or (snapshot or {}).get('time_rule', {}).get('candle_timeframe') or CandleTimeframe.D1
     if timeframe not in CandleTimeframe.values:
-        raise ValidationError("Select a supported research timeframe.")
-    context["timeframe"] = timeframe
-    if context.get("source_run_id"):
-        get_object_or_404(ResearchRun, pk=context["source_run_id"], user=user, status=ResearchRun.Status.COMPLETED)
+        raise ValidationError('Select a supported research timeframe.')
+    context['timeframe'] = timeframe
+    if context.get('source_run_id'):
+        get_object_or_404(ResearchRun, pk=context['source_run_id'], user=user, status=ResearchRun.Status.COMPLETED)
     return context
 
 
-def research_instrument_ids(run):
-    """Tools use only the universe accepted at this run's user-action boundary."""
-    return sorted(set(run.request.get("instrument_ids", [])))
-
-
-def draft_instrument_ids(run):
-    """Drafts may reuse contracts from owned, frozen attachments.
-
-    This does not broaden the stock-analysis tools' market-data universe.
-    """
-    ids = set(research_instrument_ids(run))
-    snapshots = [run.request.get('strategy_snapshot') or {},
-                 *(item.get('snapshot') or {} for item in run.request.get('backtests', []))]
-    for snapshot in snapshots:
-        for watch in snapshot.get('watchlist_instruments', []):
-            ids.update((watch['instrument_id'], watch.get('signal_instrument_id', watch['instrument_id'])))
-    return sorted(ids)
-
-
 def service_payload(run):
-    """The HTTP contract includes only accepted context, recent text and selected tools."""
+    """Send recent context within the transport budget; older turns stay searchable."""
     from django.conf import settings
     from django.core import signing
-
     from .tool_registry import compact_evidence, tool_definitions
 
-    history = run.session.runs.filter(status=ResearchRun.Status.COMPLETED).exclude(pk=run.pk).order_by("-id")[:6]
-    keys = ("instrument_ids", "instruments", "timeframe", "strategy_id", "backtest_ids", "draft_context")
+    history, size = [], 0
+    previous = run.session.runs.filter(status=ResearchRun.Status.COMPLETED).exclude(pk=run.pk).order_by('-id')
+    for item in previous.iterator():
+        turn = {'run_id': item.pk, 'prompt': item.prompt, 'answer': item.result.get('answer', ''),
+                'as_of': item.as_of.isoformat(), 'draft_evidence_id': item.result.get('draft_evidence_id'),
+                'evidence': [{'evidence_id': value['evidence_id'], 'tool': value['tool']} for value in item.evidence]}
+        size += len(json.dumps(turn))
+        if size > settings.RESEARCH_CONTEXT_CHARACTERS:
+            break
+        history.append(turn)
+    keys = ('instrument_ids', 'timeframe', 'strategy_id', 'backtest_ids', 'watchlist_id', 'watchlist_name')
     context = {key: run.request[key] for key in keys if key in run.request}
-    context.update(
-        has_strategy_snapshot=bool(run.request.get("strategy_snapshot")),
-        backtests=[{"id": item["id"], "name": item["name"]} for item in run.request.get("backtests", [])],
+    instruments = run.request.get('instruments', [])
+    # Metadata is a preview, not a universe cap. analyze_market pages the entire
+    # accepted ID list, and earlier draft artifacts are retrieved only if needed.
+    context.update(instruments=instruments[:25], instrument_count=len(instruments))
+    if run.request.get('draft_context'):
+        context['draft_context'] = {key: run.request['draft_context'][key] for key in ('run_id', 'evidence_id')}
+    context.update(has_strategy_snapshot=bool(run.request.get('strategy_snapshot')),
+        backtests=[{'id': item['id'], 'name': item['name']} for item in run.request.get('backtests', [])],
         recorded_evidence=[compact_evidence(item) for item in run.evidence],
-        screen_data_policy="Analysis uses completed candles. CLOSE is not live LTP; strategy drafts can use LTP.",
-    )
-    return {
-        "prompt": run.prompt,
-        "run_token": signing.dumps({"run_id": run.pk, "user_id": run.user_id}, salt="research-run"),
-        "as_of": run.as_of.isoformat(),
-        "deadline": run.started_at.timestamp() + settings.RESEARCH_TIMEOUT_SECONDS,
-        "max_tool_calls": max(0, settings.RESEARCH_MAX_TOOL_CALLS - run.tool_attempts),
-        "tools": tool_definitions(run),
-        "context": context,
-        "history": [
-            {
-                "run_id": item.pk,
-                "prompt": item.prompt or "Market screen",
-                "answer": item.result.get("answer", ""),
-                "as_of": item.as_of.isoformat(),
-                "draft_evidence_id": item.result.get("draft_evidence_id"),
-                "evidence": [{"evidence_id": value["evidence_id"], "tool": value["tool"]} for value in item.evidence],
-            }
-            for item in reversed(list(history))
-        ],
-    }
+        earlier_turns_available=previous.count() > len(history))
+    return {'prompt': run.prompt,
+            'run_token': signing.dumps({'run_id': run.pk, 'user_id': run.user_id}, salt='research-run'),
+            'as_of': run.as_of.isoformat(),
+            'deadline': run.started_at.timestamp() + settings.RESEARCH_TIMEOUT_SECONDS,
+            'tools': tool_definitions(run), 'context': context, 'history': list(reversed(history))}

@@ -672,6 +672,10 @@ export default function BacktestResults() {
                   <span className="font-bold text-foreground">{formatCurrency(metrics?.charges_breakdown?.exchange_txn || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center p-3">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Clearing / IPFT</span>
+                  <span className="font-bold text-foreground">{formatCurrency((metrics?.charges_breakdown?.clearing || 0) + (metrics?.charges_breakdown?.ipft || 0))}</span>
+                </div>
+                <div className="flex justify-between items-center p-3">
                   <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">SEBI / Stamp Duty</span>
                   <span className="font-bold text-foreground">{formatCurrency((metrics?.charges_breakdown?.sebi || 0) + (metrics?.charges_breakdown?.stamp_duty || 0))}</span>
                 </div>

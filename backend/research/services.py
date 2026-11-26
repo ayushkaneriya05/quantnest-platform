@@ -18,7 +18,7 @@ def accept_run(user, data, raw_data):
         queue_compute_work,
         reject_request,
         require_inventory_capacity,
-        require_request_limits,
+        get_account_policy,
         reserve_usage,
     )
     from django.shortcuts import get_object_or_404
@@ -30,7 +30,9 @@ def accept_run(user, data, raw_data):
     from .validation import json_data, screen_configuration
 
     with transaction.atomic():
-        get_user_model().objects.select_for_update().get(pk=user.pk)
+        owner = get_user_model().objects.select_for_update().get(pk=user.pk)
+        if not owner.is_active:
+            reject_request('account_inactive', 'This account cannot start new research.')
         previous = ResearchRun.objects.filter(user=user, request_id=data["request_id"]).first()
         if previous:
             if previous.request.get("_request_hash") != hash_payload(raw_data):
@@ -38,18 +40,14 @@ def accept_run(user, data, raw_data):
                     "idempotency_conflict", "This research request identifier was already used with different inputs."
                 )
             return previous, False
-        if ResearchRun.objects.filter(user=user, status__in=ACTIVE_RUN_STATUSES).exists():
-            raise ValidationError("Wait for your active research turn or cancel it before starting another.")
         session = get_object_or_404(ResearchSession, pk=data["session"], user=user) if data.get("session") else None
+        if session and session.runs.filter(status__in=ACTIVE_RUN_STATUSES).exists():
+            raise ValidationError('Wait for this conversation to finish or cancel its active turn.')
         context = resolve_context(user, data, session.context if session else None)
         context["refresh"] = data["refresh"]
         context["_request_hash"] = hash_payload(raw_data)
 
-        policy = require_request_limits(
-            user,
-            research_instruments=len(context.get("instrument_ids", [])),
-            backtest_attachments=len(context.get("backtest_ids", [])),
-        )
+        policy = get_account_policy(user)
         if data["mode"] == "SCREEN" and (not session or session.kind != "SCREEN"):
             require_inventory_capacity(user, policy=policy, saved_screens=1)
         feature = "screens" if data["mode"] == "SCREEN" else "research_tokens"
@@ -63,7 +61,7 @@ def accept_run(user, data, raw_data):
                 }
         if data["mode"] == "SCREEN":
             if not context["instrument_ids"]:
-                raise ValidationError("Select a watchlist or stocks to screen.")
+                raise ValidationError("Select a watchlist or instruments to screen.")
             screen = screen_configuration(data["screen"])
             group = screen["rule_groups"][0]
             context["screen"] = {
@@ -129,6 +127,7 @@ def complete_run(run_id, result, usage):
         status=ResearchRun.Status.COMPLETED,
         progress_message="Research complete",
         result=result,
+        partial_answer='',
         usage=usage,
         completed_at=timezone.now(),
     )
@@ -159,7 +158,7 @@ def publish_run(run):
     # Progress contains no accumulated artifacts. Clients fetch the new revision once complete.
     data = {
         key: getattr(run, key)
-        for key in ("id", "session_id", "revision", "status", "progress_message", "error_message")
+        for key in ("id", "session_id", "revision", "status", "progress_message", "error_message", 'partial_answer')
     }
     data["session"] = data.pop("session_id")
     user_id = run.user_id

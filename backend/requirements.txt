@@ -43,4 +43,5 @@ TA-Lib
 
 pandas_market_calendars
 httpx
+fastjsonschema
 cryptography

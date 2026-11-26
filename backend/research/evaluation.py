@@ -9,7 +9,7 @@ from itertools import groupby
 from math import isfinite
 
 import pandas as pd
-from common.enums import ExecutionMode, OperandType
+from common.enums import ExecutionMode
 from strategies.specification.operands import operand_types
 from django.conf import settings
 from django.core.cache import caches
@@ -23,7 +23,6 @@ from marketdata.history import data_revision
 from marketdata.quotes import read_quote
 from rest_framework.exceptions import ValidationError
 
-from .context import research_instrument_ids
 from .models import ACTIVE_RUN_STATUSES, ResearchRun
 from .validation import json_data
 
@@ -31,11 +30,26 @@ SCREEN_OPERAND_TYPES = sorted(operand_types('screen'))
 cache = caches["research"]
 
 
+def analysis_configuration(arguments, default_timeframe):
+    """Numeric observations and optional nested conditions share Studio's compiler."""
+    timeframe = arguments.get('timeframe', default_timeframe)
+    outputs = {}
+    for item in arguments.get('indicators', []):
+        if set(item) != {'name', 'expression'} or not isinstance(item['name'], str) or not item['name'].strip():
+            raise ValidationError('Each indicator needs a unique name and a numeric expression tree.')
+        if item['name'] in outputs:
+            raise ValidationError('Indicator names must be unique.')
+        outputs[item['name']] = item['expression']
+    return {'time_rule': {'candle_timeframe': timeframe}, 'expressions': arguments.get('expressions', {}),
+            'rule_groups': [{'rule_type': 'ENTRY', 'condition': arguments['condition']}] if arguments.get('condition') else [],
+            'numeric_outputs': outputs}
+
+
 def compile_conditions(config: dict, calendar) -> Program:
     """Validate research inputs before requesting history; reuse its warmup plan."""
     # Screening has a deliberately small comparison form. Lower it at the
     # application boundary; the execution compiler accepts only expression trees.
-    groups = [{**group, 'condition': {
+    groups = [group if 'condition' in group else {**group, 'condition': {
         'op': 'all' if group['logical_operator'] == 'AND' else 'any',
         'args': [{'op': 'compare', 'comparison': rule['comparison'], **{
             name: {'op': 'input', 'type': rule[f'operand_{side}_type'],
@@ -53,15 +67,16 @@ def compile_conditions(config: dict, calendar) -> Program:
         },
         0,
         calendar=calendar,
+        numeric_outputs=config.get('numeric_outputs', {}),
     )
-    if any(group.tick_sensitive for group in program.groups):
+    if any(group.tick_sensitive for group in program.groups) or any(value.tick_sensitive for value in program.outputs.values()):
         raise ValueError(
             "Historical research requires completed-candle operands. Use CLOSE instead of LTP; position operands require a trading position."
         )
     return program
 
 
-def evaluate_conditions(program: Program, frames: dict, *, as_of) -> list[dict]:
+def evaluate_conditions(program: Program, frames: dict, *, as_of) -> dict:
     """Frames are indexed by candle COMPLETION, as supplied by available_frame.
 
     Merge completions before evaluating a base candle, so simultaneous timeframe
@@ -90,7 +105,7 @@ def evaluate_conditions(program: Program, frames: dict, *, as_of) -> list[dict]:
                 Candle(at - timedelta(microseconds=1), at, row.open, row.high, row.low, row.close, row.volume),
             )
 
-    operands = []
+    operands, indicators = [], {}
     for at, events in groupby(merge(*(completions(tf, frames[tf]) for tf in program.counts)), key=lambda item: item[0]):
         base_candle = None
         for _, timeframe, candle in events:
@@ -100,15 +115,19 @@ def evaluate_conditions(program: Program, frames: dict, *, as_of) -> list[dict]:
         if base_candle is None or at < observed[-2] or not graph.ready(program, at):
             continue
         tick = Tick("", 0, at, base_candle.close)
+        unit.expression_values.clear()
         operands = []
-        for rule in program.groups[0].rules:
+        for rule in program.groups[0].rules if program.groups else ():
             left, right, hit, _ = unit.evaluate_rule(rule, graph, tick)
             if at == observed[-1] and not (isfinite(left) and isfinite(right)):
                 raise ValueError("The configured operand has no valid value after warmup.")
             operands.append({"a": left, "b": right, "passed": hit, "comparison": rule.comparison})
+        indicators = {name: _finite_number(unit.value(value, graph, tick)) for name, value in program.outputs.items()}
     if not graph.ready(program, observed[-1]):
         raise ValueError("Insufficient completed candles for configured warmup.")
-    return operands
+    from execution.expressions import boolean_result
+    matched = boolean_result(program.groups[0].conditions, [item['passed'] for item in operands]) if program.groups else True
+    return {'operand_values': operands, 'indicators': indicators, 'matched': matched is True}
 
 
 def _closed_data(run, instrument, config):
@@ -116,10 +135,6 @@ def _closed_data(run, instrument, config):
     program = compile_conditions(config, calendar)
     base, requirements, depths = program.base_timeframe, program.counts, program.sources
     timeframes = frozenset(requirements)
-    required = max(depths.get("1m", 0), depths.get("1D", 0) * calendar.session_minutes)
-    source_limit = 2000 * calendar.session_minutes if timeframes <= {"1D", "1W"} else 60000
-    if required > source_limit:
-        raise ValidationError("Research warmup exceeds the source-data limit; reduce lookback parameters.")
     windows = source_windows(timeframes, depths, calendar, run.as_of, run.as_of)
     start = min(left for left, _ in windows.values())
     revision = data_revision(instrument.sym_ticker)
@@ -128,7 +143,7 @@ def _closed_data(run, instrument, config):
         run.as_of.astimezone(calendar.zone).date() + timedelta(days=7),
     )
     calendar_key = hashlib.sha256(repr(calendar.signature).encode()).hexdigest()[:16]
-    cache_key = f"research:frames:v2:{run.pk}:{instrument.pk}:{revision}:{calendar_key}"
+    cache_key = f"research:frames:v3:{run.pk}:{instrument.pk}:{run.as_of.isoformat()}:{revision}:{calendar_key}"
     stored = cache.get(cache_key)
     if stored and stored["start"] <= start and timeframes <= set(stored["frames"]):
         if all(
@@ -150,7 +165,7 @@ def _closed_data(run, instrument, config):
             raise ValidationError(f"Insufficient completed {timeframe} candles for configured warmup.")
         frames[timeframe] = frame
     revision = max(item["revision"] for item in quality.values())
-    cache_key = f"research:frames:v2:{run.pk}:{instrument.pk}:{revision}:{calendar_key}"
+    cache_key = f"research:frames:v3:{run.pk}:{instrument.pk}:{run.as_of.isoformat()}:{revision}:{calendar_key}"
     cache.set(cache_key, {"start": start, "frames": frames, "quality": quality}, settings.RESEARCH_TIMEOUT_SECONDS + 60)
     return program, frames, quality
 
@@ -166,17 +181,17 @@ def market_rows(run, config, comparison=False, *, instrument_ids=None, charts=Fa
     from .services import update_active_run
 
     rows, excluded = [], []
-    ids = instrument_ids if instrument_ids is not None else research_instrument_ids(run)
+    ids = instrument_ids if instrument_ids is not None else run.request.get('instrument_ids', [])
     if not ids:
-        raise ValidationError("Attach stocks or resolve a symbol before analyzing market data.")
-    instruments = Instrument.objects.filter(is_active=True, exchange="NSE", instrument_type="STOCK").in_bulk(ids)
+        raise ValidationError("Find instruments or select a watchlist before analyzing market data.")
+    instruments = Instrument.objects.in_bulk(ids)
     for instrument_id in ids:
         if not ResearchRun.objects.filter(pk=run.pk, status__in=ACTIVE_RUN_STATUSES).exists():
             raise ValidationError("Research was cancelled.")
         instrument = instruments.get(instrument_id)
         if not instrument:
             excluded.append(
-                {"instrument_id": instrument_id, "reason": "Instrument is no longer an available active NSE stock."}
+                {"instrument_id": instrument_id, "reason": "Instrument is no longer in the catalog."}
             )
             continue
         try:
@@ -201,16 +216,10 @@ def market_rows(run, config, comparison=False, *, instrument_ids=None, charts=Fa
             evaluation_key = (
                 f"research:evaluation:{run.pk}:{instrument.pk}:{hashlib.sha256(signature.encode()).hexdigest()}"
             )
-            operands = cache.get(evaluation_key)
-            if operands is None:
-                operands = evaluate_conditions(program, frames, as_of=run.as_of)
-                cache.set(evaluation_key, operands, settings.RESEARCH_TIMEOUT_SECONDS + 60)
-            group = config["rule_groups"][0]
-            matched = (
-                all(item["passed"] for item in operands)
-                if group["logical_operator"] == "AND"
-                else any(item["passed"] for item in operands)
-            )
+            evaluated = cache.get(evaluation_key)
+            if evaluated is None:
+                evaluated = evaluate_conditions(program, frames, as_of=run.as_of)
+                cache.set(evaluation_key, evaluated, settings.RESEARCH_TIMEOUT_SECONDS + 60)
             quote = read_quote(instrument.sym_ticker)
             observed_at, updated_at = quote['timestamp'], quote['updated_at']
             if (
@@ -229,15 +238,17 @@ def market_rows(run, config, comparison=False, *, instrument_ids=None, charts=Fa
                 {
                     "instrument_id": instrument.pk,
                     "symbol": instrument.symbol,
+                    "name": instrument.name,
+                    "exchange": instrument.exchange,
+                    "instrument_type": instrument.instrument_type,
                     "ticker": instrument.sym_ticker,
-                    "matched": matched,
+                    **evaluated,
                     "close": close,
                     "volume": _finite_number(frame["volume"].iloc[-1]),
                     "return_20_bars_pct": (close / reference - 1) * 100,
                     "volatility_20_bars_pct": _finite_number(returns.std(ddof=1) * 100),
                     "observed_at": frame.index[-1],
                     "quote": quote,
-                    "operand_values": operands,
                     "coverage": quality,
                     "chart": [
                         {
@@ -261,6 +272,6 @@ def market_rows(run, config, comparison=False, *, instrument_ids=None, charts=Fa
             "matched": sum(row["matched"] for row in rows),
             "rows": rows if comparison else [row for row in rows if row["matched"]],
             "excluded": excluded,
-            "conditions": config["rule_groups"][0],
+            "conditions": config['rule_groups'][0] if config['rule_groups'] else None,
         }
     )

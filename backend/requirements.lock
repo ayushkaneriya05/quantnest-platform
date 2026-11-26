@@ -608,6 +608,7 @@ fastjsonschema==2.22.2 ; python_full_version < '3.14' \
     --hash=sha256:72064e12356a7d6ef02165be2946b9abadbdf238536e07eb587e3dbaa33099cf
     # via
     #   -c backend/requirements.lock
+    #   -r backend/requirements.txt
     #   aws-lambda-powertools
 frozenlist==1.8.0 ; python_full_version < '3.14' \
     --hash=sha256:0325024fe97f94c41c08872db482cf8ac4800d80e79222c6b0b7b162d5b13686 \
@@ -1878,6 +1879,7 @@ websockets==16.1.1 ; python_full_version < '3.14' \
     --hash=sha256:fd46fff7eb62c24804d234f0051c7a8ea81285ad63e0337d3dcf33ca82aee58a
     # via
     #   -c backend/constraints.txt
+    #   -c backend/requirements.lock
     #   -r backend/requirements.txt
 whitenoise==6.12.0 ; python_full_version < '3.14' \
     --hash=sha256:f723ebb76a112e98816ff80fcea0a6c9b8ecde835f8ddda25df7a30a3c2db6ad \

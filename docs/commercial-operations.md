@@ -216,8 +216,6 @@ There are three allowance kinds, each with one common entry point:
 | `research_tokens` | Reported AI tokens, displayed as credits / period | 150 credits | 500 credits | 1,500 credits |
 | `screens` | Deterministic screener runs / period | 10 | 100 | 300 |
 | `monte_carlo` | Monte Carlo runs / period | 1 | 5 | 10 |
-| `research_instruments` | Stocks in one research request | 5 | 20 | 50 |
-| `backtest_attachments` | Completed reports attached to one request | 3 | 3 | 3 |
 | `backtest_workload` | Source candles in one historical request | 100,000 | 250,000 | 1,000,000 |
 | `mc_simulations` | Simulations in one Monte Carlo run | 1,000 | 1,000 | 1,000 |
 
@@ -533,3 +531,5 @@ catalogue publication versus purchased terms, manual/automatic captures, duplica
 and delayed callbacks, failed/unknown creation, refund reconciliation and ownership.
 Use deliberate provider test facilities before real money. This documentation
 refresh does not create payments, publish a catalogue or prove merchant approval.
+
+AI research capabilities are shared across public plans. Period token credits remain; separate research instrument and backtest attachment caps were retired in `2026-11-research-open-1`. Previous purchased catalog snapshots are preserved.

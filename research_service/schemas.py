@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -12,29 +12,25 @@ class ToolDefinition(BaseModel):
 
 class ResearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    prompt: str = Field(min_length=1, max_length=6000)
+    prompt: str = Field(min_length=1)
     run_token: str = Field(min_length=1, max_length=1000)
     as_of: str
     context: dict[str, Any]
     tools: list[ToolDefinition] = Field(default_factory=list)
     deadline: float
-    max_tool_calls: int = Field(ge=0, le=8)
-    history: list[dict[str, Any]] = Field(default_factory=list, max_length=6)
-
-
-ShortText = Annotated[str, Field(max_length=2000)]
+    history: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ResearchResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    answer: str = Field(min_length=1, max_length=12000)
-    evidence_ids: list[str] = Field(default_factory=list, max_length=8)
+    answer: str = Field(min_length=1)
+    evidence_ids: list[str] = Field(default_factory=list)
     draft_evidence_id: str | None = None
-    next_steps: list[ShortText] = Field(default_factory=list, max_length=8)
-    limitations: list[ShortText] = Field(default_factory=list, max_length=8)
-    clarification_questions: list[ShortText] = Field(default_factory=list, max_length=8)
-    artifact_refs: list[str] = Field(default_factory=list, max_length=8)
-    proposed_actions: list[dict[str, Any]] = Field(default_factory=list, max_length=3)
+    next_steps: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    clarification_questions: list[str] = Field(default_factory=list)
+    artifact_refs: list[str] = Field(default_factory=list)
+    proposed_actions: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("answer")
     @classmethod
@@ -50,4 +46,18 @@ class ResearchResult(BaseModel):
         # meaning; malformed proposals must not discard a well-formed answer.
         if not isinstance(value, list):
             return []
-        return [item for item in value if isinstance(item, dict)][:3]
+        return [item for item in value if isinstance(item, dict)]
+
+
+class WebResearchRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    query: str = Field(min_length=1)
+    urls: list[str] = Field(default_factory=list)
+
+    @field_validator('urls')
+    @classmethod
+    def public_urls(cls, values):
+        from urllib.parse import urlparse
+        if any(urlparse(value).scheme not in ('http', 'https') or not urlparse(value).hostname for value in values):
+            raise ValueError('Use public HTTP or HTTPS URLs for provider retrieval.')
+        return values

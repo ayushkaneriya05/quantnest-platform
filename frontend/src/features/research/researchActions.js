@@ -1,5 +1,5 @@
 export const actionLabel = {
   CREATE_DRAFT: "Create strategy draft",
-  ADD_TO_WATCHLIST: "Add to terminal watchlist",
+  SAVE_STRATEGY_VERSION: "Save strategy version",
   START_BACKTEST: "Start one backtest",
 };

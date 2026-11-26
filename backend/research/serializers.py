@@ -52,6 +52,7 @@ class ResearchRunSerializer(serializers.ModelSerializer):
             "progress_message",
             "evidence",
             "result",
+            "partial_answer",
             "usage",
             "error_message",
             "as_of",
@@ -115,7 +116,7 @@ class RunRequestSerializer(ResearchContextSerializer):
     session = serializers.IntegerField(required=False, min_value=1)
     request_id = serializers.UUIDField()
     mode = serializers.ChoiceField(choices=["RESEARCH", "SCREEN"], default="RESEARCH")
-    prompt = serializers.CharField(max_length=6000, required=False, allow_blank=True)
+    prompt = serializers.CharField(required=False, allow_blank=True)
     refresh = serializers.BooleanField(required=False, default=False)
 
     def to_internal_value(self, data):

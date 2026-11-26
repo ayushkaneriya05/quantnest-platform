@@ -33,7 +33,7 @@ MARKET_DATA_PROVIDER = config("MARKET_DATA_PROVIDER", default="fyers")
 
 # One execution bound shared by admission, worker and tool gateway.
 RESEARCH_TIMEOUT_SECONDS = 600
-RESEARCH_MAX_TOOL_CALLS = 8
+RESEARCH_CONTEXT_CHARACTERS = config('RESEARCH_CONTEXT_CHARACTERS', default=100000, cast=int)
 
 RESEARCH_SERVICE_URL = config("RESEARCH_SERVICE_URL", default="http://127.0.0.1:8001")
 RESEARCH_SERVICE_TOKEN = config("RESEARCH_SERVICE_TOKEN", default="")

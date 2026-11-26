@@ -10,6 +10,7 @@ from math import isfinite
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
 from common.costs import TradingCostCalculator
+from brokers.charge_rates import resolve_charge_rates
 from common.enums import ExecutionSessionStatus, InstrumentType, OrderIntent, OrderStatus, OrderType, QuantityType, QuantityUnit, Side
 
 from .types import ACTIVE_STATUSES, Account, ClosedTrade, Contract, EntryLot, Fill, Intent, MONEY, Order, Position, PositionView, Transition, UnitKey, ZERO
@@ -199,7 +200,7 @@ def hold_until_commit(account: Account, revision: int, amount: Decimal) -> None:
 
 def _closing_costs(position: Position, order: Order, quantity: int, fill: Fill) -> tuple[dict, list[EntryLot]]:
     """Settle same-day lots first, then carried lots, using their original fee snapshots."""
-    names = ('brokerage', 'stt', 'exchange_charges', 'sebi_fee', 'stamp_duty', 'gst', 'total')
+    names = ('brokerage', 'stt', 'exchange_charges', 'clearing_charges', 'ipft', 'sebi_fee', 'stamp_duty', 'gst', 'total')
     totals = {leg: dict.fromkeys(names, ZERO) for leg in ('entry_charges', 'exit_charges')}
     remaining, lots = quantity, []
     # Preserve the platform's same-day netting convention across all simulators.
@@ -216,20 +217,26 @@ def _closing_costs(position: Position, order: Order, quantity: int, fill: Fill) 
             ):
                 charges = TradingCostCalculator.calculate_charges(position.contract.value(price, taken),
                     position.contract.instrument_type, classification, leg_side, profile,
-                    segment=position.contract.segment)
+                    segment=position.contract.segment, exchange=position.contract.exchange,
+                    symbol=position.contract.symbol)
                 # A partial close pays its share of the original entry-order flat fee.
                 original = (lot.original_quantity or lot.quantity) if leg == 'entry_charges' else order.quantity
                 full_brokerage = TradingCostCalculator.calculate_charges(position.contract.value(price, original),
                     position.contract.instrument_type, classification, leg_side, profile,
-                    segment=position.contract.segment)['brokerage']
+                    segment=position.contract.segment, exchange=position.contract.exchange,
+                    symbol=position.contract.symbol)['brokerage']
                 before = lot.quantity if leg == 'entry_charges' else remaining
                 amount = Decimal(str(full_brokerage))
                 brokerage = ((amount * before / original).quantize(MONEY, rounding=ROUND_HALF_UP)
                     - (amount * (before - taken) / original).quantize(MONEY, rounding=ROUND_HALF_UP))
                 charges['brokerage'] = brokerage
                 # GST includes brokerage; recompute after proportional fee allocation.
+                rates = resolve_charge_rates(profile, position.contract.instrument_type, classification,
+                    position.contract.segment, position.contract.exchange, position.contract.symbol)
                 charges['gst'] = TradingCostCalculator.calculate_gst(brokerage,
-                    Decimal(str(charges['exchange_charges'])), Decimal(str(charges['sebi_fee'])), profile) if 'gst_pct' in profile else ZERO
+                    Decimal(str(charges['exchange_charges'])), Decimal(str(charges['sebi_fee'])), rates,
+                    clearing_charges=Decimal(str(charges['clearing_charges'])),
+                    ipft=Decimal(str(charges['ipft']))) if 'gst_pct' in profile else ZERO
                 charges['total'] = sum((Decimal(str(charges[name])) for name in names if name != 'total'), ZERO)
                 for name in names:
                     totals[leg][name] += Decimal(str(charges[name]))

@@ -31,7 +31,7 @@ from .serializers import (
 )
 from .services import accept_run, update_active_run
 from .tool_registry import execute_tool
-from .validation import MAX_SCREEN_CONDITIONS, SCREEN_DEFAULTS
+from .validation import SCREEN_DEFAULTS
 
 
 class ResearchSessionViewSet(viewsets.ModelViewSet):
@@ -179,16 +179,9 @@ def research_schema(request):
     from brokers.models import BrokerChargeProfile
 
     today = timezone.localdate()
-    from commercial.usage import get_account_policy
-
-    allowances = get_account_policy(request.user)["limits"]
     return Response(
         {
             "limits": {
-                "screen_conditions": MAX_SCREEN_CONDITIONS,
-                "instruments": allowances.get("research_instruments"),
-                "backtests": allowances.get("backtest_attachments"),
-                "tool_calls": settings.RESEARCH_MAX_TOOL_CALLS,
                 "timeout_seconds": settings.RESEARCH_TIMEOUT_SECONDS,
             },
             "defaults": SCREEN_DEFAULTS,

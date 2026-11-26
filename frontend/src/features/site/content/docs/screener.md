@@ -1,18 +1,17 @@
 ---
 title: Market Screener
-description: Build technical filters for a selected stock list and inspect each match or exclusion.
+description: Build technical filters for a selected instrument list and inspect each match or exclusion.
 order: 3
 ---
 
 ## Choose the universe
 
-Open **Market Screener**. Select supported active NSE stocks manually, from one of
+Open **Market Screener**. Select supported catalog instruments manually, from one of
 your named Terminal watchlists or from a saved strategy. Search the list by name
-and check the selected stock count. Unsupported watchlist members are not
-automatically analyzed as stocks.
+and check the selected instrument count. Each member is evaluated only when its required completed-candle data is available.
 
 The screener evaluates your selected universe, not every listing on an exchange.
-Stay within the current request limit shown by the form and your plan.
+There is no separate research instrument-count limit. Screener runs and saved screens retain their own plan allowances.
 
 ## Build your own conditions
 
@@ -38,7 +37,7 @@ supported [builder reference](/docs/reference/) with screening restrictions.
 
 Screening uses completed candles, not a constantly re-evaluating live-price feed.
 Indicator warmup and historical coverage must be available. A crossover compares
-the latest and previous known completed observations; a stock simply staying
+the latest and previous known completed observations; a instrument simply staying
 above a boundary is not a new crossover.
 
 Example: `Close > EMA(20)` AND `RSI(14) > 50` matches only when both completed
@@ -69,5 +68,5 @@ apply separately, and the assistant cannot turn a match into an unconfirmed
 trade or deployment.
 
 If a screen returns nothing, first inspect which inputs were false or unavailable,
-the selected timeframe and the stock universe. Do not remove a meaningful filter
+the selected timeframe and the instrument universe. Do not remove a meaningful filter
 solely to force matches.

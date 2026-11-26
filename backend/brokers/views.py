@@ -262,6 +262,17 @@ class BrokerChargeProfileViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return BrokerChargeProfile.objects.filter(user=self.request.user)
 
+    @action(detail=False, methods=['get'], url_path='defaults')
+    def defaults(self, request):
+        """The editor and account provisioning use the same backend defaults."""
+        from .charge_rates import MARKET_LABELS, RATE_LABELS
+        return Response({
+            'profile': self.get_serializer(BrokerChargeProfile(name='')).data,
+            'labels': RATE_LABELS,
+            'markets': MARKET_LABELS,
+            'basis': 'FYERS Standard · verified 25 November 2026',
+        })
+
     def perform_destroy(self, instance):
         try:
             instance.delete()

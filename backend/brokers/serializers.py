@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.core.exceptions import ValidationError as DjangoValidationError
+from .charge_rates import validate_market_rates
 
 from .models import BrokerAPILog, BrokerChargeProfile, BrokerCredential, BrokerFundsSnapshot, BrokerSession
 
@@ -107,7 +109,7 @@ class BrokerChargeProfileSerializer(serializers.ModelSerializer):
             'stt_futures_pct', 'stt_options_sell_pct',
             'ctt_futures_sell_pct', 'ctt_options_sell_pct',
             'exchange_txn_pct', 'exchange_txn_fo_pct',
-            'sebi_turnover_pct', 'stamp_duty_pct', 'gst_pct',
+            'sebi_turnover_pct', 'stamp_duty_pct', 'gst_pct', 'market_rates',
             'is_default', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'is_default', 'created_at', 'updated_at']
@@ -121,6 +123,22 @@ class BrokerChargeProfileSerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError('A charge profile with this name already exists.')
         return value
+
+    def validate_market_rates(self, value):
+        try:
+            validate_market_rates(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
+        return value
+
+    def validate(self, attrs):
+        for field, value in attrs.items():
+            if field.endswith('_pct') or field in ('brokerage_per_order', 'brokerage_cap'):
+                if value < 0:
+                    raise serializers.ValidationError({field: 'Charges cannot be negative.'})
+                if field.endswith('_pct') and value > 100:
+                    raise serializers.ValidationError({field: 'A percentage cannot exceed 100.'})
+        return attrs
 
     def create(self, validated_data):
         validated_data['user'] = self.context['request'].user

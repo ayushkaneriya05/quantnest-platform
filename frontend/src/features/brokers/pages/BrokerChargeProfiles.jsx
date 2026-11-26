@@ -1,402 +1,184 @@
+import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Edit2, Plus, Trash2 } from 'lucide-react';
 import { GlobalLoader } from '@/shared/components/ui/global-loader';
-import { formatCurrency, formatNumber } from "@/shared/utils/formatters";
-import {useStableCallback} from "@/shared/hooks/useStableCallback";
-import { useState, useEffect, useMemo } from "react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle
-} from "@/shared/components/ui/card";
-import { Button } from "@/shared/components/ui/button";
-import { Input } from "@/shared/components/ui/input";
-import { Label } from "@/shared/components/ui/label";
-import { Badge } from "@/shared/components/ui/badge";
-import { Plus, Edit2, Trash2, CheckCircle2 } from "lucide-react";
-import { brokersApi } from "@/shared/services/brokersApi";
-import { useNotifications } from "@/shared/hooks/useNotifications";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/shared/components/ui/dialog";
-import { useSetPageActions } from "@/shared/hooks/useSetPageActions";
-import { customConfirm } from "@/shared/components/ui/custom-dialog";
-import { getApiErrorMessage } from "@/shared/utils/apiErrors";
+import { Button } from '@/shared/components/ui/button';
+import { Input } from '@/shared/components/ui/input';
+import { Label } from '@/shared/components/ui/label';
+import { Badge } from '@/shared/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog';
+import { customConfirm } from '@/shared/components/ui/custom-dialog';
+import { useNotifications } from '@/shared/hooks/useNotifications';
+import { useSetPageActions } from '@/shared/hooks/useSetPageActions';
+import { useStableCallback } from '@/shared/hooks/useStableCallback';
+import { brokersApi } from '@/shared/services/brokersApi';
+import { getApiErrorMessage } from '@/shared/utils/apiErrors';
+import { formatCurrency, formatNumber } from '@/shared/utils/formatters';
+
+const percent = (value) => `${formatNumber(value, { minimumFractionDigits: 0, maximumFractionDigits: 8 })}%`;
 
 export default function BrokerChargeProfiles() {
+  const { notify } = useNotifications();
+  const [profiles, setProfiles] = useState([]);
+  const [specification, setSpecification] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(null);
+  const [formData, setFormData] = useState(null);
+
   const fetchProfiles = useStableCallback(async () => {
     try {
-      setLoading(true);
-      const res = await brokersApi.getChargeProfiles();
-      setProfiles(res.data || []);
+      const [profilesResponse, defaultsResponse] = await Promise.all([
+        brokersApi.getChargeProfiles(), brokersApi.getChargeProfileDefaults(),
+      ]);
+      setProfiles(profilesResponse.data);
+      setSpecification(defaultsResponse.data);
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to load charge profiles"));
+      notify.error(getApiErrorMessage(error, 'Failed to load charge profiles'));
     } finally {
       setLoading(false);
     }
   });
+  useEffect(() => { fetchProfiles(); }, [fetchProfiles]);
 
-  const { notify } = useNotifications();
-  const [profiles, setProfiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingProfile, setEditingProfile] = useState(null);
-
-  const [formData, setFormData] = useState({
-    name: "",
-    brokerage_per_order: 20,
-    brokerage_pct: 0.03,
-    brokerage_cap: 20,
-    stt_eq_delivery_pct: 0.1,
-    stt_eq_intraday_pct: 0.025,
-    stt_futures_pct: 0.05,
-    stt_options_sell_pct: 0.15,
-    ctt_futures_sell_pct: 0,
-    ctt_options_sell_pct: 0,
-    exchange_txn_pct: 0.00325,
-    exchange_txn_fo_pct: 0.002,
-    sebi_turnover_pct: 0.0001,
-    stamp_duty_pct: 0.003,
-    gst_pct: 18.0,
+  // The backend supplies rates and field names for editing and new profiles.
+  const handleOpenModal = useStableCallback((profile = null) => {
+    if (!specification) return;
+    const source = profile || specification.profile;
+    const fields = Object.keys(specification.profile).filter((field) => field in specification.labels);
+    setEditingProfile(profile);
+    setFormData({ name: source.name,
+      ...Object.fromEntries(fields.map((field) => [field, source[field]])),
+      market_rates: structuredClone(source.market_rates) });
   });
 
-  useEffect(() => {
-    fetchProfiles();
-  }, [fetchProfiles]);
-
-
-
-  const handleOpenModal = (profile = null) => {
-    if (profile) {
-      setEditingProfile(profile);
-      setFormData({
-        name: profile.name,
-        brokerage_per_order: profile.brokerage_per_order ?? 20,
-        brokerage_pct: profile.brokerage_pct ?? 0.03,
-        brokerage_cap: profile.brokerage_cap || 0,
-        stt_eq_delivery_pct: profile.stt_eq_delivery_pct || 0,
-        stt_eq_intraday_pct: profile.stt_eq_intraday_pct || 0,
-        stt_futures_pct: profile.stt_futures_pct || 0,
-        stt_options_sell_pct: profile.stt_options_sell_pct || 0,
-        ctt_futures_sell_pct: profile.ctt_futures_sell_pct,
-        ctt_options_sell_pct: profile.ctt_options_sell_pct,
-        exchange_txn_pct: profile.exchange_txn_pct || 0,
-        exchange_txn_fo_pct: profile.exchange_txn_fo_pct || 0,
-        sebi_turnover_pct: profile.sebi_turnover_pct,
-        stamp_duty_pct: profile.stamp_duty_pct,
-        gst_pct: profile.gst_pct,
-      });
-    } else {
-      setEditingProfile(null);
-      setFormData({
-        name: "",
-        brokerage_per_order: 20,
-        brokerage_pct: 0.03,
-        brokerage_cap: 20,
-        stt_eq_delivery_pct: 0.1,
-        stt_eq_intraday_pct: 0.025,
-        stt_futures_pct: 0.05,
-        stt_options_sell_pct: 0.15,
-        ctt_futures_sell_pct: 0,
-        ctt_options_sell_pct: 0,
-        exchange_txn_pct: 0.00325,
-        exchange_txn_fo_pct: 0.002,
-        sebi_turnover_pct: 0.0001,
-        stamp_duty_pct: 0.003,
-        gst_pct: 18.0,
-      });
-    }
-    setIsModalOpen(true);
-  };
-
   const handleSave = async () => {
-    if (!formData.name) {
-      notify.error("Name is required");
-      return;
-    }
+    if (!formData.name.trim()) return notify.error('Name is required');
+    setSaving(true);
     try {
-      if (editingProfile) {
-        await brokersApi.updateChargeProfile(editingProfile.id, formData);
-        notify.success("Charge profile updated");
-      } else {
-        await brokersApi.createChargeProfile(formData);
-        notify.success("Charge profile created");
-      }
-      setIsModalOpen(false);
-      fetchProfiles();
+      if (editingProfile) await brokersApi.updateChargeProfile(editingProfile.id, formData);
+      else await brokersApi.createChargeProfile(formData);
+      notify.success(editingProfile ? 'Charge profile updated' : 'Charge profile created');
+      setFormData(null);
+      await fetchProfiles();
     } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to save charge profile"));
-    }
+      notify.error(getApiErrorMessage(error, 'Failed to save charge profile'));
+    } finally { setSaving(false); }
   };
 
-  const handleDelete = async (id) => {
-    const isConfirmed = await customConfirm(
-      "Are you sure you want to delete this charge profile? This action cannot be undone.",
-      "Delete Charge Profile",
-      "Delete"
-    );
-    if (!isConfirmed) return;
-
+  const handleDelete = async (profile) => {
+    if (!await customConfirm(`Delete ${profile.name}? This cannot be undone.`, 'Delete charge profile', 'Delete')) return;
     try {
-      await brokersApi.deleteChargeProfile(id);
-      notify.success("Charge profile deleted");
-      fetchProfiles();
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to delete charge profile"));
-    }
+      await brokersApi.deleteChargeProfile(profile.id);
+      notify.success('Charge profile deleted');
+      await fetchProfiles();
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Failed to delete charge profile')); }
   };
 
   const handleSetDefault = async (id) => {
     try {
       await brokersApi.setDefaultChargeProfile(id);
-      notify.success("Default profile updated");
-      fetchProfiles();
-    } catch (error) {
-      notify.error(getApiErrorMessage(error, "Failed to set default profile"));
-    }
+      notify.success('Default profile updated');
+      await fetchProfiles();
+    } catch (error) { notify.error(getApiErrorMessage(error, 'Failed to set default profile')); }
   };
 
   const pageActions = useMemo(() => (
-    <Button variant="default" onClick={() => handleOpenModal()} >
-      <Plus className="h-4 w-4 mr-2" /> New Profile
+    <Button onClick={() => handleOpenModal()} disabled={!specification}>
+      <Plus className="h-4 w-4" /> New profile
     </Button>
-  ), []);
-
+  ), [handleOpenModal, specification]);
   useSetPageActions(pageActions);
-
   if (loading) return <GlobalLoader />;
+
+  const renderRateInput = (field, value, onChange, prefix) => (
+    <div className="space-y-1" key={field}>
+      <Label htmlFor={`${prefix}-${field}`}>{specification.labels[field]}</Label>
+      <Input id={`${prefix}-${field}`} type="number" min="0" step="any" required
+        value={value} onChange={(event) => onChange(event.target.value)} className="font-mono" />
+    </div>
+  );
 
   return (
     <div className="page-content">
       <p className="text-sm text-muted-foreground">
-        Your default profile can be edited. To delete it, first set another profile as default.
+        New profiles use {specification?.basis}. Market rates select the exchange and contract automatically.
+        Edit your default profile, or choose another before deleting it.
       </p>
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {profiles.map(profile => (
-          <Card key={profile.id} className="bg-card/60 border-border">
-            <CardHeader className="pb-3 border-b border-border">
-              <div className="flex justify-between items-start">
-                <CardTitle className="text-lg text-foreground font-medium flex items-center gap-2">
-                  {profile.name}
-                  {profile.is_default && (
-                    <Badge className="bg-success/10 text-success border-success/20">
-                      Default
-                    </Badge>
-                  )}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {profiles.map((profile) => (
+          <Card key={profile.id}>
+            <CardHeader className="border-b border-border">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  {profile.name} {profile.is_default && <Badge className="bg-success/10 text-success border-success/20">Default</Badge>}
                 </CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="icon" onClick={() => handleOpenModal(profile)} className="w-8">
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  {!profile.is_default && (
-                    <Button variant="ghost" size="icon" aria-label={`Delete ${profile.name}`} onClick={() => handleDelete(profile.id)} className="w-8">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" aria-label={`Edit ${profile.name}`} onClick={() => handleOpenModal(profile)}><Edit2 className="h-4 w-4" /></Button>
+                  {!profile.is_default && <Button variant="ghost" size="icon" aria-label={`Delete ${profile.name}`} onClick={() => handleDelete(profile)}><Trash2 className="h-4 w-4" /></Button>}
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="pt-4 space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-y-2 text-foreground">
-                <div className="text-muted-foreground">Brokerage</div>
-                <div className="font-mono text-right">
-                  {formatNumber(profile.brokerage_pct, { maximumFractionDigits: 8 })}% or {formatCurrency(profile.brokerage_per_order)} (Cap: {formatCurrency(profile.brokerage_cap || 0)})
+            <CardContent className="space-y-3 pt-3 text-sm">
+              <dl className="grid grid-cols-2 gap-2">
+                <dt className="text-muted-foreground">Order brokerage / cap</dt>
+                <dd className="text-right tabular-nums">{formatCurrency(profile.brokerage_per_order)} / {formatCurrency(profile.brokerage_cap)}</dd>
+                <dt className="text-muted-foreground">Stock STT · delivery / intraday</dt>
+                <dd className="text-right tabular-nums">{percent(profile.stt_eq_delivery_pct)} / {percent(profile.stt_eq_intraday_pct)}</dd>
+                <dt className="text-muted-foreground">Equity F&amp;O STT · futures / options</dt>
+                <dd className="text-right tabular-nums">{percent(profile.stt_futures_pct)} / {percent(profile.stt_options_sell_pct)}</dd>
+                <dt className="text-muted-foreground">Commodity CTT · futures / options</dt>
+                <dd className="text-right tabular-nums">{percent(profile.ctt_futures_sell_pct)} / {percent(profile.ctt_options_sell_pct)}</dd>
+                <dt className="text-muted-foreground">SEBI / GST</dt>
+                <dd className="text-right tabular-nums">{percent(profile.sebi_turnover_pct)} / {percent(profile.gst_pct)}</dd>
+              </dl>
+              <details className="border-t border-border pt-2">
+                <summary className="cursor-pointer text-muted-foreground">Market rates ({Object.keys(profile.market_rates).length})</summary>
+                <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                  {Object.entries(profile.market_rates).map(([market, rates]) => <div key={market}>
+                    <p className="font-medium">{specification?.markets[market]}</p>
+                    <p className="text-xs text-muted-foreground">Exchange {percent(rates.exchange_txn_pct)}
+                      {rates.clearing_pct && ` · Clearing ${percent(rates.clearing_pct)}`}
+                      {rates.ipft_pct && ` · IPFT ${percent(rates.ipft_pct)}`}
+                    </p>
+                  </div>)}
                 </div>
-
-                <div className="text-muted-foreground">STT (Eq Del | Intraday)</div>
-                <div className="font-mono text-right">{formatNumber(profile.stt_eq_delivery_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.stt_eq_intraday_pct, { maximumFractionDigits: 8 })}%</div>
-
-                <div className="text-muted-foreground">STT (Fut | Opt)</div>
-                <div className="font-mono text-right">{formatNumber(profile.stt_futures_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.stt_options_sell_pct, { maximumFractionDigits: 8 })}%</div>
-
-                <div className="text-muted-foreground">CTT (Fut | Opt)</div>
-                <div className="font-mono text-right">{formatNumber(profile.ctt_futures_sell_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.ctt_options_sell_pct, { maximumFractionDigits: 8 })}%</div>
-
-                <div className="text-muted-foreground">Exchange Txn (Eq | F&O)</div>
-                <div className="font-mono text-right">{formatNumber(profile.exchange_txn_pct, { maximumFractionDigits: 8 })}% | {formatNumber(profile.exchange_txn_fo_pct, { maximumFractionDigits: 8 })}%</div>
-
-                <div className="text-muted-foreground">SEBI</div>
-                <div className="font-mono text-right">{formatNumber(profile.sebi_turnover_pct, { maximumFractionDigits: 8 })}%</div>
-
-                <div className="text-muted-foreground">Stamp Duty</div>
-                <div className="font-mono text-right">{formatNumber(profile.stamp_duty_pct, { maximumFractionDigits: 8 })}%</div>
-
-                <div className="text-muted-foreground">GST</div>
-                <div className="font-mono text-right">{formatNumber(profile.gst_pct, { maximumFractionDigits: 8 })}%</div>
-              </div>
-
-              {!profile.is_default && (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => handleSetDefault(profile.id)}
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
-                  Set as Default
-                </Button>
-              )}
+              </details>
+              {!profile.is_default && <Button variant="outline" className="w-full" onClick={() => handleSetDefault(profile.id)}><CheckCircle2 className="h-4 w-4" /> Set as default</Button>}
             </CardContent>
           </Card>
         ))}
       </div>
-
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="bg-card border-border text-foreground sm:max-w-[500px] max-h-[90dvh] overflow-y-auto scrollbar-theme">
-          <DialogHeader>
-            <DialogTitle>{editingProfile ? "Edit Profile" : "Create Profile"}</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 py-3">
-            <div className="space-y-2">
-              <Label>Profile Name</Label>
-              <Input
-                value={formData.name}
-                onChange={e => setFormData({...formData, name: e.target.value})}
-                className="bg-secondary border-border"
-                placeholder="e.g. Zerodha F&O"
-              />
+      <p className="text-xs text-muted-foreground">
+        Estimates cover normal trade exits. DP debits, exercise/physical delivery, penalties and funding interest
+        are separate account costs. BSE special scrip groups and exempt agricultural contracts need tailored rates.
+      </p>
+      <Dialog open={Boolean(formData)} onOpenChange={(open) => { if (!open && !saving) setFormData(null); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90dvh] overflow-y-auto scrollbar-theme">
+          <DialogHeader><DialogTitle>{editingProfile ? 'Edit charge profile' : 'Create charge profile'}</DialogTitle></DialogHeader>
+          {formData && <form id="charge-profile-form" onSubmit={(event) => { event.preventDefault(); handleSave(); }} className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="charge-profile-name">Profile name</Label>
+              <Input id="charge-profile-name" value={formData.name} maxLength={100} required onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Brokerage Flat (₹/order)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.brokerage_per_order}
-                  onChange={e => setFormData({...formData, brokerage_per_order: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
+            <details open>
+              <summary className="cursor-pointer font-medium">Shared taxes and base rates</summary>
+              <p className="my-2 text-xs text-muted-foreground">Market-specific values below override matching base rates. Zero brokerage percentage uses the flat order fee.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {Object.entries(formData).filter(([field]) => field in specification.labels).map(([field, value]) => renderRateInput(field, value, (next) => setFormData({ ...formData, [field]: next }), 'base'))}
               </div>
-              <div className="space-y-2">
-                <Label>Brokerage Percent (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.brokerage_pct}
-                  onChange={e => setFormData({...formData, brokerage_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
+            </details>
+            {Object.entries(formData.market_rates).map(([market, rates]) => <details key={market} className="border-t border-border pt-2">
+              <summary className="cursor-pointer font-medium">{specification.markets[market]}</summary>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {Object.entries(rates).map(([field, value]) => renderRateInput(field, value,
+                  (next) => setFormData({ ...formData, market_rates: { ...formData.market_rates, [market]: { ...rates, [field]: next } } }), market))}
               </div>
-              <div className="space-y-2">
-                <Label>Brokerage Cap (₹)</Label>
-                <Input
-                  type="number"
-                  step="1"
-                  value={formData.brokerage_cap}
-                  onChange={e => setFormData({...formData, brokerage_cap: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>STT Eq Delivery (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.stt_eq_delivery_pct}
-                  onChange={e => setFormData({...formData, stt_eq_delivery_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>STT Eq Intraday (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.stt_eq_intraday_pct}
-                  onChange={e => setFormData({...formData, stt_eq_intraday_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>STT Futures (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.stt_futures_pct}
-                  onChange={e => setFormData({...formData, stt_futures_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>STT Options (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.stt_options_sell_pct}
-                  onChange={e => setFormData({...formData, stt_options_sell_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-              {['ctt_futures_sell_pct', 'ctt_options_sell_pct'].map((field) => <div key={field} className="space-y-2">
-                <Label htmlFor={field}>{field === 'ctt_futures_sell_pct' ? 'CTT Futures (%)' : 'CTT Options (%)'}</Label>
-                <Input id={field} type="number" min="0" step="0.0001" value={formData[field]}
-                  onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
-                  className="bg-secondary border-border font-mono" />
-              </div>)}
-
-              <div className="space-y-2">
-                <Label>Exchange Txn Eq (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.exchange_txn_pct}
-                  onChange={e => setFormData({...formData, exchange_txn_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Exchange Txn F&O (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.exchange_txn_fo_pct}
-                  onChange={e => setFormData({...formData, exchange_txn_fo_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>SEBI (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.sebi_turnover_pct}
-                  onChange={e => setFormData({...formData, sebi_turnover_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Stamp Duty (%)</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={formData.stamp_duty_pct}
-                  onChange={e => setFormData({...formData, stamp_duty_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>GST (%)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.gst_pct}
-                  onChange={e => setFormData({...formData, gst_pct: parseFloat(e.target.value)})}
-                  className="bg-secondary border-border font-mono"
-                />
-              </div>
-            </div>
-          </div>
+            </details>)}
+          </form>}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="">
-              Cancel
-            </Button>
-            <Button variant="default" onClick={handleSave} >
-              Save Profile
-            </Button>
+            <Button variant="outline" disabled={saving} onClick={() => setFormData(null)}>Cancel</Button>
+            <Button type="submit" form="charge-profile-form" disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

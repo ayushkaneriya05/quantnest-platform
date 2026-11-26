@@ -13,7 +13,7 @@ current catalog; this guide does not fix future plan prices or quota numbers.
 Explore, Build and Pro include NSE stocks, futures and options for backtesting,
 Terminal simulation and automated Paper trading. Plans differ in usage capacity;
 available contracts and provider history determine what you can test. Direct AI
-stock analysis and screening focus on active NSE stocks. Public plans do not
+analysis and screening use supported catalog instruments with available data. Public plans do not
 enable Live trading. [QuantNest Private](/docs/private/) includes supported broker
 connections and automated Live strategies with contact-based pricing.
 

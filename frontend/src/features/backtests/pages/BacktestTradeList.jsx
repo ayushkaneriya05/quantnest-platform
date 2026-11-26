@@ -459,6 +459,12 @@ export default function BacktestTradeList() {
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-sm">
+                        <span className="text-muted-foreground">Clearing + IPFT</span>
+                        <span className="font-medium text-foreground">
+                          {formatCurrency((selectedTrade.charges_breakdown?.clearing || 0) + (selectedTrade.charges_breakdown?.ipft || 0))}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
                         <span className="text-muted-foreground">SEBI + Stamp</span>
                         <span className="font-medium text-foreground">
                           {formatCurrency((selectedTrade.charges_breakdown?.sebi || 0) + (selectedTrade.charges_breakdown?.stamp_duty || 0))}

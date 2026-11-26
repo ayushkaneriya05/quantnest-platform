@@ -19,7 +19,6 @@ from strategies.models import Strategy
 from strategies.serializers import StrategyCreateSerializer
 from strategies.services import StrategySnapshotService
 
-from .context import active_stocks, research_instrument_ids, draft_instrument_ids
 from .models import ResearchAction, ResearchRun
 from .services import publish_run
 from .validation import json_data, validate_draft
@@ -45,7 +44,7 @@ def preview_strategy_draft(run, payload):
     if not evidence:
         raise ValidationError("The draft must pass backend validation first.")
     return {
-        "draft": validate_draft(evidence["data"]["draft"], draft_instrument_ids(run)),
+        "draft": validate_draft(evidence["data"]["draft"]),
         "evidence_id": evidence_id,
     }
 
@@ -54,9 +53,7 @@ def execute_strategy_draft(run, payload):
     """Called only inside confirm_action's locked transaction."""
     user = run.user
     draft = payload["draft"]
-    if run.created_strategy_id:
-        return {"strategy_id": run.created_strategy_id}
-    draft = validate_draft(draft, draft_instrument_ids(run))
+    draft = validate_draft(draft)
     base_keys = {"name", "description", "strategy_type", "market_type", "exchange", "instrument_type"}
     serializer = StrategyCreateSerializer(
         data={key: draft[key] for key in base_keys if key in draft}, context={"request": SimpleNamespace(user=user)}
@@ -74,41 +71,34 @@ def execute_strategy_draft(run, payload):
     return {"strategy_id": strategy.pk}
 
 
-# Add selected stocks to the watchlist.
+# Save an approved revision, without changing versions pinned by deployments.
 
 
-def preview_watchlist(run, payload):
-    if set(payload) - {"instrument_ids", "watchlist_id"}:
-        raise ValidationError("Provide selected instrument IDs and a terminal watchlist.")
-    ids = payload.get("instrument_ids", [])
-    if (
-        not isinstance(ids, list)
-        or not ids
-        or any(type(value) is not int for value in ids)
-        or set(ids) - set(research_instrument_ids(run))
-    ):
-        raise ValidationError("Select instruments from this research evidence.")
-    resolved = {"instrument_ids": list(dict.fromkeys(ids)), "instruments": active_stocks(ids)}
-    if payload.get("watchlist_id") is not None:
-        from trading.models import Watchlist
-
-        identity = payload["watchlist_id"]
-        if type(identity) is not int or identity < 1:
-            raise ValidationError("Select a terminal watchlist.")
-        watchlist = get_object_or_404(Watchlist, pk=identity, user=run.user)
-        resolved.update(watchlist_id=watchlist.pk, watchlist_name=watchlist.name)
-    return resolved
+def preview_strategy_version(run, payload):
+    from strategies.definitions import revision
+    from strategies.snapshots import snapshot_changes
+    if set(payload) - {'strategy_id', 'evidence_id'}:
+        raise ValidationError('Choose an owned strategy and a validated draft.')
+    strategy = get_object_or_404(Strategy, pk=payload.get('strategy_id') or run.request.get('strategy_id'), user=run.user)
+    draft = preview_strategy_draft(run, {'evidence_id': payload.get('evidence_id')})
+    current = json_data(StrategySnapshotService._serialize_strategy(strategy))
+    return {**draft, 'strategy_id': strategy.pk, 'strategy_name': strategy.name,
+            'expected_revision': revision(current), 'changes': snapshot_changes(current, draft['draft'])}
 
 
-def execute_watchlist(run, payload):
-    from trading.models import Watchlist
-
-    if not payload.get("watchlist_id"):
-        raise ValidationError("Select a terminal watchlist and preview the additions before confirming.")
-    active_stocks(payload["instrument_ids"])
-    watchlist = get_object_or_404(Watchlist, pk=payload["watchlist_id"], user=run.user)
-    watchlist.instruments.add(*payload["instrument_ids"])
-    return {"watchlist_id": watchlist.pk, "instrument_ids": payload["instrument_ids"]}
+def execute_strategy_version(run, payload):
+    from strategies.definitions import document_from_snapshot, revision
+    from django.utils import timezone
+    strategy = get_object_or_404(Strategy.objects.select_for_update(), pk=payload['strategy_id'], user=run.user)
+    current = json_data(StrategySnapshotService._serialize_strategy(strategy))
+    if revision(current) != payload['expected_revision']:
+        raise ValidationError('This strategy changed since the preview. Create a new preview before saving.')
+    draft = validate_draft(payload['draft'])
+    base = {key: draft[key] for key in ('name', 'description', 'strategy_type', 'market_type', 'exchange', 'instrument_type')}
+    Strategy.objects.filter(pk=strategy.pk).update(**base, definition=document_from_snapshot(draft), updated_at=timezone.now())
+    strategy.refresh_from_db()
+    version = StrategySnapshotService.create_snapshot(strategy, user=run.user, change_notes=f'Reviewed AI revision from run {run.pk}')
+    return {'strategy_id': strategy.pk, 'version_number': version.version_number}
 
 
 # Start a reviewed backtest.
@@ -117,6 +107,7 @@ def execute_watchlist(run, payload):
 def preview_backtest(run, payload):
     allowed = {
         "strategy_id",
+        "version_number",
         "source_backtest_id",
         "name",
         "start_date",
@@ -131,10 +122,9 @@ def preview_backtest(run, payload):
     settings = dict(payload)
     source_id = settings.pop("source_backtest_id", None)
     strategy_id = settings.pop("strategy_id", None) or run.created_strategy_id or run.request.get("strategy_id")
+    version_number = settings.pop('version_number', None)
     saved_costs = None
     if source_id:
-        if source_id not in run.request.get("backtest_ids", []):
-            raise ValidationError("Attach the backtest before proposing a rerun.")
         source = get_object_or_404(BacktestRun, pk=source_id, user_id=run.user_id, status="COMPLETED")
         strategy_id, snapshot = source.strategy_id, backtest_configuration(source)
         if "charge_profile" not in payload:
@@ -147,12 +137,16 @@ def preview_backtest(run, payload):
             "charge_profile": source.charge_profile_id,
             **settings,
         }
+    elif version_number and strategy_id:
+        strategy = get_object_or_404(Strategy, pk=strategy_id, user=run.user)
+        snapshot = get_object_or_404(strategy.versions, version_number=version_number).config_snapshot
     elif strategy_id == run.created_strategy_id and strategy_id:
         snapshot = run.created_strategy.versions.order_by("-version_number").first().config_snapshot
     elif strategy_id == run.request.get("strategy_id") and strategy_id:
         snapshot = run.request["strategy_snapshot"]
     else:
-        raise ValidationError("Attach a strategy or create the reviewed draft before testing it.")
+        strategy = get_object_or_404(Strategy, pk=strategy_id, user=run.user)
+        snapshot = StrategySnapshotService._serialize_strategy(strategy)
     strategy = get_object_or_404(Strategy, pk=strategy_id, user_id=run.user_id)
     default_profile = BrokerChargeProfile.objects.filter(user_id=run.user_id, is_default=True).first()
     settings.setdefault("charge_profile", default_profile.pk if default_profile else None)
@@ -218,7 +212,7 @@ def execute_backtest(run, payload):
 # Adding one action does not change the shared confirmation/rollback workflow.
 ACTION_HANDLERS: dict[str, tuple[Callable, Callable]] = {
     ResearchAction.Type.CREATE_DRAFT: (preview_strategy_draft, execute_strategy_draft),
-    ResearchAction.Type.ADD_TO_WATCHLIST: (preview_watchlist, execute_watchlist),
+    ResearchAction.Type.SAVE_STRATEGY_VERSION: (preview_strategy_version, execute_strategy_version),
     ResearchAction.Type.START_BACKTEST: (preview_backtest, execute_backtest),
 }
 
@@ -238,7 +232,7 @@ def action_payload(run, action_type, payload):
 def prepare_proposed_actions(run, result):
     """Validate previews independently; a bad optional action does not discard an answer."""
     proposed = result.get("proposed_actions", [])
-    if not isinstance(proposed, list) or len(proposed) > 3:
+    if not isinstance(proposed, list):
         proposed = []
         result["limitations"].append("An invalid optional action was omitted; the research answer remains available.")
     from copy import copy
