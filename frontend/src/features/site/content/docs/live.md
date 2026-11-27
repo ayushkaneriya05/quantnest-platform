@@ -74,9 +74,11 @@ Saving a version or requesting a change does not itself prove it is applied.
 Inspect pending/applied information. An open position keeps its owned contract
 and entry information during compatible changes.
 
-The schedule's entry end stops new local entries. It is not an intraday square-off
-time and does not itself prove an already submitted broker order was cancelled.
-Use explicit exit rules and lifecycle controls for the action you intend.
+Set **Daily square-off** in the saved strategy version to block entries, request
+cancellation of working entry orders and submit a market exit for the position
+that session owns. Choose a time before the broker cutoff. Use the order book
+and broker reports to verify cancellation and fills. **Entry end** controls the
+ordinary entry window.
 
 ## Monitor execution and results
 

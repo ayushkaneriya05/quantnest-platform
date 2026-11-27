@@ -25,7 +25,7 @@ export const featureDetails = {
     capabilities: [['Composable rules', 'Combine comparisons, arithmetic, rolling windows and reusable formulas with All, Any, Not or At least K conditions.'], ['Clear market roles', 'Choose each market input’s source; position values describe the owned traded position. Trade fixed contracts or select futures/options by underlying, expiry and ATM/ITM/OTM strike policy.'], ['Sizing and full exits', 'Use exact units, whole lots or a capital budget, with optional per-instrument sizing and explicit stop-loss, target and exit conditions.'], ['Versions and sharing', 'Inspect saved changes, restore deliberately and share the current configuration through a read-only link. Private execution records stay private.']],
     inputs: 'Your instruments, conditions, parameters, timeframe, sizing and execution restrictions.',
     outputs: 'A saved strategy and version history preserving the rules behind tests and deployments.',
-    limitations: 'Saving does not deploy or update a running session. Entry end stops new entries rather than closing positions. Contracts need eligible instrument details and available data. Public plans support simulation; broker-connected Live strategies use QuantNest Private.',
+    limitations: 'Saving does not deploy or update a running session. Set Daily square-off in the schedule to request a timed close. Contracts need eligible instrument details and available data. Public plans support simulation; broker-connected Live strategies use QuantNest Private.',
   },
   backtesting: {
     task: 'Test your rules on historical prices before practising execution.',

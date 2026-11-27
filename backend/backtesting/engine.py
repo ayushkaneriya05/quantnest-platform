@@ -2,10 +2,12 @@
 from decimal import Decimal
 import logging
 from datetime import datetime, timedelta
+from time import monotonic
 from typing import cast
 
 import numpy as np
 import pandas as pd
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
 from django.utils import timezone
 
@@ -33,6 +35,7 @@ class BacktestEngine:
         self.max_equity = self.initial_capital
         self._last_progress_update_time = 0
         self._last_progress_message = None
+        self._last_progress_pct = run.progress_pct
         self.replay = None
         self.compiled = None
 
@@ -131,6 +134,16 @@ class BacktestEngine:
                 drawdown_pct=self._calculate_drawdown(float(value))) for at, value in self.replay.equity]
             self.run.data_quality['fill_policy'] = 'signal_quote'
             self.run.data_quality['final_position_policy'] = 'Close residual positions at the last completed candle price, with slippage and charges.'
+            carried = self.replay.diagnostics['daily_square_off_carried']
+            no_quote = self.replay.diagnostics['daily_square_off_no_quote']
+            if carried:
+                self.run.data_quality.setdefault('warnings', []).append(
+                    f'{carried} position(s) had no eligible quote for daily square-off in their opening session. '
+                    'The replay closed them on an available quote in a later session.')
+            if no_quote:
+                self.run.data_quality.setdefault('warnings', []).append(
+                    f'{no_quote} position(s) reached daily square-off without an eligible quote by the end '
+                    'of the replay. The end-of-backtest close policy was used.')
             self.run.data_quality['settlements'] = [
                 {'source_id': row.price_id, 'effective_at': row.effective_at.isoformat(),
                  'gross': str(row.gross), 'fees': str(row.fees), 'cash_change': str(row.cash_change)}
@@ -143,11 +156,13 @@ class BacktestEngine:
             self.run.save(update_fields=['completed_at'])
         except Exception as exc:
             logger.exception('Backtest failed: %s', exc)
+            message = ('This backtest exceeded the worker time limit. Try a shorter date range or fewer instruments.'
+                       if isinstance(exc, SoftTimeLimitExceeded) else str(exc))
             # Cancellation remains authoritative even if an in-flight history
             # request fails before the next cancellation check.
             BacktestRun.objects.filter(pk=self.run.pk, status=BacktestStatus.RUNNING).update(
-                status=BacktestStatus.FAILED, error_message=str(exc),
-                progress_message=f'Backtest failed: {exc}'[:255], completed_at=timezone.now())
+                status=BacktestStatus.FAILED, error_message=message,
+                progress_message=f'Backtest failed: {message}'[:255], completed_at=timezone.now())
             BacktestRun.objects.filter(pk=self.run.pk, status=BacktestStatus.CANCELLED).update(completed_at=timezone.now())
             self.run.refresh_from_db()
             publish_backtest_update(self.run)
@@ -174,17 +189,18 @@ class BacktestEngine:
         Broadcast backtest progress via WebSocket and save to database.
         Uses time-based throttling to avoid database hammering.
         """
-        import time
-        current_time = time.monotonic()
+        current_time = monotonic()
         progress_pct = min(max(int(progress_pct), self.run.progress_pct), 100)
         self.run.progress_pct = progress_pct
         self.run.progress_message = message
         message_changed = message != self._last_progress_message
-        if not message_changed and progress_pct < 100 and current_time - self._last_progress_update_time < 0.5:
+        update_interval = 0.5 if progress_pct != self._last_progress_pct else 15
+        if not message_changed and current_time - self._last_progress_update_time < update_interval:
             return
         self.run.save(update_fields=["progress_pct", "progress_message", "updated_at"])
         self._last_progress_update_time = current_time
         self._last_progress_message = message
+        self._last_progress_pct = progress_pct
         publish_backtest_update(self.run)
 
     def _calculate_drawdown(self, current_value):
@@ -335,8 +351,7 @@ class BacktestEngine:
         return None
 
     def _check_cancelled(self):
-        import time
-        now = time.monotonic()
+        now = monotonic()
         if now - getattr(self, "_last_cancel_check", 0) < 5.0:
             return
         self._last_cancel_check = now

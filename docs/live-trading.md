@@ -298,8 +298,14 @@ See [shared data preparation](paper-trading.md#live-data-preparation).
   moves to another ATM or a new desired expiry.
 - No tick is rejected merely for exceeding a fixed age in seconds; reconnect
   generations, missing observations and graph readiness still matter.
-- Entry-end schedule prevents new local entry admission; it does not mean
-  intraday square-off or proof that an already accepted broker order was cancelled.
+- Entry end gates new local entries. A separate **Daily square-off** time blocks
+  entries, requests cancellation of working entries, and submits a market exit for
+  the full position owned by that strategy session. This runs from the account
+  clock during the traded contract's exchange session and can submit without a
+  local quote. The owner waits for any working entry or exit to settle before
+  requesting the remaining close. Broker reports establish the actual fill and
+  final quantity. Choose a time before the broker cutoff and review unresolved
+  orders or rejected exits.
 
 Active/tradable status, expiry, listed strike availability, whole lots, price tick,
 freeze constraints and exchange/segment sessions are checked. Current simulation

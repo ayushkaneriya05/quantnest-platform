@@ -317,8 +317,8 @@ export default function BacktestSetup() {
               <div className="flex gap-2 p-2.5 rounded-lg bg-secondary/40 border border-border/50">
                 <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Entry/exit rules, time rules, and risk settings are captured
-                  from the strategy snapshot at run time.
+                  Rules, schedules (including daily square-off), and risk settings
+                  come from the saved strategy snapshot.
                 </p>
               </div>
             </CardContent>

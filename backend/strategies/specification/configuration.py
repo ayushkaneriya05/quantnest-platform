@@ -67,6 +67,7 @@ SCHEDULE_FIELDS = {
     'market_session': choice('Market session', 'MarketSession', MarketSession.MARKET_OPEN),
     'start_time': {'label': 'Entry start', 'default': '09:15:00'},
     'end_time': {'label': 'Entry end', 'default': '15:30:00'},
+    'square_off_time': {'label': 'Daily square-off time', 'default': None},
     'no_trade_windows': {'label': 'Excluded entry windows', 'default': []},
 }
 ENTRY_FIELDS = {
@@ -166,7 +167,7 @@ def configuration():
         'details': {'fields': DETAIL_FIELDS, 'defaults': defaults(DETAIL_FIELDS)},
         'markets': {'source_roles': SOURCE_ROLES, 'automatic': AUTOMATIC},
         'sizing': {'fields': SIZING_FIELDS, 'entry_side': ENTRY_FIELDS['entry_side']},
-        'schedule': {'fields': SCHEDULE_FIELDS, 'description': 'Entry end stops new entries; it does not close positions or cancel pending orders.'},
+        'schedule': {'fields': SCHEDULE_FIELDS, 'description': 'Entry end limits new entries. Daily square-off also cancels working entries and closes owned positions.'},
         'setup': {'constraints': SETUP_LIMITS, 'single_active_entry': True,
                   'phases': ['Arm', 'Remember values', 'Intermediate confirmations', 'Confirm entry', 'Invalidate or expire'],
                   'template': SETUP_TEMPLATE, 'confirmation': CONFIRM_TEMPLATE},

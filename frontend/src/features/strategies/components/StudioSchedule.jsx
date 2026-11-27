@@ -17,7 +17,7 @@ export default function StudioSchedule({
   const fields = spec.schedule.fields;
   const update = (key, next) => onChange({ ...value, [key]: next });
   const windows = value.no_trade_windows || [];
-  const timeInput = (key, label, id) => (
+  const timeInput = (key, label, id, emptyHint = "No additional restriction") => (
     <label className="studio-field" htmlFor={id}>
       <span>{label}</span>
       <TimePicker
@@ -46,7 +46,7 @@ export default function StudioSchedule({
           </span>
         ))}
       <span className="studio-hint">
-        {value[key] ? "Schedule timezone" : "No additional restriction"}
+        {value[key] ? "Schedule timezone" : emptyHint}
       </span>
     </label>
   );
@@ -153,6 +153,17 @@ export default function StudioSchedule({
         </p>
       </fieldset>
       <fieldset className="studio-section">
+        <legend>Daily square-off</legend>
+        <div className="studio-field-grid">
+          {timeInput("square_off_time", fields.square_off_time.label, "studio-square-off-time", "Disabled")}
+        </div>
+        <p className="studio-hint">
+          Stop new entries, cancel working entry orders, and close this strategy’s
+          positions. Leave empty to disable. The exchange close can move the
+          cutoff earlier. For Live, choose a time before your broker’s cutoff.
+        </p>
+      </fieldset>
+      <fieldset className="studio-section">
         <legend>Excluded entry windows</legend>
         <div className="space-y-2">
           {!windows.length && (
@@ -246,6 +257,11 @@ export default function StudioSchedule({
               )
               .join(", ")}
             .
+          </p>
+        )}
+        {value.square_off_time && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            Daily square-off at {value.square_off_time}, subject to the exchange session.
           </p>
         )}
         <p className="studio-hint mt-1">

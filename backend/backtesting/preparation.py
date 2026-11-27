@@ -12,6 +12,7 @@ from threading import Event
 from common.enums import InstrumentType, QuantityType, QuantityUnit
 from execution.compiler import source_windows
 from execution.preparation import compile_markets, contract_from_instrument, historical_contract
+from execution.replay import observation_timeframe
 from execution.snapshots import encode, decode
 from instruments.models import Instrument
 from instruments.selection import Candidate, PreparedSelector, SelectionPolicy
@@ -105,7 +106,7 @@ def build_plan(config, start, end, *, maximum=None, on_progress=None):
     entry rules or look ahead inside the execution engine.
     """
     InstrumentResolver.validate_execution_snapshot(config, historical=True)
-    base = config['time_rule']['candle_timeframe']
+    base = observation_timeframe(config['time_rule'])
     selections, templates, first_selected, reference_frames = {}, {}, {}, {}
     serialized, selection_notes = [], []
     ids = {row['instrument_id'] for row in config['watchlist_instruments']}
@@ -190,6 +191,8 @@ def build_plan(config, start, end, *, maximum=None, on_progress=None):
             for target, source in ((counts, projection.counts), (depths, projection.sources)):
                 for tf, count in source.items():
                     target[tf] = max(target.get(tf, 0), count)
+        counts.setdefault(base, 0)
+        depths.setdefault(source_timeframe(base), 0)
         active = first_selected.get(instrument.pk, start)
         # Start candidate preparation at a session opening, retaining the full
         # warmup before its first possible selection and prices through expiry.

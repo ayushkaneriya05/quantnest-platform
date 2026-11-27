@@ -144,6 +144,13 @@ class BacktestRunDetailSerializer(BacktestCostSerializer):
     strategy_name = serializers.CharField(source='strategy.name', read_only=True)
     metrics = BacktestMetricsSerializer(read_only=True)
     trades_count = serializers.IntegerField(source='trades.count', read_only=True)
+    daily_square_off = serializers.SerializerMethodField()
+
+    def get_daily_square_off(self, obj):
+        from .services import backtest_configuration
+        schedule = backtest_configuration(obj).get('time_rule') or {}
+        cutoff = schedule.get('square_off_time')
+        return {'time': cutoff, 'timezone': schedule.get('timezone')} if cutoff else None
 
     class Meta:
         model = BacktestRun
@@ -151,7 +158,7 @@ class BacktestRunDetailSerializer(BacktestCostSerializer):
             'id', 'name', 'strategy', 'strategy_name', 'start_date', 'end_date',
             'initial_capital', 'slippage_pct',
             'charge_profile', 'charge_profile_detail', 'include_charges',
-            'config_snapshot', 'data_quality', 'diagnostics', 'status', 'progress_pct', 'progress_message',
+            'config_snapshot', 'daily_square_off', 'data_quality', 'diagnostics', 'status', 'progress_pct', 'progress_message',
             'error_message', 'started_at', 'completed_at', 'created_at',
             'metrics', 'trades_count'
         ]

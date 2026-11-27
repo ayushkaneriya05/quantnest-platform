@@ -48,6 +48,7 @@ class Worker:
         self.retry_at = 0.0
         self.warming = set()
         self.checkpoint_at = 0.0
+        self.square_off_check_at = 0.0
         self.recovering = set()
         self.saved_sequences = {}
         self.evaluation_errors = set()
@@ -271,13 +272,22 @@ class Worker:
                     entries = [order for order in owner.account.working.values()
                         if order.unit == message.unit and order.intent == OrderIntent.ENTRY]
                     for order in entries:
-                        result = owner.cancel(order.identity, reason='Protective exit requested.')
-                        self.publish(owner, result)
+                        if not order.cancel_requested:
+                            result = owner.cancel(order.identity, reason='Protective exit requested.')
+                            if result is not None:
+                                self.publish(owner, result)
                     if entries:
                         raise ValueError('Cancelling the remaining entry quantity before a full exit.')
                 if message.binding is None:
                     raise ValueError('An order intent must identify its signal and traded contract.')
-                result = owner.accept(message, owner.contracts[message.binding[1]])
+                contract = owner.contracts[message.binding[1]]
+                program = owner.programs.get(message.unit)
+                if (message.intent == OrderIntent.ENTRY and program is not None
+                        and program.square_off_time is not None and
+                        program.square_off_due(datetime.now(timezone.utc), since=message.at,
+                                               calendar=owner.calendars[contract.symbol])):
+                    raise ValueError('The daily square-off cutoff has passed.')
+                result = owner.accept(message, contract)
                 self.publish(owner, result)
             except ValueError:
                 self.send(message.unit, RejectedIntent(message.unit, message.identity))
@@ -595,6 +605,13 @@ class Worker:
         return bool(ready)
 
     def step(self):
+        if time.monotonic() >= self.square_off_check_at:
+            self.square_off_check_at = time.monotonic() + 1
+            now = datetime.now(timezone.utc)
+            for owner in self.owners.values():
+                if owner.programs and (owner.account.positions or owner.account.working):
+                    for result in owner.square_off(now, self.last_tick):
+                        self.publish(owner, result)
         for _ in range(128):
             try:
                 message = self.local.popleft() if self.local else self.inboxes[self.index].get_nowait()

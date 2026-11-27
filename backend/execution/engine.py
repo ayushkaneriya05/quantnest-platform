@@ -267,6 +267,9 @@ class EvaluationUnit:
             state['arm_seen'] = arm is True
         if state['phase'] in ('fired', 'owned'):
             return False, False
+        if state['phase'] == 'armed' and self.program.square_off_due(tick.evaluated_at, since=state['armed_at']):
+            state.update(phase='idle', captures={})
+            return False, False
         if self.pending or self.position.pending or self.status != ExecutionSessionStatus.RUNNING or not self.program.allows_entry(tick.evaluated_at):
             state.update(phase='idle', captures={})
             return False, False

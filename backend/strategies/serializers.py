@@ -24,11 +24,12 @@ class StrategyTagSerializer(serializers.ModelSerializer):
 
 
 class TimeRuleSerializer(serializers.Serializer):
-    """Entry schedule; accepted exit rules remain active outside this window."""
+    """Entry schedule and optional daily close for owned positions."""
     trading_days = serializers.ListField(child=serializers.CharField(), default=default_trading_days)
     market_session = serializers.ChoiceField(choices=MarketSession.choices, default=SCHEDULE_FIELDS['market_session']['default'])
     start_time = serializers.TimeField(allow_null=True, default=time.fromisoformat(SCHEDULE_FIELDS['start_time']['default']))
     end_time = serializers.TimeField(allow_null=True, default=time.fromisoformat(SCHEDULE_FIELDS['end_time']['default']))
+    square_off_time = serializers.TimeField(allow_null=True, default=SCHEDULE_FIELDS['square_off_time']['default'])
     candle_timeframe = serializers.ChoiceField(choices=CandleTimeframe.choices, default=SCHEDULE_FIELDS['candle_timeframe']['default'])
     no_trade_windows = serializers.JSONField(allow_null=True, default=list)
     timezone = serializers.ChoiceField(choices=Timezone.choices, default=SCHEDULE_FIELDS['timezone']['default'])

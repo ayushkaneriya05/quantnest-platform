@@ -70,14 +70,13 @@ Read this before entering the recipes into Studio.
 | Backtests use synthetic OHLC observations and signal-quote fills | Fine intrabar sequences and realized live slippage are not proved by a good candle backtest |
 | Cash stocks use CNC; derivatives use Margin | Do not assume the Intraday strategy label changes the broker product |
 | Schedule End time stops new entries | **It does not square off positions** |
-| There is no clock-time operand/automatic time-exit setting in the current Studio vocabulary | The 15:15 close below is an operator action, not a hidden automated rule |
+| Daily square-off is an optional schedule setting | Configure 15:15 IST for these examples. Shortened sessions can move the cutoff earlier. |
 | No built-in daily loss cutoff, per-day trade cap, spread or Greeks operand | The corresponding controls below are explicitly manual |
 | Strategy protection is evaluated by the running engine | It is not an exchange-hosted resting protective stop |
 
-**These are supervised intraday deployments in the current release.** To operate
-them unattended, first add and verify a real scheduled flattening control and
-appropriate outage/broker-side protection. Do not rely on the strategy name,
-entry end time or a process restart to close exposure.
+**These examples use supervised intraday deployments.** Verify scheduled
+closures in Paper and check broker fills and remaining exposure in Live.
+An unavailable runtime or broker can delay the close.
 
 FYERS distinguishes Delivery/CNC from Intraday, and states that delivery positions
 are not subject to intraday auto square-off. FYERS cash short selling is an
@@ -151,7 +150,7 @@ See [rolling semantics](strategy-configuration.md#83-rolling-and-lag-operations)
 | Entry start | **09:45:00** |
 | Entry end | **14:30:00** |
 | Excluded entry window | **11:45:00–13:15:00** for the initial baseline |
-| Operator flatten time | **15:15 IST**, or earlier for a shortened/special session |
+| Daily square-off | **15:15 IST**, subject to the exchange calendar and broker cutoff |
 | Entry order type | Market, as currently supported by Studio |
 | Stop-loss stage combination | OR, with one active stop group |
 | Target stage combination | OR, with one active target group |
@@ -192,9 +191,9 @@ weekday or assume cash and derivatives always have identical closing schedules.
   losses**, whichever occurs first; explicitly pause the affected deployments.
 - Initial operational cap: **two completed entry cycles per instrument per day**;
   pause afterward. Capture logic does not enforce this cap.
-- At 15:15, use **Stop & close** for Live; Paper Stop requests closure. Check
-  remaining orders/positions and actual fills until flat. Pausing alone does not
-  close positions. Handle rejected or unresolved exits immediately.
+- At the square-off cutoff, check working orders and closing fills until flat.
+  **Stop & close** is available when you need to intervene in Live. Handle
+  rejected or unresolved exits promptly.
 - Review trades, charges, missed signals, latency and unexpected re-entry in the
   Journal. Do not modify a running strategy to repair a losing trade.
 
@@ -275,7 +274,7 @@ denominator as ATR changes. Actual position average determines the later R value
 Stop loss group: RR <= -1
 Target group:    RR >= 2
 Other Exit:     none
-Time closure:   operator Stop & close at 15:15
+Daily square-off: 15:15 IST
 ```
 
 This is an **ATR-distance stop**, not a stop guaranteed to lie below the captured
@@ -456,7 +455,7 @@ Initial risk distance: 1.20 × T.ATR(14, 5m)
 Stop loss:            RR <= -1
 Target:               RR >= 2
 Other Exit:           none
-Time closure:         operator Stop & close at 15:15
+Daily square-off:      15:15 IST
 ```
 
 Do not calculate VWAP or a volume filter on a cash index: it is not a traded
@@ -570,7 +569,7 @@ Both setup expiries: 1 new 5m bar
 Both Stop loss:      RR <= -1
 Both Target:         RR >= 2
 Other Exit:          none
-Time closure:        operator Stop & close at 15:15
+Daily square-off:     15:15 IST
 ```
 
 This produces a proposed initial risk distance between 10% and 20% of the
@@ -751,13 +750,9 @@ contract history and an eligible arming/confirmation sequence at the time.
 3. Use earlier history to warm features; do not allow indicators or contract
    selection to borrow future prices. Review expired-contract catalog and
    current-lot-size fallback assumptions in derivative backtests.
-4. **Important time-close mismatch:** current replay can carry a position past
-   the daily entry end. A multi-day backtest with these rules is not automatically
-   a daily-flat intraday backtest. Use separate one-session runs to inspect daily
-   behavior and verify that any replay-end liquidation uses an acceptable last
-   observation, or implement/test a real daily time-exit before evaluating the
-   intended 15:15 daily-flat strategy over multiple days. Neither method should
-   be falsely presented as having reproduced the 15:15 operator action.
+4. Set Daily square-off to 15:15 IST before backtesting these rules over
+   multiple days. Check the exit reason and time in the trade ledger. Review any
+   coverage warnings for positions carried beyond the cutoff.
 5. Test higher friction: for example 0.05%, 0.10% and 0.20% per-fill modeled
    slippage, then compare with actual observed spreads/fills. These are stress
    scenarios, not forecasts and not a replacement for bid/ask modeling.
@@ -797,8 +792,8 @@ Only progress when the research evidence and operational checks support it:
    unavailable. Follow the account's established broker-side emergency procedure
    and reconcile before resuming; an external manual exit does not automatically
    rewrite QuantNest's session ownership.
-5. Perform the daily manual loss/trade-count gates and 15:15 Stop & close routine.
-   Confirm flatness at the broker, not only a changed session status.
+5. Perform the manual loss/trade-count gates and verify the scheduled 15:15
+   closes in the broker's order and position records.
 6. Compare Live gross results with actual broker charges. Current Live reporting
    excludes actual broker fee accounting; Paper/backtest estimated net is not
    directly comparable to a Live before-fees figure.
@@ -848,8 +843,8 @@ empirical win-rate claim was produced for these recipes.**
    costs. Add real exposure only if one lot meets the budget.
 4. Test **O-CALL** and **O-PUT** on their actual historical premiums, expiries and
    selected strikes. Do not transfer the futures win rate to options.
-5. Before unattended real deployment, close the documented time-exit/protection
-   gaps. Better signal rules do not compensate for an unsafe daily lifecycle.
+5. Verify scheduled exits and broker-side emergency procedures before relying on
+   the live strategy.
 
 The useful outcome is a small, explainable and validated trading process—not the
 largest indicator list or a claimed high win rate without evidence.

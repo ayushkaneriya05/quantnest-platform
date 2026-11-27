@@ -35,6 +35,8 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             queryset = queryset.only('id', 'name', 'strategy', 'strategy__name', 'strategy_version',
                 'start_date', 'end_date', 'initial_capital', 'status', 'progress_pct', 'progress_message', 'created_at')
+        elif self.action == 'retrieve':
+            queryset = queryset.select_related('strategy_version')
         if self.action in {'list', 'summary'} and self.request.query_params.get('search'):
             query = self.request.query_params['search'][:100]
             queryset = queryset.filter(Q(name__icontains=query) | Q(strategy__name__icontains=query))

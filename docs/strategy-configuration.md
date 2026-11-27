@@ -934,10 +934,11 @@ the correct exchange calendar and enough confirmed history.
 
 | Control | Meaning |
 | --- | --- |
-| Schedule timezone | Interprets weekday names and entered entry/window times |
+| Schedule timezone | Interprets weekdays, entry times, excluded windows and daily square-off |
 | All exchange trading days | No extra weekday filter; an empty saved weekday list represents this |
 | Selected weekdays | A non-empty subset; it cannot open an exchange holiday/weekend session by itself |
 | Entry start / Entry end | Additional entry-time bounds; either can be unset |
+| Daily square-off time | Optional cutoff for new entries, working entry orders and open positions |
 | Excluded entry windows | Times during which new entries must not occur |
 
 Start/end and exclusions retain seconds precision and cannot wrap midnight.
@@ -956,19 +957,27 @@ entry when matching and cancels a simulated fill outside the allowed window;
 this is not an immediate timer-based cancellation of every accepted order.
 An order already accepted at a Live broker still needs broker confirmation.
 Stop/Target/Exit rules continue to govern exposure. Intraday classification
-does not change that meaning. Studio
-currently has no general Time-of-day operand for expressing a custom timed exit;
-use the session's explicit position-management controls when needed.
+does not change that meaning.
+
+Set **Daily square-off** to close the full positions owned by the strategy
+session, cancel working entry orders and block new entries from that instant.
+Leave it blank to disable it. The effective cutoff is the earlier of the chosen
+time and one minute before the final trading period closes, or the start of that
+period if shorter. Regular and shortened sessions use the traded contract's
+exchange calendar. A cutoff in a trading break blocks entries immediately;
+the close can be executed when trading resumes. In Live, allow time before your
+broker's cutoff and verify the fill. Backtest and Paper use the first eligible
+observed price at or after the cutoff. If exposure survives the session, it is
+due again when the next session opens.
 
 The stored Market session vocabulary does not bypass the actual exchange
 calendar. The current Studio schedule UI focuses on explicit weekdays/hours and
 windows. See [Paper trading](paper-trading.md) or [Live trading](live-trading.md)
 for session stopping and broker behavior outside an open segment.
 
-Example: enter on exchange trading weekdays between 09:20:00 and 15:10:00, except
-12:00:00–12:15:00. At exactly 12:15:00 the exclusion still applies; the next eligible
-advancing observation can enter. An existing position at 15:10:01 does not close
-solely because Entry end has passed.
+Example: enter between 09:20 and 15:10 IST, exclude 12:00–12:15, and square off at
+15:15. The exclusion includes 12:15 exactly. Positions still open at 15:10 remain
+managed by their exit rules until the 15:15 cutoff.
 
 ## 12. Validate and review
 
@@ -1351,7 +1360,7 @@ for configuration/operation; [Infrastructure](../infra/README.md) owns commands.
 | Capital sizing returns no quantity | Available budget may not cover one lot under the configured collateral policy |
 | Target immediately closes below entry | Review inequality, long/short sign and units; `LTP > Entry - distance` is normally already true for a long, not a profit target |
 | A stop was crossed but no fill at its threshold | Rule match and fill are separate; check consumed ticks, admitted order state, Paper eligibility or broker reports and gaps |
-| Entry end passed but position remains | Expected; schedule does not create a square-off action |
+| Entry end passed but position remains | Check whether Daily square-off is configured in the deployed version |
 | Save does not update a running session | Expected; explicitly select/deploy the new immutable version |
 | Version change rejected with exposure | Settle working orders; preserve owned bindings; captured setups require flat positions before changing version |
 | Save returns a concurrent-edit conflict | Preserve needed draft text, reload current saved revision and reapply; another tab saved first |
@@ -1449,6 +1458,7 @@ below are real current schema, not pseudocode.
     "market_session": "MARKET_OPEN",
     "start_time": "09:15:00",
     "end_time": "15:30:00",
+    "square_off_time": null,
     "no_trade_windows": []
   },
   "entry_order_config": {
@@ -1735,8 +1745,8 @@ of practical unlimited history/CPU.
 3. Verify completed/shifted/rolling timeframes and required data on both roles.
 4. Decide whether Entry is a level, a comparison cross or a captured occurrence.
 5. Check full exit precedence, stop/target signs for the chosen direction and 1R.
-6. Confirm schedule timezone, weekdays, inclusive exclusions and the absence of
-   implicit end-time square-off.
+6. Confirm schedule timezone, weekdays, inclusive exclusions and the optional
+   Daily square-off time.
 7. Validate and save; inspect the immutable version you actually select to run.
 8. Review historical data/terms assumptions and synthetic replay before trusting
    a backtest comparison with live behavior.

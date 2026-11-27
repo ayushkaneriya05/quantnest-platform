@@ -252,12 +252,16 @@ LTP and position state do not become candle inputs by choosing a timeframe.
   entered clock text; it does not convert it to the same instant automatically.
 - Entry bounds and exclusion boundaries include their exact times. Windows
   cannot wrap midnight, and the exchange/segment calendar must also be open.
-- **Entry end stops new entries. It does not square off a position.** Stop loss,
-  Target and Exit remain responsible for it. Intraday classification does not
-  change this rule, and there is no general timed-exit operand in current Studio.
+- **Entry end** ends the entry window. Open positions continue to follow Stop
+  loss, Target and Exit rules.
+- **Daily square-off** is optional. It stops new entries, cancels working entries
+  and closes the full position owned by each route. The traded instrument's
+  exchange session can move the cutoff earlier. Set it before your broker's
+  cutoff when using Live.
 
-For example, an entry window ending at 15:10:00 does not close an existing position
-at 15:10:01. Use the deployment's explicit stop/close controls when needed.
+For example, set Entry end to 14:00 and Daily square-off to 15:15 in
+Asia/Kolkata. A position still open at 14:00 follows its exit rules until the
+15:15 cutoff. Save a version and select it for your backtest or deployment.
 
 ## Validate, save and review versions
 

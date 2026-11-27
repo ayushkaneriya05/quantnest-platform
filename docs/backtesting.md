@@ -323,7 +323,16 @@ values and position-dependent state for one `(mode, session_id, route_id, leg_id
 | Fixed lots | Number of lots × selected contract lot size |
 | Capital based | Percentage of available budget, rounded down to whole tradable lots |
 | Entry schedule | Exchange/segment session, configured timezone, weekdays, windows and entry count constraints |
-| Entry end | Stops new entries; does not mean automatic intraday square-off |
+| Entry end | Stops new entries when the entry window ends |
+| Daily square-off | Blocks new entries and closes the full position at the first eligible replay observation at or after the effective cutoff |
+
+Daily square-off uses the saved strategy timezone and the traded contract's
+exchange calendar. It can move earlier on shortened sessions. It uses the
+contract's observed replay price, including the run's slippage and charges.
+These runs require one-minute price history even when the strategy evaluates
+rules on longer candles. The workload preview includes these extra observations.
+The results report positions that carry into a later exchange session or lack
+an eligible square-off observation by the end of the run.
 
 Long options use premium as the capital basis. Futures and option writing use the
 configured simulation collateral model, not a broker SPAN/portfolio margin quote.
@@ -568,6 +577,7 @@ have that capture rule. This is shared with Paper/Live, not a backtest-only dela
 | --- | --- |
 | Queued indefinitely | Compute worker queue subscription, Redis broker and preceding tasks; research shares this queue |
 | 1% while preparing history | Named symbol, provider transport/auth outcome, requested source window and coverage; the execution daemon is irrelevant |
+| Worker time limit exceeded | Check the replay stage and reviewed source-candle count. Reduce the date range or number of instruments if the run exceeds server capacity. |
 | No qualified contracts | Underlying linkage, expiry discovery, option right/strike grid, dated/template economics; sync current master does not itself supply years of expired prices |
 | No trades | Data completeness/warmup, saved snapshot, schedule, source assignment, setup arm/expiry, quantity/funds, diagnostic rejection counts |
 | Seconds in trade times | OHLC replay interior timestamps; inspect the declared replay model |

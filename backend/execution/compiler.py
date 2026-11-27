@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from functools import partial
 from math import ceil, isfinite
 from typing import TYPE_CHECKING
@@ -211,6 +211,7 @@ class Program:
     end: time | None
     no_trade_windows: tuple[tuple[time, time], ...]
     market_inputs: dict = field(default_factory=dict)
+    square_off_time: time | None = None
     binding: tuple[int, int] | None = None
     market_calendars: dict = field(default_factory=dict)
     initial_risk: Operand | None = None
@@ -293,7 +294,39 @@ class Program:
         return (self.calendar.is_open(at) and
             (not self.trading_days or local.strftime('%A') in self.trading_days) and
             (self.start is None or clock >= self.start) and (self.end is None or clock <= self.end) and
+            not self.square_off_due(at) and
             not any(left <= clock <= right for left, right in self.no_trade_windows))
+
+    def square_off_deadline(self, session_at: datetime, *, calendar=None) -> datetime | None:
+        """Resolve the configured clock against the traded instrument's session."""
+        if self.square_off_time is None:
+            return None
+        calendar = calendar or self.calendar
+        day = calendar.session_bounds(session_at)[0].date()
+        periods = calendar.trading_periods(day)
+        if not periods:
+            return None
+        # Anchor the wall time to the regular opening date even on special days.
+        opening = datetime.combine(day, calendar.market_open, calendar.zone)
+        closing = datetime.combine(day, calendar.market_close, calendar.zone)
+        if closing <= opening:
+            closing += timedelta(days=1)
+        local_open, local_close = opening.astimezone(self.zone), closing.astimezone(self.zone)
+        deadline = datetime.combine(local_open.date(), self.square_off_time, self.zone)
+        if deadline < local_open and local_close.date() > local_open.date():
+            deadline += timedelta(days=1)
+        last_open, last_close = periods[-1]
+        # Leave time to admit an exit before the actual exchange close.
+        return min(deadline, max(last_open, last_close - timedelta(minutes=1)))
+
+    def square_off_due(self, at: datetime, *, since=None, calendar=None) -> bool:
+        if self.square_off_time is None:
+            return False
+        calendar = calendar or self.calendar
+        if since is not None and calendar.session_bounds(since)[0] < calendar.session_bounds(at)[0]:
+            return True  # A missed close stays due when the market next opens.
+        deadline = self.square_off_deadline(since if since is not None else at, calendar=calendar)
+        return deadline is not None and at >= deadline
 
 
 def compile_strategy(config: dict, version: int, *, calendar, signal_calendar=None, numeric_outputs=None) -> Program:
@@ -445,6 +478,7 @@ def compile_strategy(config: dict, version: int, *, calendar, signal_calendar=No
         {role: (*strategy_requirements(config, signal_calendar or calendar if role == 'signal' else calendar,
                                       role=role, numeric_outputs=numeric_outputs.values())[1:],
                 market_features[role]) for role in market_features},
+        square_off_time=time.fromisoformat(timing['square_off_time']) if timing.get('square_off_time') else None,
         market_calendars={'signal': signal_calendar or calendar, 'trade': calendar}, initial_risk=initial_risk,
         rebind_rules=frozenset(rebind_rules), rebind_setups=frozenset(rebind_setups), outputs=outputs)
 
@@ -521,7 +555,12 @@ class FeatureGraph:
             (candle.closed_at, self.counts[timeframe]))
 
     def completed_at(self, timeframe: str, at: datetime) -> tuple[datetime | None, int]:
-        for completed, count in reversed(self.completions.get(timeframe, deque())):
+        latest = self.completed.get(timeframe)
+        if latest is None:
+            return None, 0
+        if latest <= at:
+            return latest, self.counts[timeframe]
+        for completed, count in reversed(self.completions[timeframe]):
             if completed <= at:
                 return completed, count
         return None, 0

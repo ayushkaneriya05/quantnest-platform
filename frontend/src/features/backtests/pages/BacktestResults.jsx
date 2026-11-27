@@ -560,6 +560,14 @@ export default function BacktestResults() {
                     <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Slippage</span>
                     <span className="font-bold text-foreground">{formatPercent(run?.slippage_pct)}</span>
                   </div>
+                  <div className="flex justify-between items-center gap-3 p-3">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Daily square-off</span>
+                    <span className="text-right font-bold text-foreground">
+                      {run?.daily_square_off
+                        ? `${run.daily_square_off.time} · ${run.daily_square_off.timezone}`
+                        : "Disabled"}
+                    </span>
+                  </div>
                   <div className="flex justify-between items-center p-3">
                     <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Charge Profile</span>
                     <span className="font-bold text-foreground">{run?.charge_profile_detail?.name || "No Charges"}</span>

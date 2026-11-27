@@ -15,7 +15,7 @@ from itertools import groupby
 from uuid import NAMESPACE_URL, uuid5
 from typing import cast
 
-from common.enums import ExecutionMode, ExecutionSessionStatus, OrderIntent, OrderType, Side
+from common.enums import CandleTimeframe, ExecutionMode, ExecutionSessionStatus, OrderIntent, OrderType, RuleType, Side
 from instruments.services import InstrumentResolver
 
 from .compiler import FeatureGraph, compile_strategy
@@ -24,7 +24,13 @@ from .ledger import accept_intent, acknowledge, apply_fill, position_view, rejec
 from .matching import match_order
 from .preparation import PreparedMarket
 from .settlements import SettlementPrice
-from .types import Account, ClosedTrade, Contract, Intent, Tick, ZERO, route_key
+from .types import Account, ClosedTrade, Contract, DAILY_SQUARE_OFF, Intent, Tick, UnitKey, ZERO, route_key
+
+
+def observation_timeframe(schedule: dict) -> str:
+    """A clock exit needs intraday observations even with daily rule candles."""
+    return CandleTimeframe.M1 if schedule.get('square_off_time') else schedule['candle_timeframe']
+
 
 class Replay:
     def __init__(self, *, identity: int, version: int, config: dict, markets: list[PreparedMarket],
@@ -36,9 +42,13 @@ class Replay:
             profiles={identity: profile}, slippage={identity: slippage})
         self.units, self.graphs = {}, {}
         self.markets = {market.instrument_id: market for market in markets}
-        self.bindings, self.listeners = {}, {}
+        self.bindings = {}
+        listeners: dict[int, set[UnitKey]] = {}
+        self.candle_entries: dict[UnitKey, tuple[tuple[tuple[FeatureGraph, str], ...],
+                                                tuple[tuple[FeatureGraph, str, int], ...]]] = {}
+        self.entry_samples: dict[UnitKey, tuple] = {}
         self.selection_days = {}
-        self.base_timeframe = config['time_rule']['candle_timeframe']
+        self.base_timeframe = observation_timeframe(config['time_rule'])
         self.entry_side = config['entry_order_config']['entry_side']
         for watch in config['watchlist_instruments']:
             instrument = watch['instrument_id']
@@ -65,13 +75,25 @@ class Replay:
             for role, source in sources.items():
                 if source not in self.markets or selection is not None and role != 'signal' and self.markets[source].contract is None:
                     raise ValueError('Every automatic candidate needs prepared history and contract terms.')
-                self.listeners.setdefault(source, set()).add(key)
+                listeners.setdefault(source, set()).add(key)
                 projection = program if binding['signal'] == instrument else program.for_source('signal' if role == 'signal' else 'trade')
                 capacity = max(projection.counts.values()) + 8
                 graph = self.graphs.setdefault(source, FeatureGraph(self.markets[source].calendar, capacity=capacity))
                 graph.capacity = max(graph.capacity, capacity)
                 graph.register(projection)
+            if selection is None:
+                entry_groups = [group for group in program.groups if group.kind == RuleType.ENTRY]
+                if not any(group.tick_sensitive or group.setup is not None for group in entry_groups):
+                    clocks = {(binding[role], feature[1]) for role, (_, _, features) in program.market_inputs.items()
+                              for feature in features}
+                    history = ({instrument: program.counts} if binding['signal'] == instrument else
+                               {binding[role]: counts for role, (counts, _, _) in program.market_inputs.items()})
+                    readiness = tuple((self.graphs[source], tf, count) for source, counts in history.items()
+                                      for tf, count in counts.items())
+                    self.candle_entries[key] = (tuple((self.graphs[source], tf) for source, tf in sorted(clocks)),
+                                                readiness)
             self.account.sizing[key] = sizing
+        self.listeners = {instrument: tuple(sorted(keys)) for instrument, keys in listeners.items()}
         self.symbol_graphs = {self.markets[key].symbol: graph for key, graph in self.graphs.items()}
         self.trades: list[ClosedTrade] = []
         self.settlements = []
@@ -158,8 +180,28 @@ class Replay:
         for position in self.account.positions.values():
             if position.contract.instrument_id == instrument:
                 position.mark_excursion(observed_price)
-        for target in sorted(self.listeners.get(instrument, ())):
+        for target in self.listeners.get(instrument, ()):
             unit, binding = self.units[target], self.bindings[target]
+            position = self.account.positions.get(target)
+            if (position is not None and position.contract.instrument_id == instrument and
+                    unit.program.square_off_due(at, since=position.opened_at, calendar=market.calendar)
+                    and market.calendar.is_open(at)):
+                if market.calendar.session_bounds(position.opened_at)[0] < market.calendar.session_bounds(at)[0]:
+                    self.diagnostics['daily_square_off_carried'] += 1
+                self._close_position(target, DAILY_SQUARE_OFF)
+                continue
+            stamp = None
+            if position is None and target in self.candle_entries:
+                clocks, requirements = self.candle_entries[target]
+                if any(graph.counts.get(tf, 0) < count for graph, tf, count in requirements):
+                    continue
+                # A flat candle-only entry needs an advancing input to signal.
+                # Keep staging every quote for fills and evaluate again after a
+                # position closes, when the evaluator resets its comparisons.
+                stamp = (unit.position.revision, tuple(graph.completed.get(tf) for graph, tf in clocks))
+                if self.entry_samples.get(target) == stamp:
+                    continue
+            sequence = unit.sequence
             if unit.program.selection is not None:
                 day = at.astimezone(unit.program.calendar.zone).date()
                 if (instrument not in binding.values() and self.selection_days.get(target) == day):
@@ -176,6 +218,8 @@ class Replay:
             else:
                 role = next(role for role, source in binding.items() if source == instrument)
                 intent = unit.evaluate_sources({role: self.graphs[source] for role, source in binding.items()}, tick, role)
+            if stamp is not None and unit.sequence != sequence:
+                self.entry_samples[target] = stamp
             if intent is not None:
                 contract = self.markets[binding['trade']].contract
                 assert contract is not None, 'A traded market requires its contract specification.'
@@ -283,6 +327,11 @@ class Replay:
     def finish(self) -> None:
         """Explicitly close residual positions at the last observed contract quote."""
         for key in tuple(self.account.positions):
+            position = self.account.positions[key]
+            program = self.units[key].program
+            calendar = self.markets[position.contract.instrument_id].calendar
+            if program.square_off_due(self.end, since=position.opened_at, calendar=calendar):
+                self.diagnostics['daily_square_off_no_quote'] += 1
             self._close_position(key, 'END_OF_BACKTEST')
         if self.equity:
             self.equity[-1] = self.equity[-1][0], self.account.balance

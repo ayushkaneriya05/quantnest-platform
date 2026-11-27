@@ -1,5 +1,6 @@
 """Single writer of one account's financial state, independent of rule workers."""
 from dataclasses import replace
+from datetime import datetime
 from decimal import Decimal
 from uuid import NAMESPACE_URL, uuid5
 
@@ -9,7 +10,7 @@ from execution.order_reports import OrderState, observe_order
 from .ledger import (ACTIVE_STATUSES, accept_intent, apply_fill, cancel_order, hold_until_commit,
     order_transition, position_view, reject_order)
 from .matching import OrderBook
-from .types import Account, Contract, Fill, Intent, Order, Tick, Transition, ZERO
+from .types import Account, Contract, DAILY_SQUARE_OFF, Fill, Intent, Order, Position, Tick, Transition, ZERO
 
 
 class AccountOwner:
@@ -73,6 +74,68 @@ class AccountOwner:
             self.account.orders[order.identity] = order
             return order_transition(self.account, order)
 
+    def _square_off_position(self, position: Position, at: datetime, results: list[Transition],
+                             *, price: Decimal, sequence: int = 0, generation: int = 0) -> None:
+        key = position.unit
+        program = self.programs.get(key)
+        if program is None or program.square_off_time is None:
+            return
+        calendar = self.calendars[position.contract.symbol]
+        # A broker may finish yesterday's entry after cancellation was requested.
+        entry_order = self.account.orders.get(position.lots[0].order_id) if position.lots else None
+        since = min(position.opened_at, entry_order.eligible_at) if entry_order else position.opened_at
+        if not program.square_off_due(at, since=since, calendar=calendar):
+            return
+        working = [order for order in self.account.working.values() if order.unit == key]
+        if not self.account.live:
+            # A partially filled simulated entry can be cancelled and closed on the same tick.
+            for order in working:
+                if order.intent == OrderIntent.ENTRY:
+                    result = self.cancel(order.identity, reason=DAILY_SQUARE_OFF)
+                    if result is not None:
+                        results.append(result)
+        if any(order.status in ACTIVE_STATUSES for order in working):
+            return
+        day = calendar.session_bounds(at)[0].date()
+        version = self.account.versions[key[1]]
+        # Completed orders are also recovered. Avoid reissuing a rejected close
+        # every tick or immediately after a process restart.
+        identity = str(uuid5(NAMESPACE_URL, f'quantnest:daily-close:{key}:{version}:{position.revision}:{day}'))
+        if identity in self.account.orders:
+            return
+        intent = Intent(identity, self.account.key, key, version, position.revision,
+            sequence, at, Side.SELL if position.quantity > 0 else Side.BUY,
+            DAILY_SQUARE_OFF, price, intent=OrderIntent.EXIT, generation=generation,
+            binding=position.binding)
+        result = self.protective_exit(intent, position.contract)
+        if result is not None:
+            results.append(result)
+
+    def square_off(self, at: datetime, quotes: dict[str, Tick]) -> list[Transition]:
+        """Cancel due entries on the clock. Live exits need no tick to reach the broker."""
+        results = []
+        for order in tuple(self.account.working.values()):
+            program = self.programs.get(order.unit)
+            if (order.intent == OrderIntent.ENTRY and not order.cancel_requested and program is not None
+                    and program.square_off_due(at, since=order.eligible_at,
+                                               calendar=self.calendars[order.contract.symbol])):
+                result = self.cancel(order.identity, reason=DAILY_SQUARE_OFF)
+                if result is not None:
+                    results.append(result)
+        if self.account.live:
+            for position in self.account.positions.values():
+                program = self.programs.get(position.unit)
+                if program is None or program.square_off_time is None:
+                    continue
+                symbol = position.contract.symbol
+                calendar, quote = self.calendars[symbol], quotes.get(symbol)
+                if not calendar.is_open(at):
+                    continue
+                price = (Decimal(str(quote.price)) if quote is not None
+                         and calendar.session_bounds(at)[0] <= quote.event_time <= at else ZERO)
+                self._square_off_position(position, at, results, price=price)
+        return results
+
     def observe(self, tick: Tick) -> tuple[list[Transition], bool]:
         """Matching consumes observed ticks; broker accounts consume reports instead."""
         results = []
@@ -86,8 +149,15 @@ class AccountOwner:
         if not self.calendars[tick.symbol].is_open(tick.event_time):
             return results, False
         for key, position in tuple(self.account.positions.items()):
-            if (position.contract.symbol != tick.symbol or not self.account.close_on_stop.get(key[1])
-                    or position_view(self.account, key).pending):
+            if position.contract.symbol != tick.symbol:
+                continue
+            if not self.account.live and not self.account.close_on_stop.get(key[1]):
+                # The clock already authorized this exit. Match the first
+                # eligible quote rather than waiting for an additional tick.
+                self._square_off_position(position, tick.event_time, results, price=price,
+                    sequence=tick.sequence - 1, generation=tick.generation)
+                continue
+            if not self.account.close_on_stop.get(key[1]) or position_view(self.account, key).pending:
                 continue
             identity = str(uuid5(NAMESPACE_URL, f'quantnest:stop:{key}:{position.revision}:{tick.generation}:{tick.sequence}'))
             intent = Intent(identity, self.account.key, key, self.account.versions[key[1]], position.revision,
@@ -134,9 +204,14 @@ class AccountOwner:
         for fill in fills:
             order = self.account.orders[fill.order_id]
             program = self.programs.get(order.unit)
-            if order.intent == OrderIntent.ENTRY and program is not None and not program.allows_entry(tick.event_time):
-                results.append(self.cancel(order.identity, reason='Entry window closed.'))
-                continue
+            if order.intent == OrderIntent.ENTRY and program is not None:
+                if program.square_off_due(tick.event_time, since=order.eligible_at,
+                                          calendar=self.calendars[tick.symbol]):
+                    results.append(self.cancel(order.identity, reason=DAILY_SQUARE_OFF))
+                    continue
+                if not program.allows_entry(tick.event_time):
+                    results.append(self.cancel(order.identity, reason='Entry window closed.'))
+                    continue
             try:
                 order.contract.validate(fill.quantity, (), tick.event_time.astimezone(self.calendars[tick.symbol].zone))
                 results.append(apply_fill(self.account, fill))

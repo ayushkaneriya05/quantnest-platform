@@ -28,6 +28,12 @@ import StudioConditions from "../components/StudioConditions";
 import StudioSchedule from "../components/StudioSchedule";
 import { scheduleIssues } from "../studioPresentation";
 
+const scheduleFieldSelectors = {
+  start_time: "#studio-entry-start",
+  end_time: "#studio-entry-end",
+  square_off_time: "#studio-square-off-time",
+  trading_days: "[data-schedule-days]",
+};
 
 export default function StrategyStudio() {
   const { id } = useParams();
@@ -182,15 +188,10 @@ export default function StrategyStudio() {
         if (timing && typeof timing === "object")
           setIssues(
             Object.entries(timing)
-              .filter(([key]) =>
-                ["end_time", "start_time", "trading_days"].includes(key),
-              )
+              .filter(([key]) => Object.hasOwn(scheduleFieldSelectors, key))
               .map(([key, message]) => ({
                 step: 2,
-                selector:
-                  key === "trading_days"
-                    ? "[data-schedule-days]"
-                    : `#studio-entry-${key === "start_time" ? "start" : "end"}`,
+                selector: scheduleFieldSelectors[key],
                 message: Array.isArray(message)
                   ? message.join(" ")
                   : String(message),

@@ -57,6 +57,11 @@ become available only when their bars complete. Missing data is not filled with
 invented trades, and a quiet instrument need not have a trade every minute.
 Read coverage warnings before interpreting a result as evidence about your rules.
 
+If the saved strategy sets **Daily square-off**, the replay closes open
+positions at the first eligible contract price at or after the cutoff. Check
+Run Configuration for the time used and coverage warnings for any carry or
+missing price. An older run keeps the schedule it used originally.
+
 ## Credits and cancellation
 
 The preview uses the current plan's credit conversion and includes source history

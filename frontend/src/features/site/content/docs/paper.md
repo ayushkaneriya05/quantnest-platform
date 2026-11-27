@@ -78,9 +78,10 @@ engine conditions; they depend on running execution and observations.
 - A captured setup requires a new Arm occurrence and later confirmation; an Arm
   that stayed true throughout the trade does not automatically re-arm.
 
-**Entry end is a cutoff for new entries, not a square-off time.** Paper also
-checks a pending strategy entry when matching outside the allowed window; it is
-not a general instant cancellation timer. Existing exposure follows exit rules.
+**Daily square-off** cancels working entries and closes owned positions on the
+first eligible tick at or after the configured time. If there is no eligible
+tick before the segment closes, the exit stays due into the next open session.
+Setting only **Entry end** leaves open positions under their normal exit rules.
 See the examples in [Strategy Studio](/docs/builder/).
 
 ## Change capital while running

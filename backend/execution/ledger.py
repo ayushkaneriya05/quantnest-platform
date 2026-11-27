@@ -13,7 +13,7 @@ from common.costs import TradingCostCalculator
 from brokers.charge_rates import resolve_charge_rates
 from common.enums import ExecutionSessionStatus, InstrumentType, OrderIntent, OrderStatus, OrderType, QuantityType, QuantityUnit, Side
 
-from .types import ACTIVE_STATUSES, Account, ClosedTrade, Contract, EntryLot, Fill, Intent, MONEY, Order, Position, PositionView, Transition, UnitKey, ZERO
+from .types import ACTIVE_STATUSES, Account, ClosedTrade, Contract, DAILY_SQUARE_OFF, EntryLot, Fill, Intent, MONEY, Order, Position, PositionView, Transition, UnitKey, ZERO
 
 
 def collateral_per_unit(account: Account, contract: Contract, side: str, price: Decimal) -> Decimal:
@@ -107,7 +107,11 @@ def accept_intent(account: Account, intent: Intent, contract: Contract) -> Trans
         raise ValueError('This order intent has already been accepted.')
     if intent.side not in Side.values or intent.order_type not in OrderType.values:
         raise ValueError('Unsupported order side or type.')
-    if not intent.reference_price.is_finite() or intent.reference_price <= ZERO:
+    # A timed broker market exit can reduce owned units without a local quote.
+    unpriced_close = (account.live and intent.reason == DAILY_SQUARE_OFF
+        and intent.intent == OrderIntent.EXIT and intent.order_type == OrderType.MARKET)
+    if not intent.reference_price.is_finite() or not (intent.reference_price > ZERO
+            or unpriced_close and intent.reference_price == ZERO):
         raise ValueError('An order requires a positive, finite market price.')
     if not isfinite(intent.initial_risk_distance) or intent.initial_risk_distance < 0:
         raise ValueError('Initial risk distance must be finite and non-negative.')

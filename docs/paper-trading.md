@@ -201,6 +201,13 @@ that would fill outside its allowed window is cancelled. This is not an
 instant timer that cancels every order at the entry-end clock boundary. Live
 orders already accepted by the broker follow broker confirmation instead.
 
+When **Daily square-off** is set in the deployed strategy version, the Paper
+owner cancels working entry orders on the cutoff clock, rejects new entries and
+closes the full owned position on its first eligible market tick. If the
+contract has no eligible quote before the segment closes, it can carry to the
+next open session. The deployment remains available for new entries in its next
+configured entry window.
+
 For the complete state machine and boundary rules, see
 [capture and confirmation](strategy-configuration.md#10-capture-and-confirmation).
 

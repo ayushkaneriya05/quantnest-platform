@@ -14,6 +14,7 @@ from execution.order_reports import ACTIVE as ACTIVE_STATUSES
 
 ZERO = Decimal('0')
 MONEY = Decimal('0.01')
+DAILY_SQUARE_OFF = 'Daily square-off'
 UnitKey = tuple[str, int, str, str]  # mode, session, stable route, stable leg
 AccountKey = tuple[str, int]  # mode, paper/terminal account or broker credential
 
